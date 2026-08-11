@@ -156,7 +156,8 @@
   @media (prefers-reduced-motion: reduce){.seal{animation:none;}}
   .seal::before{content:""; position:absolute; inset:6px; border-radius:50%; border:1px dashed rgba(227,203,143,.45);}
   .seal .seal-label{font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--gold-light); position:relative;}
-  .seal .seal-value{font-family:var(--font-num); font-weight:600; font-size:19px; margin-top:3px; position:relative; line-height:1.15; color:#fff;}
+  .seal .seal-value{font-family:var(--font-num); font-weight:600; font-size:19px; margin-top:3px; position:relative; line-height:1.15; color:#fff; padding:0 8px;}
+  .seal .seal-value.long{font-size:12px; letter-spacing:.01em;}
   .seal.status-over{box-shadow:inset 0 0 0 1px rgba(143,199,166,.55), var(--shadow-md);}
   .seal.status-over::before{border-color:rgba(143,199,166,.6);}
   .seal.status-under{box-shadow:inset 0 0 0 1px rgba(217,154,154,.55), var(--shadow-md);}
@@ -329,22 +330,27 @@
   .periods-section{margin-top:22px; padding-top:18px; border-top:1px solid var(--line-soft);}
   .periods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:2px;}
   .period-row{
-    display:grid; grid-template-columns:1.4fr 1fr 1fr .8fr .8fr .9fr auto;
+    display:grid; grid-template-columns:1.4fr 1fr 1fr .8fr .8fr 1.1fr auto;
     gap:10px; align-items:end;
     padding:12px; margin-bottom:10px;
     border:1px solid var(--line-soft); border-radius:9px; background:var(--teal-50);
   }
+  .period-row > div{min-width:0;}
   .period-row label{font-size:9px; margin-bottom:4px;}
-  .period-row input{padding:7px 8px; font-size:12.5px;}
+  .period-row input{padding:7px 8px; font-size:12.5px; min-width:0;}
+  .period-time-row{display:flex; gap:6px; flex-wrap:wrap;}
+  .period-time-row input{flex:1 1 90px; min-width:90px;}
   .period-del{
     background:none; border:1px solid var(--line); color:var(--negative);
-    border-radius:6px; cursor:pointer; padding:7px 10px; font-size:12px; height:34px;
+    border-radius:6px; cursor:pointer; padding:7px 10px; font-size:12px; height:34px; white-space:nowrap;
   }
   .period-del:hover{background:var(--negative-bg); border-color:var(--negative);}
   .periods-empty{font-size:12px; color:var(--muted-2); padding:10px 2px;}
   @media (max-width:760px){
-    .period-row{grid-template-columns:1fr 1fr; }
-    .period-row .period-del{grid-column:1 / -1;}
+    /* Single column: every seasonal-hours field gets its own full-width row,
+       so nothing is ever squeezed into a space it can't fit. */
+    .period-row{grid-template-columns:1fr;}
+    .period-row .period-del{grid-column:auto; width:100%;}
   }
 
   /* ---------- Log search bar ---------- */
@@ -425,10 +431,7 @@
   @media (max-width:700px){
     .table-wrap.responsive-cards{border:none; overflow:visible;}
     .table-wrap.responsive-cards table{border-collapse:separate; border-spacing:0 10px; margin-top:-10px;}
-    .table-wrap.responsive-cards thead{
-      position:absolute; width:1px; height:1px; overflow:hidden;
-      clip:rect(0 0 0 0); white-space:nowrap; border:0; padding:0; margin:-1px;
-    }
+    .table-wrap.responsive-cards thead{display:none;}
     .table-wrap.responsive-cards table, .table-wrap.responsive-cards tbody,
     .table-wrap.responsive-cards tr, .table-wrap.responsive-cards td{display:block; width:100%;}
     .table-wrap.responsive-cards tr{
@@ -526,7 +529,7 @@
   @media (max-width:760px){
     .stats-row{grid-template-columns:repeat(2,1fr); gap:10px;}
     .form-grid{grid-template-columns:repeat(2,1fr);}
-    .seal{width:78px; height:78px;}
+    .seal{width:84px; height:84px;}
     .head-title{font-size:25px;}
     header.ledger-head{padding:24px 16px 20px;}
     main{padding:20px 14px 0;}
@@ -623,15 +626,40 @@
     font-family:var(--font-num); font-weight:700; font-size:13px;
     box-shadow:0 2px 6px rgba(10,54,52,.25);
   }
-  .team-info{flex:1; min-width:140px;}
-  .team-name{font-size:13px; font-weight:600; color:var(--ink);}
-  .team-email{font-size:11.5px; color:var(--muted-2);}
+  .team-info{flex:1; min-width:0; overflow-wrap:anywhere;}
+  .team-name{font-size:13px; font-weight:600; color:var(--ink); overflow-wrap:anywhere;}
+  .team-email{font-size:11.5px; color:var(--muted-2); overflow-wrap:anywhere;}
   .team-figures{display:flex; gap:18px; text-align:right; flex-wrap:wrap;}
   .team-figures .label{font-size:9px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted);}
   .team-figures .value{font-family:var(--font-num); font-weight:600; font-size:14px;}
   .admin-badge{
     font-size:9.5px; text-transform:uppercase; letter-spacing:.06em;
     color:var(--gold-deep); background:var(--excused-bg); padding:2px 7px; border-radius:99px;
+  }
+  .you-badge{color:var(--teal-600); background:var(--teal-100);}
+
+  /* ---------- Team & Access: role management ---------- */
+  .user-row{
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    padding:12px 14px; border:1px solid var(--line-soft); border-radius:11px;
+    margin-bottom:9px; background:var(--card); box-shadow:var(--shadow-sm);
+    transition:border-color .18s ease;
+  }
+  .user-row:hover{border-color:var(--teal-600);}
+  .role-toggle{
+    display:inline-flex; border:1px solid var(--line); border-radius:99px;
+    padding:2px; background:var(--teal-50); flex-shrink:0;
+  }
+  .role-btn{
+    border:none; background:none; cursor:pointer; padding:7px 15px; min-height:32px;
+    border-radius:99px; font-size:11.5px; font-weight:600; color:var(--muted);
+    transition:background-color .15s ease, color .15s ease, box-shadow .15s ease;
+  }
+  .role-btn.active{background:var(--gradient-teal); color:#fff; box-shadow:0 1px 5px rgba(10,54,52,.3);}
+  .role-btn:disabled{opacity:.5; cursor:default;}
+  @media (max-width:480px){
+    .role-toggle{width:100%;}
+    .role-btn{flex:1;}
   }
 </style>
 </head>
@@ -841,6 +869,15 @@
       <button type="button" class="btn" id="saveSettingsBtn">Save Settings</button>
       <button type="button" class="btn ghost" id="closeSettingsBtn">Close</button>
     </div>
+  </section>
+
+  <section class="card settings-card" id="accessCard">
+    <h2>Team &amp; Access</h2>
+    <p class="settings-hint" style="margin:-10px 0 16px;">
+      Grant or remove admin rights. Admins can view, edit, and manage everyone's attendance and schedule settings.
+      Changes here apply immediately.
+    </p>
+    <div id="usersList"></div>
   </section>
 
   <section class="card">
@@ -1609,7 +1646,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       '<div><label>Hours</label><input type="number" data-p="th" min="0" max="24" step="1" value="'+Math.floor(p.targetMin/60)+'"></div>' +
       '<div><label>Mins</label><input type="number" data-p="tm" min="0" max="59" step="1" value="'+(p.targetMin%60)+'"></div>' +
       '<div><label>Start / End</label>' +
-        '<div style="display:flex; gap:6px;">' +
+        '<div class="period-time-row">' +
           '<input type="time" data-p="in" value="'+escapeHtml(p.standardIn)+'">' +
           '<input type="time" data-p="out" value="'+escapeHtml(p.standardOut)+'">' +
         '</div>' +
@@ -1717,18 +1754,22 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   });
   document.getElementById("settingsBtn").addEventListener("click", function(){
     var card = document.getElementById("settingsCard");
+    var accessCard = document.getElementById("accessCard");
     var opening = !card.classList.contains("open");
     card.classList.toggle("open", opening);
+    accessCard.classList.toggle("open", opening && isAdmin);
     if(opening){
       document.getElementById("settingsForLabel").textContent = isOwnData
         ? "Editing your own schedule."
         : "Editing the schedule for " + (viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user") + ".";
       fillSettingsForm();
+      if(isAdmin) renderUsersList();
       card.scrollIntoView({behavior:"smooth", block:"nearest"});
     }
   });
   document.getElementById("closeSettingsBtn").addEventListener("click", function(){
     document.getElementById("settingsCard").classList.remove("open");
+    document.getElementById("accessCard").classList.remove("open");
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
     if(!isAdmin){
@@ -2057,18 +2098,23 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var seal = document.getElementById("todaySeal");
     var sealValue = document.getElementById("sealValue");
     seal.className = "seal";
+    var sealText;
     if(todayEntry){
       var tc = computeEntry(todayEntry);
-      if(tc.excused){ sealValue.textContent = TYPE_LABELS[todayEntry.type]; }
+      if(tc.excused){ sealText = TYPE_LABELS[todayEntry.type]; }
       else if(tc.workedMin !== null){
-        sealValue.textContent = minutesToHoursStr(tc.workedMin);
+        sealText = minutesToHoursStr(tc.workedMin);
         seal.classList.add(tc.diffMin >= 0 ? "status-over" : "status-under");
       }
-      else if(tc.open){ sealValue.textContent = "Clocked in"; }
-      else { sealValue.textContent = "Not logged"; }
+      else if(tc.open){ sealText = "Clocked in"; }
+      else { sealText = "Not logged"; }
     } else {
-      sealValue.textContent = isScheduled(today) ? "Not logged" : "Day off";
+      sealText = isScheduled(today) ? "Not logged" : "Day off";
     }
+    sealValue.textContent = sealText;
+    // Short figures like "8h" get the big number treatment; longer status
+    // words shrink so they never wrap inside the small circle.
+    sealValue.classList.toggle("long", sealText.length > 6);
 
     document.getElementById("scheduleLine").textContent = scheduleSummary();
   }
@@ -3314,8 +3360,109 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     viewedProfile = allProfiles.find(function(p){ return p.id === newId; }) || null;
     resetForm();
     document.getElementById("settingsCard").classList.remove("open");
+    document.getElementById("accessCard").classList.remove("open");
     await loadDataForViewedUser();
   });
+
+  // ---------- Team & Access: grant/revoke admin rights ----------
+  function renderUsersList(){
+    var wrap = document.getElementById("usersList");
+    if(!allProfiles.length){
+      wrap.innerHTML = '<p class="periods-empty">No other users yet.</p>';
+      return;
+    }
+    wrap.innerHTML = allProfiles.map(function(p){
+      var initials = (p.full_name || p.email || "?").trim().split(/\s+/)
+        .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
+      var isSelf = p.id === currentUser.id;
+      return '<div class="user-row" data-uid="'+p.id+'">' +
+        '<div class="team-avatar">'+escapeHtml(initials)+'</div>' +
+        '<div class="team-info">' +
+          '<div class="team-name">'+escapeHtml(p.full_name || p.email)+
+            (isSelf ? ' <span class="admin-badge you-badge">You</span>' : '')+'</div>' +
+          '<div class="team-email">'+escapeHtml(p.email)+'</div>' +
+        '</div>' +
+        '<div class="role-toggle" role="group">' +
+          '<button type="button" class="role-btn'+(p.role!=='admin'?' active':'')+'" data-role="user">Employee</button>' +
+          '<button type="button" class="role-btn'+(p.role==='admin'?' active':'')+'" data-role="admin">Admin</button>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  document.getElementById("usersList").addEventListener("click", async function(ev){
+    var btn = ev.target.closest(".role-btn");
+    if(!btn || btn.disabled) return;
+    var row = btn.closest(".user-row");
+    var uid = row.getAttribute("data-uid");
+    var newRole = btn.getAttribute("data-role");
+    var person = allProfiles.find(function(p){ return p.id === uid; });
+    if(!person || person.role === newRole) return;
+
+    var isSelf = uid === currentUser.id;
+    if(isSelf && newRole !== "admin"){
+      var adminCount = allProfiles.filter(function(p){ return p.role === "admin"; }).length;
+      if(adminCount <= 1){
+        alert("You're the only admin. Promote someone else first — otherwise no one would be left with access to these controls.");
+        return;
+      }
+    }
+
+    var label = person.full_name || person.email;
+    var msg = newRole === "admin"
+      ? "Make " + label + " an admin? They'll be able to view and edit everyone's attendance and schedule settings."
+      : "Remove admin rights from " + label + "?" + (isSelf ? " You'll lose access to these controls immediately." : "");
+    if(!confirm(msg)) return;
+
+    var buttons = row.querySelectorAll(".role-btn");
+    buttons.forEach(function(b){ b.disabled = true; });
+    try{
+      var res = await supabase.from("profiles").update({role: newRole}).eq("id", uid);
+      if(res.error) throw res.error;
+      person.role = newRole;
+      renderUsersList();
+      await loadAllProfilesForSwitcher();
+      if(isSelf) await refreshCurrentProfile();
+    }catch(err){
+      alert("Couldn't update that role: " + (err.message || err));
+      buttons.forEach(function(b){ b.disabled = false; });
+    }
+  });
+
+  // Re-syncs UI after the signed-in user's own role changes (e.g. self-demotion),
+  // without requiring a full sign-out/sign-in.
+  async function refreshCurrentProfile(){
+    try{
+      var res = await supabase.from("profiles").select("*").eq("id", currentUser.id).single();
+      if(res.error) throw res.error;
+      currentProfile = res.data;
+    }catch(err){ return; }
+
+    isAdmin = currentProfile.role === "admin";
+    var chip = document.getElementById("userChip");
+    chip.textContent = currentProfile.full_name || currentProfile.email;
+    chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
+
+    if(isAdmin){
+      document.getElementById("viewerSwitchWrap").style.display = "flex";
+      document.getElementById("teamTabBtn").style.display = "";
+    } else {
+      document.getElementById("viewerSwitchWrap").style.display = "none";
+      document.getElementById("teamTabBtn").style.display = "none";
+      document.getElementById("settingsCard").classList.remove("open");
+      document.getElementById("accessCard").classList.remove("open");
+      if(viewedUserId !== currentUser.id){
+        viewedUserId = currentUser.id;
+        viewedProfile = currentProfile;
+        await loadDataForViewedUser();
+      }
+      var activeTab = document.querySelector(".tab-btn.active");
+      if(activeTab && activeTab.getAttribute("data-tab") === "team"){
+        document.querySelector('.tab-btn[data-tab="log"]').click();
+      }
+    }
+    updateViewingBanner();
+  }
 
   // Roster view: this month's worked hours per person. Kept deliberately
   // simple (no per-user target/overtime) since that would need fetching
