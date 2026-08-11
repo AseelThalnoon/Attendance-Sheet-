@@ -1,0 +1,2662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attendance Ledger</title>
+<style>
+  :root{
+    --teal-950:#062825;
+    --teal-900:#0A3634;
+    --teal-800:#0E4A46;
+    --teal-700:#145C57;
+    --teal-600:#1B726B;
+    --teal-100:#E6EFEC;
+    --teal-50:#F2F7F5;
+    --paper:#F6F2E8;
+    --card:#FFFFFE;
+    --gold:#AD8332;
+    --gold-deep:#8C6A28;
+    --gold-light:#E3CB8F;
+    --ink:#1B2422;
+    --muted:#68766F;
+    --muted-2:#8B968F;
+    --line:#DDD3BB;
+    --line-soft:#EAE3D0;
+    --positive:#2E7D4F;
+    --positive-bg:#E3F1E7;
+    --negative:#AE3B3B;
+    --negative-bg:#F7E9E7;
+    --excused:#8A6E1F;
+    --excused-bg:#F2E9D2;
+    --warn:#9A6B18;
+    --warn-bg:#FBF1DC;
+    --warn-line:#E4CB92;
+    --input-bg:#FFFFFF;
+    --rule:rgba(173,131,50,.05);
+    --radius:12px;
+    --font-num:Calibri, "Segoe UI", Candara, Optima, "Trebuchet MS", sans-serif;
+    --shadow-sm:0 1px 2px rgba(10,54,52,.06), 0 1px 1px rgba(10,54,52,.04);
+    --shadow-md:0 6px 20px rgba(10,54,52,.08), 0 2px 6px rgba(10,54,52,.05);
+  }
+
+  body.dark{
+    --teal-950:#04201E;
+    --teal-900:#0B2E2C;
+    --teal-800:#124440;
+    --teal-700:#1A5B55;
+    --teal-600:#2A8079;
+    --teal-100:#17403C;
+    --teal-50:#12332F;
+    --paper:#0B1917;
+    --card:#122624;
+    --gold:#C79E4C;
+    --gold-deep:#A8823A;
+    --gold-light:#E7D3A0;
+    --ink:#E8EDEA;
+    --muted:#9DACA6;
+    --muted-2:#7D8D87;
+    --line:#2A4744;
+    --line-soft:#203B38;
+    --positive:#6BC08D;
+    --positive-bg:#183A28;
+    --negative:#E08585;
+    --negative-bg:#3C1F1F;
+    --excused:#D9BC72;
+    --excused-bg:#38301A;
+    --warn:#E0BE73;
+    --warn-bg:#33290F;
+    --warn-line:#5C4A20;
+    --input-bg:#0E201E;
+    --rule:rgba(199,158,76,.05);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+    --shadow-md:0 6px 20px rgba(0,0,0,.4), 0 2px 6px rgba(0,0,0,.3);
+  }
+
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    color:var(--ink);
+    font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.45;
+    padding-bottom:64px;
+    background-color:var(--paper);
+    background-image:repeating-linear-gradient(180deg, var(--rule) 0px, var(--rule) 1px, transparent 1px, transparent 34px);
+    background-attachment:local;
+    transition:background-color .2s ease, color .2s ease;
+  }
+
+  .display{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;}
+  a{color:inherit;}
+  button{font-family:inherit; transition:background-color .15s ease, border-color .15s ease, color .15s ease, transform .15s ease, box-shadow .15s ease;}
+  button:focus-visible, input:focus-visible, select:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
+  @media (prefers-reduced-motion: reduce){*{animation-duration:.001ms !important; transition-duration:.001ms !important;}}
+
+  /* ---------- Header ---------- */
+  header.ledger-head{
+    position:relative;
+    background:
+      radial-gradient(1100px 340px at 12% -20%, rgba(227,203,143,.12), transparent 60%),
+      linear-gradient(160deg,var(--teal-950) 0%,var(--teal-900) 46%,var(--teal-800) 100%);
+    color:#F5F1E6;
+    padding:34px 24px 28px;
+    border-bottom:1px solid var(--gold-deep);
+    box-shadow:0 4px 0 rgba(173,131,50,.18);
+    overflow:hidden;
+  }
+  header.ledger-head::before{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:repeating-linear-gradient(180deg, rgba(227,203,143,.05) 0px, rgba(227,203,143,.05) 1px, transparent 1px, transparent 28px);
+  }
+  .head-inner{
+    position:relative; max-width:1080px; margin:0 auto;
+    display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap;
+  }
+  .head-title-eyebrow{
+    display:flex; align-items:center; gap:8px;
+    letter-spacing:.16em; text-transform:uppercase; font-size:10.5px;
+    color:var(--gold-light); margin:0 0 8px;
+  }
+  .head-title-eyebrow::before{content:""; width:16px; height:1px; background:var(--gold-light); display:inline-block;}
+  .head-title{font-size:33px; margin:0; font-weight:400;}
+  .head-sub{margin:8px 0 0; font-size:13px; color:#C6D6D2;}
+  .head-right{display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+
+  .icon-btn{
+    width:38px; height:38px; border-radius:9px; cursor:pointer;
+    background:rgba(255,255,255,.07); border:1px solid rgba(227,203,143,.3);
+    color:var(--gold-light); display:inline-flex; align-items:center; justify-content:center;
+  }
+  .icon-btn:hover{background:rgba(255,255,255,.16);}
+
+  .seal{
+    position:relative; width:100px; height:100px; border-radius:50%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 32% 26%, rgba(227,203,143,.22), transparent 62%), var(--teal-800);
+    text-align:center; flex-shrink:0;
+    box-shadow:inset 0 0 0 1px rgba(227,203,143,.35), var(--shadow-md);
+  }
+  .seal::before{content:""; position:absolute; inset:6px; border-radius:50%; border:1px dashed rgba(227,203,143,.45);}
+  .seal .seal-label{font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--gold-light); position:relative;}
+  .seal .seal-value{font-family:var(--font-num); font-weight:600; font-size:19px; margin-top:3px; position:relative; line-height:1.15; color:#fff;}
+  .seal.status-over{box-shadow:inset 0 0 0 1px rgba(143,199,166,.55), var(--shadow-md);}
+  .seal.status-over::before{border-color:rgba(143,199,166,.6);}
+  .seal.status-under{box-shadow:inset 0 0 0 1px rgba(217,154,154,.55), var(--shadow-md);}
+  .seal.status-under::before{border-color:rgba(217,154,154,.6);}
+
+  main{max-width:1080px; margin:0 auto; padding:26px 24px 0;}
+
+  /* ---------- Reminder banner ---------- */
+  .reminder{
+    display:none; align-items:flex-start; gap:12px;
+    background:var(--warn-bg); border:1px solid var(--warn-line);
+    border-left:4px solid var(--gold); border-radius:10px;
+    padding:14px 16px; margin-bottom:20px;
+  }
+  .reminder.show{display:flex;}
+  .reminder svg{flex-shrink:0; margin-top:1px; color:var(--warn);}
+  .reminder-body{flex:1; min-width:0;}
+  .reminder-title{font-size:13px; font-weight:600; color:var(--warn); margin:0 0 3px;}
+  .reminder-text{font-size:12.5px; color:var(--muted); margin:0;}
+  .reminder-actions{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+
+  /* ---------- Stat cards ---------- */
+  .stats-row{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:28px;}
+  .stat-card{
+    position:relative; background:var(--card); border:1px solid var(--line-soft);
+    border-radius:var(--radius); padding:16px 17px 15px; box-shadow:var(--shadow-sm);
+    transition:transform .18s ease, box-shadow .18s ease;
+  }
+  .stat-card::before{
+    content:""; position:absolute; top:0; left:14px; right:14px; height:3px;
+    background:linear-gradient(90deg, var(--gold-deep), var(--gold-light)); border-radius:0 0 3px 3px;
+  }
+  .stat-card:hover{transform:translateY(-2px); box-shadow:var(--shadow-md);}
+  .stat-label{
+    display:flex; align-items:center; gap:6px; font-size:10px;
+    text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:2px 0 10px;
+  }
+  .stat-label svg{flex-shrink:0; opacity:.8; color:var(--gold);}
+  .stat-value{
+    font-family:var(--font-num); font-weight:600; font-size:29px; margin:0;
+    font-variant-numeric:tabular-nums; color:var(--ink); letter-spacing:.005em;
+  }
+  .stat-detail{font-size:11.5px; color:var(--muted-2); margin:5px 0 0;}
+  .stat-value.positive{color:var(--positive);}
+  .stat-value.negative{color:var(--negative);}
+
+  /* ---------- Cards ---------- */
+  .card{
+    background:var(--card); border:1px solid var(--line-soft); border-radius:var(--radius);
+    padding:22px 22px 24px; margin-bottom:24px; box-shadow:var(--shadow-sm);
+  }
+  .card h2{
+    display:flex; align-items:center; gap:10px;
+    font-family:"Iowan Old Style",Palatino,Georgia,serif; font-weight:400; font-size:19px;
+    margin:0 0 18px; color:var(--ink);
+    border-bottom:1px solid var(--line-soft); padding-bottom:12px;
+  }
+  .card h2::before{content:""; width:6px; height:6px; background:var(--gold); transform:rotate(45deg); display:inline-block; flex-shrink:0;}
+  .card h2 .h2-spacer{margin-left:auto;}
+
+  /* ---------- Quick clock ---------- */
+  .quick-clock{
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;
+    background:linear-gradient(135deg, var(--teal-900), var(--teal-800));
+    border-radius:10px; padding:16px 20px; margin-bottom:8px;
+  }
+  .quick-clock-time{display:flex; flex-direction:column; gap:2px;}
+  .qc-label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--gold-light);}
+  .qc-time{font-family:var(--font-num); font-weight:600; font-size:27px; color:#fff; font-variant-numeric:tabular-nums; letter-spacing:.01em;}
+  .qc-date{font-size:11.5px; color:#C6D6D2; margin-top:1px;}
+  .quick-clock-actions{display:flex; gap:10px; flex-wrap:wrap;}
+  .qc-btn{display:inline-flex; align-items:center; gap:7px;}
+  .quick-clock .btn.qc-btn{background:var(--gold); border-color:var(--gold); color:#12211F;}
+  .quick-clock .btn.qc-btn:hover{background:var(--gold-light); border-color:var(--gold-light);}
+  .quick-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.07); border-color:rgba(227,203,143,.4); color:#F5F1E6;}
+  .quick-clock .btn.secondary.qc-btn:hover{background:rgba(255,255,255,.16);}
+  .qc-note{font-size:12px; color:var(--muted); margin:10px 2px 18px; min-height:16px;}
+  .qc-note.success{color:var(--positive);}
+
+  /* ---------- Form ---------- */
+  .form-grid{display:grid; grid-template-columns:repeat(6,1fr); gap:14px; align-items:end;}
+  .form-grid .full{grid-column:1 / -1;}
+  label{display:block; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px;}
+  input[type="date"], input[type="time"], input[type="text"], input[type="number"], select{
+    width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px;
+    font-size:13.5px; color:var(--ink); background:var(--input-bg); font-family:inherit;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  input:hover, select:hover{border-color:var(--muted-2);}
+  input:focus, select:focus{border-color:var(--teal-600); box-shadow:0 0 0 3px rgba(27,114,107,.15);}
+  body.dark input[type="date"], body.dark input[type="time"]{color-scheme:dark;}
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:10px 18px; border-radius:7px; border:1px solid var(--teal-900);
+    background:var(--teal-900); color:#fff; font-size:13px; font-weight:600;
+    cursor:pointer; box-shadow:var(--shadow-sm);
+  }
+  body.dark .btn{border-color:var(--teal-600); background:var(--teal-700);}
+  .btn:hover{background:var(--teal-700); transform:translateY(-1px); box-shadow:var(--shadow-md);}
+  body.dark .btn:hover{background:var(--teal-600);}
+  .btn:active{transform:translateY(0);}
+  .btn.secondary{background:var(--card); color:var(--ink); border-color:var(--line);}
+  .btn.secondary:hover{background:var(--teal-50);}
+  .btn.ghost{background:transparent; border-color:var(--line); color:var(--muted); font-weight:500; box-shadow:none;}
+  .btn.ghost:hover{border-color:var(--teal-600); color:var(--teal-600); background:var(--teal-50); transform:none; box-shadow:none;}
+  .btn.small{padding:6px 12px; font-size:12px;}
+  .btn.danger-ghost{background:transparent; border-color:var(--line); color:var(--negative); font-weight:500; box-shadow:none;}
+  .btn.danger-ghost:hover{border-color:var(--negative); background:var(--negative-bg); transform:none; box-shadow:none;}
+  .form-actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
+
+  /* ---------- Settings ---------- */
+  .settings-card{display:none;}
+  .settings-card.open{display:block;}
+  .daypicker{display:flex; gap:6px; flex-wrap:wrap;}
+  .daypicker input{position:absolute; opacity:0; width:0; height:0;}
+  .daypicker label{
+    margin:0; cursor:pointer; user-select:none;
+    padding:7px 12px; border:1px solid var(--line); border-radius:99px;
+    font-size:11.5px; letter-spacing:.04em; text-transform:none; color:var(--muted);
+    background:var(--input-bg);
+  }
+  .daypicker label:hover{border-color:var(--teal-600); color:var(--teal-600);}
+  .daypicker input:checked + label{
+    background:var(--teal-800); border-color:var(--teal-800); color:#fff; font-weight:600;
+  }
+  .daypicker input:focus-visible + label{outline:2px solid var(--gold); outline-offset:2px;}
+  .settings-hint{font-size:11.5px; color:var(--muted-2); margin:10px 0 0;}
+
+  .check-row{
+    display:flex; align-items:flex-start; gap:10px;
+    margin:16px 0 0; padding:12px 14px;
+    border:1px solid var(--line-soft); border-radius:9px; background:var(--teal-50);
+    cursor:pointer; text-transform:none; letter-spacing:0; font-size:inherit; color:inherit;
+  }
+  .check-row:hover{border-color:var(--teal-600);}
+  .check-row input{width:16px; height:16px; margin:1px 0 0; flex-shrink:0; accent-color:var(--teal-700); cursor:pointer;}
+  .check-row strong{display:block; font-size:12.5px; font-weight:600; color:var(--ink); text-transform:none; letter-spacing:0;}
+  .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted); margin-top:3px; text-transform:none; letter-spacing:0;}
+
+  .periods-section{margin-top:22px; padding-top:18px; border-top:1px solid var(--line-soft);}
+  .periods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:2px;}
+  .period-row{
+    display:grid; grid-template-columns:1.4fr 1fr 1fr .8fr .8fr .9fr auto;
+    gap:10px; align-items:end;
+    padding:12px; margin-bottom:10px;
+    border:1px solid var(--line-soft); border-radius:9px; background:var(--teal-50);
+  }
+  .period-row label{font-size:9px; margin-bottom:4px;}
+  .period-row input{padding:7px 8px; font-size:12.5px;}
+  .period-del{
+    background:none; border:1px solid var(--line); color:var(--negative);
+    border-radius:6px; cursor:pointer; padding:7px 10px; font-size:12px; height:34px;
+  }
+  .period-del:hover{background:var(--negative-bg); border-color:var(--negative);}
+  .periods-empty{font-size:12px; color:var(--muted-2); padding:10px 2px;}
+  @media (max-width:760px){
+    .period-row{grid-template-columns:1fr 1fr; }
+    .period-row .period-del{grid-column:1 / -1;}
+  }
+
+  /* ---------- Log search bar ---------- */
+  .search-field{position:relative; flex:1 1 200px; min-width:170px; display:flex; align-items:center;}
+  .search-field svg{position:absolute; left:10px; color:var(--muted-2); pointer-events:none;}
+  .search-field input{padding-left:31px; width:100%;}
+  .filter-bar .inline-lbl{
+    margin:0; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); white-space:nowrap;
+  }
+  .filter-bar .date-field{width:auto; min-width:130px;}
+  .filter-bar #typeFilterSelect{min-width:140px;}
+  .filter-count{font-size:11.5px; color:var(--muted-2); white-space:nowrap;}
+
+  .backup-reminder{border-left-color:var(--teal-600);}
+  .backup-reminder svg{color:var(--teal-600);}
+  .backup-reminder .reminder-title{color:var(--teal-600);}
+
+  .punct-stats{margin-bottom:22px;}
+  .punct-rule{
+    font-size:11.5px; color:var(--muted); margin:-4px 0 16px;
+    padding:9px 12px; border-left:3px solid var(--gold);
+    background:var(--teal-50); border-radius:0 7px 7px 0;
+  }
+  .late-cell{color:var(--negative); font-weight:600;}
+  .ontime-cell{color:var(--positive);}
+
+  /* ---------- Tabs ---------- */
+  .tabs{display:flex; gap:2px; border-bottom:1px solid var(--line-soft); margin-bottom:20px; flex-wrap:wrap;}
+  .tab-btn{
+    background:none; border:none; padding:10px 18px; font-size:13.5px; color:var(--muted);
+    cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; border-radius:6px 6px 0 0;
+  }
+  .tab-btn:hover{color:var(--teal-600); background:var(--teal-50);}
+  .tab-btn.active{color:var(--ink); border-bottom-color:var(--gold); font-weight:600; background:var(--teal-50);}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block; animation:fadeIn .2s ease;}
+  @keyframes fadeIn{from{opacity:0; transform:translateY(2px);} to{opacity:1; transform:none;}}
+
+  .filter-bar{display:flex; align-items:center; gap:10px; margin:-6px 0 18px; flex-wrap:wrap;}
+  .filter-bar label{margin:0;}
+  .filter-bar select{width:auto; min-width:170px;}
+  .filter-spacer{margin-left:auto;}
+
+  /* ---------- Table ---------- */
+  .table-wrap{overflow-x:auto; border:1px solid var(--line-soft); border-radius:8px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  thead th{
+    text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.07em;
+    color:var(--muted); padding:10px 12px; background:var(--teal-50);
+    border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  tbody td{padding:10px 12px; border-bottom:1px solid var(--line-soft); white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:nth-child(even){background:var(--teal-50);}
+  tbody tr:hover{background:var(--teal-100);}
+  td.num, th.num{text-align:right; font-variant-numeric:tabular-nums;}
+  td.num{font-family:var(--font-num); font-size:13.5px;}
+  td.note-cell{white-space:normal; max-width:220px; color:var(--muted);}
+
+  .pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px 3px 8px; border-radius:99px; font-size:11px; font-weight:600;}
+  .pill::before{content:""; width:5px; height:5px; border-radius:50%; background:currentColor; flex-shrink:0;}
+  .pill.over{background:var(--positive-bg); color:var(--positive);}
+  .pill.under{background:var(--negative-bg); color:var(--negative);}
+  .pill.onit{background:var(--teal-100); color:var(--teal-600);}
+  .pill.excused{background:var(--excused-bg); color:var(--excused);}
+  .pill.open{background:var(--warn-bg); color:var(--warn);}
+
+  .row-actions button{background:none; border:none; cursor:pointer; font-size:11.5px; color:var(--muted); padding:3px 6px; border-radius:4px;}
+  .row-actions button:hover{color:var(--teal-600); background:var(--teal-50);}
+  .empty-state{text-align:center; padding:36px 10px; color:var(--muted); font-size:13.5px;}
+
+  /* ---------- Period cards ---------- */
+  .period-card{
+    position:relative; border:1px solid var(--line-soft); border-radius:var(--radius);
+    padding:18px 18px 16px 20px; margin-bottom:16px; background:var(--card); box-shadow:var(--shadow-sm);
+  }
+  .period-card::before{
+    content:""; position:absolute; left:0; top:14px; bottom:14px; width:3px;
+    background:linear-gradient(180deg, var(--gold-deep), var(--gold-light)); border-radius:2px;
+  }
+  .period-card-head{display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
+  .period-title{font-family:"Iowan Old Style",Palatino,Georgia,serif; font-size:17px; color:var(--ink);}
+  .period-meta{font-size:11.5px; color:var(--muted);}
+  .period-figures{display:flex; gap:26px; flex-wrap:wrap; margin-bottom:14px;}
+  .period-figure .label{font-size:9.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
+  .period-figure .value{font-family:var(--font-num); font-weight:600; font-size:21px; font-variant-numeric:tabular-nums; margin-top:2px;}
+
+  .chart-holder{background:var(--teal-50); border-radius:8px; padding:10px 6px 2px;}
+  .chart-wrap{width:100%; display:block;}
+  .bar-label{font-family:var(--font-num); font-size:9.5px; fill:var(--muted);}
+  .bar-value{font-family:var(--font-num); font-size:9px; fill:var(--ink); font-variant-numeric:tabular-nums; font-weight:700;}
+  .bar-value.bar-empty{fill:var(--muted-2); font-weight:400;}
+  .chart-legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:var(--muted);}
+  .chart-legend span{display:inline-flex; align-items:center; gap:6px;}
+  .swatch{width:10px; height:10px; border-radius:2px; display:inline-block;}
+  .swatch.target{width:14px; height:0; border-top:2px dashed var(--gold);}
+
+  footer.ledger-foot{
+    max-width:1080px; margin:8px auto 0; padding:20px 24px 0;
+    border-top:1px solid var(--line-soft);
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;
+  }
+  .foot-note{font-size:11.5px; color:var(--muted-2); max-width:420px;}
+
+  /* ---------- Print report ---------- */
+  #printArea{display:none;}
+  @media print{
+    body{background:#fff !important; color:#000 !important; padding:0; background-image:none;}
+    header.ledger-head, main, footer.ledger-foot{display:none !important;}
+    #printArea{display:block !important; padding:0; font-family:Georgia,"Times New Roman",serif;}
+    #printArea h1{font-size:20pt; margin:0 0 2pt;}
+    #printArea .p-eyebrow{font-size:8pt; letter-spacing:.14em; text-transform:uppercase; color:#555; margin:0 0 10pt;}
+    #printArea .p-meta{font-size:9pt; color:#333; margin:0 0 4pt;}
+    #printArea .p-rule{border:0; border-top:1.5pt solid #000; margin:10pt 0 14pt;}
+    #printArea h2{font-size:12pt; margin:16pt 0 6pt; border-bottom:.5pt solid #999; padding-bottom:3pt;}
+    #printArea table{width:100%; border-collapse:collapse; font-size:8.5pt;}
+    #printArea th{text-align:left; border-bottom:1pt solid #000; padding:4pt 5pt; font-size:7.5pt; text-transform:uppercase; letter-spacing:.05em;}
+    #printArea td{border-bottom:.5pt solid #ccc; padding:4pt 5pt;}
+    #printArea .num{text-align:right; font-family:Calibri,"Segoe UI",Candara,sans-serif; font-variant-numeric:tabular-nums;}
+    #printArea .p-summary{display:flex; gap:22pt; flex-wrap:wrap; margin:0 0 6pt;}
+    #printArea .p-summary div span{display:block;}
+    #printArea .p-summary .k{font-size:7.5pt; text-transform:uppercase; letter-spacing:.06em; color:#555;}
+    #printArea .p-summary .v{font-size:13.5pt; font-family:Calibri,"Segoe UI",Candara,sans-serif; font-weight:600; font-variant-numeric:tabular-nums;}
+    #printArea .p-sign{margin-top:26pt; display:flex; gap:40pt; font-size:9pt;}
+    #printArea .p-sign div{flex:1; border-top:.5pt solid #000; padding-top:4pt; color:#444;}
+    #printArea tbody tr{page-break-inside:avoid;}
+    @page{margin:14mm;}
+  }
+
+  @media (max-width:760px){
+    .stats-row{grid-template-columns:repeat(2,1fr);}
+    .form-grid{grid-template-columns:repeat(2,1fr);}
+    .seal{width:78px; height:78px;}
+    .head-title{font-size:25px;}
+    header.ledger-head{padding:26px 18px 22px;}
+    main{padding:22px 16px 0;}
+    .card{padding:18px;}
+    .head-right{width:100%; justify-content:space-between;}
+  }
+</style>
+</head>
+<body>
+
+<header class="ledger-head">
+  <div class="head-inner">
+    <div>
+      <p class="head-title-eyebrow">Personal Time Record</p>
+      <h1 class="head-title display">Attendance Ledger</h1>
+      <p class="head-sub" id="scheduleLine">—</p>
+    </div>
+    <div class="head-right">
+      <button class="icon-btn" id="themeBtn" title="Switch theme" aria-label="Switch theme">
+        <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A8.5 8.5 0 0 1 11.2 3a8.5 8.5 0 1 0 9.8 9.8z"/></svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" title="Schedule settings" aria-label="Schedule settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21v-7M5 10V3M12 21v-11M12 6V3M19 21v-3M19 14V3"/><path d="M2.5 14h5M9.5 6h5M16.5 18h5"/></svg>
+      </button>
+      <div class="seal" id="todaySeal">
+        <p class="seal-label">Today</p>
+        <p class="seal-value" id="sealValue">—</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <div class="reminder" id="reminderBanner">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 2"/></svg>
+    <div class="reminder-body">
+      <p class="reminder-title" id="reminderTitle"></p>
+      <p class="reminder-text" id="reminderText"></p>
+      <div class="reminder-actions" id="reminderActions"></div>
+    </div>
+  </div>
+
+  <div class="reminder backup-reminder" id="backupBanner">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+    <div class="reminder-body">
+      <p class="reminder-title" id="backupTitle"></p>
+      <p class="reminder-text" id="backupText"></p>
+      <div class="reminder-actions">
+        <button type="button" class="btn small" id="backupNowBtn">Back Up Now</button>
+        <button type="button" class="btn ghost small" id="backupLaterBtn">Later</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="stats-row">
+    <div class="stat-card">
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>This Week Avg / Day</p>
+      <p class="stat-value" id="weekAvg">0h</p>
+      <p class="stat-detail" id="weekAvgDetail">—</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month Avg / Day</p>
+      <p class="stat-value" id="monthAvg">0h</p>
+      <p class="stat-detail" id="monthAvgDetail">—</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/></svg>Overtime Bank</p>
+      <p class="stat-value" id="otBank">0h</p>
+      <p class="stat-detail">Cumulative vs. target</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3-2 4-2 7a4 4 0 0 0 8 0c0-1.5-1-2.5-1-2.5s.5 2-1 3c.5-3-2-4-2-7z"/><path d="M8.5 14a3.5 5 0 1 0 7 0c0-1-.5-2-1.5-3"/></svg>Current Streak</p>
+      <p class="stat-value" id="streak">0</p>
+      <p class="stat-detail">Consecutive workdays logged</p>
+    </div>
+  </section>
+
+  <section class="card settings-card" id="settingsCard">
+    <h2>Schedule Settings</h2>
+    <div style="margin-bottom:18px;">
+      <label>Working Days</label>
+      <div class="daypicker" id="dayPicker"></div>
+    </div>
+    <div class="form-grid">
+      <div>
+        <label for="sTargetH">Target Hours</label>
+        <input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric">
+      </div>
+      <div>
+        <label for="sTargetM">Target Minutes</label>
+        <input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric">
+      </div>
+      <div>
+        <label for="sIn">Standard Start</label>
+        <input type="time" id="sIn">
+      </div>
+      <div>
+        <label for="sOut">Standard End</label>
+        <input type="time" id="sOut">
+      </div>
+      <div>
+        <label for="sRemind">Remind After (hours)</label>
+        <input type="number" id="sRemind" min="1" max="24" step="0.5">
+      </div>
+      <div>
+        <label for="sGrace">Grace Period (minutes)</label>
+        <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
+      </div>
+    </div>
+    <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival.</p>
+
+    <label class="check-row" for="sLateOnlyShort">
+      <input type="checkbox" id="sLateOnlyShort">
+      <span>
+        <strong>Only count me late if I didn't complete my target hours</strong>
+        <em>A late start that you make up by staying later won't be flagged. Turn this off to flag every late arrival regardless of hours worked.</em>
+      </span>
+    </label>
+
+    <div class="periods-section">
+      <div class="periods-head">
+        <label style="margin:0;">Seasonal Hours</label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
+          <button type="button" class="btn ghost small" id="addPeriodBtn">+ Add Period</button>
+        </div>
+      </div>
+      <p class="settings-hint" style="margin:0 0 12px;">Reduced hours for a date range, such as Ramadan or summer schedules. These override the standard hours above for the dates they cover. The Ramadan button fills in the expected dates and a 6-hour day — confirm them once the moon sighting is announced, since the start can shift by a day.</p>
+      <div id="periodsList"></div>
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn" id="saveSettingsBtn">Save Settings</button>
+      <button type="button" class="btn ghost" id="closeSettingsBtn">Close</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>New Entry</h2>
+
+    <div class="quick-clock">
+      <div class="quick-clock-time">
+        <span class="qc-label">Right now</span>
+        <span class="qc-time" id="liveClock">—</span>
+        <span class="qc-date" id="liveDate">—</span>
+      </div>
+      <div class="quick-clock-actions">
+        <button type="button" class="btn qc-btn" id="clockInBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+          Clock In Now
+        </button>
+        <button type="button" class="btn secondary qc-btn" id="clockOutBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H8M11 5l-7 7 7 7"/></svg>
+          Clock Out Now
+        </button>
+      </div>
+    </div>
+    <p class="qc-note" id="qcStatusNote"></p>
+
+    <form id="entryForm">
+      <div class="form-grid">
+        <div>
+          <label for="fDate">Date</label>
+          <input type="date" id="fDate" required>
+        </div>
+        <div>
+          <label for="fIn">Clock In</label>
+          <input type="time" id="fIn">
+        </div>
+        <div>
+          <label for="fOut">Clock Out</label>
+          <input type="time" id="fOut">
+        </div>
+        <div>
+          <label for="fBreakStart">Break Start</label>
+          <input type="time" id="fBreakStart">
+        </div>
+        <div>
+          <label for="fBreakEnd">Break End</label>
+          <input type="time" id="fBreakEnd">
+        </div>
+        <div>
+          <label for="fType">Day Type</label>
+          <select id="fType">
+            <option value="regular">Regular</option>
+            <option value="wfh">Work From Home</option>
+            <option value="halfleave">Half Day Leave</option>
+            <option value="leave">Annual Leave</option>
+            <option value="sick">Sick Leave</option>
+            <option value="trip">Business Trip</option>
+            <option value="holiday">Public Holiday</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="fNote">Note (optional)</label>
+          <input type="text" id="fNote" placeholder="e.g. Left early for appointment">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn" id="submitBtn">Add Entry</button>
+        <button type="button" class="btn secondary" id="fillStandardBtn">Fill Standard Hours</button>
+        <button type="button" class="btn ghost" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="log">Log</button>
+      <button class="tab-btn" data-tab="weekly">Weekly</button>
+      <button class="tab-btn" data-tab="monthly">Monthly</button>
+      <button class="tab-btn" data-tab="yearly">Yearly</button>
+      <button class="tab-btn" data-tab="punctuality">Punctuality</button>
+    </div>
+
+    <div class="filter-bar" id="monthFilterWrap">
+      <label for="monthFilterSelect">Month</label>
+      <select id="monthFilterSelect"><option value="all">All Months</option></select>
+      <div class="filter-spacer"></div>
+      <button type="button" class="btn ghost small" id="printBtn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/></svg>
+        Print Report
+      </button>
+    </div>
+
+    <div class="filter-bar" id="yearFilterWrap" style="display:none;">
+      <label for="yearFilterSelect">Year</label>
+      <select id="yearFilterSelect"></select>
+      <div class="filter-spacer"></div>
+      <button type="button" class="btn ghost small" id="printYearBtn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/></svg>
+        Print Year Report
+      </button>
+    </div>
+
+    <div class="filter-bar" id="searchFilterWrap">
+      <div class="search-field">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input type="text" id="searchInput" placeholder="Search notes and day types…" autocomplete="off">
+      </div>
+      <select id="typeFilterSelect" title="Filter by day type">
+        <option value="all">All Types</option>
+      </select>
+      <label for="fromDate" class="inline-lbl">From</label>
+      <input type="date" id="fromDate" class="date-field" title="Only show days on or after this date">
+      <label for="toDate" class="inline-lbl">To</label>
+      <input type="date" id="toDate" class="date-field" title="Only show days on or before this date">
+      <button type="button" class="btn ghost small" id="clearFiltersBtn">Clear</button>
+      <span class="filter-count" id="filterCount"></span>
+    </div>
+
+    <div class="tab-panel active" id="tab-log">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Day</th><th>In</th><th>Out</th><th>Break</th>
+              <th class="num">Worked</th><th class="num">Target</th><th class="num">Diff</th>
+              <th>Type</th><th>Note</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="logEmpty" style="display:none;"></div>
+    </div>
+
+    <div class="tab-panel" id="tab-weekly">
+      <div id="weeklyList"></div>
+      <div class="empty-state" id="weeklyEmpty" style="display:none;"></div>
+    </div>
+
+    <div class="tab-panel" id="tab-monthly">
+      <div class="period-card">
+        <div class="period-card-head">
+          <span class="period-title display">Average Hours / Day by Month</span>
+          <span class="period-meta" id="monthlyChartMeta"></span>
+        </div>
+        <div class="chart-holder" id="monthlyChart"></div>
+        <div class="chart-legend">
+          <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
+          <span><i class="swatch" style="background:var(--teal-600)"></i>Below target</span>
+          <span><i class="swatch target"></i>Daily target</span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Month</th><th class="num">Days</th><th class="num">Total</th>
+              <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th>
+            </tr>
+          </thead>
+          <tbody id="monthlyBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="monthlyEmpty" style="display:none;">No entries yet.</div>
+    </div>
+
+    <div class="tab-panel" id="tab-yearly">
+      <div class="period-card" id="yearOverview">
+        <div class="period-card-head">
+          <span class="period-title display" id="yearTitle">—</span>
+          <span class="period-meta" id="yearMeta"></span>
+        </div>
+        <div class="period-figures" id="yearFigures"></div>
+        <div class="chart-holder" id="yearChart"></div>
+        <div class="chart-legend">
+          <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
+          <span><i class="swatch" style="background:var(--teal-600)"></i>Below target</span>
+          <span><i class="swatch" style="background:var(--line)"></i>No entries</span>
+          <span><i class="swatch target"></i>Daily target</span>
+        </div>
+      </div>
+
+      <div class="period-card">
+        <div class="period-card-head">
+          <span class="period-title display">Year over Year</span>
+          <span class="period-meta">Average hours / day</span>
+        </div>
+        <div class="chart-holder" id="yoyChart"></div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Year</th><th class="num">Days</th><th class="num">Total</th>
+              <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th><th class="num">vs. Prev Year</th>
+            </tr>
+          </thead>
+          <tbody id="yearlyBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="yearlyEmpty" style="display:none;">No entries yet.</div>
+    </div>
+
+    <div class="tab-panel" id="tab-punctuality">
+      <p class="punct-rule" id="punctRule"></p>
+      <div class="stats-row punct-stats">
+        <div class="stat-card">
+          <p class="stat-label">On-Time Rate</p>
+          <p class="stat-value" id="pOnTime">—</p>
+          <p class="stat-detail" id="pOnTimeDetail">—</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Late Arrivals</p>
+          <p class="stat-value" id="pLate">0</p>
+          <p class="stat-detail" id="pLateDetail">—</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Early Departures</p>
+          <p class="stat-value" id="pEarly">0</p>
+          <p class="stat-detail" id="pEarlyDetail">—</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Avg Arrival Time</p>
+          <p class="stat-value" id="pAvgArrival">—</p>
+          <p class="stat-detail" id="pAvgArrivalDetail">—</p>
+        </div>
+      </div>
+
+      <div class="period-card">
+        <div class="period-card-head">
+          <span class="period-title display">Minutes Late by Month</span>
+          <span class="period-meta">Average per late day</span>
+        </div>
+        <div class="chart-holder" id="punctChart"></div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Day</th><th>Expected In</th><th>Actual In</th>
+              <th class="num">Late By</th><th>Expected Out</th><th>Actual Out</th>
+              <th class="num">Left Early By</th>
+              <th class="num">Worked</th><th class="num">Target</th><th class="num">Short By</th>
+              <th>Note</th>
+            </tr>
+          </thead>
+          <tbody id="punctBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="punctEmpty" style="display:none;"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="ledger-foot">
+  <p class="foot-note" id="storageNote">Everything saves automatically in this browser only. Export a backup regularly. CSV import matches the exported column names.</p>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button class="btn ghost small" id="exportJsonBtn">Export JSON</button>
+    <button class="btn ghost small" id="exportCsvBtn">Export CSV</button>
+    <button class="btn ghost small" id="importBtn">Import JSON</button>
+    <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+    <button class="btn ghost small" id="importCsvBtn">Import CSV</button>
+    <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
+    <button class="btn danger-ghost small" id="clearAllBtn">Clear All</button>
+  </div>
+</footer>
+
+<div id="printArea"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  var DAY_FULL  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var TYPE_LABELS = {
+    regular:"Regular", wfh:"WFH", halfleave:"Half Day Leave", leave:"Annual Leave",
+    sick:"Sick Leave", trip:"Business Trip", holiday:"Public Holiday", other:"Other"
+  };
+  var EXCUSED_TYPES = ["leave","sick","holiday"];
+  // Half days expect half the normal target rather than being fully excused.
+  var HALF_TYPES = ["halfleave"];
+
+  var ENTRIES_KEY  = "attendance_ledger_entries_v1";
+  var SETTINGS_KEY = "attendance_ledger_settings_v1";
+  var THEME_KEY    = "attendance_ledger_theme_v1";
+
+  var BACKUP_KEY   = "attendance_ledger_lastbackup_v1";
+  var BACKUP_REMIND_DAYS = 14;
+
+  var DEFAULT_SETTINGS = {
+    workDays:[0,1,2,3,4],
+    targetMin:480,
+    graceMin:10,
+    lateOnlyIfShort:true,
+    periods:[],
+    standardIn:"08:00",
+    standardOut:"16:00",
+    remindAfterHours:9
+  };
+
+  var entries = [];
+  var settings = Object.assign({}, DEFAULT_SETTINGS);
+  var dismissedReminders = {};
+
+  // ---------- Storage ----------
+  function safeGet(key){
+    try{ return localStorage.getItem(key); }catch(err){ return null; }
+  }
+  function safeSet(key, val){
+    try{ localStorage.setItem(key, val); return true; }
+    catch(err){
+      document.getElementById("storageNote").textContent =
+        "Auto-save isn't available in this browser. Export a JSON backup before closing the page.";
+      return false;
+    }
+  }
+  // Accepts settings from storage or an imported backup and returns a valid object.
+  // Older versions stored a decimal `targetHours`; convert it to minutes.
+  function normalizeSettings(raw){
+    raw = raw || {};
+    var out = Object.assign({}, DEFAULT_SETTINGS, raw);
+    // Check `raw`, not `out` — the default targetMin would otherwise mask the migration.
+    if(raw.targetMin == null && raw.targetHours != null){
+      out.targetMin = Math.round(parseFloat(raw.targetHours) * 60);
+    }
+    delete out.targetHours;
+    out.targetMin = Math.round(Number(out.targetMin));
+    if(!isFinite(out.targetMin) || out.targetMin < 0 || out.targetMin > 24*60){
+      out.targetMin = DEFAULT_SETTINGS.targetMin;
+    }
+    if(!Array.isArray(out.workDays) || !out.workDays.length){
+      out.workDays = DEFAULT_SETTINGS.workDays.slice();
+    }
+    out.workDays = out.workDays
+      .map(Number)
+      .filter(function(d){ return d >= 0 && d <= 6; })
+      .filter(function(d, i, a){ return a.indexOf(d) === i; })
+      .sort(function(a, b){ return a - b; });
+    if(!out.workDays.length) out.workDays = DEFAULT_SETTINGS.workDays.slice();
+    var r = Number(out.remindAfterHours);
+    out.remindAfterHours = (isFinite(r) && r > 0 && r <= 24) ? r : DEFAULT_SETTINGS.remindAfterHours;
+
+    var g = Math.round(Number(out.graceMin));
+    out.graceMin = (isFinite(g) && g >= 0 && g <= 240) ? g : DEFAULT_SETTINGS.graceMin;
+
+    out.lateOnlyIfShort = out.lateOnlyIfShort !== false;
+
+    // Seasonal periods: keep only entries with a valid, ordered date range.
+    out.periods = (Array.isArray(out.periods) ? out.periods : [])
+      .map(function(p){
+        p = p || {};
+        var tm = Math.round(Number(p.targetMin));
+        return {
+          id: p.id || ("p" + Math.random().toString(36).slice(2,8)),
+          name: String(p.name || "").trim() || "Seasonal hours",
+          start: /^\d{4}-\d{2}-\d{2}$/.test(p.start) ? p.start : "",
+          end: /^\d{4}-\d{2}-\d{2}$/.test(p.end) ? p.end : "",
+          targetMin: (isFinite(tm) && tm > 0 && tm <= 24*60) ? tm : out.targetMin,
+          standardIn: /^\d{2}:\d{2}$/.test(p.standardIn) ? p.standardIn : out.standardIn,
+          standardOut: /^\d{2}:\d{2}$/.test(p.standardOut) ? p.standardOut : out.standardOut
+        };
+      })
+      .filter(function(p){ return p.start && p.end && p.start <= p.end; })
+      .sort(function(a,b){ return a.start.localeCompare(b.start); });
+
+    return out;
+  }
+
+  function loadAll(){
+    var raw = safeGet(ENTRIES_KEY);
+    if(raw){ try{ entries = JSON.parse(raw) || []; }catch(err){ entries = []; } }
+    var s = safeGet(SETTINGS_KEY);
+    if(s){
+      try{ settings = normalizeSettings(JSON.parse(s)); }
+      catch(err){ settings = Object.assign({}, DEFAULT_SETTINGS); }
+    }
+  }
+  function saveEntries(){ safeSet(ENTRIES_KEY, JSON.stringify(entries)); }
+  function saveSettings(){ safeSet(SETTINGS_KEY, JSON.stringify(settings)); }
+
+  // ---------- Helpers ----------
+  function uid(){ return "e" + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+  function pad2(n){ return String(n).padStart(2,"0"); }
+
+  function timeToMinutes(t){
+    if(!t) return null;
+    var p = t.split(":");
+    return (+p[0])*60 + (+p[1]);
+  }
+  // Display-only. Values stay in 24h "HH:MM" because <input type="time"> requires it.
+  function formatTime12(t){
+    if(!t) return "";
+    var p = t.split(":");
+    var h = +p[0];
+    var period = h >= 12 ? "PM" : "AM";
+    var h12 = h % 12; if(h12 === 0) h12 = 12;
+    return h12 + ":" + p[1] + " " + period;
+  }
+  function minutesToHoursStr(mins){
+    if(mins === null || mins === undefined || isNaN(mins)) return "—";
+    var sign = mins < 0 ? "-" : "";
+    var v = Math.abs(Math.round(mins));
+    var h = Math.floor(v/60), m = v%60;
+    return sign + h + "h" + (m ? " " + m + "m" : "");
+  }
+  function signed(mins){
+    if(mins === null || isNaN(mins)) return "—";
+    return (mins >= 0 ? "+" : "") + minutesToHoursStr(mins);
+  }
+  function dateFromStr(s){
+    var p = s.split("-");
+    return new Date(+p[0], +p[1]-1, +p[2]);
+  }
+  function dateToStr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
+  function todayStr(){ return dateToStr(new Date()); }
+  function fmtDate(s){
+    return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
+  }
+  function fmtDateLong(s){
+    return dateFromStr(s).toLocaleDateString(undefined,{weekday:"long", month:"long", day:"numeric", year:"numeric"});
+  }
+  function isScheduled(dateStr){
+    return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
+  }
+  function targetMinPerDay(){ return settings.targetMin; }
+
+  // Resolves the schedule in force on a given date. Seasonal periods (Ramadan,
+  // summer hours) override the base schedule for the dates they cover.
+  function scheduleFor(dateStr){
+    var list = settings.periods || [];
+    for(var i=0;i<list.length;i++){
+      var p = list[i];
+      if(p.start && p.end && dateStr >= p.start && dateStr <= p.end){
+        return {
+          targetMin: p.targetMin != null ? p.targetMin : settings.targetMin,
+          standardIn: p.standardIn || settings.standardIn,
+          standardOut: p.standardOut || settings.standardOut,
+          name: p.name || "Seasonal hours"
+        };
+      }
+    }
+    return {
+      targetMin: settings.targetMin,
+      standardIn: settings.standardIn,
+      standardOut: settings.standardOut,
+      name: ""
+    };
+  }
+
+  function scheduleSummary(){
+    var days = settings.workDays.slice().sort(function(a,b){return a-b;});
+    var label;
+    // Show as a range when the days are contiguous, otherwise list them.
+    var contiguous = days.every(function(d,i){ return i === 0 || d === days[i-1]+1; });
+    if(days.length === 1) label = DAY_FULL[days[0]];
+    else if(contiguous) label = DAY_NAMES[days[0]] + "–" + DAY_NAMES[days[days.length-1]];
+    else label = days.map(function(d){ return DAY_NAMES[d]; }).join(", ");
+
+    var today = scheduleFor(todayStr());
+    var base = formatTime12(today.standardIn) + "–" + formatTime12(today.standardOut) +
+               " · " + label + " · Target " + minutesToHoursStr(today.targetMin) + "/day";
+    return today.name ? base + " · " + today.name : base;
+  }
+
+  function computeEntry(e){
+    var excused = EXCUSED_TYPES.indexOf(e.type) !== -1;
+    var half = HALF_TYPES.indexOf(e.type) !== -1;
+    var scheduled = isScheduled(e.date);
+    var sched = scheduleFor(e.date);
+
+    var targetMin = 0;
+    if(scheduled && !excused){
+      targetMin = half ? Math.round(sched.targetMin / 2) : sched.targetMin;
+    }
+
+    // Worked hours first — punctuality can depend on whether the target was met.
+    var workedMin = null, breakMin = 0;
+    if(e.clockIn && e.clockOut){
+      var gross = timeToMinutes(e.clockOut) - timeToMinutes(e.clockIn);
+      if(gross < 0) gross += 24*60; // overnight shift
+      if(e.breakStart && e.breakEnd){
+        var b = timeToMinutes(e.breakEnd) - timeToMinutes(e.breakStart);
+        if(b > 0) breakMin = b;
+      }
+      workedMin = Math.max(0, gross - breakMin);
+    } else if(excused){
+      workedMin = 0;
+    }
+
+    // Punctuality is only meaningful on a scheduled, non-excused day.
+    var lateMin = 0, earlyMin = 0;
+    var grace = settings.graceMin || 0;
+    var countable = scheduled && !excused;
+
+    // When "only if short" is on, making up the hours clears the flag. A day
+    // that's still open can't be judged yet, so it isn't flagged either way.
+    var metTarget = workedMin !== null && workedMin >= targetMin;
+    var forgiven = settings.lateOnlyIfShort && (metTarget || workedMin === null);
+
+    if(countable && e.clockIn && !forgiven){
+      var lm = timeToMinutes(e.clockIn) - timeToMinutes(sched.standardIn);
+      if(lm > grace) lateMin = lm;
+    }
+    // A half day is meant to end early, so leaving early isn't a departure flag.
+    if(countable && !half && e.clockIn && e.clockOut && !forgiven){
+      var em = timeToMinutes(sched.standardOut) - timeToMinutes(e.clockOut);
+      if(em > grace) earlyMin = em;
+    }
+
+    if(workedMin !== null && !(excused && !e.clockIn)){
+      return {
+        workedMin:workedMin, breakMin:breakMin, targetMin:targetMin,
+        diffMin: excused ? 0 : workedMin - targetMin,
+        excused:excused, half:half, scheduled:scheduled, open:false,
+        lateMin:lateMin, earlyMin:earlyMin, sched:sched
+      };
+    }
+    return {
+      workedMin: excused ? 0 : null, breakMin:0, targetMin:targetMin,
+      diffMin: excused ? 0 : null, excused:excused, half:half, scheduled:scheduled,
+      open: !!(e.clockIn && !e.clockOut),
+      lateMin:lateMin, earlyMin:0, sched:sched
+    };
+  }
+
+  function weekStartDate(dateStr){
+    var d = dateFromStr(dateStr);
+    d.setDate(d.getDate() - d.getDay()); // weeks start Sunday
+    return d;
+  }
+  function weekKey(dateStr){ return dateToStr(weekStartDate(dateStr)); }
+  function monthKey(dateStr){ var d = dateFromStr(dateStr); return d.getFullYear()+"-"+pad2(d.getMonth()+1); }
+  function yearKey(dateStr){ return String(dateFromStr(dateStr).getFullYear()); }
+  function monthLabel(key){
+    var p = key.split("-");
+    return new Date(+p[0], +p[1]-1, 1).toLocaleDateString(undefined,{month:"long", year:"numeric"});
+  }
+  function monthShortLabel(key){
+    var p = key.split("-");
+    return new Date(+p[0], +p[1]-1, 1).toLocaleDateString(undefined,{month:"short"}) + " '" + String(+p[0]).slice(-2);
+  }
+  function escapeHtml(s){
+    var d = document.createElement("div");
+    d.textContent = s == null ? "" : s;
+    return d.innerHTML;
+  }
+  function cssVar(name){
+    return getComputedStyle(document.body).getPropertyValue(name).trim() || "#888";
+  }
+
+  // Rolls a list of entries into one summary object.
+  function summarize(list){
+    var workedSum=0, loggedDays=0, targetSum=0, diffSum=0, openDays=0;
+    var lateDays=0, lateSum=0, earlyDays=0, earlySum=0, onTimeDays=0, ratedDays=0;
+    list.forEach(function(e){
+      var c = computeEntry(e);
+      if(c.workedMin !== null && !c.excused){ workedSum += c.workedMin; loggedDays++; }
+      if(c.open) openDays++;
+      targetSum += c.targetMin;
+      if(c.diffMin !== null) diffSum += c.diffMin;
+
+      // Punctuality only counts days with an arrival on a scheduled, non-excused day.
+      if(c.scheduled && !c.excused && e.clockIn){
+        ratedDays++;
+        if(c.lateMin > 0){ lateDays++; lateSum += c.lateMin; }
+        else onTimeDays++;
+        if(c.earlyMin > 0){ earlyDays++; earlySum += c.earlyMin; }
+      }
+    });
+    return {
+      workedSum:workedSum, loggedDays:loggedDays, targetSum:targetSum,
+      diffSum:diffSum, openDays:openDays,
+      avgMin: loggedDays ? workedSum/loggedDays : 0,
+      lateDays:lateDays, lateSum:lateSum, earlyDays:earlyDays, earlySum:earlySum,
+      onTimeDays:onTimeDays, ratedDays:ratedDays,
+      onTimeRate: ratedDays ? (onTimeDays/ratedDays)*100 : null,
+      avgLateMin: lateDays ? lateSum/lateDays : 0,
+      avgEarlyMin: earlyDays ? earlySum/earlyDays : 0
+    };
+  }
+  function groupBy(list, keyFn){
+    var out = {};
+    list.forEach(function(e){
+      var k = keyFn(e.date);
+      if(!out[k]) out[k] = [];
+      out[k].push(e);
+    });
+    return out;
+  }
+
+  // ---------- Theme ----------
+  var SUN_ICON = '<path d="M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4"/><circle cx="12" cy="12" r="4"/>';
+  var MOON_ICON = '<path d="M21 12.8A8.5 8.5 0 0 1 11.2 3a8.5 8.5 0 1 0 9.8 9.8z"/>';
+  function applyTheme(mode){
+    var dark = mode === "dark";
+    document.body.classList.toggle("dark", dark);
+    document.getElementById("themeIcon").innerHTML = dark ? SUN_ICON : MOON_ICON;
+    document.getElementById("themeBtn").title = dark ? "Switch to light theme" : "Switch to dark theme";
+    safeSet(THEME_KEY, mode);
+  }
+  document.getElementById("themeBtn").addEventListener("click", function(){
+    var next = document.body.classList.contains("dark") ? "light" : "dark";
+    applyTheme(next);
+    renderCharts();
+  });
+
+  // ---------- Settings UI ----------
+  function buildDayPicker(){
+    var wrap = document.getElementById("dayPicker");
+    wrap.innerHTML = DAY_NAMES.map(function(name, i){
+      return '<input type="checkbox" id="wd'+i+'" value="'+i+'"><label for="wd'+i+'">'+DAY_FULL[i]+'</label>';
+    }).join("");
+  }
+  function fillSettingsForm(){
+    DAY_NAMES.forEach(function(_, i){
+      var box = document.getElementById("wd"+i);
+      if(box) box.checked = settings.workDays.indexOf(i) !== -1;
+    });
+    document.getElementById("sTargetH").value = Math.floor(settings.targetMin / 60);
+    document.getElementById("sTargetM").value = settings.targetMin % 60;
+    document.getElementById("sIn").value = settings.standardIn;
+    document.getElementById("sOut").value = settings.standardOut;
+    document.getElementById("sRemind").value = settings.remindAfterHours;
+    document.getElementById("sGrace").value = settings.graceMin;
+    document.getElementById("sLateOnlyShort").checked = settings.lateOnlyIfShort;
+    renderPeriodRows(settings.periods);
+  }
+
+  // The period editor works on the DOM rows directly; nothing is committed to
+  // settings until Save is pressed, so Close always discards edits.
+  function periodRowHtml(p){
+    return '<div class="period-row" data-period>' +
+      '<div><label>Name</label><input type="text" data-p="name" value="'+escapeHtml(p.name)+'" placeholder="Ramadan"></div>' +
+      '<div><label>From</label><input type="date" data-p="start" value="'+escapeHtml(p.start)+'"></div>' +
+      '<div><label>To</label><input type="date" data-p="end" value="'+escapeHtml(p.end)+'"></div>' +
+      '<div><label>Hours</label><input type="number" data-p="th" min="0" max="24" step="1" value="'+Math.floor(p.targetMin/60)+'"></div>' +
+      '<div><label>Mins</label><input type="number" data-p="tm" min="0" max="59" step="1" value="'+(p.targetMin%60)+'"></div>' +
+      '<div><label>Start / End</label>' +
+        '<div style="display:flex; gap:6px;">' +
+          '<input type="time" data-p="in" value="'+escapeHtml(p.standardIn)+'">' +
+          '<input type="time" data-p="out" value="'+escapeHtml(p.standardOut)+'">' +
+        '</div>' +
+      '</div>' +
+      '<button type="button" class="period-del" data-remove-period>Remove</button>' +
+    '</div>';
+  }
+
+  function renderPeriodRows(list){
+    var wrap = document.getElementById("periodsList");
+    if(!list.length){
+      wrap.innerHTML = '<p class="periods-empty">No seasonal hours set. Standard hours apply all year.</p>';
+      return;
+    }
+    wrap.innerHTML = list.map(periodRowHtml).join("");
+  }
+
+  function readPeriodRows(){
+    var out = [];
+    document.querySelectorAll("#periodsList [data-period]").forEach(function(row){
+      function val(k){
+        var el = row.querySelector('[data-p="'+k+'"]');
+        return el ? el.value : "";
+      }
+      var th = parseInt(val("th"), 10); if(isNaN(th)) th = 0;
+      var tm = parseInt(val("tm"), 10); if(isNaN(tm)) tm = 0;
+      out.push({
+        name: val("name"),
+        start: val("start"),
+        end: val("end"),
+        targetMin: th*60 + tm,
+        standardIn: val("in"),
+        standardOut: val("out")
+      });
+    });
+    return out;
+  }
+
+  // Expected Ramadan ranges (Umm al-Qura, Saudi Arabia). Actual dates depend on
+  // the moon sighting, so these are starting points the person can adjust.
+  var RAMADAN_DATES = {
+    2026: ["2026-02-19", "2026-03-19"],
+    2027: ["2027-02-08", "2027-03-08"],
+    2028: ["2028-01-28", "2028-02-26"],
+    2029: ["2029-01-16", "2029-02-14"],
+    2030: ["2030-01-06", "2030-02-04"],
+    2031: ["2031-12-26", "2032-01-24"],
+    2032: ["2032-12-14", "2033-01-12"]
+  };
+
+  function nextRamadan(){
+    var today = todayStr();
+    var years = Object.keys(RAMADAN_DATES).sort();
+    // Prefer the current or next upcoming Ramadan.
+    for(var i=0;i<years.length;i++){
+      var r = RAMADAN_DATES[years[i]];
+      if(r[1] >= today) return {year:years[i], start:r[0], end:r[1]};
+    }
+    var last = years[years.length-1];
+    return {year:last, start:RAMADAN_DATES[last][0], end:RAMADAN_DATES[last][1]};
+  }
+
+  document.getElementById("addRamadanBtn").addEventListener("click", function(){
+    var r = nextRamadan();
+    var current = readPeriodRows();
+    if(current.some(function(p){ return p.start === r.start && p.end === r.end; })){
+      alert("Ramadan " + r.year + " is already in the list.");
+      return;
+    }
+    current.push({
+      name: "Ramadan " + r.year,
+      start: r.start,
+      end: r.end,
+      targetMin: 360,               // 6 hours, the standard reduced day in KSA
+      standardIn: "10:00",
+      standardOut: "16:00"
+    });
+    renderPeriodRows(current);
+    alert("Added Ramadan " + r.year + " (" + fmtDate(r.start) + " – " + fmtDate(r.end) + ") at 6 hours a day, 10:00–4:00 PM.\n\n" +
+          "These are the expected dates and typical reduced hours — adjust them to match your employer's announcement, then press Save Settings.");
+  });
+
+  // Expected Ramadan windows (Umm al-Qura). The actual start depends on the
+  // moon sighting and can shift a day, so these are a starting point to edit.
+  var RAMADAN_DATES = [
+    {year:2027, start:"2027-02-08", end:"2027-03-08"},
+    {year:2028, start:"2028-01-28", end:"2028-02-25"},
+    {year:2029, start:"2029-01-16", end:"2029-02-14"},
+    {year:2030, start:"2030-01-06", end:"2030-02-03"},
+    {year:2031, start:"2030-12-26", end:"2031-01-24"}
+  ];
+
+  document.getElementById("addRamadanBtn").addEventListener("click", function(){
+    var current = readPeriodRows();
+    var today = todayStr();
+
+    // Next Ramadan that hasn't ended and isn't already in the list.
+    var next = RAMADAN_DATES.find(function(r){
+      if(r.end < today) return false;
+      return !current.some(function(p){ return p.start === r.start; });
+    });
+    if(!next){
+      alert("Ramadan is already set up for the years available. Use \"+ Add Period\" to add another range manually.");
+      return;
+    }
+
+    // Saudi labour law caps Ramadan at 6 hours a day for Muslim employees.
+    var ramadanMin = 360;
+    var startMin = timeToMinutes(settings.standardIn);
+    var endMin = (startMin + ramadanMin) % (24*60);
+
+    current.push({
+      name: "Ramadan " + next.year,
+      start: next.start,
+      end: next.end,
+      targetMin: ramadanMin,
+      standardIn: settings.standardIn,
+      standardOut: pad2(Math.floor(endMin/60)) + ":" + pad2(endMin%60)
+    });
+    renderPeriodRows(current);
+
+    var rows = document.querySelectorAll("#periodsList [data-period]");
+    if(rows.length) rows[rows.length-1].scrollIntoView({behavior:"smooth", block:"nearest"});
+  });
+
+  document.getElementById("addPeriodBtn").addEventListener("click", function(){
+    var wrap = document.getElementById("periodsList");
+    var current = readPeriodRows();
+    var year = new Date().getFullYear();
+    current.push({
+      name:"", start:year+"-01-01", end:year+"-01-31",
+      targetMin: Math.round(settings.targetMin * 0.75),
+      standardIn: settings.standardIn, standardOut: settings.standardOut
+    });
+    renderPeriodRows(current);
+    var rows = wrap.querySelectorAll("[data-period]");
+    if(rows.length) rows[rows.length-1].querySelector('[data-p="name"]').focus();
+  });
+
+  document.getElementById("periodsList").addEventListener("click", function(ev){
+    var btn = ev.target.closest("[data-remove-period]");
+    if(!btn) return;
+    var row = btn.closest("[data-period]");
+    var rows = Array.prototype.slice.call(document.querySelectorAll("#periodsList [data-period]"));
+    var idx = rows.indexOf(row);
+    var current = readPeriodRows();
+    if(idx !== -1) current.splice(idx, 1);
+    renderPeriodRows(current);
+  });
+  document.getElementById("settingsBtn").addEventListener("click", function(){
+    var card = document.getElementById("settingsCard");
+    var opening = !card.classList.contains("open");
+    card.classList.toggle("open", opening);
+    if(opening){
+      fillSettingsForm();
+      card.scrollIntoView({behavior:"smooth", block:"nearest"});
+    }
+  });
+  document.getElementById("closeSettingsBtn").addEventListener("click", function(){
+    document.getElementById("settingsCard").classList.remove("open");
+  });
+  document.getElementById("saveSettingsBtn").addEventListener("click", function(){
+    var days = [];
+    DAY_NAMES.forEach(function(_, i){
+      var box = document.getElementById("wd"+i);
+      if(box && box.checked) days.push(i);
+    });
+    if(!days.length){ alert("Pick at least one working day."); return; }
+
+    var th = parseInt(document.getElementById("sTargetH").value, 10);
+    var tm = parseInt(document.getElementById("sTargetM").value, 10);
+    if(isNaN(th)) th = 0;
+    if(isNaN(tm)) tm = 0;
+    if(th < 0 || tm < 0 || tm > 59){ alert("Minutes must be between 0 and 59."); return; }
+    var targetMin = th*60 + tm;
+    if(targetMin <= 0){ alert("Set a daily target greater than zero."); return; }
+    if(targetMin > 24*60){ alert("A daily target can't exceed 24 hours."); return; }
+
+    var remind = parseFloat(document.getElementById("sRemind").value);
+    if(isNaN(remind) || remind <= 0 || remind > 24) remind = DEFAULT_SETTINGS.remindAfterHours;
+
+    var grace = parseInt(document.getElementById("sGrace").value, 10);
+    if(isNaN(grace) || grace < 0 || grace > 240) grace = DEFAULT_SETTINGS.graceMin;
+
+    // Validate the seasonal rows before saving so mistakes surface immediately.
+    var rawPeriods = readPeriodRows();
+    for(var i=0;i<rawPeriods.length;i++){
+      var p = rawPeriods[i], where = "Seasonal period " + (i+1) + (p.name ? ' ("'+p.name+'")' : "");
+      if(!p.start || !p.end){ alert(where + " needs both a start and end date."); return; }
+      if(p.start > p.end){ alert(where + " ends before it starts."); return; }
+      if(p.targetMin <= 0){ alert(where + " needs a daily target greater than zero."); return; }
+      if(p.targetMin > 24*60){ alert(where + " has a target over 24 hours."); return; }
+      for(var j=0;j<i;j++){
+        var q = rawPeriods[j];
+        if(p.start <= q.end && q.start <= p.end){
+          alert(where + " overlaps another period. Date ranges can't overlap.");
+          return;
+        }
+      }
+    }
+
+    settings.workDays = days;
+    settings.targetMin = targetMin;
+    settings.standardIn = document.getElementById("sIn").value || DEFAULT_SETTINGS.standardIn;
+    settings.standardOut = document.getElementById("sOut").value || DEFAULT_SETTINGS.standardOut;
+    settings.remindAfterHours = remind;
+    settings.graceMin = grace;
+    settings.lateOnlyIfShort = document.getElementById("sLateOnlyShort").checked;
+    settings.periods = rawPeriods;
+    settings = normalizeSettings(settings);
+
+    saveSettings();
+    document.getElementById("settingsCard").classList.remove("open");
+    renderAll();
+  });
+
+  // ---------- Filters ----------
+  function getMonthFilter(){ return document.getElementById("monthFilterSelect").value; }
+  function getYearFilter(){ return document.getElementById("yearFilterSelect").value; }
+
+  function populateFilters(){
+    var mSel = document.getElementById("monthFilterSelect");
+    var mPrev = mSel.value;
+    var mKeys = Object.keys(groupBy(entries, monthKey)).sort().reverse();
+    mSel.innerHTML = '<option value="all">All Months</option>' +
+      mKeys.map(function(k){ return '<option value="'+k+'">'+monthLabel(k)+'</option>'; }).join("");
+    mSel.value = (mPrev === "all" || mKeys.indexOf(mPrev) !== -1) ? mPrev : "all";
+
+    var ySel = document.getElementById("yearFilterSelect");
+    var yPrev = ySel.value;
+    var yKeys = Object.keys(groupBy(entries, yearKey)).sort().reverse();
+    if(!yKeys.length) yKeys = [String(new Date().getFullYear())];
+    ySel.innerHTML = yKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
+    ySel.value = yKeys.indexOf(yPrev) !== -1 ? yPrev : yKeys[0];
+
+    // Only offer types that actually appear in the data.
+    var tSel = document.getElementById("typeFilterSelect");
+    var tPrev = tSel.value;
+    var present = {};
+    entries.forEach(function(e){ present[e.type || "regular"] = true; });
+    var tKeys = Object.keys(TYPE_LABELS).filter(function(k){ return present[k]; });
+    tSel.innerHTML = '<option value="all">All Types</option>' +
+      tKeys.map(function(k){ return '<option value="'+k+'">'+TYPE_LABELS[k]+'</option>'; }).join("");
+    tSel.value = (tPrev === "all" || tKeys.indexOf(tPrev) !== -1) ? tPrev : "all";
+  }
+
+  // Month filter alone — used by the weekly view and the month print report.
+  function filteredEntries(){
+    var mf = getMonthFilter();
+    if(mf === "all") return entries.slice();
+    return entries.filter(function(e){ return monthKey(e.date) === mf; });
+  }
+
+  function getSearchFilters(){
+    return {
+      text: (document.getElementById("searchInput").value || "").trim().toLowerCase(),
+      type: document.getElementById("typeFilterSelect").value,
+      from: document.getElementById("fromDate").value,
+      to: document.getElementById("toDate").value
+    };
+  }
+  function anyFilterActive(){
+    var f = getSearchFilters();
+    return !!(f.text || f.from || f.to || f.type !== "all" || getMonthFilter() !== "all");
+  }
+
+  // Month filter plus the search bar — used by the log table.
+  function searchedEntries(){
+    var f = getSearchFilters();
+    return filteredEntries().filter(function(e){
+      if(f.type !== "all" && (e.type || "regular") !== f.type) return false;
+      if(f.from && e.date < f.from) return false;
+      if(f.to && e.date > f.to) return false;
+      if(f.text){
+        var hay = ((e.note || "") + " " + (TYPE_LABELS[e.type] || "")).toLowerCase();
+        if(hay.indexOf(f.text) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  // ---------- Chart ----------
+  // data: [{label, value (minutes), targetMin, hasEntry, excused}]
+  function renderBarChart(container, data, opts){
+    if(!container) return;
+    opts = opts || {};
+    var h = opts.height || 150;
+    if(!data.length){ container.innerHTML = '<div class="empty-state">Nothing to chart yet.</div>'; return; }
+
+    var w = Math.max(container.clientWidth || 0, 260);
+    var padL = 10, padR = 10, padTop = 22;
+    var slot = (w - padL - padR) / data.length;
+    var barW = Math.max(6, Math.min(34, slot * 0.52));
+
+    // Scale label text with the available slot rather than dropping labels.
+    var valueFont = slot >= 42 ? 10.5 : (slot >= 32 ? 9.5 : (slot >= 24 ? 8.5 : (slot >= 18 ? 7.5 : 6.5)));
+    var axisFont  = slot >= 42 ? 10   : (slot >= 32 ? 9.5 : (slot >= 24 ? 8.5 : (slot >= 18 ? 7.5 : 6.5)));
+
+    // Rotate axis labels when the widest one wouldn't fit its slot horizontally.
+    var longest = data.reduce(function(m, d){ return Math.max(m, String(d.label).length); }, 0);
+    var estWidth = longest * axisFont * 0.55;
+    var rotate = estWidth > slot - 2;
+    var padBottom = rotate ? Math.min(estWidth * 0.72, 46) + 8 : 22;
+
+    var targetMin = opts.targetMin != null ? opts.targetMin : targetMinPerDay();
+    var maxVal = Math.max(targetMin, 1);
+    data.forEach(function(d){ if(d.value) maxVal = Math.max(maxVal, d.value); });
+    maxVal = maxVal * 1.12;
+    var scale = (h - padTop - padBottom) / maxVal;
+
+    var cPos = cssVar("--positive"), cTeal = cssVar("--teal-600"),
+        cLine = cssVar("--line"), cGold = cssVar("--gold");
+
+    function valueText(mins){
+      var hrs = mins/60;
+      // Keep it short: "8" not "8.0", one decimal only when it matters.
+      return (Math.abs(hrs - Math.round(hrs)) < 0.05) ? String(Math.round(hrs)) : hrs.toFixed(1);
+    }
+
+    var svg = '<svg class="chart-wrap" viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" role="img">';
+    if(targetMin > 0){
+      var ty = h - padBottom - targetMin*scale;
+      svg += '<line x1="'+padL+'" y1="'+ty.toFixed(1)+'" x2="'+(w-padR)+'" y2="'+ty.toFixed(1)+'" stroke="'+cGold+'" stroke-width="1.2" stroke-dasharray="4 3"/>';
+    }
+    data.forEach(function(d, i){
+      var cx = padL + slot*i + slot/2;
+      var val = d.value || 0;
+      var barH = Math.max(val*scale, val > 0 ? 2 : 1);
+      var y = h - padBottom - barH;
+      var color = !d.hasEntry ? cLine : (val >= (d.targetMin != null ? d.targetMin : targetMin) ? cPos : cTeal);
+
+      svg += '<rect x="'+(cx-barW/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+barH.toFixed(1)+'" fill="'+color+'" rx="2">'+
+             '<title>'+escapeHtml(d.label)+': '+minutesToHoursStr(val)+'</title></rect>';
+
+      // Value label: above the bar, or tucked inside when the bar reaches the top.
+      if(val > 0){
+        var above = y - 5 >= padTop;
+        var ty2 = above ? y - 5 : y + valueFont + 3;
+        var fill = above ? "" : ' fill="#fff"';
+        svg += '<text x="'+cx.toFixed(1)+'" y="'+ty2.toFixed(1)+'" text-anchor="middle" class="bar-value" '+
+               'style="font-size:'+valueFont+'px"'+fill+'>'+valueText(val)+'</text>';
+      } else {
+        svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-padBottom-6)+'" text-anchor="middle" class="bar-value bar-empty" '+
+               'style="font-size:'+valueFont+'px">–</text>';
+      }
+
+      if(rotate){
+        var lx = cx.toFixed(1), ly = (h - padBottom + 12).toFixed(1);
+        svg += '<text x="'+lx+'" y="'+ly+'" text-anchor="end" class="bar-label" '+
+               'transform="rotate(-45 '+lx+' '+ly+')" style="font-size:'+axisFont+'px">'+escapeHtml(d.label)+'</text>';
+      } else {
+        svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-7)+'" text-anchor="middle" class="bar-label" '+
+               'style="font-size:'+axisFont+'px">'+escapeHtml(d.label)+'</text>';
+      }
+    });
+    svg += '</svg>';
+    container.innerHTML = svg;
+  }
+
+  // ---------- Stats ----------
+  function renderStats(){
+    var today = todayStr();
+    var wk = weekKey(today), mk = monthKey(today);
+
+    var ws = summarize(entries.filter(function(e){ return weekKey(e.date) === wk; }));
+    var ms = summarize(entries.filter(function(e){ return monthKey(e.date) === mk; }));
+
+    document.getElementById("weekAvg").textContent = ws.loggedDays ? minutesToHoursStr(ws.avgMin) : "0h";
+    document.getElementById("weekAvgDetail").textContent =
+      ws.loggedDays + " of " + settings.workDays.length + " workdays logged";
+
+    document.getElementById("monthAvg").textContent = ms.loggedDays ? minutesToHoursStr(ms.avgMin) : "0h";
+    document.getElementById("monthAvgDetail").textContent = ms.loggedDays + " workdays logged";
+
+    var all = summarize(entries);
+    var otEl = document.getElementById("otBank");
+    otEl.textContent = signed(all.diffSum);
+    otEl.className = "stat-value " + (all.diffSum > 0 ? "positive" : (all.diffSum < 0 ? "negative" : ""));
+
+    // Streak: consecutive scheduled workdays back from today with worked time logged.
+    var streak = 0, cursor = new Date(), scanned = 0;
+    while(scanned < 400){
+      scanned++;
+      var dStr = dateToStr(cursor);
+      if(settings.workDays.indexOf(cursor.getDay()) !== -1){
+        var rec = entries.find(function(e){ return e.date === dStr; });
+        if(!rec) break;
+        var c = computeEntry(rec);
+        if(c.workedMin && c.workedMin > 0) streak++;
+        else if(!c.excused) break;
+      }
+      cursor.setDate(cursor.getDate()-1);
+    }
+    document.getElementById("streak").textContent = streak;
+
+    var todayEntry = entries.find(function(e){ return e.date === today; });
+    var seal = document.getElementById("todaySeal");
+    var sealValue = document.getElementById("sealValue");
+    seal.className = "seal";
+    if(todayEntry){
+      var tc = computeEntry(todayEntry);
+      if(tc.excused){ sealValue.textContent = TYPE_LABELS[todayEntry.type]; }
+      else if(tc.workedMin !== null){
+        sealValue.textContent = minutesToHoursStr(tc.workedMin);
+        seal.classList.add(tc.diffMin >= 0 ? "status-over" : "status-under");
+      }
+      else if(tc.open){ sealValue.textContent = "Clocked in"; }
+      else { sealValue.textContent = "Not logged"; }
+    } else {
+      sealValue.textContent = isScheduled(today) ? "Not logged" : "Day off";
+    }
+
+    document.getElementById("scheduleLine").textContent = scheduleSummary();
+  }
+
+  // ---------- Reminder ----------
+  function renderReminder(){
+    var banner = document.getElementById("reminderBanner");
+    var today = todayStr();
+    var now = new Date();
+    var nowMin = now.getHours()*60 + now.getMinutes();
+
+    // Oldest unclosed day first, so nothing gets buried.
+    var open = entries
+      .filter(function(e){ return e.clockIn && !e.clockOut && EXCUSED_TYPES.indexOf(e.type) === -1; })
+      .sort(function(a,b){ return a.date.localeCompare(b.date); });
+
+    var target = null, isPast = false;
+    for(var i=0;i<open.length;i++){
+      var e = open[i];
+      if(e.date < today){ target = e; isPast = true; break; }
+      if(e.date === today){
+        var elapsed = nowMin - timeToMinutes(e.clockIn);
+        if(elapsed >= settings.remindAfterHours*60){ target = e; isPast = false; break; }
+      }
+    }
+
+    if(!target || dismissedReminders[target.date]){
+      banner.classList.remove("show");
+      return;
+    }
+
+    var elapsedMin = isPast ? null : (nowMin - timeToMinutes(target.clockIn));
+    document.getElementById("reminderTitle").textContent =
+      isPast ? "You never clocked out on " + fmtDate(target.date) : "Still clocked in";
+    document.getElementById("reminderText").textContent =
+      isPast
+        ? "Clocked in at " + formatTime12(target.clockIn) + " with no clock-out. That day won't count toward your averages until you add one."
+        : "You clocked in at " + formatTime12(target.clockIn) + " — that's " + minutesToHoursStr(elapsedMin) + " ago.";
+
+    var actions = document.getElementById("reminderActions");
+    actions.innerHTML = "";
+
+    if(!isPast){
+      var outBtn = document.createElement("button");
+      outBtn.className = "btn small";
+      outBtn.textContent = "Clock Out Now";
+      outBtn.addEventListener("click", function(){ punchClock("out"); });
+      actions.appendChild(outBtn);
+    }
+
+    var fixBtn = document.createElement("button");
+    fixBtn.className = "btn ghost small";
+    fixBtn.textContent = isPast ? "Add Clock-Out Time" : "Edit Entry";
+    fixBtn.addEventListener("click", function(){ loadEntryIntoForm(target.id); });
+    actions.appendChild(fixBtn);
+
+    var dismissBtn = document.createElement("button");
+    dismissBtn.className = "btn ghost small";
+    dismissBtn.textContent = "Dismiss";
+    dismissBtn.addEventListener("click", function(){
+      dismissedReminders[target.date] = true;
+      renderReminder();
+    });
+    actions.appendChild(dismissBtn);
+
+    banner.classList.add("show");
+  }
+
+  // ---------- Log ----------
+  function pillFor(c){
+    if(c.open) return '<span class="pill open">Open</span>';
+    if(c.excused) return '<span class="pill excused">Excused</span>';
+    if(c.diffMin === null) return "—";
+    if(Math.abs(c.diffMin) < 1) return '<span class="pill onit">On target</span>';
+    return c.diffMin > 0
+      ? '<span class="pill over">'+signed(c.diffMin)+'</span>'
+      : '<span class="pill under">'+minutesToHoursStr(c.diffMin)+'</span>';
+  }
+
+  function renderLog(){
+    var body = document.getElementById("logBody");
+    var rows = searchedEntries().sort(function(a,b){ return b.date.localeCompare(a.date); });
+    body.innerHTML = "";
+
+    var empty = document.getElementById("logEmpty");
+    empty.textContent = entries.length === 0
+      ? "No entries yet. Clock in above, or add a day manually."
+      : "No days match these filters.";
+    empty.style.display = rows.length ? "none" : "block";
+
+    var countEl = document.getElementById("filterCount");
+    countEl.textContent = anyFilterActive()
+      ? "Showing " + rows.length + " of " + entries.length
+      : (entries.length ? entries.length + " day" + (entries.length===1?"":"s") + " logged" : "");
+
+    rows.forEach(function(e){
+      var c = computeEntry(e);
+      var breakStr = (e.breakStart && e.breakEnd)
+        ? formatTime12(e.breakStart)+" – "+formatTime12(e.breakEnd) : "—";
+      // Flag arrivals and departures that fall outside the grace period.
+      var inCell = e.clockIn
+        ? (c.lateMin > 0
+            ? "<span class='late-cell' title='"+minutesToHoursStr(c.lateMin)+" late'>"+formatTime12(e.clockIn)+"</span>"
+            : formatTime12(e.clockIn))
+        : "—";
+      var outCell = e.clockOut
+        ? (c.earlyMin > 0
+            ? "<span class='late-cell' title='Left "+minutesToHoursStr(c.earlyMin)+" early'>"+formatTime12(e.clockOut)+"</span>"
+            : formatTime12(e.clockOut))
+        : "—";
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>"+fmtDate(e.date)+"</td>"+
+        "<td>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
+        "<td>"+inCell+"</td>"+
+        "<td>"+outCell+"</td>"+
+        "<td>"+breakStr+"</td>"+
+        "<td class='num'>"+minutesToHoursStr(c.workedMin)+"</td>"+
+        "<td class='num'>"+(c.targetMin ? minutesToHoursStr(c.targetMin) : "—")+"</td>"+
+        "<td class='num'>"+pillFor(c)+"</td>"+
+        "<td>"+TYPE_LABELS[e.type]+"</td>"+
+        "<td class='note-cell'>"+escapeHtml(e.note)+"</td>"+
+        "<td class='row-actions'><button type='button' data-edit='"+e.id+"'>Edit</button><button type='button' data-del='"+e.id+"'>Delete</button></td>";
+      body.appendChild(tr);
+    });
+  }
+
+  // ---------- Weekly ----------
+  function renderWeekly(){
+    var list = document.getElementById("weeklyList");
+    var groups = groupBy(filteredEntries(), weekKey);
+    var keys = Object.keys(groups).sort().reverse();
+
+    var empty = document.getElementById("weeklyEmpty");
+    empty.textContent = getMonthFilter() === "all" ? "No entries yet." : "No entries logged for this month.";
+    empty.style.display = keys.length ? "none" : "block";
+    list.innerHTML = "";
+
+    keys.forEach(function(k){
+      var s = summarize(groups[k]);
+      var ws = dateFromStr(k), we = new Date(ws); we.setDate(we.getDate()+6);
+      var byDate = {};
+      groups[k].forEach(function(e){ byDate[e.date] = computeEntry(e); });
+
+      var card = document.createElement("div");
+      card.className = "period-card";
+      var range = ws.toLocaleDateString(undefined,{month:"short", day:"numeric"}) + " – " +
+                  we.toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
+      card.innerHTML =
+        '<div class="period-card-head"><span class="period-title display">Week of '+range+'</span>'+
+        '<span class="period-meta">'+s.loggedDays+' of '+settings.workDays.length+' workdays logged</span></div>'+
+        '<div class="period-figures">'+
+          '<div class="period-figure"><div class="label">Total</div><div class="value">'+minutesToHoursStr(s.workedSum)+'</div></div>'+
+          '<div class="period-figure"><div class="label">Avg / Day</div><div class="value">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</div></div>'+
+          '<div class="period-figure"><div class="label">Target</div><div class="value">'+minutesToHoursStr(s.targetSum)+'</div></div>'+
+          '<div class="period-figure"><div class="label">Overtime / Under</div><div class="value" data-diff="'+s.diffSum+'">'+signed(s.diffSum)+'</div></div>'+
+        '</div><div class="chart-holder"></div>';
+      list.appendChild(card);
+
+      var diffEl = card.querySelector('[data-diff]');
+      diffEl.style.color = s.diffSum > 0 ? cssVar("--positive") : (s.diffSum < 0 ? cssVar("--negative") : "");
+
+      // Chart the working days only. An off-day still appears if it was worked,
+      // so overtime on a weekend never silently disappears from the chart.
+      var chartData = [];
+      for(var i=0;i<7;i++){
+        var d = new Date(ws); d.setDate(d.getDate()+i);
+        var dStr = dateToStr(d);
+        var c = byDate[dStr];
+        var isWorkDay = settings.workDays.indexOf(d.getDay()) !== -1;
+        if(!isWorkDay && !(c && c.workedMin)) continue;
+        chartData.push({
+          label: DAY_NAMES[d.getDay()],
+          value: c ? (c.workedMin || 0) : 0,
+          targetMin: isWorkDay ? targetMinPerDay() : 0,
+          hasEntry: !!c
+        });
+      }
+      renderBarChart(card.querySelector(".chart-holder"), chartData);
+    });
+  }
+
+  // ---------- Monthly ----------
+  function monthStats(){
+    var groups = groupBy(entries, monthKey);
+    return Object.keys(groups).sort().map(function(k){
+      var s = summarize(groups[k]);
+      s.key = k; s.label = monthLabel(k); s.shortLabel = monthShortLabel(k);
+      return s;
+    });
+  }
+
+  function renderMonthly(){
+    var stats = monthStats();
+    document.getElementById("monthlyEmpty").style.display = stats.length ? "none" : "block";
+    document.getElementById("monthlyChartMeta").textContent =
+      stats.length ? stats.length + " month" + (stats.length===1?"":"s") + " tracked" : "";
+
+    renderBarChart(document.getElementById("monthlyChart"), stats.map(function(m){
+      return {label:m.shortLabel, value:m.avgMin, hasEntry:m.loggedDays > 0};
+    }));
+
+    var body = document.getElementById("monthlyBody");
+    body.innerHTML = "";
+    stats.slice().reverse().forEach(function(m){
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>"+m.label+"</td>"+
+        "<td class='num'>"+m.loggedDays+"</td>"+
+        "<td class='num'>"+minutesToHoursStr(m.workedSum)+"</td>"+
+        "<td class='num'>"+(m.loggedDays?minutesToHoursStr(m.avgMin):"—")+"</td>"+
+        "<td class='num'>"+minutesToHoursStr(m.targetSum)+"</td>"+
+        "<td class='num' style='color:"+(m.diffSum>0?cssVar("--positive"):m.diffSum<0?cssVar("--negative"):"inherit")+"'>"+signed(m.diffSum)+"</td>";
+      body.appendChild(tr);
+    });
+  }
+
+  // ---------- Yearly ----------
+  function yearStats(){
+    var groups = groupBy(entries, yearKey);
+    return Object.keys(groups).sort().map(function(k){
+      var s = summarize(groups[k]);
+      s.key = k;
+      return s;
+    });
+  }
+
+  function renderYearly(){
+    var stats = yearStats();
+    document.getElementById("yearlyEmpty").style.display = stats.length ? "none" : "block";
+
+    var yr = getYearFilter();
+    var yearEntries = entries.filter(function(e){ return yearKey(e.date) === yr; });
+    var ys = summarize(yearEntries);
+
+    document.getElementById("yearTitle").textContent = yr;
+    document.getElementById("yearMeta").textContent =
+      ys.loggedDays + " workday" + (ys.loggedDays===1?"":"s") + " logged" +
+      (ys.openDays ? " · " + ys.openDays + " open" : "");
+
+    document.getElementById("yearFigures").innerHTML =
+      '<div class="period-figure"><div class="label">Total Hours</div><div class="value">'+minutesToHoursStr(ys.workedSum)+'</div></div>'+
+      '<div class="period-figure"><div class="label">Avg / Day</div><div class="value">'+(ys.loggedDays?minutesToHoursStr(ys.avgMin):"—")+'</div></div>'+
+      '<div class="period-figure"><div class="label">Target</div><div class="value">'+minutesToHoursStr(ys.targetSum)+'</div></div>'+
+      '<div class="period-figure"><div class="label">Overtime / Under</div><div class="value" style="color:'+
+        (ys.diffSum>0?cssVar("--positive"):ys.diffSum<0?cssVar("--negative"):"inherit")+'">'+signed(ys.diffSum)+'</div></div>';
+
+    // Full 12 months so gaps in the year stay visible.
+    var byMonth = groupBy(yearEntries, monthKey);
+    var monthData = [];
+    for(var m=0;m<12;m++){
+      var k = yr+"-"+pad2(m+1);
+      var s = byMonth[k] ? summarize(byMonth[k]) : null;
+      monthData.push({
+        label: new Date(+yr, m, 1).toLocaleDateString(undefined,{month:"short"}),
+        value: s ? s.avgMin : 0,
+        hasEntry: !!(s && s.loggedDays)
+      });
+    }
+    renderBarChart(document.getElementById("yearChart"), monthData, {height:160});
+
+    renderBarChart(document.getElementById("yoyChart"), stats.map(function(y){
+      return {label:y.key, value:y.avgMin, hasEntry:y.loggedDays > 0};
+    }), {height:140});
+
+    var body = document.getElementById("yearlyBody");
+    body.innerHTML = "";
+    stats.slice().reverse().forEach(function(y, idx, arr){
+      var prev = arr[idx+1]; // next in reversed list = previous year
+      var delta = (prev && prev.loggedDays && y.loggedDays) ? (y.avgMin - prev.avgMin) : null;
+      var deltaCell = delta === null
+        ? "—"
+        : "<span style='color:"+(delta>0?cssVar("--positive"):delta<0?cssVar("--negative"):"inherit")+"'>"+signed(delta)+" / day</span>";
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>"+y.key+"</td>"+
+        "<td class='num'>"+y.loggedDays+"</td>"+
+        "<td class='num'>"+minutesToHoursStr(y.workedSum)+"</td>"+
+        "<td class='num'>"+(y.loggedDays?minutesToHoursStr(y.avgMin):"—")+"</td>"+
+        "<td class='num'>"+minutesToHoursStr(y.targetSum)+"</td>"+
+        "<td class='num' style='color:"+(y.diffSum>0?cssVar("--positive"):y.diffSum<0?cssVar("--negative"):"inherit")+"'>"+signed(y.diffSum)+"</td>"+
+        "<td class='num'>"+deltaCell+"</td>";
+      body.appendChild(tr);
+    });
+  }
+
+  // ---------- Punctuality ----------
+  function renderPunctuality(){
+    var scope = filteredEntries();
+    document.getElementById("punctRule").textContent = settings.lateOnlyIfShort
+      ? "Counting a day late only when you arrived more than " + settings.graceMin +
+        " min after your start time and finished short of your target hours. Days where you made the hours up aren't flagged."
+      : "Counting a day late whenever you arrived more than " + settings.graceMin +
+        " min after your start time, regardless of hours worked.";
+    var s = summarize(scope);
+
+    var rateEl = document.getElementById("pOnTime");
+    if(s.ratedDays){
+      rateEl.textContent = Math.round(s.onTimeRate) + "%";
+      rateEl.className = "stat-value " + (s.onTimeRate >= 90 ? "positive" : (s.onTimeRate < 70 ? "negative" : ""));
+      document.getElementById("pOnTimeDetail").textContent =
+        s.onTimeDays + " on time of " + s.ratedDays + " days";
+    } else {
+      rateEl.textContent = "—";
+      rateEl.className = "stat-value";
+      document.getElementById("pOnTimeDetail").textContent = "No arrivals recorded";
+    }
+
+    document.getElementById("pLate").textContent = s.lateDays;
+    document.getElementById("pLateDetail").textContent =
+      s.lateDays ? "Avg " + minutesToHoursStr(s.avgLateMin) + " late" : "Nothing flagged";
+
+    document.getElementById("pEarly").textContent = s.earlyDays;
+    document.getElementById("pEarlyDetail").textContent =
+      s.earlyDays ? "Avg " + minutesToHoursStr(s.avgEarlyMin) + " early" : "Nothing flagged";
+
+    // Mean arrival clock time across days that have an arrival.
+    var arrivals = [];
+    scope.forEach(function(e){
+      var c = computeEntry(e);
+      if(c.scheduled && !c.excused && e.clockIn) arrivals.push(timeToMinutes(e.clockIn));
+    });
+    var avgEl = document.getElementById("pAvgArrival");
+    if(arrivals.length){
+      var mean = Math.round(arrivals.reduce(function(a,b){ return a+b; }, 0) / arrivals.length);
+      avgEl.textContent = formatTime12(pad2(Math.floor(mean/60)) + ":" + pad2(mean%60));
+      var expected = timeToMinutes(scheduleFor(todayStr()).standardIn);
+      var delta = mean - expected;
+      document.getElementById("pAvgArrivalDetail").textContent =
+        Math.abs(delta) < 1 ? "Right on schedule"
+          : (delta > 0 ? minutesToHoursStr(delta) + " after start" : minutesToHoursStr(-delta) + " before start");
+    } else {
+      avgEl.textContent = "—";
+      document.getElementById("pAvgArrivalDetail").textContent = "No arrivals recorded";
+    }
+
+    // Average lateness per month, across the whole history (not month-filtered).
+    var byMonth = groupBy(entries, monthKey);
+    var mKeys = Object.keys(byMonth).sort();
+    renderBarChart(document.getElementById("punctChart"), mKeys.map(function(k){
+      var ms = summarize(byMonth[k]);
+      return {
+        label: monthShortLabel(k),
+        value: ms.avgLateMin,
+        targetMin: 0,
+        hasEntry: ms.lateDays > 0
+      };
+    }), {height:140, targetMin:0});
+
+    // Table of every flagged day, most recent first.
+    var flagged = scope.filter(function(e){
+      var c = computeEntry(e);
+      return c.lateMin > 0 || c.earlyMin > 0;
+    }).sort(function(a,b){ return b.date.localeCompare(a.date); });
+
+    var body = document.getElementById("punctBody");
+    body.innerHTML = "";
+    var empty = document.getElementById("punctEmpty");
+    empty.textContent = s.ratedDays
+      ? "No late arrivals or early departures in this period. Nicely done."
+      : "No attendance recorded for this period yet.";
+    empty.style.display = flagged.length ? "none" : "block";
+
+    flagged.forEach(function(e){
+      var c = computeEntry(e);
+      // How far short of target the day finished — the reason it was flagged.
+      var shortMin = (c.workedMin !== null && c.targetMin) ? c.targetMin - c.workedMin : null;
+      var shortCell = (shortMin !== null && shortMin > 0)
+        ? "<span class='late-cell'>"+minutesToHoursStr(shortMin)+"</span>"
+        : "—";
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>"+fmtDate(e.date)+"</td>"+
+        "<td>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
+        "<td>"+formatTime12(c.sched.standardIn)+"</td>"+
+        "<td"+(c.lateMin>0?" class='late-cell'":"")+">"+(e.clockIn?formatTime12(e.clockIn):"—")+"</td>"+
+        "<td class='num'>"+(c.lateMin>0?minutesToHoursStr(c.lateMin):"—")+"</td>"+
+        "<td>"+formatTime12(c.sched.standardOut)+"</td>"+
+        "<td"+(c.earlyMin>0?" class='late-cell'":"")+">"+(e.clockOut?formatTime12(e.clockOut):"—")+"</td>"+
+        "<td class='num'>"+(c.earlyMin>0?minutesToHoursStr(c.earlyMin):"—")+"</td>"+
+        "<td class='num'>"+minutesToHoursStr(c.workedMin)+"</td>"+
+        "<td class='num'>"+(c.targetMin?minutesToHoursStr(c.targetMin):"—")+"</td>"+
+        "<td class='num'>"+shortCell+"</td>"+
+        "<td class='note-cell'>"+escapeHtml(e.note)+"</td>";
+      body.appendChild(tr);
+    });
+  }
+
+  function renderCharts(){
+    renderWeekly();
+    renderMonthly();
+    renderYearly();
+    renderPunctuality();
+  }
+
+  function renderAll(){
+    populateFilters();
+    renderStats();
+    renderReminder();
+    renderBackupReminder();
+    renderLog();
+    renderCharts();
+  }
+
+  // ---------- Backup reminder ----------
+  var backupSnoozed = false;
+
+  function markBackedUp(){
+    safeSet(BACKUP_KEY, String(Date.now()));
+    renderBackupReminder();
+  }
+
+  function renderBackupReminder(){
+    var banner = document.getElementById("backupBanner");
+    if(backupSnoozed || !entries.length){ banner.classList.remove("show"); return; }
+
+    var last = parseInt(safeGet(BACKUP_KEY) || "", 10);
+    var now = Date.now();
+    var dayMs = 24*60*60*1000;
+
+    if(isFinite(last)){
+      var days = Math.floor((now - last) / dayMs);
+      if(days < BACKUP_REMIND_DAYS){ banner.classList.remove("show"); return; }
+      document.getElementById("backupTitle").textContent = "Time for a backup";
+      document.getElementById("backupText").textContent =
+        "Your last backup was " + days + " days ago. You've logged " + entries.length +
+        " days since you started — this data lives only in this browser, so clearing site data would lose it.";
+    } else {
+      // Never backed up: wait until there's enough logged to be worth protecting.
+      if(entries.length < 5){ banner.classList.remove("show"); return; }
+      document.getElementById("backupTitle").textContent = "You haven't backed up yet";
+      document.getElementById("backupText").textContent =
+        "You've logged " + entries.length + " days. This data lives only in this browser, " +
+        "so clearing site data or switching devices would lose it.";
+    }
+    banner.classList.add("show");
+  }
+
+  document.getElementById("backupNowBtn").addEventListener("click", function(){
+    exportJson();
+  });
+  document.getElementById("backupLaterBtn").addEventListener("click", function(){
+    backupSnoozed = true;
+    renderBackupReminder();
+  });
+
+  // ---------- Print report ----------
+  function buildPrintReport(period){
+    var rows, title, subtitle;
+    if(period === "year"){
+      var yr = getYearFilter();
+      rows = entries.filter(function(e){ return yearKey(e.date) === yr; });
+      title = "Attendance Report — " + yr;
+      subtitle = "January 1 – December 31, " + yr;
+    } else {
+      var mf = getMonthFilter();
+      rows = filteredEntries();
+      title = "Attendance Report" + (mf === "all" ? "" : " — " + monthLabel(mf));
+      subtitle = mf === "all" ? "All recorded days" : monthLabel(mf);
+    }
+    rows = rows.slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
+    var s = summarize(rows);
+
+    var html =
+      '<p class="p-eyebrow">Personal Time Record</p>' +
+      '<h1>'+escapeHtml(title)+'</h1>' +
+      '<p class="p-meta">'+escapeHtml(subtitle)+'</p>' +
+      '<p class="p-meta">Schedule: '+escapeHtml(scheduleSummary())+'</p>' +
+      '<p class="p-meta">Generated '+escapeHtml(fmtDateLong(todayStr()))+'</p>' +
+      '<hr class="p-rule">' +
+      '<h2>Summary</h2>' +
+      '<div class="p-summary">' +
+        '<div><span class="k">Days Logged</span><span class="v">'+s.loggedDays+'</span></div>' +
+        '<div><span class="k">Total Hours</span><span class="v">'+minutesToHoursStr(s.workedSum)+'</span></div>' +
+        '<div><span class="k">Average / Day</span><span class="v">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</span></div>' +
+        '<div><span class="k">Target Hours</span><span class="v">'+minutesToHoursStr(s.targetSum)+'</span></div>' +
+        '<div><span class="k">Overtime / Under</span><span class="v">'+signed(s.diffSum)+'</span></div>' +
+      '</div>';
+
+    if(period === "year"){
+      var byMonth = groupBy(rows, monthKey);
+      var mKeys = Object.keys(byMonth).sort();
+      html += '<h2>Monthly Breakdown</h2><table><thead><tr>' +
+        '<th>Month</th><th class="num">Days</th><th class="num">Total</th><th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th>' +
+        '</tr></thead><tbody>';
+      mKeys.forEach(function(k){
+        var ms = summarize(byMonth[k]);
+        html += '<tr><td>'+escapeHtml(monthLabel(k))+'</td>' +
+          '<td class="num">'+ms.loggedDays+'</td>' +
+          '<td class="num">'+minutesToHoursStr(ms.workedSum)+'</td>' +
+          '<td class="num">'+(ms.loggedDays?minutesToHoursStr(ms.avgMin):"—")+'</td>' +
+          '<td class="num">'+minutesToHoursStr(ms.targetSum)+'</td>' +
+          '<td class="num">'+signed(ms.diffSum)+'</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    html += '<h2>Daily Record</h2>';
+    if(!rows.length){
+      html += '<p class="p-meta">No entries in this period.</p>';
+    } else {
+      html += '<table><thead><tr>' +
+        '<th>Date</th><th>Day</th><th>In</th><th>Out</th><th>Break</th>' +
+        '<th class="num">Worked</th><th class="num">Target</th><th class="num">Diff</th><th>Type</th><th>Note</th>' +
+        '</tr></thead><tbody>';
+      rows.forEach(function(e){
+        var c = computeEntry(e);
+        var brk = (e.breakStart && e.breakEnd) ? formatTime12(e.breakStart)+" – "+formatTime12(e.breakEnd) : "—";
+        html += '<tr>' +
+          '<td>'+escapeHtml(fmtDate(e.date))+'</td>' +
+          '<td>'+DAY_NAMES[dateFromStr(e.date).getDay()]+'</td>' +
+          '<td>'+(e.clockIn?escapeHtml(formatTime12(e.clockIn)):"—")+'</td>' +
+          '<td>'+(e.clockOut?escapeHtml(formatTime12(e.clockOut)):"—")+'</td>' +
+          '<td>'+escapeHtml(brk)+'</td>' +
+          '<td class="num">'+minutesToHoursStr(c.workedMin)+'</td>' +
+          '<td class="num">'+(c.targetMin?minutesToHoursStr(c.targetMin):"—")+'</td>' +
+          '<td class="num">'+(c.diffMin===null?"—":signed(c.diffMin))+'</td>' +
+          '<td>'+TYPE_LABELS[e.type]+'</td>' +
+          '<td>'+escapeHtml(e.note)+'</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    html += '<div class="p-sign"><div>Employee signature &amp; date</div><div>Manager signature &amp; date</div></div>';
+    document.getElementById("printArea").innerHTML = html;
+    window.print();
+  }
+
+  document.getElementById("printBtn").addEventListener("click", function(){ buildPrintReport("month"); });
+  document.getElementById("printYearBtn").addEventListener("click", function(){ buildPrintReport("year"); });
+
+  // ---------- Form ----------
+  var editingId = null;
+  var form = document.getElementById("entryForm");
+
+  document.getElementById("fillStandardBtn").addEventListener("click", function(){
+    document.getElementById("fIn").value = settings.standardIn;
+    document.getElementById("fOut").value = settings.standardOut;
+  });
+
+  function resetForm(){
+    form.reset();
+    editingId = null;
+    document.getElementById("fDate").value = todayStr();
+    document.getElementById("submitBtn").textContent = "Add Entry";
+    document.getElementById("cancelEditBtn").style.display = "none";
+  }
+
+  function loadEntryIntoForm(id){
+    var e = entries.find(function(x){ return x.id === id; });
+    if(!e) return;
+    document.getElementById("fDate").value = e.date;
+    document.getElementById("fIn").value = e.clockIn || "";
+    document.getElementById("fOut").value = e.clockOut || "";
+    document.getElementById("fBreakStart").value = e.breakStart || "";
+    document.getElementById("fBreakEnd").value = e.breakEnd || "";
+    document.getElementById("fType").value = e.type || "regular";
+    document.getElementById("fNote").value = e.note || "";
+    editingId = e.id;
+    document.getElementById("submitBtn").textContent = "Save Changes";
+    document.getElementById("cancelEditBtn").style.display = "inline-flex";
+    form.scrollIntoView({behavior:"smooth", block:"center"});
+    document.getElementById("fOut").focus();
+  }
+
+  form.addEventListener("submit", function(ev){
+    ev.preventDefault();
+    var date = document.getElementById("fDate").value;
+    if(!date) return;
+
+    var payload = {
+      id: editingId || uid(),
+      date: date,
+      clockIn: document.getElementById("fIn").value || "",
+      clockOut: document.getElementById("fOut").value || "",
+      breakStart: document.getElementById("fBreakStart").value || "",
+      breakEnd: document.getElementById("fBreakEnd").value || "",
+      type: document.getElementById("fType").value,
+      note: document.getElementById("fNote").value.trim()
+    };
+
+    if(editingId){
+      var idx = entries.findIndex(function(e){ return e.id === editingId; });
+      if(idx !== -1) entries[idx] = payload;
+    } else {
+      var existing = entries.findIndex(function(e){ return e.date === date; });
+      if(existing !== -1){
+        if(!confirm("An entry for "+fmtDate(date)+" already exists. Replace it?")) return;
+        entries[existing] = payload;
+      } else {
+        entries.push(payload);
+      }
+    }
+
+    delete dismissedReminders[date];
+    saveEntries();
+    resetForm();
+    renderAll();
+  });
+
+  document.getElementById("cancelEditBtn").addEventListener("click", resetForm);
+
+  document.getElementById("logBody").addEventListener("click", function(ev){
+    var btn = ev.target.closest("button");
+    if(!btn) return;
+    var editId = btn.getAttribute("data-edit");
+    var delId = btn.getAttribute("data-del");
+    if(editId) loadEntryIntoForm(editId);
+    if(delId && confirm("Delete this entry?")){
+      if(editingId === delId) resetForm();
+      entries = entries.filter(function(x){ return x.id !== delId; });
+      saveEntries();
+      renderAll();
+    }
+  });
+
+  // ---------- Quick clock ----------
+  function nowTimeStr(){
+    var d = new Date();
+    return pad2(d.getHours())+":"+pad2(d.getMinutes());
+  }
+  function updateLiveClock(){
+    var d = new Date();
+    var h = d.getHours();
+    var period = h >= 12 ? "PM" : "AM";
+    var h12 = h % 12; if(h12 === 0) h12 = 12;
+    document.getElementById("liveClock").textContent =
+      h12 + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()) + " " + period;
+    document.getElementById("liveDate").textContent = fmtDateLong(todayStr());
+  }
+  function showQcNote(msg, success){
+    var el = document.getElementById("qcStatusNote");
+    el.textContent = msg;
+    el.className = "qc-note" + (success ? " success" : "");
+  }
+
+  function punchClock(kind){
+    var today = todayStr();
+    var timeNow = nowTimeStr();
+    var field = kind === "in" ? "clockIn" : "clockOut";
+    var e = entries.find(function(x){ return x.date === today; });
+
+    if(e && e[field]){
+      if(!confirm("You already clocked "+kind+" today at "+formatTime12(e[field])+". Replace it with "+formatTime12(timeNow)+"?")) return;
+    }
+    if(!e){
+      e = {id:uid(), date:today, clockIn:"", clockOut:"", breakStart:"", breakEnd:"", type:"regular", note:""};
+      entries.push(e);
+    }
+    e[field] = timeNow;
+    if(kind === "in") delete dismissedReminders[today];
+
+    saveEntries();
+
+    if(editingId === e.id){
+      document.getElementById(kind === "in" ? "fIn" : "fOut").value = timeNow;
+    } else if(!editingId && document.getElementById("fDate").value === today){
+      document.getElementById(kind === "in" ? "fIn" : "fOut").value = timeNow;
+    }
+
+    renderAll();
+
+    var msg = "Clocked " + kind + " at " + formatTime12(timeNow) + " · " + fmtDate(today);
+    if(kind === "out"){
+      var c = computeEntry(e);
+      if(c.workedMin !== null) msg += " · " + minutesToHoursStr(c.workedMin) + " worked";
+    }
+    showQcNote(msg, true);
+  }
+
+  document.getElementById("clockInBtn").addEventListener("click", function(){ punchClock("in"); });
+  document.getElementById("clockOutBtn").addEventListener("click", function(){ punchClock("out"); });
+
+  // ---------- Tabs & filters ----------
+  document.querySelectorAll(".tab-btn").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      document.querySelectorAll(".tab-btn").forEach(function(b){ b.classList.remove("active"); });
+      document.querySelectorAll(".tab-panel").forEach(function(p){ p.classList.remove("active"); });
+      btn.classList.add("active");
+
+      var tab = btn.getAttribute("data-tab");
+      document.getElementById("tab-"+tab).classList.add("active");
+      var usesMonth = (tab === "log" || tab === "weekly" || tab === "punctuality");
+      document.getElementById("monthFilterWrap").style.display = usesMonth ? "flex" : "none";
+      document.getElementById("searchFilterWrap").style.display = (tab === "log") ? "flex" : "none";
+      document.getElementById("yearFilterWrap").style.display = (tab === "yearly") ? "flex" : "none";
+
+      if(tab === "weekly") renderWeekly();
+      if(tab === "monthly") renderMonthly();
+      if(tab === "yearly") renderYearly();
+      if(tab === "punctuality") renderPunctuality();
+    });
+  });
+
+  document.getElementById("monthFilterSelect").addEventListener("change", function(){
+    renderLog();
+    renderWeekly();
+    renderPunctuality();
+  });
+
+  // Search bar: re-filter the log as the person types or narrows the range.
+  ["searchInput","typeFilterSelect","fromDate","toDate"].forEach(function(id){
+    var el = document.getElementById(id);
+    el.addEventListener(id === "searchInput" ? "input" : "change", renderLog);
+  });
+  document.getElementById("clearFiltersBtn").addEventListener("click", function(){
+    document.getElementById("searchInput").value = "";
+    document.getElementById("typeFilterSelect").value = "all";
+    document.getElementById("fromDate").value = "";
+    document.getElementById("toDate").value = "";
+    document.getElementById("monthFilterSelect").value = "all";
+    renderLog();
+    renderWeekly();
+    renderPunctuality();
+  });
+  document.getElementById("yearFilterSelect").addEventListener("change", renderYearly);
+
+  // ---------- Export / import ----------
+  function download(filename, content, mime){
+    var blob = new Blob([content], {type:mime});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function exportJson(){
+    download("attendance-backup-"+todayStr()+".json",
+      JSON.stringify({version:3, settings:settings, entries:entries}, null, 2), "application/json");
+    markBackedUp();
+  }
+  document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
+
+  document.getElementById("exportCsvBtn").addEventListener("click", function(){
+    var rows = [["Date","Day","Clock In","Clock Out","Break Start","Break End","Worked (h)","Target (h)","Diff (h)","Late (min)","Early (min)","Type","Note"]];
+    entries.slice().sort(function(a,b){ return a.date.localeCompare(b.date); }).forEach(function(e){
+      var c = computeEntry(e);
+      rows.push([
+        e.date, DAY_NAMES[dateFromStr(e.date).getDay()],
+        formatTime12(e.clockIn), formatTime12(e.clockOut),
+        formatTime12(e.breakStart), formatTime12(e.breakEnd),
+        c.workedMin !== null ? (c.workedMin/60).toFixed(2) : "",
+        (c.targetMin/60).toFixed(2),
+        c.diffMin !== null ? (c.diffMin/60).toFixed(2) : "",
+        c.lateMin || "", c.earlyMin || "",
+        TYPE_LABELS[e.type], e.note || ""
+      ]);
+    });
+    var csv = rows.map(function(r){
+      return r.map(function(v){
+        v = String(v == null ? "" : v);
+        return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+      }).join(",");
+    }).join("\n");
+    download("attendance-export-"+todayStr()+".csv", csv, "text/csv");
+  });
+
+  // ---------- CSV import ----------
+  // Splits CSV text into rows of cells, honouring quoted fields, escaped
+  // double-quotes, embedded newlines, and CRLF line endings.
+  function parseCsv(text){
+    var rows = [], row = [], cell = "", inQuotes = false;
+    text = text.replace(/^\uFEFF/, ""); // strip BOM Excel likes to add
+    for(var i=0;i<text.length;i++){
+      var ch = text[i];
+      if(inQuotes){
+        if(ch === '"'){
+          if(text[i+1] === '"'){ cell += '"'; i++; }
+          else inQuotes = false;
+        } else cell += ch;
+      } else if(ch === '"'){
+        inQuotes = true;
+      } else if(ch === ","){
+        row.push(cell); cell = "";
+      } else if(ch === "\n" || ch === "\r"){
+        if(ch === "\r" && text[i+1] === "\n") i++;
+        row.push(cell); cell = "";
+        rows.push(row); row = [];
+      } else cell += ch;
+    }
+    if(cell.length || row.length){ row.push(cell); rows.push(row); }
+    // Drop rows that are entirely blank
+    return rows.filter(function(r){ return r.some(function(v){ return String(v).trim() !== ""; }); });
+  }
+
+  // Accepts "2026-08-09", "9/8/2026", "Aug 9, 2026" etc. Returns "YYYY-MM-DD" or "".
+  // dayFirst decides D/M vs M/D when both numbers could be a month.
+  function parseDateCell(v, dayFirst){
+    v = String(v || "").trim();
+    if(!v) return "";
+    var iso = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if(iso){
+      var y=+iso[1], mo=+iso[2], da=+iso[3];
+      if(mo<1||mo>12||da<1||da>31) return "";
+      return y+"-"+pad2(mo)+"-"+pad2(da);
+    }
+    var slash = v.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/);
+    if(slash){
+      var a=+slash[1], b=+slash[2], yr=+slash[3], month, day;
+      if(a > 12){ day=a; month=b; }        // first can't be a month
+      else if(b > 12){ month=a; day=b; }   // second can't be a month
+      else if(dayFirst){ day=a; month=b; } // genuinely ambiguous
+      else { month=a; day=b; }
+      if(month<1||month>12||day<1||day>31) return "";
+      return yr+"-"+pad2(month)+"-"+pad2(day);
+    }
+    var d = new Date(v);
+    if(!isNaN(d.getTime())) return dateToStr(d);
+    return "";
+  }
+
+  // True when a slash/dotted date could read either as D/M or M/D.
+  function isAmbiguousDate(v){
+    var m = String(v || "").trim().match(/^(\d{1,2})[\/.](\d{1,2})[\/.]\d{4}$/);
+    return !!m && +m[1] <= 12 && +m[2] <= 12 && +m[1] !== +m[2];
+  }
+
+  // Accepts "8:00 AM", "08:00", "8:00am", "16:00", "4 PM". Returns "HH:MM" or "".
+  function parseTimeCell(v){
+    v = String(v || "").trim();
+    if(!v || v === "—" || v === "-") return "";
+    var m = v.match(/^(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\.?$/);
+    if(m){
+      var h = +m[1] % 12;
+      if(m[3].toLowerCase() === "p") h += 12;
+      return pad2(h)+":"+(m[2] || "00");
+    }
+    m = v.match(/^(\d{1,2}):(\d{2})/);
+    if(m){
+      var hh = +m[1];
+      if(hh > 23 || +m[2] > 59) return "";
+      return pad2(hh)+":"+m[2];
+    }
+    return "";
+  }
+
+  // Maps a label like "Annual Leave", "WFH", "sick" back to its internal key.
+  function parseTypeCell(v){
+    v = String(v || "").trim().toLowerCase();
+    if(!v) return "regular";
+    if(TYPE_LABELS[v]) return v;
+    var found = Object.keys(TYPE_LABELS).find(function(k){
+      return TYPE_LABELS[k].toLowerCase() === v;
+    });
+    if(found) return found;
+    if(v.indexOf("home") !== -1 || v === "wfh") return "wfh";
+    if(v.indexOf("half") !== -1) return "halfleave";
+    if(v.indexOf("annual") !== -1 || v === "leave" || v.indexOf("vacation") !== -1) return "leave";
+    if(v.indexOf("sick") !== -1) return "sick";
+    if(v.indexOf("trip") !== -1 || v.indexOf("business") !== -1) return "trip";
+    if(v.indexOf("holiday") !== -1) return "holiday";
+    return "regular";
+  }
+
+  // Finds a column index by trying each candidate name against the header row.
+  function findCol(headers, candidates){
+    for(var i=0;i<candidates.length;i++){
+      var idx = headers.indexOf(candidates[i]);
+      if(idx !== -1) return idx;
+    }
+    return -1;
+  }
+
+  function importCsvText(text){
+    var rows = parseCsv(text);
+    if(rows.length < 2){
+      alert("That file has no data rows. Expected a header row plus at least one day.");
+      return;
+    }
+
+    var headers = rows[0].map(function(h){ return String(h).trim().toLowerCase(); });
+    var cDate  = findCol(headers, ["date","day date","work date"]);
+    var cIn    = findCol(headers, ["clock in","in","start","time in","start time"]);
+    var cOut   = findCol(headers, ["clock out","out","end","time out","end time"]);
+    var cBrkS  = findCol(headers, ["break start","break in","lunch start"]);
+    var cBrkE  = findCol(headers, ["break end","break out","lunch end"]);
+    var cType  = findCol(headers, ["type","day type","category"]);
+    var cNote  = findCol(headers, ["note","notes","comment","comments","remarks"]);
+
+    if(cDate === -1){
+      alert("Couldn't find a Date column.\n\nThe header row needs a column named \"Date\". The easiest way to get the right format is to export a CSV from this page first and match its columns.");
+      return;
+    }
+
+    // Resolve D/M vs M/D once, up front, instead of guessing per row.
+    var dayFirst = false;
+    var sample = null;
+    for(var s=1;s<rows.length;s++){
+      var raw = cDate < rows[s].length ? rows[s][cDate] : "";
+      if(isAmbiguousDate(raw)){ sample = String(raw).trim(); break; }
+    }
+    if(sample){
+      var parts = sample.split(/[\/.]/);
+      dayFirst = confirm(
+        "This file has dates like \"" + sample + "\" that could be read two ways.\n\n" +
+        "OK  =  day/month  (" + (+parts[0]) + " of month " + (+parts[1]) + ")\n" +
+        "Cancel  =  month/day  (month " + (+parts[0]) + ", day " + (+parts[1]) + ")"
+      );
+    }
+
+    var parsed = [], skipped = 0;
+    var seen = {};
+    for(var r=1;r<rows.length;r++){
+      var row = rows[r];
+      var cell = function(i){ return i !== -1 && i < row.length ? row[i] : ""; };
+      var date = parseDateCell(cell(cDate), dayFirst);
+      if(!date){ skipped++; continue; }
+
+      var rec = {
+        id: uid(),
+        date: date,
+        clockIn: parseTimeCell(cell(cIn)),
+        clockOut: parseTimeCell(cell(cOut)),
+        breakStart: parseTimeCell(cell(cBrkS)),
+        breakEnd: parseTimeCell(cell(cBrkE)),
+        type: parseTypeCell(cell(cType)),
+        note: String(cell(cNote) || "").trim()
+      };
+      // A later row for the same date wins, matching the "last write" rule elsewhere.
+      if(seen[date] !== undefined) parsed[seen[date]] = rec;
+      else { seen[date] = parsed.length; parsed.push(rec); }
+    }
+
+    if(!parsed.length){
+      alert("No rows had a readable date, so nothing was imported.\n\nDates should look like 2026-08-09 or 09/08/2026.");
+      return;
+    }
+
+    var replacing = parsed.filter(function(p){
+      return entries.some(function(e){ return e.date === p.date; });
+    }).length;
+
+    var msg = "Found " + parsed.length + " day" + (parsed.length===1?"":"s") + " to import.";
+    if(replacing) msg += "\n" + replacing + " will replace a day you've already logged.";
+    if(skipped) msg += "\n" + skipped + " row" + (skipped===1?"":"s") + " skipped (no readable date).";
+    msg += "\n\nImport now?";
+    if(!confirm(msg)) return;
+
+    parsed.forEach(function(rec){
+      var idx = entries.findIndex(function(e){ return e.date === rec.date; });
+      if(idx !== -1) rec.id = entries[idx].id;
+      if(idx !== -1) entries[idx] = rec; else entries.push(rec);
+      delete dismissedReminders[rec.date];
+    });
+
+    saveEntries();
+    renderAll();
+    showQcNote("Imported " + parsed.length + " day" + (parsed.length===1?"":"s") + " from CSV.", true);
+  }
+
+  document.getElementById("importCsvBtn").addEventListener("click", function(){
+    document.getElementById("importCsvFile").click();
+  });
+  document.getElementById("importCsvFile").addEventListener("change", function(ev){
+    var file = ev.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      try{ importCsvText(String(reader.result)); }
+      catch(err){ alert("Couldn't read that file. Make sure it's a plain .csv file."); }
+      ev.target.value = "";
+    };
+    reader.onerror = function(){
+      alert("Couldn't open that file.");
+      ev.target.value = "";
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById("importBtn").addEventListener("click", function(){
+    document.getElementById("importFile").click();
+  });
+  document.getElementById("importFile").addEventListener("change", function(ev){
+    var file = ev.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      try{
+        var data = JSON.parse(reader.result);
+        // v1 backups were a bare array; v2 wraps entries with settings.
+        var incoming = Array.isArray(data) ? data : data.entries;
+        if(!Array.isArray(incoming)) throw new Error("bad format");
+
+        if(!confirm("Import "+incoming.length+" entries? Days already logged will be replaced by the imported version.")) {
+          document.getElementById("importFile").value = "";
+          return;
+        }
+        incoming.forEach(function(imp){
+          if(!imp || !imp.date) return;
+          if(!imp.id) imp.id = uid();
+          var idx = entries.findIndex(function(e){ return e.date === imp.date; });
+          if(idx !== -1) entries[idx] = imp; else entries.push(imp);
+        });
+        if(!Array.isArray(data) && data.settings && confirm("This backup includes schedule settings. Use them too?")){
+          settings = normalizeSettings(data.settings);
+          saveSettings();
+        }
+        saveEntries();
+        renderAll();
+      }catch(err){
+        alert("Couldn't read that file. Choose a JSON backup exported from this page.");
+      }
+      document.getElementById("importFile").value = "";
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById("clearAllBtn").addEventListener("click", function(){
+    if(!confirm("This permanently deletes every attendance entry stored in this browser. Export a backup first if you want to keep them. Continue?")) return;
+    if(!confirm("Last check — delete all "+entries.length+" entries?")) return;
+    entries = [];
+    dismissedReminders = {};
+    saveEntries();
+    resetForm();
+    renderAll();
+  });
+
+  // ---------- Init ----------
+  loadAll();
+  buildDayPicker();
+  fillSettingsForm();
+  applyTheme(safeGet(THEME_KEY) === "dark" ? "dark" : "light");
+  document.getElementById("fDate").value = todayStr();
+  updateLiveClock();
+  setInterval(updateLiveClock, 1000);
+  setInterval(renderReminder, 60000);
+  renderAll();
+
+  var resizeTimer;
+  window.addEventListener("resize", function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderCharts, 150);
+  });
+})();
+</script>
+</body>
+</html>
