@@ -672,6 +672,7 @@
 
   <section class="card settings-card" id="settingsCard">
     <h2>Schedule Settings</h2>
+    <p class="settings-hint" id="settingsForLabel" style="margin:-10px 0 18px;"></p>
     <div style="margin-bottom:18px;">
       <label>Working Days</label>
       <div class="daypicker" id="dayPicker"></div>
@@ -1607,6 +1608,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var opening = !card.classList.contains("open");
     card.classList.toggle("open", opening);
     if(opening){
+      document.getElementById("settingsForLabel").textContent = isOwnData
+        ? "Editing your own schedule."
+        : "Editing the schedule for " + (viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user") + ".";
       fillSettingsForm();
       card.scrollIntoView({behavior:"smooth", block:"nearest"});
     }
@@ -1615,8 +1619,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("settingsCard").classList.remove("open");
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
-    if(!isOwnData){
-      alert("You can only edit your own schedule settings.");
+    if(!isAdmin){
+      alert("Only an admin can change schedule settings.");
       return;
     }
     var days = [];
@@ -1673,7 +1677,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var btn = this;
     btn.disabled = true; btn.textContent = "Saving…";
     try{
-      await sbSaveSettings(currentUser.id, updated);
+      await sbSaveSettings(viewedUserId, updated);
       settings = updated;
       document.getElementById("settingsCard").classList.remove("open");
       renderAll();
@@ -3000,7 +3004,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           return;
         }
 
-        var applySettings = !Array.isArray(data) && data.settings &&
+        var applySettings = isAdmin && !Array.isArray(data) && data.settings &&
           confirm("This backup includes schedule settings. Use them too?");
 
         showQcNote("Importing 0 of " + incoming.length + "…", true);
@@ -3018,7 +3022,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
         if(applySettings){
           var normalized = normalizeSettings(data.settings);
-          await sbSaveSettings(currentUser.id, normalized);
+          await sbSaveSettings(viewedUserId, normalized);
         }
 
         await loadDataForViewedUser();
@@ -3168,7 +3172,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("clockInBtn").disabled = !isOwnData;
     document.getElementById("clockOutBtn").disabled = !isOwnData;
     if(qc) qc.style.opacity = isOwnData ? "1" : ".5";
-    document.getElementById("settingsBtn").style.display = isOwnData ? "inline-flex" : "none";
+    // Settings are admin-managed: an admin can edit anyone's schedule
+    // (including their own); everyone else never sees the gear at all.
+    document.getElementById("settingsBtn").style.display = isAdmin ? "inline-flex" : "none";
   }
 
   async function loadAllProfilesForSwitcher(){
