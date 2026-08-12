@@ -555,12 +555,12 @@
   .swatch.target{width:14px; height:0; border-top:2px dashed var(--gold);}
 
   footer.ledger-foot{
-    max-width:1080px; margin:8px auto 0; padding:20px 24px 0;
+    max-width:1080px; margin:8px auto 0; padding:20px 24px 24px;
     border-top:1px solid var(--line-soft);
-    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;
   }
+  .foot-row{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
   .foot-note{font-size:11.5px; color:var(--muted-2); max-width:420px;}
-
+  .copyright{font-size:10.5px; color:var(--muted-2); opacity:.75; text-align:center; margin:18px 0 0;}
   /* ---------- Print report ---------- */
   #printArea{display:none;}
   @media print{
@@ -610,7 +610,7 @@
   /* ---------- Auth screen ---------- */
   .auth-screen{
     min-height:100vh;
-    display:flex; align-items:center; justify-content:center;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
     padding:32px 20px;
     background-color:var(--paper);
     background-image:
@@ -618,6 +618,7 @@
       radial-gradient(700px 380px at 95% 105%, rgba(27,114,107,.10), transparent 62%),
       repeating-linear-gradient(180deg, var(--rule) 0px, var(--rule) 1px, transparent 1px, transparent 34px);
   }
+  .auth-screen .copyright{margin-top:22px;}
   .auth-card{
     position:relative; width:100%; max-width:380px;
     background:var(--card); border:1px solid var(--line-soft); border-radius:16px;
@@ -870,6 +871,7 @@
       </div>
     </form>
   </div>
+  <p class="copyright" id="copyrightLineAuth"></p>
 </div>
 
 <!-- ============ MAIN APP (hidden until signed in) ============ -->
@@ -1347,16 +1349,19 @@
 </main>
 
 <footer class="ledger-foot">
-  <p class="foot-note" id="storageNote">Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names.</p>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <button class="btn ghost small" id="exportJsonBtn">Export JSON</button>
-    <button class="btn ghost small" id="exportCsvBtn">Export CSV</button>
-    <button class="btn ghost small" id="importBtn">Import JSON</button>
-    <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
-    <button class="btn ghost small" id="importCsvBtn">Import CSV</button>
-    <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
-    <button class="btn danger-ghost small" id="clearAllBtn">Clear All</button>
+  <div class="foot-row">
+    <p class="foot-note" id="storageNote">Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names.</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn ghost small" id="exportJsonBtn">Export JSON</button>
+      <button class="btn ghost small" id="exportCsvBtn">Export CSV</button>
+      <button class="btn ghost small" id="importBtn">Import JSON</button>
+      <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+      <button class="btn ghost small" id="importCsvBtn">Import CSV</button>
+      <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
+      <button class="btn danger-ghost small" id="clearAllBtn">Clear All</button>
+    </div>
   </div>
+  <p class="copyright" id="copyrightLine"></p>
 </footer>
 
 <div id="printArea"></div>
@@ -4074,6 +4079,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // ---------- Init ----------
+  var copyrightText = "© " + new Date().getFullYear() + " Aseel Thalnoon. All rights reserved.";
+  document.getElementById("copyrightLine").textContent = copyrightText;
+  document.getElementById("copyrightLineAuth").textContent = copyrightText;
+
   updateLiveClock();
   setInterval(updateLiveClock, 1000);
   setInterval(renderReminder, 60000);
