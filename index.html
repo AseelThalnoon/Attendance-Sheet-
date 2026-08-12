@@ -157,7 +157,11 @@
   /* ---------- Header overflow menu ---------- */
   .head-menu-wrap{position:relative;}
   .head-menu{
-    position:absolute; top:calc(100% + 8px); right:0; z-index:60;
+    /* position:fixed (not absolute) deliberately escapes header.ledger-head's
+       overflow:hidden — that's needed to contain its decorative background
+       pattern, but it also clips any absolutely-positioned child trying to
+       render outside the header's box. Exact position is set via JS on open. */
+    position:fixed; z-index:200;
     min-width:200px; background:var(--card); border:1px solid var(--line-soft); border-radius:11px;
     box-shadow:var(--shadow-lg); padding:6px; display:none; flex-direction:column; gap:1px;
   }
@@ -2241,11 +2245,31 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("headMenu").classList.remove("open");
     document.getElementById("headMenuBtn").setAttribute("aria-expanded", "false");
   }
+  function positionHeadMenu(){
+    var btn = document.getElementById("headMenuBtn");
+    var menu = document.getElementById("headMenu");
+    var btnRect = btn.getBoundingClientRect();
+    var menuWidth = menu.offsetWidth || 200;
+    // Right-align to the button by default, but clamp so it never runs off
+    // either edge of the viewport on a narrow phone screen.
+    var left = Math.min(
+      Math.max(8, btnRect.right - menuWidth),
+      window.innerWidth - menuWidth - 8
+    );
+    menu.style.top = (btnRect.bottom + 8) + "px";
+    menu.style.left = left + "px";
+  }
   document.getElementById("headMenuBtn").addEventListener("click", function(ev){
     ev.stopPropagation();
     var menu = document.getElementById("headMenu");
     var opening = !menu.classList.contains("open");
-    menu.classList.toggle("open", opening);
+    if(opening){
+      // Position before showing so there's no visible jump/flash.
+      menu.classList.add("open");
+      positionHeadMenu();
+    } else {
+      menu.classList.remove("open");
+    }
     this.setAttribute("aria-expanded", opening ? "true" : "false");
   });
   document.addEventListener("click", function(ev){
@@ -2255,6 +2279,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   document.addEventListener("keydown", function(ev){
     if(ev.key === "Escape") closeHeadMenu();
   });
+  window.addEventListener("resize", function(){
+    if(document.getElementById("headMenu").classList.contains("open")) positionHeadMenu();
+  });
+  window.addEventListener("scroll", function(){
+    if(document.getElementById("headMenu").classList.contains("open")) positionHeadMenu();
+  }, true);
 
   // ---------- Settings UI ----------
   function buildDayPicker(){
