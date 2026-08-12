@@ -1284,9 +1284,9 @@
 
     <div class="filter-bar" id="monthFilterWrap">
       <label for="logYearSelect">Year</label>
-      <select id="logYearSelect"><option value="all">All Years</option></select>
+      <select id="logYearSelect"></select>
       <label for="monthFilterSelect" class="inline-lbl">Month</label>
-      <select id="monthFilterSelect"><option value="all">All Months</option></select>
+      <select id="monthFilterSelect"></select>
       <div class="filter-spacer"></div>
       <button type="button" class="btn ghost small" id="printBtn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/></svg>
@@ -1296,7 +1296,7 @@
 
     <div class="filter-bar" id="monthlyFilterWrap" style="display:none;">
       <label for="monthlyYearSelect">Year</label>
-      <select id="monthlyYearSelect"><option value="all">All Years</option></select>
+      <select id="monthlyYearSelect"></select>
       <span class="filter-count" id="monthlyCount"></span>
     </div>
 
@@ -2440,48 +2440,59 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function getMonthlyYearFilter(){ return document.getElementById("monthlyYearSelect").value; }
 
   function populateFilters(){
-    var allYearKeys = Object.keys(groupBy(entries, yearKey)).sort().reverse();
+    var todayYear = String(new Date().getFullYear());
+    var todayMonthKey = monthKey(todayStr());
+
+    // The current year/month are always offered as options, even with zero
+    // entries yet, so filters can default to "now" instead of "All".
+    var allYearKeys = Object.keys(groupBy(entries, yearKey));
+    if(allYearKeys.indexOf(todayYear) === -1) allYearKeys.push(todayYear);
+    allYearKeys.sort().reverse();
 
     // Log/Weekly: Year narrows which months are offered, same pattern as Punctuality.
     var lySel = document.getElementById("logYearSelect");
     var lyPrev = lySel.value;
     lySel.innerHTML = '<option value="all">All Years</option>' +
       allYearKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    lySel.value = (lyPrev === "all" || allYearKeys.indexOf(lyPrev) !== -1) ? (lyPrev || "all") : "all";
+    lySel.value = lyPrev && (lyPrev === "all" || allYearKeys.indexOf(lyPrev) !== -1) ? lyPrev : todayYear;
 
     var mSel = document.getElementById("monthFilterSelect");
     var mPrev = mSel.value;
     var logYear = lySel.value;
-    var mKeys = Object.keys(groupBy(entries, monthKey)).sort().reverse()
+    var mKeys = Object.keys(groupBy(entries, monthKey))
       .filter(function(k){ return logYear === "all" || k.indexOf(logYear + "-") === 0; });
+    if((logYear === "all" || logYear === todayYear) && mKeys.indexOf(todayMonthKey) === -1){
+      mKeys.push(todayMonthKey);
+    }
+    mKeys.sort().reverse();
     mSel.innerHTML = '<option value="all">All Months</option>' +
       mKeys.map(function(k){
         var label = logYear === "all" ? monthLabel(k)
           : new Date(+k.split("-")[0], +k.split("-")[1]-1, 1).toLocaleDateString(undefined,{month:"long"});
         return '<option value="'+k+'">'+label+'</option>';
       }).join("");
-    mSel.value = mKeys.indexOf(mPrev) !== -1 ? mPrev : "all";
+    var logDefaultMonth = (logYear === "all" || logYear === todayYear) && mKeys.indexOf(todayMonthKey) !== -1
+      ? todayMonthKey : "all";
+    mSel.value = mPrev && mKeys.indexOf(mPrev) !== -1 ? mPrev : logDefaultMonth;
 
     // Monthly tab: just a Year filter, since the whole point of the tab is the trend across months.
     var mySel = document.getElementById("monthlyYearSelect");
     var myPrev = mySel.value;
     mySel.innerHTML = '<option value="all">All Years</option>' +
       allYearKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    mySel.value = (myPrev === "all" || allYearKeys.indexOf(myPrev) !== -1) ? (myPrev || "all") : "all";
+    mySel.value = myPrev && (myPrev === "all" || allYearKeys.indexOf(myPrev) !== -1) ? myPrev : todayYear;
 
     var ySel = document.getElementById("yearFilterSelect");
     var yPrev = ySel.value;
     var yKeys = allYearKeys.slice();
-    if(!yKeys.length) yKeys = [String(new Date().getFullYear())];
     ySel.innerHTML = yKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    ySel.value = yKeys.indexOf(yPrev) !== -1 ? yPrev : yKeys[0];
+    ySel.value = yKeys.indexOf(yPrev) !== -1 ? yPrev : (yKeys.indexOf(todayYear) !== -1 ? todayYear : yKeys[0]);
 
-    // Only offer types that actually appear in the data.
+    // Every day type is always offered, even ones not used yet — otherwise
+    // there's no way to filter for a type until at least one exists.
     var tSel = document.getElementById("typeFilterSelect");
     var tPrev = tSel.value;
-    var present = {};
-    entries.forEach(function(e){ present[e.type || "regular"] = true; });
-    var tKeys = Object.keys(TYPE_LABELS).filter(function(k){ return present[k]; });
+    var tKeys = Object.keys(TYPE_LABELS);
     tSel.innerHTML = '<option value="all">All Types</option>' +
       tKeys.map(function(k){ return '<option value="'+k+'">'+TYPE_LABELS[k]+'</option>'; }).join("");
     tSel.value = (tPrev === "all" || tKeys.indexOf(tPrev) !== -1) ? tPrev : "all";
@@ -2490,26 +2501,38 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // Punctuality has its own year + month pair; months are scoped to the year.
+  // Also defaults to the current year/month rather than "All".
   function populatePunctFilters(){
+    var todayYear = String(new Date().getFullYear());
+    var todayMonthKey = monthKey(todayStr());
+
     var ySel = document.getElementById("punctYearSelect");
     var mSel = document.getElementById("punctMonthSelect");
     var yPrev = ySel.value, mPrev = mSel.value;
 
-    var yKeys = Object.keys(groupBy(entries, yearKey)).sort().reverse();
+    var yKeys = Object.keys(groupBy(entries, yearKey));
+    if(yKeys.indexOf(todayYear) === -1) yKeys.push(todayYear);
+    yKeys.sort().reverse();
     ySel.innerHTML = '<option value="all">All Years</option>' +
       yKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    ySel.value = (yPrev === "all" || yKeys.indexOf(yPrev) !== -1) ? (yPrev || "all") : "all";
+    ySel.value = yPrev && (yPrev === "all" || yKeys.indexOf(yPrev) !== -1) ? yPrev : todayYear;
 
     var year = ySel.value;
-    var mKeys = Object.keys(groupBy(entries, monthKey)).sort().reverse()
+    var mKeys = Object.keys(groupBy(entries, monthKey))
       .filter(function(k){ return year === "all" || k.indexOf(year + "-") === 0; });
+    if((year === "all" || year === todayYear) && mKeys.indexOf(todayMonthKey) === -1){
+      mKeys.push(todayMonthKey);
+    }
+    mKeys.sort().reverse();
     mSel.innerHTML = '<option value="all">All Months</option>' +
       mKeys.map(function(k){
         var label = year === "all" ? monthLabel(k)
           : new Date(+k.split("-")[0], +k.split("-")[1]-1, 1).toLocaleDateString(undefined,{month:"long"});
         return '<option value="'+k+'">'+label+'</option>';
       }).join("");
-    mSel.value = mKeys.indexOf(mPrev) !== -1 ? mPrev : "all";
+    var punctDefaultMonth = (year === "all" || year === todayYear) && mKeys.indexOf(todayMonthKey) !== -1
+      ? todayMonthKey : "all";
+    mSel.value = mPrev && mKeys.indexOf(mPrev) !== -1 ? mPrev : punctDefaultMonth;
   }
 
   function punctEntries(){
@@ -2915,11 +2938,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function renderWeekly(){
     var list = document.getElementById("weeklyList");
     var groups = groupBy(filteredEntries(), weekKey);
-    var keys = Object.keys(groups).sort().reverse();
+    // Only weeks with at least one Regular-type day are shown — a week that's
+    // entirely WFH/leave/trip/etc. has nothing feeding the average, so a card
+    // full of "0h" figures would just be confusing rather than informative.
+    var keys = Object.keys(groups).sort().reverse()
+      .filter(function(k){ return summarize(groups[k]).loggedDays > 0; });
 
     var empty = document.getElementById("weeklyEmpty");
     empty.textContent = (getMonthFilter() === "all" && getLogYearFilter() === "all")
-      ? "No entries yet." : "No entries logged for this period.";
+      ? "No entries yet." : "No regular workdays logged for this period.";
     empty.style.display = keys.length ? "none" : "block";
     list.innerHTML = "";
 
@@ -2970,11 +2997,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // ---------- Monthly ----------
   function monthStats(list){
     var groups = groupBy(list, monthKey);
-    return Object.keys(groups).sort().map(function(k){
-      var s = summarize(groups[k]);
-      s.key = k; s.label = monthLabel(k); s.shortLabel = monthShortLabel(k);
-      return s;
-    });
+    // Only months with at least one Regular-type day are included — a month
+    // that's entirely non-regular has no average to show.
+    return Object.keys(groups).sort()
+      .map(function(k){
+        var s = summarize(groups[k]);
+        s.key = k; s.label = monthLabel(k); s.shortLabel = monthShortLabel(k);
+        return s;
+      })
+      .filter(function(s){ return s.loggedDays > 0; });
   }
 
   function renderMonthly(){
@@ -2982,7 +3013,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var scope = yf === "all" ? entries : entries.filter(function(e){ return yearKey(e.date) === yf; });
     var stats = monthStats(scope);
 
-    document.getElementById("monthlyEmpty").style.display = stats.length ? "none" : "block";
+    var monthlyEmptyEl = document.getElementById("monthlyEmpty");
+    monthlyEmptyEl.textContent = scope.length
+      ? "No regular workdays logged for this period."
+      : "No entries yet.";
+    monthlyEmptyEl.style.display = stats.length ? "none" : "block";
     document.getElementById("monthlyChartMeta").textContent =
       stats.length ? stats.length + " month" + (stats.length===1?"":"s") + " tracked" : "";
     document.getElementById("monthlyCount").textContent =
@@ -3010,16 +3045,22 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // ---------- Yearly ----------
   function yearStats(){
     var groups = groupBy(entries, yearKey);
-    return Object.keys(groups).sort().map(function(k){
-      var s = summarize(groups[k]);
-      s.key = k;
-      return s;
-    });
+    // Only years with at least one Regular-type day feed the year-over-year
+    // comparison — a year with none has no average to compare.
+    return Object.keys(groups).sort()
+      .map(function(k){
+        var s = summarize(groups[k]);
+        s.key = k;
+        return s;
+      })
+      .filter(function(s){ return s.loggedDays > 0; });
   }
 
   function renderYearly(){
     var stats = yearStats();
-    document.getElementById("yearlyEmpty").style.display = stats.length ? "none" : "block";
+    var yearlyEmptyEl = document.getElementById("yearlyEmpty");
+    yearlyEmptyEl.textContent = entries.length ? "No regular workdays logged yet." : "No entries yet.";
+    yearlyEmptyEl.style.display = stats.length ? "none" : "block";
 
     var yr = getYearFilter();
     var yearEntries = entries.filter(function(e){ return yearKey(e.date) === yr; });
@@ -3423,6 +3464,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("fDate").value = today;
     document.getElementById("fToDate").value = today;
     document.getElementById("fToDate").min = today;
+    document.getElementById("fType").value = "regular";
     document.getElementById("submitBtn").textContent = "Add Entry";
     document.getElementById("cancelEditBtn").style.display = "none";
     document.getElementById("fToDateWrap").style.display = "";
