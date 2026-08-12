@@ -995,6 +995,14 @@
     <h2>Schedule Settings</h2>
     <p class="settings-hint" id="settingsForLabel" style="margin:-10px 0 18px;"></p>
 
+    <label class="check-row" for="sApplyAll" id="applyAllWrap" style="margin:-8px 0 18px;">
+      <input type="checkbox" id="sApplyAll">
+      <span>
+        <strong>Apply to everyone</strong>
+        <em>Save these schedule settings for every team member at once, instead of just the person you're currently viewing.</em>
+      </span>
+    </label>
+
     <div class="accordion-section open" data-section="hours">
       <button type="button" class="accordion-head">
         <span>Working Hours &amp; Schedule</span>
@@ -1103,6 +1111,7 @@
             <option value="holiday">Public Holiday</option>
             <option value="leave">Annual Leave</option>
             <option value="sick">Sick Leave</option>
+            <option value="training">Training</option>
             <option value="other">Other</option>
           </select>
         </div>
@@ -1166,6 +1175,7 @@
             <option value="leave">Annual Leave</option>
             <option value="sick">Sick Leave</option>
             <option value="trip">Business Trip</option>
+            <option value="training">Training</option>
             <option value="holiday">Public Holiday</option>
             <option value="other">Other</option>
           </select>
@@ -1490,7 +1500,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   var DAY_FULL  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   var TYPE_LABELS = {
     regular:"Regular", wfh:"WFH", halfleave:"Half Day Leave", leave:"Annual Leave",
-    sick:"Sick Leave", trip:"Business Trip", holiday:"Public Holiday", other:"Other"
+    sick:"Sick Leave", trip:"Business Trip", training:"Training", holiday:"Public Holiday", other:"Other"
   };
   var EXCUSED_TYPES = ["leave","sick","holiday"];
   // Half days expect half the normal target rather than being fully excused.
@@ -1984,10 +1994,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var lateDays=0, lateSum=0, earlyDays=0, earlySum=0, onTimeDays=0, ratedDays=0;
     list.forEach(function(e){
       var c = computeEntry(e);
-      if(c.workedMin !== null && !c.excused){ workedSum += c.workedMin; loggedDays++; }
+      // Averages and the overtime bank only reflect "Regular" days — every
+      // other day type (WFH, half/annual/sick leave, trips, holidays,
+      // other) still shows its own worked/target/diff on its own row, but
+      // doesn't roll up into these summary figures.
+      if(e.type === "regular"){
+        if(c.workedMin !== null){ workedSum += c.workedMin; loggedDays++; }
+        targetSum += c.targetMin;
+        if(c.diffMin !== null) diffSum += c.diffMin;
+      }
       if(c.open) openDays++;
-      targetSum += c.targetMin;
-      if(c.diffMin !== null) diffSum += c.diffMin;
 
       // Punctuality only counts days with an arrival on a scheduled, non-excused day.
       if(c.scheduled && !c.excused && e.clockIn){
@@ -2195,6 +2211,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("settingsForLabel").textContent = isOwnData
         ? "Editing your own schedule."
         : "Editing the schedule for " + (viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user") + ".";
+      document.getElementById("sApplyAll").checked = false;
       fillSettingsForm();
       if(isAdmin){
         renderUsersList();
@@ -2266,7 +2283,42 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
     updated = normalizeSettings(updated);
 
+    var applyAll = document.getElementById("sApplyAll").checked;
     var btn = this;
+
+    if(applyAll){
+      if(!allProfiles.length){ showToast("No team members to apply this to yet.", "error"); return; }
+      var confirmed = await showConfirm(
+        "This will overwrite the schedule settings for all " + allProfiles.length +
+        " team member" + (allProfiles.length===1?"":"s") + " with what's currently in this form.",
+        {title:"Apply to everyone?", confirmText:"Apply to " + allProfiles.length}
+      );
+      if(!confirmed) return;
+
+      btn.disabled = true;
+      var done = 0, failed = 0;
+      for(var k=0;k<allProfiles.length;k++){
+        try{
+          await sbSaveSettings(allProfiles[k].id, updated);
+          done++;
+        }catch(err){ failed++; }
+        btn.textContent = "Applying " + (k+1) + " of " + allProfiles.length + "…";
+      }
+      btn.disabled = false;
+      btn.textContent = "Save Settings";
+
+      if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = updated;
+      document.getElementById("settingsCard").classList.remove("open");
+      document.getElementById("accessCard").classList.remove("open");
+      updateStickyClockVisibility();
+      renderAll();
+      showToast(
+        "Applied to " + done + " of " + allProfiles.length + " team members." + (failed ? " " + failed + " failed." : ""),
+        failed === 0 ? "success" : "error"
+      );
+      return;
+    }
+
     btn.disabled = true; btn.textContent = "Saving…";
     try{
       await sbSaveSettings(viewedUserId, updated);
@@ -3749,6 +3801,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(v.indexOf("annual") !== -1 || v === "leave" || v.indexOf("vacation") !== -1) return "leave";
     if(v.indexOf("sick") !== -1) return "sick";
     if(v.indexOf("trip") !== -1 || v.indexOf("business") !== -1) return "trip";
+    if(v.indexOf("training") !== -1 || v.indexOf("course") !== -1) return "training";
     if(v.indexOf("holiday") !== -1) return "holiday";
     return "regular";
   }
@@ -4318,6 +4371,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var rows = byUser[p.id] || [];
       var workedSum = 0, loggedDays = 0;
       rows.forEach(function(e){
+        // Averages only reflect Regular days — WFH, leave, trips, etc. are
+        // informational on their own row but don't roll up into this figure.
+        if(e.type !== "regular") return;
         if(e.clockIn && e.clockOut){
           var g = timeToMinutes(e.clockOut) - timeToMinutes(e.clockIn);
           if(g < 0) g += 24*60;
