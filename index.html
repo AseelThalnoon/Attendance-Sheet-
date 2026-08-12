@@ -1098,12 +1098,16 @@
         <label style="margin:0;">Apply to Everyone</label>
       </div>
       <p class="settings-hint" style="margin:0 0 12px;">
-        Mark a public holiday or company-wide day off for the whole team in one action, instead of entering it person by person.
+        Mark a public holiday or company-wide day off for the whole team in one action, instead of entering it person by person. Covers every calendar day in the range, for every team member.
       </p>
       <div class="form-grid">
         <div>
-          <label for="bulkApplyDate">Date</label>
-          <input type="date" id="bulkApplyDate">
+          <label for="bulkApplyFromDate">From</label>
+          <input type="date" id="bulkApplyFromDate">
+        </div>
+        <div>
+          <label for="bulkApplyToDate">To</label>
+          <input type="date" id="bulkApplyToDate">
         </div>
         <div>
           <label for="bulkApplyType">Day Type</label>
@@ -1151,10 +1155,10 @@
     <form id="entryForm" novalidate>
       <div class="form-grid">
         <div>
-          <label for="fDate" id="fDateLabel">Date</label>
+          <label for="fDate" id="fDateLabel">From</label>
           <input type="date" id="fDate" required>
         </div>
-        <div id="fToDateWrap" style="display:none;">
+        <div id="fToDateWrap">
           <label for="fToDate">To</label>
           <input type="date" id="fToDate">
         </div>
@@ -1184,16 +1188,8 @@
           <label for="fNote">Note (optional)</label>
           <input type="text" id="fNote" placeholder="e.g. Left early for appointment">
         </div>
-        <div class="full" id="fRecurringWrap">
-          <label class="check-row" for="fRecurring" style="margin:6px 0 0;">
-            <input type="checkbox" id="fRecurring">
-            <span>
-              <strong>Repeat across a date range</strong>
-              <em>Applies this entry to every scheduled workday from the date above through an end date — handy for a week of planned leave.</em>
-            </span>
-          </label>
-        </div>
       </div>
+      <p class="settings-hint" id="fRangeHint" style="margin:8px 0 0;">Set different From/To dates to apply this entry across every scheduled workday in between — handy for a week of planned leave.</p>
       <div class="form-actions">
         <button type="submit" class="btn" id="submitBtn">Add Entry</button>
         <button type="button" class="btn secondary" id="fillStandardBtn">Fill Standard Hours</button>
@@ -2215,8 +2211,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       fillSettingsForm();
       if(isAdmin){
         renderUsersList();
-        var bulkDate = document.getElementById("bulkApplyDate");
-        if(!bulkDate.value) bulkDate.value = todayStr();
+        var bulkFrom = document.getElementById("bulkApplyFromDate");
+        var bulkTo = document.getElementById("bulkApplyToDate");
+        if(!bulkFrom.value) bulkFrom.value = todayStr();
+        if(!bulkTo.value) bulkTo.value = bulkFrom.value;
       }
       card.scrollIntoView({behavior:"smooth", block:"nearest"});
     }
@@ -3213,17 +3211,20 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function resetForm(){
     form.reset();
     editingId = null;
-    document.getElementById("fDate").value = todayStr();
+    var today = todayStr();
+    document.getElementById("fDate").value = today;
+    document.getElementById("fToDate").value = today;
+    document.getElementById("fToDate").min = today;
     document.getElementById("submitBtn").textContent = "Add Entry";
     document.getElementById("cancelEditBtn").style.display = "none";
-    setRecurringMode(false);
-    document.getElementById("fRecurringWrap").style.display = "";
+    document.getElementById("fToDateWrap").style.display = "";
+    document.getElementById("fRangeHint").style.display = "";
+    document.getElementById("fDateLabel").textContent = "From";
   }
 
   function loadEntryIntoForm(id){
     var e = entries.find(function(x){ return x.id === id; });
     if(!e) return;
-    setRecurringMode(false);
     document.getElementById("fDate").value = e.date;
     document.getElementById("fIn").value = e.clockIn || "";
     document.getElementById("fOut").value = e.clockOut || "";
@@ -3232,24 +3233,26 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     editingId = e.id;
     document.getElementById("submitBtn").textContent = "Save Changes";
     document.getElementById("cancelEditBtn").style.display = "inline-flex";
-    document.getElementById("fRecurringWrap").style.display = "none";
+    // Editing modifies exactly one existing entry, so the range picker
+    // doesn't apply here — just the single date being edited.
+    document.getElementById("fToDateWrap").style.display = "none";
+    document.getElementById("fRangeHint").style.display = "none";
+    document.getElementById("fDateLabel").textContent = "Date";
     form.scrollIntoView({behavior:"smooth", block:"center"});
     document.getElementById("fOut").focus();
   }
 
-  function setRecurringMode(on){
-    document.getElementById("fRecurring").checked = on;
-    document.getElementById("fToDateWrap").style.display = on ? "" : "none";
-    document.getElementById("fDateLabel").textContent = on ? "From" : "Date";
-    document.getElementById("submitBtn").textContent = on ? "Add Entries" : "Add Entry";
-    var toDate = document.getElementById("fToDate");
-    if(on && !toDate.value) toDate.value = document.getElementById("fDate").value;
-  }
-  document.getElementById("fRecurring").addEventListener("change", function(){
-    setRecurringMode(this.checked);
-  });
   document.getElementById("fDate").addEventListener("change", function(){
     var toDate = document.getElementById("fToDate");
+    toDate.min = this.value;
+    // Changing From always collapses To to match it. This keeps a single-day
+    // edit a single day by default — widening into a range is then a
+    // deliberate, separate action of changing To afterward.
+    toDate.value = this.value;
+  });
+
+  document.getElementById("bulkApplyFromDate").addEventListener("change", function(){
+    var toDate = document.getElementById("bulkApplyToDate");
     toDate.min = this.value;
     if(toDate.value && toDate.value < this.value) toDate.value = this.value;
   });
@@ -3258,7 +3261,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     ev.preventDefault();
     var date = document.getElementById("fDate").value;
     if(!date){ showToast("Pick a date first.", "error"); return; }
-    var isRecurring = document.getElementById("fRecurring").checked && !editingId;
+
+    var toDateVal = document.getElementById("fToDate").value;
+    // A range only actually applies when adding new entries with a genuinely
+    // different end date — editing always targets the single date being edited.
+    var isRange = !editingId && toDateVal && toDateVal !== date;
 
     var basePayload = {
       clockIn: document.getElementById("fIn").value || "",
@@ -3267,7 +3274,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       note: document.getElementById("fNote").value.trim()
     };
 
-    if(isRecurring){
+    if(isRange){
       await submitRecurringRange(date, basePayload);
       return;
     }
@@ -4248,45 +4255,81 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
-  // Applies one entry to every registered user for a single date — the
-  // "mark a public holiday for the whole team in one click" case.
+  // Applies one entry to every registered user across a date range — the
+  // "mark a multi-day public holiday for the whole team in one click" case.
+  var BULK_APPLY_MAX_ENTRIES = 500; // safety cap: days x team members
+
   document.getElementById("bulkApplyBtn").addEventListener("click", async function(){
-    var date = document.getElementById("bulkApplyDate").value;
+    var fromDate = document.getElementById("bulkApplyFromDate").value;
+    var toDate = document.getElementById("bulkApplyToDate").value;
     var type = document.getElementById("bulkApplyType").value;
     var note = document.getElementById("bulkApplyNote").value.trim();
-    if(!date){ showToast("Pick a date first.", "error"); return; }
+
+    if(!fromDate || !toDate){ showToast("Pick both a start and end date.", "error"); return; }
+    if(toDate < fromDate){ showToast("The end date can't be before the start date.", "error"); return; }
     if(!allProfiles.length){ showToast("No team members to apply this to yet.", "error"); return; }
 
+    // Every calendar day in the range, inclusive — this covers the whole
+    // team regardless of any one person's own working-day schedule, since
+    // a company holiday applies to specific dates for everyone alike.
+    var dates = [];
+    var cursor = dateFromStr(fromDate);
+    var end = dateFromStr(toDate);
+    var guard = 0;
+    while(dateToStr(cursor) <= dateToStr(end) && guard < 400){
+      dates.push(dateToStr(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+      guard++;
+    }
+
+    var totalEntries = dates.length * allProfiles.length;
+    if(totalEntries > BULK_APPLY_MAX_ENTRIES){
+      showToast(
+        "That's " + dates.length + " days × " + allProfiles.length + " team members = " + totalEntries +
+        " entries, over the " + BULK_APPLY_MAX_ENTRIES + " limit for one action. Narrow the date range and try again.",
+        "error"
+      );
+      return;
+    }
+
+    var dateRangeLabel = dates.length === 1 ? fmtDate(dates[0]) : fmtDate(dates[0]) + " – " + fmtDate(dates[dates.length-1]);
     var confirmed = await showConfirm(
-      "This will set " + TYPE_LABELS[type].toLowerCase() + " on " + fmtDate(date) + " for all " +
-      allProfiles.length + " team member" + (allProfiles.length===1?"":"s") +
-      ", replacing any existing entry that day.",
-      {title:"Apply to everyone?", confirmText:"Apply to " + allProfiles.length}
+      "This will set " + TYPE_LABELS[type].toLowerCase() + " for all " + allProfiles.length +
+      " team member" + (allProfiles.length===1?"":"s") + " across " + dates.length +
+      " day" + (dates.length===1?"":"s") + " (" + dateRangeLabel + "), replacing any existing entries on those dates.",
+      {title:"Apply to everyone?", confirmText:"Apply " + totalEntries + " entries"}
     );
     if(!confirmed) return;
 
     var btn = this;
     btn.disabled = true;
-    var existingByUser = {};
+
+    // One query for every existing entry across the whole range, keyed by
+    // "userId|date", so we can update in place instead of creating duplicates.
+    var existingByUserDate = {};
     try{
-      var res = await supabase.from("entries").select("id,user_id").eq("date", date);
+      var res = await supabase.from("entries").select("id,user_id,date").in("date", dates);
       if(res.error) throw res.error;
-      (res.data || []).forEach(function(row){ existingByUser[row.user_id] = row.id; });
+      (res.data || []).forEach(function(row){ existingByUserDate[row.user_id + "|" + row.date] = row.id; });
     }catch(err){
-      showToast("Couldn't check existing entries for that date: " + (err.message || err), "error");
+      showToast("Couldn't check existing entries for that range: " + (err.message || err), "error");
       btn.disabled = false;
       return;
     }
 
-    var payload = {date: date, clockIn: "", clockOut: "", type: type, note: note};
-    var done = 0, failed = 0;
-    for(var i=0;i<allProfiles.length;i++){
-      var p = allProfiles[i];
-      try{
-        await sbUpsertEntry(p.id, payload, existingByUser[p.id] || null);
-        done++;
-      }catch(err){ failed++; }
-      btn.textContent = "Applying " + (i+1) + " of " + allProfiles.length + "…";
+    var done = 0, failed = 0, count = 0;
+    for(var d=0; d<dates.length; d++){
+      for(var i=0; i<allProfiles.length; i++){
+        var p = allProfiles[i];
+        var payload = {date: dates[d], clockIn: "", clockOut: "", type: type, note: note};
+        var existingId = existingByUserDate[p.id + "|" + dates[d]] || null;
+        try{
+          await sbUpsertEntry(p.id, payload, existingId);
+          done++;
+        }catch(err){ failed++; }
+        count++;
+        btn.textContent = "Applying " + count + " of " + totalEntries + "…";
+      }
     }
     btn.disabled = false;
     btn.textContent = "Apply to All Team Members";
@@ -4295,7 +4338,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     await loadDataForViewedUser();
     if(document.querySelector('.tab-btn[data-tab="team"].active')) renderTeam();
     showToast(
-      "Applied to " + done + " of " + allProfiles.length + " team members." + (failed ? " " + failed + " failed." : ""),
+      "Applied to " + done + " of " + totalEntries + " entries." + (failed ? " " + failed + " failed." : ""),
       failed === 0 ? "success" : "error"
     );
   });
@@ -4449,6 +4492,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     buildDayPicker();
     applyTheme(safeGet(THEME_KEY) === "dark" ? "dark" : "light");
     document.getElementById("fDate").value = todayStr();
+    document.getElementById("fToDate").value = todayStr();
     updateLiveClock();
     await loadDataForViewedUser();
     fillSettingsForm();
