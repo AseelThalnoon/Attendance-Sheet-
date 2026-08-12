@@ -265,6 +265,7 @@
 
   /* ---------- Form ---------- */
   .form-grid{display:grid; grid-template-columns:repeat(6,1fr); gap:14px; align-items:end;}
+  .form-grid > div{min-width:0;}
   .form-grid .full{grid-column:1 / -1;}
   label{display:block; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px;}
   input[type="date"], input[type="time"], input[type="text"], input[type="number"],
@@ -346,6 +347,7 @@
   }
   .check-row:hover{border-color:var(--teal-600);}
   .check-row input{width:16px; height:16px; margin:1px 0 0; flex-shrink:0; accent-color:var(--teal-700); cursor:pointer;}
+  .check-row > span{flex:1; min-width:0;}
   .check-row strong{display:block; font-size:12.5px; font-weight:600; color:var(--ink); text-transform:none; letter-spacing:0;}
   .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted); margin-top:3px; text-transform:none; letter-spacing:0;}
 
@@ -395,6 +397,30 @@
   .advanced-filters{
     background:var(--teal-50); border:1px solid var(--line-soft); border-radius:9px;
     padding:12px; margin:-6px 0 18px;
+  }
+
+  #selectModeToggle.active{background:var(--teal-100); border-color:var(--teal-600); color:var(--teal-700);}
+
+  .bulk-toolbar{
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+    background:var(--teal-800); color:#fff; border-radius:10px;
+    padding:10px 16px; margin-bottom:14px;
+  }
+  .bulk-select-all{display:flex; align-items:center; gap:9px; cursor:pointer; font-size:13px; font-weight:600;}
+  .bulk-select-all input{width:16px; height:16px; accent-color:var(--gold);}
+  .bulk-actions{display:flex; gap:8px;}
+  .bulk-toolbar .btn.danger-ghost{background:rgba(255,255,255,.06); border-color:rgba(224,133,133,.5); color:#F0AFAF;}
+  .bulk-toolbar .btn.danger-ghost:hover{background:rgba(224,133,133,.18);}
+  .bulk-toolbar .btn.ghost{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.25); color:#fff;}
+  .bulk-toolbar .btn.ghost:hover{background:rgba(255,255,255,.16);}
+  th.select-col{width:34px;}
+  td.select-col{width:1%;}
+  td.select-col input, th.select-col input{width:16px; height:16px; accent-color:var(--teal-700); cursor:pointer;}
+  @media (max-width:700px){
+    .table-wrap.responsive-cards td.select-col{
+      display:flex; justify-content:flex-end; padding:0 0 8px; border-bottom:1px dashed var(--line-soft);
+    }
+    .table-wrap.responsive-cards td.select-col::before{content:none;}
   }
 
   .backup-reminder{border-left-color:var(--teal-600);}
@@ -1058,6 +1084,37 @@
       Changes here apply immediately.
     </p>
     <div id="usersList"></div>
+
+    <div class="periods-section">
+      <div class="periods-head">
+        <label style="margin:0;">Apply to Everyone</label>
+      </div>
+      <p class="settings-hint" style="margin:0 0 12px;">
+        Mark a public holiday or company-wide day off for the whole team in one action, instead of entering it person by person.
+      </p>
+      <div class="form-grid">
+        <div>
+          <label for="bulkApplyDate">Date</label>
+          <input type="date" id="bulkApplyDate">
+        </div>
+        <div>
+          <label for="bulkApplyType">Day Type</label>
+          <select id="bulkApplyType">
+            <option value="holiday">Public Holiday</option>
+            <option value="leave">Annual Leave</option>
+            <option value="sick">Sick Leave</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="bulkApplyNote">Note (optional)</label>
+          <input type="text" id="bulkApplyNote" placeholder="e.g. National Day">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" id="bulkApplyBtn">Apply to All Team Members</button>
+      </div>
+    </div>
   </section>
 
   <section class="card">
@@ -1082,11 +1139,15 @@
     </div>
     <p class="qc-note" id="qcStatusNote"></p>
 
-    <form id="entryForm">
+    <form id="entryForm" novalidate>
       <div class="form-grid">
         <div>
-          <label for="fDate">Date</label>
+          <label for="fDate" id="fDateLabel">Date</label>
           <input type="date" id="fDate" required>
+        </div>
+        <div id="fToDateWrap" style="display:none;">
+          <label for="fToDate">To</label>
+          <input type="date" id="fToDate">
         </div>
         <div>
           <label for="fIn">Clock In</label>
@@ -1112,6 +1173,15 @@
         <div class="full">
           <label for="fNote">Note (optional)</label>
           <input type="text" id="fNote" placeholder="e.g. Left early for appointment">
+        </div>
+        <div class="full" id="fRecurringWrap">
+          <label class="check-row" for="fRecurring" style="margin:6px 0 0;">
+            <input type="checkbox" id="fRecurring">
+            <span>
+              <strong>Repeat across a date range</strong>
+              <em>Applies this entry to every scheduled workday from the date above through an end date — handy for a week of planned leave.</em>
+            </span>
+          </label>
         </div>
       </div>
       <div class="form-actions">
@@ -1185,6 +1255,10 @@
         Filters
         <span class="filter-badge" id="advancedFilterBadge" style="display:none;">0</span>
       </button>
+      <button type="button" class="btn ghost small" id="selectModeToggle">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Select
+      </button>
       <span class="filter-count" id="filterCount"></span>
     </div>
 
@@ -1200,10 +1274,21 @@
     </div>
 
     <div class="tab-panel active" id="tab-log">
+      <div class="bulk-toolbar" id="bulkToolbar" style="display:none;">
+        <label class="bulk-select-all">
+          <input type="checkbox" id="bulkSelectAll">
+          <span id="bulkCount">0 selected</span>
+        </label>
+        <div class="bulk-actions">
+          <button type="button" class="btn danger-ghost small" id="bulkDeleteBtn">Delete Selected</button>
+          <button type="button" class="btn ghost small" id="bulkCancelBtn">Cancel</button>
+        </div>
+      </div>
       <div class="table-wrap responsive-cards">
         <table>
           <thead>
             <tr>
+              <th class="select-col" id="selectColHead" style="display:none;"></th>
               <th>Date</th><th>Day</th><th>In</th><th>Out</th>
               <th class="num">Worked</th><th class="num">Target</th><th class="num">Diff</th>
               <th>Type</th><th>Note</th><th></th>
@@ -1839,15 +1924,49 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       dialogRoot().appendChild(overlay);
       requestAnimationFrame(function(){ overlay.classList.add("show"); });
 
+      var bgRoot = document.getElementById("appShell").style.display !== "none"
+        ? document.getElementById("appShell") : document.getElementById("authScreen");
+      bgRoot.setAttribute("aria-hidden", "true");
+
+      // Focus trap: Tab/Shift+Tab cycle only among elements inside the modal,
+      // and focus returns to whatever triggered it once the modal closes —
+      // without this, Tab can walk focus out into the page behind the overlay.
+      var previouslyFocused = document.activeElement;
+      var card = overlay.querySelector(".modal-card");
+      function focusable(){
+        return Array.from(card.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+          .filter(function(el){ return !el.disabled && el.offsetParent !== null; });
+      }
+
       function close(result){
         document.removeEventListener("keydown", onKey);
+        bgRoot.removeAttribute("aria-hidden");
         overlay.classList.remove("show");
-        setTimeout(function(){ overlay.remove(); }, 180);
+        setTimeout(function(){
+          overlay.remove();
+          if(previouslyFocused && typeof previouslyFocused.focus === "function"){
+            previouslyFocused.focus();
+          }
+        }, 180);
         resolve(result);
       }
       function onKey(ev){
-        if(ev.key === "Escape") close(false);
-        if(ev.key === "Enter") close(true);
+        if(ev.key === "Escape"){ close(false); return; }
+        if(ev.key === "Enter"){ close(true); return; }
+        if(ev.key === "Tab"){
+          var els = focusable();
+          if(!els.length) return;
+          var first = els[0], last = els[els.length - 1];
+          if(ev.shiftKey && document.activeElement === first){
+            ev.preventDefault(); last.focus();
+          } else if(!ev.shiftKey && document.activeElement === last){
+            ev.preventDefault(); first.focus();
+          } else if(!card.contains(document.activeElement)){
+            // Focus somehow ended up outside the modal (e.g. programmatic
+            // focus elsewhere) — pull it back in rather than let Tab escape.
+            ev.preventDefault(); first.focus();
+          }
+        }
       }
       overlay.querySelector(".modal-cancel").addEventListener("click", function(){ close(false); });
       overlay.querySelector(".modal-confirm").addEventListener("click", function(){ close(true); });
@@ -2077,7 +2196,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         ? "Editing your own schedule."
         : "Editing the schedule for " + (viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user") + ".";
       fillSettingsForm();
-      if(isAdmin) renderUsersList();
+      if(isAdmin){
+        renderUsersList();
+        var bulkDate = document.getElementById("bulkApplyDate");
+        if(!bulkDate.value) bulkDate.value = todayStr();
+      }
       card.scrollIntoView({behavior:"smooth", block:"nearest"});
     }
     updateStickyClockVisibility();
@@ -2585,7 +2708,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
             : formatTime12(e.clockOut))
         : "—";
       var tr = document.createElement("tr");
+      var selectCell = selectModeActive
+        ? "<td class='select-col' data-label=''><input type='checkbox' class='row-select' data-id='"+e.id+"'"+(selectedEntryIds.has(e.id)?" checked":"")+"></td>"
+        : "";
       tr.innerHTML =
+        selectCell +
         "<td data-label='Date'>"+fmtDate(e.date)+"</td>"+
         "<td data-label='Day'>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
         "<td data-label='In'>"+inCell+"</td>"+
@@ -3022,6 +3149,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   // ---------- Form ----------
   var editingId = null;
+  var selectModeActive = false;
+  var selectedEntryIds = new Set();
   var form = document.getElementById("entryForm");
 
   document.getElementById("fillStandardBtn").addEventListener("click", function(){
@@ -3035,11 +3164,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("fDate").value = todayStr();
     document.getElementById("submitBtn").textContent = "Add Entry";
     document.getElementById("cancelEditBtn").style.display = "none";
+    setRecurringMode(false);
+    document.getElementById("fRecurringWrap").style.display = "";
   }
 
   function loadEntryIntoForm(id){
     var e = entries.find(function(x){ return x.id === id; });
     if(!e) return;
+    setRecurringMode(false);
     document.getElementById("fDate").value = e.date;
     document.getElementById("fIn").value = e.clockIn || "";
     document.getElementById("fOut").value = e.clockOut || "";
@@ -3048,23 +3180,47 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     editingId = e.id;
     document.getElementById("submitBtn").textContent = "Save Changes";
     document.getElementById("cancelEditBtn").style.display = "inline-flex";
+    document.getElementById("fRecurringWrap").style.display = "none";
     form.scrollIntoView({behavior:"smooth", block:"center"});
     document.getElementById("fOut").focus();
   }
 
+  function setRecurringMode(on){
+    document.getElementById("fRecurring").checked = on;
+    document.getElementById("fToDateWrap").style.display = on ? "" : "none";
+    document.getElementById("fDateLabel").textContent = on ? "From" : "Date";
+    document.getElementById("submitBtn").textContent = on ? "Add Entries" : "Add Entry";
+    var toDate = document.getElementById("fToDate");
+    if(on && !toDate.value) toDate.value = document.getElementById("fDate").value;
+  }
+  document.getElementById("fRecurring").addEventListener("change", function(){
+    setRecurringMode(this.checked);
+  });
+  document.getElementById("fDate").addEventListener("change", function(){
+    var toDate = document.getElementById("fToDate");
+    toDate.min = this.value;
+    if(toDate.value && toDate.value < this.value) toDate.value = this.value;
+  });
+
   form.addEventListener("submit", async function(ev){
     ev.preventDefault();
     var date = document.getElementById("fDate").value;
-    if(!date) return;
+    if(!date){ showToast("Pick a date first.", "error"); return; }
+    var isRecurring = document.getElementById("fRecurring").checked && !editingId;
 
-    var payload = {
-      date: date,
+    var basePayload = {
       clockIn: document.getElementById("fIn").value || "",
       clockOut: document.getElementById("fOut").value || "",
       type: document.getElementById("fType").value,
       note: document.getElementById("fNote").value.trim()
     };
 
+    if(isRecurring){
+      await submitRecurringRange(date, basePayload);
+      return;
+    }
+
+    var payload = Object.assign({date: date}, basePayload);
     var existingDbId = null;
     if(editingId){
       existingDbId = editingId;
@@ -3091,6 +3247,60 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
+  // Applies one entry template across every scheduled workday in a date
+  // range — the "week of planned leave in one go" case. Non-workdays in
+  // the range are skipped since there's nothing to log on a day off.
+  async function submitRecurringRange(fromDate, basePayload){
+    var toDate = document.getElementById("fToDate").value;
+    if(!toDate){ showToast("Pick an end date for the range.", "error"); return; }
+    if(toDate < fromDate){ showToast("The end date can't be before the start date.", "error"); return; }
+
+    var dates = [];
+    var cursor = dateFromStr(fromDate);
+    var end = dateFromStr(toDate);
+    var guard = 0;
+    while(dateToStr(cursor) <= dateToStr(end) && guard < 400){
+      if(isScheduled(dateToStr(cursor))) dates.push(dateToStr(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+      guard++;
+    }
+    if(!dates.length){
+      showToast("No scheduled workdays fall inside that date range.", "error");
+      return;
+    }
+    if(dates.length > 62){
+      showToast("That range covers " + dates.length + " workdays — narrow it to 62 or fewer at a time.", "error");
+      return;
+    }
+
+    var replacing = dates.filter(function(d){ return entries.some(function(e){ return e.date === d; }); }).length;
+    var msg = "This will add " + TYPE_LABELS[basePayload.type].toLowerCase() + " entries for " +
+      dates.length + " workday" + (dates.length===1?"":"s") + " (" + fmtDate(dates[0]) + " – " + fmtDate(dates[dates.length-1]) + ").";
+    if(replacing) msg += " " + replacing + " already have an entry and will be replaced.";
+    if(!(await showConfirm(msg, {title:"Apply to date range?", confirmText:"Apply"}))) return;
+
+    var btn = document.getElementById("submitBtn");
+    btn.disabled = true;
+    var done = 0, failed = 0;
+    for(var i=0;i<dates.length;i++){
+      var d = dates[i];
+      var existing = entries.find(function(e){ return e.date === d; });
+      try{
+        await sbUpsertEntry(viewedUserId, Object.assign({date:d}, basePayload), existing ? existing.id : null);
+        delete dismissedReminders[d];
+        done++;
+      }catch(err){ failed++; }
+      btn.textContent = "Adding " + (i+1) + " of " + dates.length + "…";
+    }
+    btn.disabled = false;
+    resetForm();
+    await loadDataForViewedUser();
+    showToast(
+      "Added " + done + " of " + dates.length + " entries." + (failed ? " " + failed + " failed." : ""),
+      failed === 0 ? "success" : "error"
+    );
+  }
+
   document.getElementById("cancelEditBtn").addEventListener("click", resetForm);
 
   document.getElementById("logBody").addEventListener("click", async function(ev){
@@ -3108,6 +3318,79 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         showToast("Couldn't delete that entry: " + (err.message || err), "error");
       }
     }
+  });
+
+  // ---------- Bulk select ----------
+  function updateBulkToolbar(){
+    document.getElementById("bulkCount").textContent =
+      selectedEntryIds.size + " selected";
+    document.getElementById("bulkDeleteBtn").disabled = selectedEntryIds.size === 0;
+    var allBoxes = document.querySelectorAll("#logBody .row-select");
+    var allChecked = allBoxes.length > 0 && Array.from(allBoxes).every(function(b){ return b.checked; });
+    document.getElementById("bulkSelectAll").checked = allChecked;
+  }
+
+  function setSelectMode(on){
+    selectModeActive = on;
+    selectedEntryIds.clear();
+    document.getElementById("selectModeToggle").classList.toggle("active", on);
+    document.getElementById("bulkToolbar").style.display = on ? "flex" : "none";
+    document.getElementById("selectColHead").style.display = on ? "" : "none";
+    document.getElementById("bulkSelectAll").checked = false;
+    renderLog();
+    if(on) updateBulkToolbar();
+  }
+
+  document.getElementById("selectModeToggle").addEventListener("click", function(){
+    setSelectMode(!selectModeActive);
+  });
+  document.getElementById("bulkCancelBtn").addEventListener("click", function(){
+    setSelectMode(false);
+  });
+
+  document.getElementById("logBody").addEventListener("change", function(ev){
+    var box = ev.target.closest(".row-select");
+    if(!box) return;
+    var id = box.getAttribute("data-id");
+    if(box.checked) selectedEntryIds.add(id); else selectedEntryIds.delete(id);
+    updateBulkToolbar();
+  });
+
+  document.getElementById("bulkSelectAll").addEventListener("change", function(){
+    var checked = this.checked;
+    document.querySelectorAll("#logBody .row-select").forEach(function(box){
+      box.checked = checked;
+      if(checked) selectedEntryIds.add(box.getAttribute("data-id"));
+      else selectedEntryIds.delete(box.getAttribute("data-id"));
+    });
+    updateBulkToolbar();
+  });
+
+  document.getElementById("bulkDeleteBtn").addEventListener("click", async function(){
+    var ids = Array.from(selectedEntryIds);
+    if(!ids.length) return;
+    var confirmed = await showConfirm(
+      "Delete " + ids.length + " selected entr" + (ids.length===1?"y":"ies") + "? This can't be undone.",
+      {title:"Delete selected entries?", danger:true, confirmText:"Delete " + ids.length}
+    );
+    if(!confirmed) return;
+
+    var btn = this;
+    btn.disabled = true;
+    var done = 0, failed = 0;
+    for(var i=0;i<ids.length;i++){
+      try{ await sbDeleteEntry(ids[i]); done++; }
+      catch(err){ failed++; }
+      btn.textContent = "Deleting " + (i+1) + " of " + ids.length + "…";
+    }
+    btn.textContent = "Delete Selected";
+    if(editingId && ids.indexOf(editingId) !== -1) resetForm();
+    setSelectMode(false);
+    await loadDataForViewedUser();
+    showToast(
+      "Deleted " + done + " of " + ids.length + " entries." + (failed ? " " + failed + " failed." : ""),
+      failed === 0 ? "success" : "error"
+    );
   });
 
   // ---------- Quick clock ----------
@@ -3910,6 +4193,58 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       showToast("Couldn't update that role: " + (err.message || err), "error");
       buttons.forEach(function(b){ b.disabled = false; });
     }
+  });
+
+  // Applies one entry to every registered user for a single date — the
+  // "mark a public holiday for the whole team in one click" case.
+  document.getElementById("bulkApplyBtn").addEventListener("click", async function(){
+    var date = document.getElementById("bulkApplyDate").value;
+    var type = document.getElementById("bulkApplyType").value;
+    var note = document.getElementById("bulkApplyNote").value.trim();
+    if(!date){ showToast("Pick a date first.", "error"); return; }
+    if(!allProfiles.length){ showToast("No team members to apply this to yet.", "error"); return; }
+
+    var confirmed = await showConfirm(
+      "This will set " + TYPE_LABELS[type].toLowerCase() + " on " + fmtDate(date) + " for all " +
+      allProfiles.length + " team member" + (allProfiles.length===1?"":"s") +
+      ", replacing any existing entry that day.",
+      {title:"Apply to everyone?", confirmText:"Apply to " + allProfiles.length}
+    );
+    if(!confirmed) return;
+
+    var btn = this;
+    btn.disabled = true;
+    var existingByUser = {};
+    try{
+      var res = await supabase.from("entries").select("id,user_id").eq("date", date);
+      if(res.error) throw res.error;
+      (res.data || []).forEach(function(row){ existingByUser[row.user_id] = row.id; });
+    }catch(err){
+      showToast("Couldn't check existing entries for that date: " + (err.message || err), "error");
+      btn.disabled = false;
+      return;
+    }
+
+    var payload = {date: date, clockIn: "", clockOut: "", type: type, note: note};
+    var done = 0, failed = 0;
+    for(var i=0;i<allProfiles.length;i++){
+      var p = allProfiles[i];
+      try{
+        await sbUpsertEntry(p.id, payload, existingByUser[p.id] || null);
+        done++;
+      }catch(err){ failed++; }
+      btn.textContent = "Applying " + (i+1) + " of " + allProfiles.length + "…";
+    }
+    btn.disabled = false;
+    btn.textContent = "Apply to All Team Members";
+    document.getElementById("bulkApplyNote").value = "";
+
+    await loadDataForViewedUser();
+    if(document.querySelector('.tab-btn[data-tab="team"].active')) renderTeam();
+    showToast(
+      "Applied to " + done + " of " + allProfiles.length + " team members." + (failed ? " " + failed + " failed." : ""),
+      failed === 0 ? "success" : "error"
+    );
   });
 
   // Re-syncs UI after the signed-in user's own role changes (e.g. self-demotion),
