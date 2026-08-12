@@ -211,6 +211,14 @@
     font-variant-numeric:tabular-nums; color:var(--ink); letter-spacing:.005em;
   }
   .stat-detail{font-size:11.5px; color:var(--muted-2); margin:5px 0 0;}
+  .stat-trend{
+    display:flex; align-items:center; gap:4px; font-size:11px; color:var(--muted-2);
+    margin:6px 0 0; min-height:15px;
+  }
+  .stat-trend svg{flex-shrink:0;}
+  .stat-trend.trend-up{color:var(--positive);}
+  .stat-trend.trend-down{color:var(--negative);}
+  .stat-trend.trend-flat{color:var(--muted-2);}
   .stat-value.positive{color:var(--positive);}
   .stat-value.negative{color:var(--negative);}
 
@@ -316,6 +324,20 @@
   .daypicker input:focus-visible + label{outline:2px solid var(--gold); outline-offset:2px;}
   .settings-hint{font-size:11.5px; color:var(--muted-2); margin:10px 0 0;}
 
+  /* ---------- Settings accordion ---------- */
+  .accordion-section{border:1px solid var(--line-soft); border-radius:11px; margin-bottom:12px; overflow:hidden;}
+  .accordion-head{
+    width:100%; display:flex; align-items:center; justify-content:space-between;
+    background:var(--teal-50); border:none; cursor:pointer;
+    padding:13px 16px; font-size:13px; font-weight:600; color:var(--ink);
+    text-align:left; min-height:46px;
+  }
+  .accordion-head:hover{background:var(--teal-100);}
+  .accordion-chevron{transition:transform .2s ease; color:var(--muted); flex-shrink:0;}
+  .accordion-section.open .accordion-chevron{transform:rotate(180deg);}
+  .accordion-body{display:none; padding:18px 16px 16px;}
+  .accordion-section.open .accordion-body{display:block; animation:fadeIn .2s ease;}
+
   .check-row{
     display:flex; align-items:flex-start; gap:10px;
     margin:16px 0 0; padding:12px 14px;
@@ -363,6 +385,17 @@
   .filter-bar .date-field{width:auto; min-width:130px;}
   .filter-bar #typeFilterSelect{min-width:140px;}
   .filter-count{font-size:11.5px; color:var(--muted-2); white-space:nowrap;}
+  #advancedFiltersToggle{display:inline-flex; align-items:center; gap:6px; position:relative;}
+  #advancedFiltersToggle.active{background:var(--teal-100); border-color:var(--teal-600); color:var(--teal-700);}
+  .filter-badge{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:16px; height:16px; padding:0 4px; border-radius:99px;
+    background:var(--gradient-gold); color:#20180A; font-size:10px; font-weight:700;
+  }
+  .advanced-filters{
+    background:var(--teal-50); border:1px solid var(--line-soft); border-radius:9px;
+    padding:12px; margin:-6px 0 18px;
+  }
 
   .backup-reminder{border-left-color:var(--teal-600);}
   .backup-reminder svg{color:var(--teal-600);}
@@ -378,8 +411,17 @@
   .ontime-cell{color:var(--positive);}
 
   /* ---------- Tabs ---------- */
+  .tabs-wrap{position:relative; margin-bottom:20px;}
+  .tabs-wrap::before, .tabs-wrap::after{
+    content:""; position:absolute; top:0; bottom:1px; width:26px; pointer-events:none;
+    opacity:0; transition:opacity .2s ease; z-index:2;
+  }
+  .tabs-wrap::before{left:0; background:linear-gradient(90deg, var(--card), transparent);}
+  .tabs-wrap::after{right:0; background:linear-gradient(270deg, var(--card), transparent);}
+  .tabs-wrap.can-scroll-left::before{opacity:1;}
+  .tabs-wrap.can-scroll-right::after{opacity:1;}
   .tabs{
-    display:flex; gap:2px; border-bottom:1px solid var(--line-soft); margin-bottom:20px;
+    display:flex; gap:2px; border-bottom:1px solid var(--line-soft); margin-bottom:0;
     overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
   }
   .tabs::-webkit-scrollbar{display:none;}
@@ -392,6 +434,19 @@
   .tab-btn.active{color:var(--ink); border-bottom-color:var(--gold); font-weight:600; background:var(--teal-50);}
   .tab-panel{display:none;}
   .tab-panel.active{display:block; animation:fadeIn .25s ease;}
+
+  .sub-tabs{
+    display:flex; gap:6px; margin:16px 0 18px; padding:3px;
+    background:var(--teal-50); border-radius:9px; width:fit-content; max-width:100%; overflow-x:auto;
+  }
+  .sub-tab-btn{
+    background:none; border:none; cursor:pointer; padding:7px 15px; min-height:32px;
+    border-radius:7px; font-size:12.5px; font-weight:600; color:var(--muted);
+    white-space:nowrap; transition:background-color .15s ease, color .15s ease, box-shadow .15s ease;
+  }
+  .sub-tab-btn.active{background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm);}
+  .sub-tab-panel{display:none;}
+  .sub-tab-panel.active{display:block; animation:fadeIn .2s ease;}
   @keyframes fadeIn{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
 
   .filter-bar{display:flex; align-items:center; gap:10px; margin:-6px 0 18px; flex-wrap:wrap;}
@@ -426,6 +481,11 @@
   .row-actions button{background:none; border:none; cursor:pointer; font-size:11.5px; color:var(--muted); padding:5px 8px; border-radius:4px; min-height:30px;}
   .row-actions button:hover{color:var(--teal-600); background:var(--teal-50);}
   .empty-state{text-align:center; padding:36px 10px; color:var(--muted); font-size:13.5px;}
+  .first-run-empty{display:flex; flex-direction:column; align-items:center; gap:10px; max-width:320px; margin:0 auto;}
+  .first-run-empty svg{color:var(--gold); opacity:.8;}
+  .first-run-title{font-family:"Iowan Old Style",Palatino,Georgia,serif; font-size:16px; color:var(--ink); margin:2px 0 0;}
+  .first-run-sub{font-size:12.5px; color:var(--muted); line-height:1.6; margin:0;}
+  .first-run-sub strong{color:var(--teal-600);}
 
   /* ---------- Responsive tables: stacked cards below 700px ---------- */
   @media (max-width:700px){
@@ -661,6 +721,96 @@
     .role-toggle{width:100%;}
     .role-btn{flex:1;}
   }
+
+  /* ---------- Toasts ---------- */
+  .toast-stack{
+    position:fixed; left:0; right:0; bottom:18px; z-index:200;
+    display:flex; flex-direction:column; align-items:center; gap:8px;
+    padding:0 16px; pointer-events:none;
+  }
+  .toast{
+    pointer-events:auto;
+    display:flex; align-items:flex-start; gap:10px;
+    max-width:420px; width:100%;
+    background:var(--card); border:1px solid var(--line-soft); border-radius:11px;
+    padding:12px 14px; box-shadow:var(--shadow-lg);
+    opacity:0; transform:translateY(10px) scale(.98);
+    transition:opacity .22s ease, transform .22s ease;
+  }
+  .toast.show{opacity:1; transform:translateY(0) scale(1);}
+  .toast-icon{flex-shrink:0; margin-top:1px;}
+  .toast-error .toast-icon{color:var(--negative);}
+  .toast-success .toast-icon{color:var(--positive);}
+  .toast-info .toast-icon{color:var(--teal-600);}
+  .toast-msg{flex:1; font-size:13px; line-height:1.45; color:var(--ink); white-space:pre-line;}
+  .toast-close{
+    flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--muted-2);
+    padding:3px; border-radius:5px; margin-top:1px;
+  }
+  .toast-close:hover{color:var(--ink); background:var(--teal-50);}
+  @media (max-width:480px){
+    .toast-stack{bottom:12px; padding:0 10px;}
+    .toast{max-width:100%;}
+  }
+
+  /* ---------- Sticky mobile clock bar ---------- */
+  .sticky-clock{
+    display:none; position:fixed; left:12px; right:12px; bottom:14px; z-index:120;
+    align-items:center; justify-content:space-between; gap:12px;
+    background:var(--gradient-teal); border-radius:14px; padding:10px 14px;
+    box-shadow:var(--shadow-lg);
+    transform:translateY(90px); opacity:0;
+    transition:transform .25s ease, opacity .25s ease;
+  }
+  .sticky-clock.show{transform:translateY(0); opacity:1;}
+  .sticky-clock-time{
+    font-family:var(--font-num); font-weight:600; font-size:15px; color:#fff;
+    font-variant-numeric:tabular-nums; flex-shrink:0;
+  }
+  .sticky-clock-actions{display:flex; gap:8px;}
+  .sticky-clock .btn{padding:8px 14px; min-height:36px;}
+  .sticky-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:#20180A;}
+  .sticky-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.1); border-color:rgba(227,203,143,.4); color:#fff;}
+  @media (max-width:760px){
+    .sticky-clock{display:flex;}
+    /* Leave room so the sticky bar never covers the footer's own buttons. */
+    body{padding-bottom:78px;}
+  }
+
+  /* ---------- Confirm modal ---------- */
+  .modal-overlay{
+    position:fixed; inset:0; z-index:210;
+    background:rgba(6,25,23,.45); backdrop-filter:blur(2px);
+    display:flex; align-items:center; justify-content:center; padding:20px;
+    opacity:0; transition:opacity .18s ease;
+  }
+  .modal-overlay.show{opacity:1;}
+  .modal-card{
+    position:relative; width:100%; max-width:400px;
+    background:var(--card); border-radius:14px; box-shadow:var(--shadow-lg);
+    padding:24px 24px 20px;
+    transform:translateY(8px) scale(.98); transition:transform .18s ease;
+  }
+  .modal-overlay.show .modal-card{transform:translateY(0) scale(1);}
+  .modal-card::before{
+    content:""; position:absolute; top:0; left:20px; right:20px; height:3px;
+    background:var(--gradient-gold); border-radius:0 0 3px 3px;
+  }
+  .modal-title{
+    font-family:"Iowan Old Style",Palatino,Georgia,serif; font-weight:400; font-size:17px;
+    margin:2px 0 8px; color:var(--ink);
+  }
+  .modal-msg{font-size:13.5px; line-height:1.55; color:var(--muted); margin:0; white-space:pre-line;}
+  .modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px;}
+  .btn.danger-solid{
+    background:linear-gradient(135deg, #C24A4A, #9C3434); border-color:#9C3434; color:#fff;
+  }
+  .btn.danger-solid::before{display:none;}
+  .btn.danger-solid:hover{filter:brightness(1.06);}
+  @media (max-width:480px){
+    .modal-actions{flex-direction:column-reverse;}
+    .modal-actions .btn{width:100%;}
+  }
 </style>
 </head>
 <body>
@@ -792,16 +942,19 @@
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>This Week Avg / Day</p>
       <p class="stat-value" id="weekAvg">0h</p>
       <p class="stat-detail" id="weekAvgDetail">—</p>
+      <p class="stat-trend" id="weekTrend"></p>
     </div>
     <div class="stat-card">
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month Avg / Day</p>
       <p class="stat-value" id="monthAvg">0h</p>
       <p class="stat-detail" id="monthAvgDetail">—</p>
+      <p class="stat-trend" id="monthTrend"></p>
     </div>
     <div class="stat-card">
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/></svg>Overtime Bank</p>
       <p class="stat-value" id="otBank">0h</p>
       <p class="stat-detail" id="otBankDetail">This month vs. target</p>
+      <p class="stat-trend" id="otBankTrend"></p>
     </div>
     <div class="stat-card">
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3-2 4-2 7a4 4 0 0 0 8 0c0-1.5-1-2.5-1-2.5s.5 2-1 3c.5-3-2-4-2-7z"/><path d="M8.5 14a3.5 5 0 1 0 7 0c0-1-.5-2-1.5-3"/></svg>Current Streak</p>
@@ -813,56 +966,81 @@
   <section class="card settings-card" id="settingsCard">
     <h2>Schedule Settings</h2>
     <p class="settings-hint" id="settingsForLabel" style="margin:-10px 0 18px;"></p>
-    <div style="margin-bottom:18px;">
-      <label>Working Days</label>
-      <div class="daypicker" id="dayPicker"></div>
-    </div>
-    <div class="form-grid">
-      <div>
-        <label for="sTargetH">Target Hours</label>
-        <input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric">
-      </div>
-      <div>
-        <label for="sTargetM">Target Minutes</label>
-        <input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric">
-      </div>
-      <div>
-        <label for="sIn">Standard Start</label>
-        <input type="time" id="sIn">
-      </div>
-      <div>
-        <label for="sOut">Standard End</label>
-        <input type="time" id="sOut">
-      </div>
-      <div>
-        <label for="sRemind">Remind After (hours)</label>
-        <input type="number" id="sRemind" min="1" max="24" step="0.5">
-      </div>
-      <div>
-        <label for="sGrace">Grace Period (minutes)</label>
-        <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
-      </div>
-    </div>
-    <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival.</p>
 
-    <label class="check-row" for="sLateOnlyShort">
-      <input type="checkbox" id="sLateOnlyShort">
-      <span>
-        <strong>Only count me late if I didn't complete my target hours</strong>
-        <em>A late start that you make up by staying later won't be flagged. Turn this off to flag every late arrival regardless of hours worked.</em>
-      </span>
-    </label>
+    <div class="accordion-section open" data-section="hours">
+      <button type="button" class="accordion-head">
+        <span>Working Hours &amp; Schedule</span>
+        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="accordion-body">
+        <div style="margin-bottom:18px;">
+          <label>Working Days</label>
+          <div class="daypicker" id="dayPicker"></div>
+        </div>
+        <div class="form-grid">
+          <div>
+            <label for="sTargetH">Target Hours</label>
+            <input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric">
+          </div>
+          <div>
+            <label for="sTargetM">Target Minutes</label>
+            <input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric">
+          </div>
+          <div>
+            <label for="sIn">Standard Start</label>
+            <input type="time" id="sIn">
+          </div>
+          <div>
+            <label for="sOut">Standard End</label>
+            <input type="time" id="sOut">
+          </div>
+          <div>
+            <label for="sRemind">Remind After (hours)</label>
+            <input type="number" id="sRemind" min="1" max="24" step="0.5">
+          </div>
+          <div>
+            <label for="sGrace">Grace Period (minutes)</label>
+            <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
+          </div>
+        </div>
+        <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival.</p>
+      </div>
+    </div>
 
-    <div class="periods-section">
-      <div class="periods-head">
-        <label style="margin:0;">Seasonal Hours</label>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
-          <button type="button" class="btn ghost small" id="addPeriodBtn">+ Add Period</button>
+    <div class="accordion-section" data-section="punctuality">
+      <button type="button" class="accordion-head">
+        <span>Punctuality Rule</span>
+        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="accordion-body">
+        <label class="check-row" for="sLateOnlyShort" style="margin-top:0;">
+          <input type="checkbox" id="sLateOnlyShort">
+          <span>
+            <strong>Only count me late if I didn't complete my target hours</strong>
+            <em>A late start that you make up by staying later won't be flagged. Turn this off to flag every late arrival regardless of hours worked.</em>
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div class="accordion-section" data-section="seasonal">
+      <button type="button" class="accordion-head">
+        <span>Seasonal Hours</span>
+        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="accordion-body">
+        <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
+          <div class="periods-head">
+            <span></span>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
+              <button type="button" class="btn ghost small" id="addPeriodBtn">+ Add Period</button>
+            </div>
+          </div>
+          <p class="settings-hint" style="margin:0 0 12px;">Reduced hours for a date range, such as Ramadan or summer schedules. These override the standard hours above for the dates they cover. The Ramadan button fills in the expected dates and a 6-hour day — confirm them once the moon sighting is announced, since the start can shift by a day.</p>
+          <div id="periodsList"></div>
         </div>
       </div>
-      <p class="settings-hint" style="margin:0 0 12px;">Reduced hours for a date range, such as Ramadan or summer schedules. These override the standard hours above for the dates they cover. The Ramadan button fills in the expected dates and a 6-hour day — confirm them once the moon sighting is announced, since the start can shift by a day.</p>
-      <div id="periodsList"></div>
     </div>
 
     <div class="form-actions">
@@ -943,13 +1121,19 @@
   </section>
 
   <section class="card">
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="log">Log</button>
-      <button class="tab-btn" data-tab="weekly">Weekly</button>
-      <button class="tab-btn" data-tab="monthly">Monthly</button>
-      <button class="tab-btn" data-tab="yearly">Yearly</button>
-      <button class="tab-btn" data-tab="punctuality">Punctuality</button>
-      <button class="tab-btn" data-tab="team" id="teamTabBtn" style="display:none;">Team</button>
+    <div class="tabs-wrap">
+      <div class="tabs" id="tabsBar">
+        <button class="tab-btn active" data-tab="log">Log</button>
+        <button class="tab-btn" data-tab="trends">Trends</button>
+        <button class="tab-btn" data-tab="punctuality">Punctuality</button>
+        <button class="tab-btn" data-tab="team" id="teamTabBtn" style="display:none;">Team</button>
+      </div>
+    </div>
+
+    <div class="sub-tabs" id="trendsSubTabs" style="display:none;">
+      <button type="button" class="sub-tab-btn active" data-subtab="weekly">Weekly</button>
+      <button type="button" class="sub-tab-btn" data-subtab="monthly">Monthly</button>
+      <button type="button" class="sub-tab-btn" data-subtab="yearly">Yearly</button>
     </div>
 
     <div class="filter-bar" id="monthFilterWrap">
@@ -994,6 +1178,15 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
         <input type="text" id="searchInput" placeholder="Search notes and day types…" autocomplete="off">
       </div>
+      <button type="button" class="btn ghost small" id="advancedFiltersToggle">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+        Filters
+        <span class="filter-badge" id="advancedFilterBadge" style="display:none;">0</span>
+      </button>
+      <span class="filter-count" id="filterCount"></span>
+    </div>
+
+    <div class="filter-bar advanced-filters" id="advancedFiltersPanel" style="display:none;">
       <select id="typeFilterSelect" title="Filter by day type">
         <option value="all">All Types</option>
       </select>
@@ -1002,7 +1195,6 @@
       <label for="toDate" class="inline-lbl">To</label>
       <input type="date" id="toDate" class="date-field" title="Only show days on or before this date">
       <button type="button" class="btn ghost small" id="clearFiltersBtn">Clear</button>
-      <span class="filter-count" id="filterCount"></span>
     </div>
 
     <div class="tab-panel active" id="tab-log">
@@ -1021,74 +1213,76 @@
       <div class="empty-state" id="logEmpty" style="display:none;"></div>
     </div>
 
-    <div class="tab-panel" id="tab-weekly">
-      <div id="weeklyList"></div>
-      <div class="empty-state" id="weeklyEmpty" style="display:none;"></div>
-    </div>
-
-    <div class="tab-panel" id="tab-monthly">
-      <div class="period-card">
-        <div class="period-card-head">
-          <span class="period-title display">Average Hours / Day by Month</span>
-          <span class="period-meta" id="monthlyChartMeta"></span>
-        </div>
-        <div class="chart-holder" id="monthlyChart"></div>
-        <div class="chart-legend">
-          <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
-          <span><i class="swatch" style="background:var(--teal-600)"></i>Below target</span>
-          <span><i class="swatch target"></i>Daily target</span>
-        </div>
-      </div>
-      <div class="table-wrap responsive-cards">
-        <table>
-          <thead>
-            <tr>
-              <th>Month</th><th class="num">Days</th><th class="num">Total</th>
-              <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th>
-            </tr>
-          </thead>
-          <tbody id="monthlyBody"></tbody>
-        </table>
-      </div>
-      <div class="empty-state" id="monthlyEmpty" style="display:none;">No entries yet.</div>
-    </div>
-
-    <div class="tab-panel" id="tab-yearly">
-      <div class="period-card" id="yearOverview">
-        <div class="period-card-head">
-          <span class="period-title display" id="yearTitle">—</span>
-          <span class="period-meta" id="yearMeta"></span>
-        </div>
-        <div class="period-figures" id="yearFigures"></div>
-        <div class="chart-holder" id="yearChart"></div>
-        <div class="chart-legend">
-          <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
-          <span><i class="swatch" style="background:var(--teal-600)"></i>Below target</span>
-          <span><i class="swatch" style="background:var(--line)"></i>No entries</span>
-          <span><i class="swatch target"></i>Daily target</span>
-        </div>
+    <div class="tab-panel" id="tab-trends">
+      <div class="sub-tab-panel active" id="subtab-weekly">
+        <div id="weeklyList"></div>
+        <div class="empty-state" id="weeklyEmpty" style="display:none;"></div>
       </div>
 
-      <div class="period-card">
-        <div class="period-card-head">
-          <span class="period-title display">Year over Year</span>
-          <span class="period-meta">Average hours / day</span>
+      <div class="sub-tab-panel" id="subtab-monthly">
+        <div class="period-card">
+          <div class="period-card-head">
+            <span class="period-title display">Average Hours / Day by Month</span>
+            <span class="period-meta" id="monthlyChartMeta"></span>
+          </div>
+          <div class="chart-holder" id="monthlyChart"></div>
+          <div class="chart-legend">
+            <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
+            <span><i class="swatch" style="background:var(--teal-600)"></i>Below target</span>
+            <span><i class="swatch target"></i>Daily target</span>
+          </div>
         </div>
-        <div class="chart-holder" id="yoyChart"></div>
+        <div class="table-wrap responsive-cards">
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th><th class="num">Days</th><th class="num">Total</th>
+                <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th>
+              </tr>
+            </thead>
+            <tbody id="monthlyBody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="monthlyEmpty" style="display:none;">No entries yet.</div>
       </div>
 
-      <div class="table-wrap responsive-cards">
-        <table>
-          <thead>
-            <tr>
-              <th>Year</th><th class="num">Days</th><th class="num">Total</th>
-              <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th><th class="num">vs. Prev Year</th>
-            </tr>
-          </thead>
-          <tbody id="yearlyBody"></tbody>
-        </table>
+      <div class="sub-tab-panel" id="subtab-yearly">
+        <div class="period-card" id="yearOverview">
+          <div class="period-card-head">
+            <span class="period-title display" id="yearTitle">—</span>
+            <span class="period-meta" id="yearMeta"></span>
+          </div>
+          <div class="period-figures" id="yearFigures"></div>
+          <div class="chart-holder" id="yearChart"></div>
+          <div class="chart-legend">
+            <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
+            <span><i class="swatch" style="background:var(--teal-600)"></i>Below target</span>
+            <span><i class="swatch" style="background:var(--line)"></i>No entries</span>
+            <span><i class="swatch target"></i>Daily target</span>
+          </div>
+        </div>
+
+        <div class="period-card">
+          <div class="period-card-head">
+            <span class="period-title display">Year over Year</span>
+            <span class="period-meta">Average hours / day</span>
+          </div>
+          <div class="chart-holder" id="yoyChart"></div>
+        </div>
+
+        <div class="table-wrap responsive-cards">
+          <table>
+            <thead>
+              <tr>
+                <th>Year</th><th class="num">Days</th><th class="num">Total</th>
+                <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th><th class="num">vs. Prev Year</th>
+              </tr>
+            </thead>
+            <tbody id="yearlyBody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="yearlyEmpty" style="display:none;">No entries yet.</div>
       </div>
-      <div class="empty-state" id="yearlyEmpty" style="display:none;">No entries yet.</div>
     </div>
 
     <div class="tab-panel" id="tab-punctuality">
@@ -1166,6 +1360,20 @@
 </footer>
 
 <div id="printArea"></div>
+
+<div class="sticky-clock" id="stickyClock">
+  <span class="sticky-clock-time" id="stickyClockTime">—</span>
+  <div class="sticky-clock-actions">
+    <button type="button" class="btn small qc-btn" id="stickyClockInBtn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+      In
+    </button>
+    <button type="button" class="btn secondary small qc-btn" id="stickyClockOutBtn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H8M11 5l-7 7 7 7"/></svg>
+      Out
+    </button>
+  </div>
+</div>
 
 </div><!-- /#appShell -->
 
@@ -1373,7 +1581,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       settings = results[1];
     }catch(err){
       console.error(err);
-      alert("Couldn't load attendance data: " + (err.message || err));
+      showToast("Couldn't load attendance data: " + (err.message || err), "error");
       entries = [];
       settings = Object.assign({}, DEFAULT_SETTINGS);
     }
@@ -1558,6 +1766,94 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return getComputedStyle(document.body).getPropertyValue(name).trim() || "#888";
   }
 
+  // ---------- In-app dialogs (replace native alert()/confirm()) ----------
+  function dialogRoot(){
+    var root = document.getElementById("dialogRoot");
+    if(!root){
+      root = document.createElement("div");
+      root.id = "dialogRoot";
+      document.body.appendChild(root);
+    }
+    return root;
+  }
+
+  var TOAST_ICONS = {
+    error:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>',
+    success:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
+    info:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8h.01"/></svg>'
+  };
+
+  // Non-blocking notification. Replaces informational/error alert() calls.
+  function showToast(message, type){
+    type = (type === "error" || type === "success") ? type : "info";
+    var stack = document.getElementById("toastStack");
+    if(!stack){
+      stack = document.createElement("div");
+      stack.id = "toastStack";
+      stack.className = "toast-stack";
+      dialogRoot().appendChild(stack);
+    }
+    var el = document.createElement("div");
+    el.className = "toast toast-" + type;
+    el.setAttribute("role", type === "error" ? "alert" : "status");
+    el.innerHTML =
+      '<span class="toast-icon">'+TOAST_ICONS[type]+'</span>' +
+      '<span class="toast-msg"></span>' +
+      '<button type="button" class="toast-close" aria-label="Dismiss">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>' +
+      '</button>';
+    el.querySelector(".toast-msg").textContent = message;
+    stack.appendChild(el);
+    requestAnimationFrame(function(){ el.classList.add("show"); });
+
+    var timer = setTimeout(dismiss, type === "error" ? 7000 : 4200);
+    function dismiss(){
+      clearTimeout(timer);
+      el.classList.remove("show");
+      setTimeout(function(){ el.remove(); }, 220);
+    }
+    el.querySelector(".toast-close").addEventListener("click", dismiss);
+  }
+
+  // Promise-based modal. Resolves true/false. Replaces confirm().
+  function showConfirm(message, opts){
+    opts = opts || {};
+    return new Promise(function(resolve){
+      var overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML =
+        '<div class="modal-card" role="alertdialog" aria-modal="true">' +
+          (opts.title ? '<h3 class="modal-title">'+escapeHtml(opts.title)+'</h3>' : '') +
+          '<p class="modal-msg"></p>' +
+          '<div class="modal-actions">' +
+            '<button type="button" class="btn ghost modal-cancel">'+escapeHtml(opts.cancelText || "Cancel")+'</button>' +
+            '<button type="button" class="btn '+(opts.danger ? 'danger-solid' : '')+' modal-confirm">'+escapeHtml(opts.confirmText || "Confirm")+'</button>' +
+          '</div>' +
+        '</div>';
+      overlay.querySelector(".modal-msg").textContent = message;
+      dialogRoot().appendChild(overlay);
+      requestAnimationFrame(function(){ overlay.classList.add("show"); });
+
+      function close(result){
+        document.removeEventListener("keydown", onKey);
+        overlay.classList.remove("show");
+        setTimeout(function(){ overlay.remove(); }, 180);
+        resolve(result);
+      }
+      function onKey(ev){
+        if(ev.key === "Escape") close(false);
+        if(ev.key === "Enter") close(true);
+      }
+      overlay.querySelector(".modal-cancel").addEventListener("click", function(){ close(false); });
+      overlay.querySelector(".modal-confirm").addEventListener("click", function(){ close(true); });
+      overlay.addEventListener("click", function(ev){ if(ev.target === overlay) close(false); });
+      document.addEventListener("keydown", onKey);
+      setTimeout(function(){
+        overlay.querySelector(opts.danger ? ".modal-cancel" : ".modal-confirm").focus();
+      }, 40);
+    });
+  }
+
   // Rolls a list of entries into one summary object.
   function summarize(list){
     var workedSum=0, loggedDays=0, targetSum=0, diffSum=0, openDays=0;
@@ -1634,7 +1930,20 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("sGrace").value = settings.graceMin;
     document.getElementById("sLateOnlyShort").checked = settings.lateOnlyIfShort;
     renderPeriodRows(settings.periods);
+
+    // Open sections that already have non-default content, so nothing
+    // configured gets hidden behind a collapsed accordion by surprise.
+    var seasonalSection = document.querySelector('.accordion-section[data-section="seasonal"]');
+    if(seasonalSection) seasonalSection.classList.toggle("open", settings.periods.length > 0);
+    var punctSection = document.querySelector('.accordion-section[data-section="punctuality"]');
+    if(punctSection) punctSection.classList.toggle("open", !settings.lateOnlyIfShort);
   }
+
+  document.querySelectorAll(".accordion-head").forEach(function(head){
+    head.addEventListener("click", function(){
+      head.closest(".accordion-section").classList.toggle("open");
+    });
+  });
 
   // The period editor works on the DOM rows directly; nothing is committed to
   // settings until Save is pressed, so Close always discards edits.
@@ -1705,7 +2014,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return !current.some(function(p){ return p.start === r.start; });
     });
     if(!next){
-      alert("Ramadan is already set up for the years available. Use \"+ Add Period\" to add another range manually.");
+      showToast("Ramadan is already set up for the years available. Use \"+ Add Period\" to add another range manually.", "info");
       return;
     }
 
@@ -1766,14 +2075,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(isAdmin) renderUsersList();
       card.scrollIntoView({behavior:"smooth", block:"nearest"});
     }
+    updateStickyClockVisibility();
   });
   document.getElementById("closeSettingsBtn").addEventListener("click", function(){
     document.getElementById("settingsCard").classList.remove("open");
     document.getElementById("accessCard").classList.remove("open");
+    updateStickyClockVisibility();
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
     if(!isAdmin){
-      alert("Only an admin can change schedule settings.");
+      showToast("Only an admin can change schedule settings.", "error");
       return;
     }
     var days = [];
@@ -1781,16 +2092,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var box = document.getElementById("wd"+i);
       if(box && box.checked) days.push(i);
     });
-    if(!days.length){ alert("Pick at least one working day."); return; }
+    if(!days.length){ showToast("Pick at least one working day.", "error"); return; }
 
     var th = parseInt(document.getElementById("sTargetH").value, 10);
     var tm = parseInt(document.getElementById("sTargetM").value, 10);
     if(isNaN(th)) th = 0;
     if(isNaN(tm)) tm = 0;
-    if(th < 0 || tm < 0 || tm > 59){ alert("Minutes must be between 0 and 59."); return; }
+    if(th < 0 || tm < 0 || tm > 59){ showToast("Minutes must be between 0 and 59.", "error"); return; }
     var targetMin = th*60 + tm;
-    if(targetMin <= 0){ alert("Set a daily target greater than zero."); return; }
-    if(targetMin > 24*60){ alert("A daily target can't exceed 24 hours."); return; }
+    if(targetMin <= 0){ showToast("Set a daily target greater than zero.", "error"); return; }
+    if(targetMin > 24*60){ showToast("A daily target can't exceed 24 hours.", "error"); return; }
 
     var remind = parseFloat(document.getElementById("sRemind").value);
     if(isNaN(remind) || remind <= 0 || remind > 24) remind = DEFAULT_SETTINGS.remindAfterHours;
@@ -1802,14 +2113,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var rawPeriods = readPeriodRows();
     for(var i=0;i<rawPeriods.length;i++){
       var p = rawPeriods[i], where = "Seasonal period " + (i+1) + (p.name ? ' ("'+p.name+'")' : "");
-      if(!p.start || !p.end){ alert(where + " needs both a start and end date."); return; }
-      if(p.start > p.end){ alert(where + " ends before it starts."); return; }
-      if(p.targetMin <= 0){ alert(where + " needs a daily target greater than zero."); return; }
-      if(p.targetMin > 24*60){ alert(where + " has a target over 24 hours."); return; }
+      if(!p.start || !p.end){ showToast(where + " needs both a start and end date.", "error"); return; }
+      if(p.start > p.end){ showToast(where + " ends before it starts.", "error"); return; }
+      if(p.targetMin <= 0){ showToast(where + " needs a daily target greater than zero.", "error"); return; }
+      if(p.targetMin > 24*60){ showToast(where + " has a target over 24 hours.", "error"); return; }
       for(var j=0;j<i;j++){
         var q = rawPeriods[j];
         if(p.start <= q.end && q.start <= p.end){
-          alert(where + " overlaps another period. Date ranges can't overlap.");
+          showToast(where + " overlaps another period. Date ranges can't overlap.", "error");
           return;
         }
       }
@@ -1833,9 +2144,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       await sbSaveSettings(viewedUserId, updated);
       settings = updated;
       document.getElementById("settingsCard").classList.remove("open");
+      updateStickyClockVisibility();
       renderAll();
     }catch(err){
-      alert("Couldn't save settings: " + (err.message || err));
+      showToast("Couldn't save settings: " + (err.message || err), "error");
     }finally{
       btn.disabled = false; btn.textContent = "Save Settings";
     }
@@ -2058,6 +2370,31 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // ---------- Stats ----------
+  // Renders a neutral up/down/flat trend indicator into a stat card.
+  // current/previous are in minutes; pass null when there's no prior period to compare.
+  function renderTrend(elId, current, previous, label, isSigned){
+    var el = document.getElementById(elId);
+    if(!el) return;
+    if(current === null || previous === null){
+      el.innerHTML = "";
+      el.className = "stat-trend";
+      return;
+    }
+    var diff = Math.round(current - previous);
+    if(Math.abs(diff) < 1){
+      el.className = "stat-trend trend-flat";
+      el.innerHTML = "Same as " + label;
+      return;
+    }
+    var up = diff > 0;
+    el.className = "stat-trend " + (up ? "trend-up" : "trend-down");
+    var arrowPath = up ? "M12 19V5M5 12l7-7 7 7" : "M12 5v14M5 12l7 7 7-7";
+    var amount = isSigned ? signed(diff) : minutesToHoursStr(Math.abs(diff));
+    el.innerHTML =
+      '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="'+arrowPath+'"/></svg>' +
+      amount + ' vs. ' + label;
+  }
+
   function renderStats(){
     var today = todayStr();
     var wk = weekKey(today), mk = monthKey(today);
@@ -2077,6 +2414,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     otEl.className = "stat-value " + (ms.diffSum > 0 ? "positive" : (ms.diffSum < 0 ? "negative" : ""));
     document.getElementById("otBankDetail").textContent =
       new Date().toLocaleDateString(undefined, {month:"long"}) + " vs. target";
+
+    // Trend vs. the previous week/month — purely informational, no "good/bad"
+    // judgement attached, since more hours isn't inherently positive.
+    var prevWeekStart = weekStartDate(today); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+    var pws = summarize(entries.filter(function(e){ return weekKey(e.date) === dateToStr(prevWeekStart); }));
+    renderTrend("weekTrend", ws.loggedDays ? ws.avgMin : null, pws.loggedDays ? pws.avgMin : null, "last week");
+
+    var thisMonthDate = dateFromStr(today);
+    var prevMonthDate = new Date(thisMonthDate.getFullYear(), thisMonthDate.getMonth()-1, 1);
+    var pms = summarize(entries.filter(function(e){ return monthKey(e.date) === monthKey(dateToStr(prevMonthDate)); }));
+    renderTrend("monthTrend", ms.loggedDays ? ms.avgMin : null, pms.loggedDays ? pms.avgMin : null, "last month");
+    renderTrend("otBankTrend", ms.loggedDays ? ms.diffSum : null, pms.loggedDays ? pms.diffSum : null, "last month", true);
 
     // Streak: consecutive scheduled workdays back from today with worked time logged.
     var streak = 0, cursor = new Date(), scanned = 0;
@@ -2200,9 +2549,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     body.innerHTML = "";
 
     var empty = document.getElementById("logEmpty");
-    empty.textContent = entries.length === 0
-      ? "No entries yet. Clock in above, or add a day manually."
-      : "No days match these filters.";
+    if(entries.length === 0){
+      empty.innerHTML =
+        '<div class="first-run-empty">' +
+          '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3.2 2"/></svg>' +
+          '<p class="first-run-title">No attendance logged yet</p>' +
+          '<p class="first-run-sub">Tap <strong>Clock In Now</strong> above to log today, or add a day by hand using the form.</p>' +
+        '</div>';
+    } else {
+      empty.textContent = "No days match these filters.";
+    }
     empty.style.display = rows.length ? "none" : "block";
 
     var countEl = document.getElementById("filterCount");
@@ -2710,7 +3066,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     } else {
       var existing = entries.find(function(e){ return e.date === date; });
       if(existing){
-        if(!confirm("An entry for "+fmtDate(date)+" already exists. Replace it?")) return;
+        if(!(await showConfirm("An entry for "+fmtDate(date)+" already exists. Replace it?", {confirmText:"Replace"}))) return;
         existingDbId = existing.id;
       }
     }
@@ -2724,7 +3080,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       resetForm();
       await loadDataForViewedUser();
     }catch(err){
-      alert("Couldn't save that entry: " + (err.message || err));
+      showToast("Couldn't save that entry: " + (err.message || err), "error");
     }finally{
       btn.disabled = false; btn.textContent = prevText;
     }
@@ -2738,13 +3094,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var editId = btn.getAttribute("data-edit");
     var delId = btn.getAttribute("data-del");
     if(editId) loadEntryIntoForm(editId);
-    if(delId && confirm("Delete this entry?")){
+    if(delId && await showConfirm("Delete this entry?", {danger:true, confirmText:"Delete"})){
       if(editingId === delId) resetForm();
       try{
         await sbDeleteEntry(delId);
         await loadDataForViewedUser();
       }catch(err){
-        alert("Couldn't delete that entry: " + (err.message || err));
+        showToast("Couldn't delete that entry: " + (err.message || err), "error");
       }
     }
   });
@@ -2759,9 +3115,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var h = d.getHours();
     var period = h >= 12 ? "PM" : "AM";
     var h12 = h % 12; if(h12 === 0) h12 = 12;
-    document.getElementById("liveClock").textContent =
-      h12 + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()) + " " + period;
+    var timeStr = h12 + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()) + " " + period;
+    document.getElementById("liveClock").textContent = timeStr;
     document.getElementById("liveDate").textContent = fmtDateLong(todayStr());
+    var stickyTime = document.getElementById("stickyClockTime");
+    if(stickyTime) stickyTime.textContent = h12 + ":" + pad2(d.getMinutes()) + " " + period;
   }
   function showQcNote(msg, success){
     var el = document.getElementById("qcStatusNote");
@@ -2771,7 +3129,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   async function punchClock(kind){
     if(!isOwnData){
-      alert("Switch back to \"Viewing: Me\" to clock in or out — you can only punch your own clock.");
+      showToast("Switch back to \"Viewing: Me\" to clock in or out — you can only punch your own clock.", "error");
       return;
     }
     var today = todayStr();
@@ -2780,7 +3138,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var existing = entries.find(function(x){ return x.date === today; });
 
     if(existing && existing[field]){
-      if(!confirm("You already clocked "+kind+" today at "+formatTime12(existing[field])+". Replace it with "+formatTime12(timeNow)+"?")) return;
+      if(!(await showConfirm("You already clocked "+kind+" today at "+formatTime12(existing[field])+". Replace it with "+formatTime12(timeNow)+"?", {confirmText:"Replace"}))) return;
     }
 
     var payload = existing
@@ -2809,7 +3167,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       }
       showQcNote(msg, true);
     }catch(err){
-      alert("Couldn't record that: " + (err.message || err));
+      showToast("Couldn't record that: " + (err.message || err), "error");
     }finally{
       inBtn.disabled = false; outBtn.disabled = false;
     }
@@ -2817,8 +3175,85 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   document.getElementById("clockInBtn").addEventListener("click", function(){ punchClock("in"); });
   document.getElementById("clockOutBtn").addEventListener("click", function(){ punchClock("out"); });
+  document.getElementById("stickyClockInBtn").addEventListener("click", function(){ punchClock("in"); });
+  document.getElementById("stickyClockOutBtn").addEventListener("click", function(){ punchClock("out"); });
+
+  // The sticky bar only appears once the main punch card has scrolled out of
+  // view. It also steps aside whenever Settings is open, since clocking in
+  // isn't the point of that screen and the bar would just compete for the
+  // same bottom-of-screen space as the panel's own buttons.
+  var stickyClockEl = document.getElementById("stickyClock");
+  var mainQuickClockEl = document.querySelector(".quick-clock");
+  var mainClockCurrentlyVisible = true;
+  function updateStickyClockVisibility(){
+    var settingsOpen = document.getElementById("settingsCard").classList.contains("open");
+    stickyClockEl.classList.toggle("show", !mainClockCurrentlyVisible && isOwnData && !settingsOpen);
+  }
+  if(stickyClockEl && mainQuickClockEl && "IntersectionObserver" in window){
+    var stickyObserver = new IntersectionObserver(function(entriesList){
+      mainClockCurrentlyVisible = entriesList[0].isIntersecting;
+      updateStickyClockVisibility();
+    }, {threshold: 0});
+    stickyObserver.observe(mainQuickClockEl);
+  }
 
   // ---------- Tabs & filters ----------
+  // Fades the tab bar's edges when there's more to scroll to, so a
+  // horizontally-scrolling tab list doesn't look like it just... stops.
+  function updateTabsScrollHint(){
+    var bar = document.getElementById("tabsBar");
+    var wrap = bar && bar.closest(".tabs-wrap");
+    if(!bar || !wrap) return;
+    wrap.classList.toggle("can-scroll-left", bar.scrollLeft > 4);
+    wrap.classList.toggle("can-scroll-right", bar.scrollLeft < bar.scrollWidth - bar.clientWidth - 4);
+  }
+  var tabsBarEl = document.getElementById("tabsBar");
+  if(tabsBarEl){
+    tabsBarEl.addEventListener("scroll", updateTabsScrollHint);
+    window.addEventListener("resize", updateTabsScrollHint);
+  }
+
+  // Shows the right filter bar(s) for whichever tab — and, for Trends,
+  // whichever period sub-view — is currently active.
+  function applyFilterBarVisibility(tab, subtab){
+    document.getElementById("monthFilterWrap").style.display =
+      (tab === "log" || (tab === "trends" && subtab === "weekly")) ? "flex" : "none";
+    document.getElementById("searchFilterWrap").style.display = (tab === "log") ? "flex" : "none";
+    if(tab !== "log"){
+      document.getElementById("advancedFiltersPanel").style.display = "none";
+      document.getElementById("advancedFiltersToggle").classList.remove("active");
+    }
+    document.getElementById("monthlyFilterWrap").style.display =
+      (tab === "trends" && subtab === "monthly") ? "flex" : "none";
+    document.getElementById("yearFilterWrap").style.display =
+      (tab === "trends" && subtab === "yearly") ? "flex" : "none";
+    document.getElementById("punctFilterWrap").style.display = (tab === "punctuality") ? "flex" : "none";
+    document.getElementById("trendsSubTabs").style.display = (tab === "trends") ? "flex" : "none";
+  }
+
+  function renderSubtab(subtab){
+    if(subtab === "weekly") renderWeekly();
+    if(subtab === "monthly") renderMonthly();
+    if(subtab === "yearly") renderYearly();
+  }
+
+  document.querySelectorAll(".sub-tab-btn").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      document.querySelectorAll(".sub-tab-btn").forEach(function(b){ b.classList.remove("active"); });
+      document.querySelectorAll(".sub-tab-panel").forEach(function(p){ p.classList.remove("active"); });
+      btn.classList.add("active");
+      var subtab = btn.getAttribute("data-subtab");
+      document.getElementById("subtab-"+subtab).classList.add("active");
+      applyFilterBarVisibility("trends", subtab);
+      renderSubtab(subtab);
+    });
+  });
+
+  function activeSubtab(){
+    var el = document.querySelector(".sub-tab-btn.active");
+    return el ? el.getAttribute("data-subtab") : "weekly";
+  }
+
   document.querySelectorAll(".tab-btn").forEach(function(btn){
     btn.addEventListener("click", function(){
       document.querySelectorAll(".tab-btn").forEach(function(b){ b.classList.remove("active"); });
@@ -2827,15 +3262,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
       var tab = btn.getAttribute("data-tab");
       document.getElementById("tab-"+tab).classList.add("active");
-      document.getElementById("monthFilterWrap").style.display = (tab === "log" || tab === "weekly") ? "flex" : "none";
-      document.getElementById("searchFilterWrap").style.display = (tab === "log") ? "flex" : "none";
-      document.getElementById("monthlyFilterWrap").style.display = (tab === "monthly") ? "flex" : "none";
-      document.getElementById("yearFilterWrap").style.display = (tab === "yearly") ? "flex" : "none";
-      document.getElementById("punctFilterWrap").style.display = (tab === "punctuality") ? "flex" : "none";
+      applyFilterBarVisibility(tab, activeSubtab());
 
-      if(tab === "weekly") renderWeekly();
-      if(tab === "monthly") renderMonthly();
-      if(tab === "yearly") renderYearly();
+      if(tab === "trends") renderSubtab(activeSubtab());
       if(tab === "punctuality") renderPunctuality();
       if(tab === "team") renderTeam();
     });
@@ -2861,8 +3290,29 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // Search bar: re-filter the log as the person types or narrows the range.
   ["searchInput","typeFilterSelect","fromDate","toDate"].forEach(function(id){
     var el = document.getElementById(id);
-    el.addEventListener(id === "searchInput" ? "input" : "change", renderLog);
+    el.addEventListener(id === "searchInput" ? "input" : "change", function(){
+      renderLog();
+      updateAdvancedFilterBadge();
+    });
   });
+
+  function updateAdvancedFilterBadge(){
+    var count = 0;
+    if(document.getElementById("typeFilterSelect").value !== "all") count++;
+    if(document.getElementById("fromDate").value) count++;
+    if(document.getElementById("toDate").value) count++;
+    var badge = document.getElementById("advancedFilterBadge");
+    badge.textContent = count;
+    badge.style.display = count ? "inline-flex" : "none";
+  }
+
+  document.getElementById("advancedFiltersToggle").addEventListener("click", function(){
+    var panel = document.getElementById("advancedFiltersPanel");
+    var opening = panel.style.display === "none";
+    panel.style.display = opening ? "flex" : "none";
+    this.classList.toggle("active", opening);
+  });
+
   document.getElementById("clearFiltersBtn").addEventListener("click", function(){
     document.getElementById("searchInput").value = "";
     document.getElementById("typeFilterSelect").value = "all";
@@ -2873,6 +3323,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     populateFilters();
     renderLog();
     renderWeekly();
+    updateAdvancedFilterBadge();
   });
   document.getElementById("yearFilterSelect").addEventListener("change", renderYearly);
 
@@ -3025,12 +3476,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   async function importCsvText(text){
     if(!isOwnData){
-      alert("Switch back to \"Viewing: Me\" before importing — you can only import into your own attendance.");
+      showToast("Switch back to \"Viewing: Me\" before importing — you can only import into your own attendance.", "error");
       return;
     }
     var rows = parseCsv(text);
     if(rows.length < 2){
-      alert("That file has no data rows. Expected a header row plus at least one day.");
+      showToast("That file has no data rows. Expected a header row plus at least one day.", "error");
       return;
     }
 
@@ -3042,7 +3493,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var cNote  = findCol(headers, ["note","notes","comment","comments","remarks"]);
 
     if(cDate === -1){
-      alert("Couldn't find a Date column.\n\nThe header row needs a column named \"Date\". The easiest way to get the right format is to export a CSV from this page first and match its columns.");
+      showToast("Couldn't find a Date column. The header row needs a column named \"Date\" — the easiest fix is to export a CSV from this page first and match its columns.", "error");
       return;
     }
 
@@ -3055,10 +3506,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
     if(sample){
       var parts = sample.split(/[\/.]/);
-      dayFirst = confirm(
-        "This file has dates like \"" + sample + "\" that could be read two ways.\n\n" +
-        "OK  =  day/month  (" + (+parts[0]) + " of month " + (+parts[1]) + ")\n" +
-        "Cancel  =  month/day  (month " + (+parts[0]) + ", day " + (+parts[1]) + ")"
+      dayFirst = await showConfirm(
+        "This file has dates like \"" + sample + "\" that could be read two ways. Pick the order it's actually in.",
+        {
+          title: "Which date order is this?",
+          confirmText: (+parts[0]) + "/" + (+parts[1]) + " = Day/Month",
+          cancelText: (+parts[0]) + "/" + (+parts[1]) + " = Month/Day"
+        }
       );
     }
 
@@ -3083,7 +3537,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
 
     if(!parsed.length){
-      alert("No rows had a readable date, so nothing was imported.\n\nDates should look like 2026-08-09 or 09/08/2026.");
+      showToast("No rows had a readable date, so nothing was imported. Dates should look like 2026-08-09 or 09/08/2026.", "error");
       return;
     }
 
@@ -3095,7 +3549,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(replacing) msg += "\n" + replacing + " will replace a day you've already logged.";
     if(skipped) msg += "\n" + skipped + " row" + (skipped===1?"":"s") + " skipped (no readable date).";
     msg += "\n\nImport now?";
-    if(!confirm(msg)) return;
+    if(!(await showConfirm(msg, {confirmText:"Import"}))) return;
 
     showQcNote("Importing 0 of " + parsed.length + "…", true);
     var failed = 0;
@@ -3128,11 +3582,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var reader = new FileReader();
     reader.onload = function(){
       try{ importCsvText(String(reader.result)); }
-      catch(err){ alert("Couldn't read that file. Make sure it's a plain .csv file."); }
+      catch(err){ showToast("Couldn't read that file. Make sure it's a plain .csv file.", "error"); }
       ev.target.value = "";
     };
     reader.onerror = function(){
-      alert("Couldn't open that file.");
+      showToast("Couldn't open that file.", "error");
       ev.target.value = "";
     };
     reader.readAsText(file);
@@ -3145,7 +3599,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var file = ev.target.files[0];
     if(!file) return;
     if(!isOwnData){
-      alert("Switch back to \"Viewing: Me\" before importing — you can only import into your own attendance.");
+      showToast("Switch back to \"Viewing: Me\" before importing — you can only import into your own attendance.", "error");
       ev.target.value = "";
       return;
     }
@@ -3157,13 +3611,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         var incoming = Array.isArray(data) ? data : data.entries;
         if(!Array.isArray(incoming)) throw new Error("bad format");
 
-        if(!confirm("Import "+incoming.length+" entries? Days already logged will be replaced by the imported version.")) {
+        var proceed = await showConfirm(
+          "Import "+incoming.length+" entries? Days already logged will be replaced by the imported version.",
+          {confirmText:"Import"}
+        );
+        if(!proceed){
           document.getElementById("importFile").value = "";
           return;
         }
 
-        var applySettings = isAdmin && !Array.isArray(data) && data.settings &&
-          confirm("This backup includes schedule settings. Use them too?");
+        var applySettings = false;
+        if(isAdmin && !Array.isArray(data) && data.settings){
+          applySettings = await showConfirm("This backup includes schedule settings. Use them too?", {confirmText:"Use them"});
+        }
 
         showQcNote("Importing 0 of " + incoming.length + "…", true);
         var done = 0, failed = 0;
@@ -3190,7 +3650,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           failed === 0
         );
       }catch(err){
-        alert("Couldn't read that file. Choose a JSON backup exported from this page.");
+        showToast("Couldn't read that file. Choose a JSON backup exported from this page.", "error");
       }
       document.getElementById("importFile").value = "";
     };
@@ -3199,18 +3659,27 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   document.getElementById("clearAllBtn").addEventListener("click", async function(){
     if(!isOwnData){
-      alert("You can only clear your own attendance data from here.");
+      showToast("You can only clear your own attendance data from here.", "error");
       return;
     }
-    if(!confirm("This permanently deletes every attendance entry in your account. Export a backup first if you want to keep them. Continue?")) return;
-    if(!confirm("Last check — delete all "+entries.length+" entries?")) return;
+    var step1 = await showConfirm(
+      "This permanently deletes every attendance entry in your account. Export a backup first if you want to keep them.",
+      {title:"Clear all attendance data?", danger:true, confirmText:"Continue"}
+    );
+    if(!step1) return;
+    var step2 = await showConfirm(
+      "Delete all "+entries.length+" entries? This can't be undone.",
+      {title:"Last check", danger:true, confirmText:"Delete Everything"}
+    );
+    if(!step2) return;
     try{
       await sbDeleteAllEntries(currentUser.id);
       dismissedReminders = {};
       resetForm();
       await loadDataForViewedUser();
+      showToast("All attendance entries have been deleted.", "success");
     }catch(err){
-      alert("Couldn't clear your entries: " + (err.message || err));
+      showToast("Couldn't clear your entries: " + (err.message || err), "error");
     }
   });
 
@@ -3271,7 +3740,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var res = await supabase.auth.resetPasswordForEmail(email);
       if(res.error) throw res.error;
       setAuthMsg("signInError", "");
-      alert("If an account exists for " + email + ", a reset link has been sent.");
+      showToast("If an account exists for " + email + ", a reset link has been sent.", "success");
     }catch(err){
       setAuthMsg("signInError", err.message || "Couldn't send reset email.");
     }
@@ -3330,6 +3799,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("clockInBtn").disabled = !isOwnData;
     document.getElementById("clockOutBtn").disabled = !isOwnData;
     if(qc) qc.style.opacity = isOwnData ? "1" : ".5";
+    document.getElementById("stickyClockInBtn").disabled = !isOwnData;
+    document.getElementById("stickyClockOutBtn").disabled = !isOwnData;
+    if(!isOwnData) document.getElementById("stickyClock").classList.remove("show");
     // Settings are admin-managed: an admin can edit anyone's schedule
     // (including their own); everyone else never sees the gear at all.
     document.getElementById("settingsBtn").style.display = isAdmin ? "inline-flex" : "none";
@@ -3403,7 +3875,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(isSelf && newRole !== "admin"){
       var adminCount = allProfiles.filter(function(p){ return p.role === "admin"; }).length;
       if(adminCount <= 1){
-        alert("You're the only admin. Promote someone else first — otherwise no one would be left with access to these controls.");
+        showToast("You're the only admin. Promote someone else first — otherwise no one would be left with access to these controls.", "error");
         return;
       }
     }
@@ -3412,7 +3884,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var msg = newRole === "admin"
       ? "Make " + label + " an admin? They'll be able to view and edit everyone's attendance and schedule settings."
       : "Remove admin rights from " + label + "?" + (isSelf ? " You'll lose access to these controls immediately." : "");
-    if(!confirm(msg)) return;
+    var confirmed = await showConfirm(msg, {
+      title: newRole === "admin" ? "Grant admin rights?" : "Remove admin rights?",
+      danger: newRole !== "admin",
+      confirmText: newRole === "admin" ? "Make Admin" : "Remove Admin"
+    });
+    if(!confirmed) return;
 
     var buttons = row.querySelectorAll(".role-btn");
     buttons.forEach(function(b){ b.disabled = true; });
@@ -3423,8 +3900,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       renderUsersList();
       await loadAllProfilesForSwitcher();
       if(isSelf) await refreshCurrentProfile();
+      showToast(label + " is now " + (newRole === "admin" ? "an admin." : "an employee."), "success");
     }catch(err){
-      alert("Couldn't update that role: " + (err.message || err));
+      showToast("Couldn't update that role: " + (err.message || err), "error");
       buttons.forEach(function(b){ b.disabled = false; });
     }
   });
@@ -3462,6 +3940,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       }
     }
     updateViewingBanner();
+    setTimeout(updateTabsScrollHint, 0);
   }
 
   // Roster view: this month's worked hours per person. Kept deliberately
@@ -3577,6 +4056,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     updateLiveClock();
     await loadDataForViewedUser();
     fillSettingsForm();
+    setTimeout(updateTabsScrollHint, 0);
   }
 
   function handleSignedOut(){
