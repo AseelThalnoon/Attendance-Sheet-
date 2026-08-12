@@ -180,7 +180,7 @@
   .reminder-actions{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
 
   /* ---------- Stat cards ---------- */
-  .stats-row{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:28px;}
+  .stats-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px; margin-bottom:28px;}
   .stat-card{
     position:relative; background:var(--card); border:1px solid var(--line-soft);
     border-radius:var(--radius); padding:16px 17px 15px; box-shadow:var(--shadow-sm);
@@ -191,6 +191,7 @@
   .stats-row .stat-card:nth-child(2){animation-delay:.07s;}
   .stats-row .stat-card:nth-child(3){animation-delay:.12s;}
   .stats-row .stat-card:nth-child(4){animation-delay:.17s;}
+  .stats-row .stat-card:nth-child(5){animation-delay:.22s;}
   @keyframes cardIn{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
   .stat-card::before{
     content:""; position:absolute; top:0; left:14px; right:14px; height:3px;
@@ -474,6 +475,50 @@
   .sub-tab-panel{display:none;}
   .sub-tab-panel.active{display:block; animation:fadeIn .2s ease;}
   @keyframes fadeIn{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
+
+  /* ---------- Calendar grid ---------- */
+  .calendar-nav{
+    display:flex; align-items:center; gap:10px; margin-bottom:14px;
+  }
+  .calendar-nav .btn.ghost.small{padding:7px 10px; min-height:32px;}
+  .calendar-month-label{font-size:16px; color:var(--ink); min-width:140px; text-align:center;}
+  .calendar-grid{
+    display:grid; grid-template-columns:repeat(7, 1fr); gap:5px;
+    border:1px solid var(--line-soft); border-radius:10px; padding:10px;
+    background:var(--teal-50);
+  }
+  .cal-dow{
+    text-align:center; font-size:10px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted); padding-bottom:4px;
+  }
+  .cal-cell{
+    aspect-ratio:1; border-radius:7px; border:1px solid transparent;
+    background:var(--card); cursor:pointer; padding:4px 2px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    font-family:inherit; transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .cal-cell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm);}
+  .cal-cell.cal-empty{visibility:hidden; cursor:default; pointer-events:none;}
+  .cal-daynum{font-family:var(--font-num); font-size:12.5px; font-weight:600; color:var(--ink);}
+  .cal-dot{width:6px; height:6px; border-radius:50%; background:var(--line);}
+  .cal-cell.cal-met .cal-dot{background:var(--positive);}
+  .cal-cell.cal-met{background:var(--positive-bg);}
+  .cal-cell.cal-under .cal-dot{background:var(--teal-600);}
+  .cal-cell.cal-under{background:var(--teal-100);}
+  .cal-cell.cal-excused .cal-dot{background:var(--gold);}
+  .cal-cell.cal-excused{background:var(--excused-bg);}
+  .cal-cell.cal-open .cal-dot{background:var(--warn);}
+  .cal-cell.cal-open{background:var(--warn-bg);}
+  .cal-cell.cal-missing .cal-dot{background:var(--negative);}
+  .cal-cell.cal-missing{background:var(--negative-bg);}
+  .cal-cell.cal-off .cal-daynum{color:var(--muted-2);}
+  .cal-cell.cal-future .cal-daynum{color:var(--muted-2);}
+  .cal-cell.cal-today{border-color:var(--gold); box-shadow:0 0 0 1px var(--gold);}
+  @media (max-width:480px){
+    .calendar-grid{gap:3px; padding:7px;}
+    .cal-daynum{font-size:11px;}
+    .calendar-month-label{font-size:14px; min-width:110px;}
+  }
 
   .filter-bar{display:flex; align-items:center; gap:10px; margin:-6px 0 18px; flex-wrap:wrap;}
   .filter-bar label{margin:0;}
@@ -989,6 +1034,11 @@
       <p class="stat-value" id="streak">0</p>
       <p class="stat-detail">Consecutive workdays logged</p>
     </div>
+    <div class="stat-card">
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M8 3v3M16 3v3M3.5 9.5h17"/><path d="M9 14l2 2 4-4"/></svg>Leave Balance</p>
+      <p class="stat-value" id="leaveBalance">0d</p>
+      <p class="stat-detail" id="leaveBalanceDetail">0 of 21 days used</p>
+    </div>
   </section>
 
   <section class="card settings-card" id="settingsCard">
@@ -1038,8 +1088,12 @@
             <label for="sGrace">Grace Period (minutes)</label>
             <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
           </div>
+          <div>
+            <label for="sLeaveDays">Annual Leave Days / Year</label>
+            <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
+          </div>
         </div>
-        <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival.</p>
+        <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival. "Annual Leave Days" is the yearly entitlement used to calculate the Leave Balance card.</p>
       </div>
     </div>
 
@@ -1212,6 +1266,7 @@
       <button type="button" class="sub-tab-btn active" data-subtab="weekly">Weekly</button>
       <button type="button" class="sub-tab-btn" data-subtab="monthly">Monthly</button>
       <button type="button" class="sub-tab-btn" data-subtab="yearly">Yearly</button>
+      <button type="button" class="sub-tab-btn" data-subtab="calendar">Calendar</button>
     </div>
 
     <div class="filter-bar" id="monthFilterWrap">
@@ -1376,6 +1431,28 @@
         </div>
         <div class="empty-state" id="yearlyEmpty" style="display:none;">No entries yet.</div>
       </div>
+
+      <div class="sub-tab-panel" id="subtab-calendar">
+        <div class="calendar-nav">
+          <button type="button" class="btn ghost small" id="calPrevBtn" aria-label="Previous month">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <span class="calendar-month-label display" id="calMonthLabel">—</span>
+          <button type="button" class="btn ghost small" id="calNextBtn" aria-label="Next month">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <button type="button" class="btn ghost small" id="calTodayBtn" style="margin-left:auto;">Today</button>
+        </div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+        <div class="chart-legend" style="margin-top:14px;">
+          <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
+          <span><i class="swatch" style="background:var(--teal-600)"></i>Under target</span>
+          <span><i class="swatch" style="background:var(--gold)"></i>Leave / excused</span>
+          <span><i class="swatch" style="background:var(--negative)"></i>Missing</span>
+          <span><i class="swatch" style="background:var(--line)"></i>Day off</span>
+        </div>
+        <p class="settings-hint" style="margin-top:10px;">Tap a day to add or edit that entry.</p>
+      </div>
     </div>
 
     <div class="tab-panel" id="tab-punctuality">
@@ -1514,7 +1591,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     periods:[],
     standardIn:"08:00",
     standardOut:"16:00",
-    remindAfterHours:9
+    remindAfterHours:9,
+    annualLeaveDays:21
   };
 
   // ---------- Auth / multi-user state ----------
@@ -1570,6 +1648,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     var g = Math.round(Number(out.graceMin));
     out.graceMin = (isFinite(g) && g >= 0 && g <= 240) ? g : DEFAULT_SETTINGS.graceMin;
+
+    var lv = Number(out.annualLeaveDays);
+    out.annualLeaveDays = (isFinite(lv) && lv >= 0 && lv <= 365) ? lv : DEFAULT_SETTINGS.annualLeaveDays;
 
     out.lateOnlyIfShort = out.lateOnlyIfShort !== false;
 
@@ -2064,6 +2145,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("sOut").value = settings.standardOut;
     document.getElementById("sRemind").value = settings.remindAfterHours;
     document.getElementById("sGrace").value = settings.graceMin;
+    document.getElementById("sLeaveDays").value = settings.annualLeaveDays;
     document.getElementById("sLateOnlyShort").checked = settings.lateOnlyIfShort;
     renderPeriodRows(settings.periods);
 
@@ -2252,6 +2334,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var grace = parseInt(document.getElementById("sGrace").value, 10);
     if(isNaN(grace) || grace < 0 || grace > 240) grace = DEFAULT_SETTINGS.graceMin;
 
+    var leaveDays = parseFloat(document.getElementById("sLeaveDays").value);
+    if(isNaN(leaveDays) || leaveDays < 0 || leaveDays > 365){
+      showToast("Annual leave days must be between 0 and 365.", "error");
+      return;
+    }
+
     // Validate the seasonal rows before saving so mistakes surface immediately.
     var rawPeriods = readPeriodRows();
     for(var i=0;i<rawPeriods.length;i++){
@@ -2276,6 +2364,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       standardOut: document.getElementById("sOut").value || DEFAULT_SETTINGS.standardOut,
       remindAfterHours: remind,
       graceMin: grace,
+      annualLeaveDays: leaveDays,
       lateOnlyIfShort: document.getElementById("sLateOnlyShort").checked,
       periods: rawPeriods
     });
@@ -2644,6 +2733,38 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     sealValue.classList.toggle("long", sealText.length > 6);
 
     document.getElementById("scheduleLine").textContent = scheduleSummary();
+    renderLeaveBalance();
+  }
+
+  // Annual Leave Days is a per-year entitlement. "Used" counts Annual Leave
+  // entries as a full day and Half Day Leave as half a day, within the
+  // current calendar year for whoever's data is currently loaded.
+  function renderLeaveBalance(){
+    var year = new Date().getFullYear();
+    var used = 0;
+    entries.forEach(function(e){
+      if(yearKey(e.date) !== String(year)) return;
+      if(e.type === "leave") used += 1;
+      else if(e.type === "halfleave") used += 0.5;
+    });
+    var entitlement = settings.annualLeaveDays;
+    var remaining = entitlement - used;
+
+    function fmtDays(n){
+      var rounded = Math.round(n * 2) / 2; // nearest half-day
+      return (rounded % 1 === 0) ? String(rounded) : rounded.toFixed(1);
+    }
+
+    var el = document.getElementById("leaveBalance");
+    if(remaining < 0){
+      el.textContent = "Over by " + fmtDays(Math.abs(remaining)) + "d";
+      el.className = "stat-value negative";
+    } else {
+      el.textContent = fmtDays(remaining) + "d";
+      el.className = "stat-value";
+    }
+    document.getElementById("leaveBalanceDetail").textContent =
+      fmtDays(used) + " of " + fmtDays(entitlement) + " days used in " + year;
   }
 
   // ---------- Reminder ----------
@@ -2941,6 +3062,80 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       body.appendChild(tr);
     });
   }
+
+  // ---------- Calendar ----------
+  var calendarViewDate = new Date(); // tracks which month is currently shown
+
+  // One badge per day: what actually happened, in priority order.
+  function calendarDayStatus(dateStr){
+    var entry = entries.find(function(e){ return e.date === dateStr; });
+    var scheduled = isScheduled(dateStr);
+    if(!entry){
+      if(!scheduled) return "off";
+      return dateStr > todayStr() ? "future" : "missing";
+    }
+    var c = computeEntry(entry);
+    if(c.open) return "open";
+    if(c.excused) return "excused";
+    if(c.workedMin === null) return scheduled && dateStr <= todayStr() ? "missing" : "off";
+    if(c.diffMin !== null && c.diffMin >= 0) return "met";
+    return "under";
+  }
+
+  function renderCalendar(){
+    var y = calendarViewDate.getFullYear(), m = calendarViewDate.getMonth();
+    document.getElementById("calMonthLabel").textContent =
+      calendarViewDate.toLocaleDateString(undefined, {month:"long", year:"numeric"});
+
+    var firstOfMonth = new Date(y, m, 1);
+    var startDow = firstOfMonth.getDay();
+    var daysInMonth = new Date(y, m+1, 0).getDate();
+
+    var html = DAY_NAMES.map(function(d){ return '<div class="cal-dow">'+d+'</div>'; }).join("");
+    for(var i=0;i<startDow;i++) html += '<div class="cal-cell cal-empty"></div>';
+
+    for(var day=1; day<=daysInMonth; day++){
+      var dStr = y+"-"+pad2(m+1)+"-"+pad2(day);
+      var status = calendarDayStatus(dStr);
+      var isToday = dStr === todayStr();
+      var entry = entries.find(function(e){ return e.date === dStr; });
+      var title = entry ? (TYPE_LABELS[entry.type] + (entry.clockIn ? " · " + formatTime12(entry.clockIn) : "")) : "No entry";
+      html +=
+        '<button type="button" class="cal-cell cal-'+status+(isToday?' cal-today':'')+'" data-date="'+dStr+'" title="'+escapeHtml(title)+'">' +
+          '<span class="cal-daynum">'+day+'</span>' +
+          '<span class="cal-dot"></span>' +
+        '</button>';
+    }
+    document.getElementById("calendarGrid").innerHTML = html;
+  }
+
+  document.getElementById("calPrevBtn").addEventListener("click", function(){
+    calendarViewDate.setMonth(calendarViewDate.getMonth() - 1);
+    renderCalendar();
+  });
+  document.getElementById("calNextBtn").addEventListener("click", function(){
+    calendarViewDate.setMonth(calendarViewDate.getMonth() + 1);
+    renderCalendar();
+  });
+  document.getElementById("calTodayBtn").addEventListener("click", function(){
+    calendarViewDate = new Date();
+    renderCalendar();
+  });
+
+  document.getElementById("calendarGrid").addEventListener("click", function(ev){
+    var cell = ev.target.closest(".cal-cell[data-date]");
+    if(!cell) return;
+    var dStr = cell.getAttribute("data-date");
+    var entry = entries.find(function(e){ return e.date === dStr; });
+    if(entry){
+      loadEntryIntoForm(entry.id);
+    } else {
+      resetForm();
+      document.getElementById("fDate").value = dStr;
+      document.getElementById("fToDate").value = dStr;
+      form.scrollIntoView({behavior:"smooth", block:"center"});
+    }
+  });
 
   // ---------- Punctuality ----------
   function renderPunctuality(){
@@ -3582,6 +3777,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(subtab === "weekly") renderWeekly();
     if(subtab === "monthly") renderMonthly();
     if(subtab === "yearly") renderYearly();
+    if(subtab === "calendar") renderCalendar();
   }
 
   document.querySelectorAll(".sub-tab-btn").forEach(function(btn){
