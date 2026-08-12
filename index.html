@@ -4,6 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Attendance Ledger</title>
+
+<!-- PWA: manifest + icons. If you rename or move this HTML file, update
+     manifest.json's "start_url" to match, or "Add to Home Screen" will
+     point at the wrong path. -->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#0A3634">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Attendance">
+
 <style>
   :root{
     --teal-950:#062825;
@@ -4733,6 +4746,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
   }
 })();
+
+// Registered at module scope (not inside the app's IIFE) since it's
+// independent of sign-in state. Service workers require HTTPS (or
+// localhost) — this silently no-ops on file:// or plain HTTP, which is
+// expected when just opening the file directly to test.
+if("serviceWorker" in navigator){
+  window.addEventListener("load", function(){
+    navigator.serviceWorker.register("sw.js").catch(function(){
+      // Not fatal — the app still works, it just won't be installable
+      // as a PWA until served over HTTPS (e.g. GitHub Pages).
+    });
+  });
+}
 </script>
 </body>
 </html>
