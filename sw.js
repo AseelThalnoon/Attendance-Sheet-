@@ -10,12 +10,12 @@
 // Every real request still goes to the network first; the cache is only a
 // fallback if that specific request fails (e.g. a flaky connection).
 
-const CACHE_NAME = "attendance-ledger-shell-v1";
+const CACHE_NAME = "attendance-ledger-shell-v2";
 const SHELL_FILES = [
-  "./attendance-tracker.html",
+  "./index.html",
   "./manifest.json",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icon-192.png",
+  "./icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
