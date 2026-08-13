@@ -327,7 +327,6 @@
     content:""; width:7px; height:7px; background:var(--gradient-gold); transform:rotate(45deg);
     display:inline-block; flex-shrink:0; box-shadow:0 0 8px rgba(173,131,50,.4);
   }
-  .card h2 .h2-spacer{margin-left:auto;}
 
   /* ---------- Quick clock ---------- */
   .quick-clock{
@@ -522,7 +521,6 @@
     background:var(--teal-50); border-radius:0 7px 7px 0;
   }
   .late-cell{color:var(--negative); font-weight:600;}
-  .ontime-cell{color:var(--positive);}
 
   /* ---------- Tabs ---------- */
   .tabs-wrap{position:relative; margin-bottom:20px;}
@@ -1221,7 +1219,7 @@
     <h2>Schedule Settings</h2>
     <p class="settings-hint" id="settingsForLabel" style="margin:-10px 0 18px;"></p>
 
-    <label class="check-row" for="sApplyAll" id="applyAllWrap" style="margin:-8px 0 18px;">
+    <label class="check-row" for="sApplyAll" style="margin:-8px 0 18px;">
       <input type="checkbox" id="sApplyAll">
       <span>
         <strong>Apply to everyone</strong>
@@ -1576,7 +1574,7 @@
       </div>
 
       <div class="sub-tab-panel" id="subtab-yearly">
-        <div class="period-card" id="yearOverview">
+        <div class="period-card">
           <div class="period-card-head">
             <span class="period-title display" id="yearTitle">—</span>
             <span class="period-meta" id="yearMeta"></span>
