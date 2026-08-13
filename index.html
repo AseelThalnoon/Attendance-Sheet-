@@ -79,18 +79,18 @@
     --teal-800:#124440;
     --teal-700:#1A5B55;
     --teal-600:#2A8079;
-    --teal-100:#17403C;
-    --teal-50:#12332F;
+    --teal-100:#1A423D;
+    --teal-50:#163831;
     --paper:#0B1917;
-    --card:#122624;
+    --card:#152C29;
     --gold:#C79E4C;
     --gold-deep:#A8823A;
     --gold-light:#E7D3A0;
     --ink:#E8EDEA;
     --muted:#9DACA6;
     --muted-2:#7D8D87;
-    --line:#2A4744;
-    --line-soft:#203B38;
+    --line:#35564F;
+    --line-soft:#2A4A44;
     --positive:#6BC08D;
     --positive-bg:#183A28;
     --negative:#E08585;
@@ -102,10 +102,13 @@
     --warn-line:#5C4A20;
     --input-bg:#0E201E;
     --rule:rgba(199,158,76,.05);
-    --shadow-sm:0 1px 2px rgba(0,0,0,.35);
-    --shadow-md:0 6px 20px rgba(0,0,0,.4), 0 2px 6px rgba(0,0,0,.3);
-    --shadow-lg:0 18px 44px rgba(0,0,0,.5), 0 6px 16px rgba(0,0,0,.35);
-    --shadow-glow:0 0 0 1px rgba(199,158,76,.22), 0 8px 30px rgba(199,158,76,.14);
+    /* Dark-mode shadows lean on a soft gold-tinted glow rather than pure
+       black — a black shadow barely reads against an already-dark page, so
+       elevation needs a different cue here than it does in light mode. */
+    --shadow-sm:0 1px 2px rgba(0,0,0,.45), 0 0 0 1px rgba(199,158,76,.04);
+    --shadow-md:0 6px 20px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4), 0 0 0 1px rgba(199,158,76,.05);
+    --shadow-lg:0 18px 44px rgba(0,0,0,.6), 0 6px 16px rgba(0,0,0,.45), 0 0 0 1px rgba(199,158,76,.06);
+    --shadow-glow:0 0 0 1px rgba(199,158,76,.28), 0 8px 30px rgba(199,158,76,.18);
     --gradient-gold:linear-gradient(135deg, #DDBB72 0%, var(--gold) 55%, var(--gold-deep) 100%);
     --gradient-teal:linear-gradient(135deg, var(--teal-700) 0%, var(--teal-950) 100%);
   }
