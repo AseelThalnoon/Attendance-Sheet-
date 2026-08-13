@@ -19,6 +19,17 @@
 
 <style>
   :root{
+    /* Motion system: buttons and hover feedback get short, decisive
+       transitions so the interface feels responsive to touch. Panels,
+       modals, and things settling into place get longer, softer curves so
+       they read as "arriving" rather than "flickering". */
+    --ease-snap:cubic-bezier(.4,0,.2,1);
+    --ease-soft:cubic-bezier(.22,1,.36,1);
+    --dur-fast:130ms;
+    --dur-base:200ms;
+    --dur-slow:320ms;
+    --dur-slower:450ms;
+
     --teal-950:#062825;
     --teal-900:#0A3634;
     --teal-800:#0E4A46;
@@ -105,12 +116,12 @@
     background-color:var(--paper);
     background-image:repeating-linear-gradient(180deg, var(--rule) 0px, var(--rule) 1px, transparent 1px, transparent 34px);
     background-attachment:local;
-    transition:background-color .2s ease, color .2s ease;
+    transition:background-color var(--dur-base) var(--ease-soft), color var(--dur-base) var(--ease-soft);
   }
 
   .display{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;}
   a{color:inherit;}
-  button{font-family:inherit; transition:background-color .15s ease, border-color .15s ease, color .15s ease, transform .15s ease, box-shadow .15s ease;}
+  button{font-family:inherit; transition:background-color var(--dur-fast) var(--ease-snap), border-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);}
   button:focus-visible, input:focus-visible, select:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
   @media (prefers-reduced-motion: reduce){*{animation-duration:.001ms !important; transition-duration:.001ms !important;}}
 
@@ -149,7 +160,7 @@
     width:40px; height:40px; border-radius:10px; cursor:pointer;
     background:rgba(255,255,255,.07); border:1px solid rgba(227,203,143,.3);
     color:var(--gold-light); display:inline-flex; align-items:center; justify-content:center;
-    transition:background-color .15s ease, transform .15s ease, box-shadow .15s ease;
+    transition:background-color var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   .icon-btn:hover{background:rgba(255,255,255,.16); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
   .icon-btn:active{transform:translateY(0);}
@@ -250,7 +261,7 @@
   }
   .hero-progress-fill{
     height:100%; border-radius:99px; background:var(--gradient-gold);
-    transition:width .5s cubic-bezier(.22,1,.36,1);
+    transition:width var(--dur-slower) var(--ease-soft);
   }
   .hero-progress-label{font-size:11px; color:#C6D6D2; white-space:nowrap; font-variant-numeric:tabular-nums;}
   @media (max-width:480px){
@@ -260,7 +271,7 @@
   .stat-card{
     position:relative; background:var(--card); border:1px solid var(--line-soft);
     border-radius:var(--radius); padding:16px 17px 15px; box-shadow:var(--shadow-sm);
-    transition:transform .18s ease, box-shadow .18s ease;
+    transition:transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
     animation:cardIn .45s ease backwards;
   }
   .stats-row .stat-card:nth-child(1){animation-delay:.02s;}
@@ -303,7 +314,7 @@
   .card{
     background:var(--card); border:1px solid var(--line-soft); border-radius:var(--radius);
     padding:22px 22px 24px; margin-bottom:24px; box-shadow:var(--shadow-sm);
-    transition:box-shadow .2s ease;
+    transition:box-shadow var(--dur-fast) var(--ease-snap);
   }
   .card:hover{box-shadow:var(--shadow-md);}
   .card h2{
@@ -349,7 +360,7 @@
   input[type="email"], input[type="password"], select{
     width:100%; padding:10px 12px; min-height:42px; border:1px solid var(--line); border-radius:8px;
     font-size:14px; color:var(--ink); background:var(--input-bg); font-family:inherit;
-    transition:border-color .15s ease, box-shadow .15s ease;
+    transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   input:hover, select:hover{border-color:var(--muted-2);}
   input:focus, select:focus{border-color:var(--teal-600); box-shadow:0 0 0 3px rgba(27,114,107,.16);}
@@ -365,7 +376,7 @@
   .btn::before{
     content:""; position:absolute; inset:0;
     background:linear-gradient(115deg, transparent 30%, rgba(255,255,255,.16) 45%, transparent 60%);
-    transform:translateX(-120%); transition:transform .5s ease;
+    transform:translateX(-120%); transition:transform var(--dur-slower) var(--ease-soft);
   }
   .btn:hover::before{transform:translateX(120%);}
   body.dark .btn{border-color:var(--teal-600);}
@@ -392,7 +403,7 @@
     margin:0; cursor:pointer; user-select:none; min-height:34px; display:inline-flex; align-items:center;
     padding:7px 13px; border:1px solid var(--line); border-radius:99px;
     font-size:11.5px; letter-spacing:.04em; text-transform:none; color:var(--muted);
-    background:var(--input-bg); transition:background-color .15s ease, border-color .15s ease, color .15s ease;
+    background:var(--input-bg); transition:background-color var(--dur-fast) var(--ease-snap), border-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap);
   }
   .daypicker label:hover{border-color:var(--teal-600); color:var(--teal-600);}
   .daypicker input:checked + label{
@@ -411,7 +422,7 @@
     text-align:left; min-height:46px;
   }
   .accordion-head:hover{background:var(--teal-100);}
-  .accordion-chevron{transition:transform .2s ease; color:var(--muted); flex-shrink:0;}
+  .accordion-chevron{transition:transform var(--dur-slow) var(--ease-soft); color:var(--muted); flex-shrink:0;}
   .accordion-section.open .accordion-chevron{transform:rotate(180deg);}
   .accordion-body{display:none; padding:18px 16px 16px;}
   .accordion-section.open .accordion-body{display:block; animation:fadeIn .2s ease;}
@@ -517,7 +528,7 @@
   .tabs-wrap{position:relative; margin-bottom:20px;}
   .tabs-wrap::before, .tabs-wrap::after{
     content:""; position:absolute; top:0; bottom:1px; width:26px; pointer-events:none;
-    opacity:0; transition:opacity .2s ease; z-index:2;
+    opacity:0; transition:opacity var(--dur-fast) var(--ease-snap); z-index:2;
   }
   .tabs-wrap::before{left:0; background:linear-gradient(90deg, var(--card), transparent);}
   .tabs-wrap::after{right:0; background:linear-gradient(270deg, var(--card), transparent);}
@@ -531,7 +542,7 @@
   .tab-btn{
     background:none; border:none; padding:10px 18px; font-size:13.5px; color:var(--muted);
     cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; border-radius:6px 6px 0 0;
-    white-space:nowrap; flex-shrink:0; transition:color .15s ease, background-color .15s ease;
+    white-space:nowrap; flex-shrink:0; transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
   .tab-btn:hover{color:var(--teal-600); background:var(--teal-50);}
   .tab-btn.active{color:var(--ink); border-bottom-color:var(--gold); font-weight:600; background:var(--teal-50);}
@@ -545,12 +556,39 @@
   .sub-tab-btn{
     background:none; border:none; cursor:pointer; padding:7px 15px; min-height:32px;
     border-radius:7px; font-size:12.5px; font-weight:600; color:var(--muted);
-    white-space:nowrap; transition:background-color .15s ease, color .15s ease, box-shadow .15s ease;
+    white-space:nowrap; transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   .sub-tab-btn.active{background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm);}
   .sub-tab-panel{display:none;}
   .sub-tab-panel.active{display:block; animation:fadeIn .2s ease;}
   @keyframes fadeIn{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
+
+  /* ---------- Skeleton loading states ---------- */
+  @keyframes skeletonShimmer{0%{background-position:-200% 0;} 100%{background-position:200% 0;}}
+  .skeleton{
+    display:inline-block; border-radius:6px;
+    background:linear-gradient(90deg, var(--teal-50) 25%, var(--teal-100) 40%, var(--teal-50) 63%);
+    background-size:400% 100%;
+    animation:skeletonShimmer 1.6s ease-in-out infinite;
+  }
+  .skeleton-dark{
+    display:inline-block; border-radius:6px;
+    background:linear-gradient(90deg, rgba(255,255,255,.08) 25%, rgba(255,255,255,.20) 40%, rgba(255,255,255,.08) 63%);
+    background-size:400% 100%;
+    animation:skeletonShimmer 1.6s ease-in-out infinite;
+  }
+  .skeleton-overlay{
+    display:none; position:absolute; inset:0; z-index:5;
+    background:var(--card); border-radius:inherit;
+    flex-direction:column; justify-content:center; gap:9px;
+    padding:16px 17px 15px;
+  }
+  .hero-stat .skeleton-overlay{background:rgba(6,40,37,.96); padding:24px 26px 22px; justify-content:flex-start;}
+  .table-wrap .skeleton-overlay{
+    position:static; display:none; flex-direction:column; gap:10px; padding:16px; background:var(--card);
+  }
+  .is-loading .skeleton-overlay{display:flex;}
+  .skeleton-row{display:flex; gap:14px; align-items:center;}
 
   /* ---------- Calendar grid ---------- */
   .calendar-nav{
@@ -571,7 +609,7 @@
     aspect-ratio:1; border-radius:7px; border:1px solid transparent;
     background:var(--card); cursor:pointer; padding:4px 2px;
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
-    font-family:inherit; transition:transform .12s ease, box-shadow .12s ease;
+    font-family:inherit; transition:transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   .cal-cell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm);}
   .cal-cell.cal-empty{visibility:hidden; cursor:default; pointer-events:none;}
@@ -603,6 +641,7 @@
 
   /* ---------- Table ---------- */
   .table-wrap{overflow-x:auto; border:1px solid var(--line-soft); border-radius:8px;}
+  .table-wrap.is-loading table{display:none;}
   table{width:100%; border-collapse:collapse; font-size:13px;}
   thead th{
     text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.07em;
@@ -688,7 +727,7 @@
   .period-card{
     position:relative; border:1px solid var(--line-soft); border-radius:var(--radius);
     padding:18px 18px 16px 20px; margin-bottom:16px; background:var(--card); box-shadow:var(--shadow-sm);
-    transition:box-shadow .2s ease, transform .2s ease;
+    transition:box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
   .period-card:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
   .period-card::before{
@@ -838,7 +877,7 @@
     display:flex; align-items:center; gap:12px; flex-wrap:wrap;
     padding:12px 14px; border:1px solid var(--line-soft); border-radius:11px;
     margin-bottom:9px; background:var(--card); box-shadow:var(--shadow-sm);
-    transition:border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+    transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
   .team-row:hover{border-color:var(--teal-600); box-shadow:var(--shadow-md); transform:translateY(-1px);}
   .team-avatar{
@@ -865,7 +904,7 @@
     display:flex; align-items:center; gap:12px; flex-wrap:wrap;
     padding:12px 14px; border:1px solid var(--line-soft); border-radius:11px;
     margin-bottom:9px; background:var(--card); box-shadow:var(--shadow-sm);
-    transition:border-color .18s ease;
+    transition:border-color var(--dur-fast) var(--ease-snap);
   }
   .user-row:hover{border-color:var(--teal-600);}
   .role-toggle{
@@ -875,7 +914,7 @@
   .role-btn{
     border:none; background:none; cursor:pointer; padding:7px 15px; min-height:32px;
     border-radius:99px; font-size:11.5px; font-weight:600; color:var(--muted);
-    transition:background-color .15s ease, color .15s ease, box-shadow .15s ease;
+    transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   .role-btn.active{background:var(--gradient-teal); color:#fff; box-shadow:0 1px 5px rgba(10,54,52,.3);}
   .role-btn:disabled{opacity:.5; cursor:default;}
@@ -897,7 +936,7 @@
     background:var(--card); border:1px solid var(--line-soft); border-radius:11px;
     padding:12px 14px; box-shadow:var(--shadow-lg);
     opacity:0; transform:translateY(10px) scale(.98);
-    transition:opacity .22s ease, transform .22s ease;
+    transition:opacity var(--dur-slow) var(--ease-soft), transform var(--dur-slow) var(--ease-soft);
   }
   .toast.show{opacity:1; transform:translateY(0) scale(1);}
   .toast-icon{flex-shrink:0; margin-top:1px;}
@@ -922,7 +961,7 @@
     background:var(--gradient-teal); border-radius:14px; padding:10px 14px;
     box-shadow:var(--shadow-lg);
     transform:translateY(90px); opacity:0;
-    transition:transform .25s ease, opacity .25s ease;
+    transition:transform var(--dur-slow) var(--ease-soft), opacity var(--dur-slow) var(--ease-soft);
   }
   .sticky-clock.show{transform:translateY(0); opacity:1;}
   .sticky-clock-time{
@@ -944,14 +983,14 @@
     position:fixed; inset:0; z-index:210;
     background:rgba(6,25,23,.45); backdrop-filter:blur(2px);
     display:flex; align-items:center; justify-content:center; padding:20px;
-    opacity:0; transition:opacity .18s ease;
+    opacity:0; transition:opacity var(--dur-base) var(--ease-soft);
   }
   .modal-overlay.show{opacity:1;}
   .modal-card{
     position:relative; width:100%; max-width:400px;
     background:var(--card); border-radius:14px; box-shadow:var(--shadow-lg);
     padding:24px 24px 20px;
-    transform:translateY(8px) scale(.98); transition:transform .18s ease;
+    transform:translateY(8px) scale(.98); transition:transform var(--dur-slow) var(--ease-soft);
   }
   .modal-overlay.show .modal-card{transform:translateY(0) scale(1);}
   .modal-card::before{
@@ -1112,6 +1151,12 @@
   </div>
 
   <section class="hero-stat" id="heroStat">
+    <div class="skeleton-overlay">
+      <span class="skeleton-dark" style="width:150px; height:10px; border-radius:4px;"></span>
+      <span class="skeleton-dark" style="width:190px; height:42px; margin-top:6px;"></span>
+      <span class="skeleton-dark" style="width:220px; height:10px; margin-top:4px; border-radius:4px;"></span>
+      <span class="skeleton-dark" style="width:100%; height:8px; border-radius:99px; margin-top:12px;"></span>
+    </div>
     <div class="hero-stat-top">
       <span class="hero-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month's Average</span>
       <span class="hero-period" id="heroMonthLabel">—</span>
@@ -1127,25 +1172,45 @@
     </div>
   </section>
 
-  <section class="stats-row">
+  <section class="stats-row" id="statsRow">
     <div class="stat-card">
+      <div class="skeleton-overlay">
+        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
+        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+      </div>
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>This Week Avg / Day</p>
       <p class="stat-value" id="weekAvg">0h</p>
       <p class="stat-detail" id="weekAvgDetail">—</p>
       <p class="stat-trend" id="weekTrend"></p>
     </div>
     <div class="stat-card">
+      <div class="skeleton-overlay">
+        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
+        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+      </div>
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/></svg>Overtime Bank</p>
       <p class="stat-value" id="otBank">0h</p>
       <p class="stat-detail" id="otBankDetail">This month vs. target</p>
       <p class="stat-trend" id="otBankTrend"></p>
     </div>
     <div class="stat-card">
+      <div class="skeleton-overlay">
+        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
+        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+      </div>
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3-2 4-2 7a4 4 0 0 0 8 0c0-1.5-1-2.5-1-2.5s.5 2-1 3c.5-3-2-4-2-7z"/><path d="M8.5 14a3.5 5 0 1 0 7 0c0-1-.5-2-1.5-3"/></svg>Current Streak</p>
       <p class="stat-value" id="streak">0</p>
       <p class="stat-detail">Consecutive workdays logged</p>
     </div>
     <div class="stat-card">
+      <div class="skeleton-overlay">
+        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
+        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+      </div>
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M8 3v3M16 3v3M3.5 9.5h17"/><path d="M9 14l2 2 4-4"/></svg>Leave Balance</p>
       <p class="stat-value" id="leaveBalance">0d</p>
       <p class="stat-detail" id="leaveBalanceDetail">0 of 21 days used</p>
@@ -1456,7 +1521,12 @@
           <button type="button" class="btn ghost small" id="bulkCancelBtn">Cancel</button>
         </div>
       </div>
-      <div class="table-wrap responsive-cards">
+      <div class="table-wrap responsive-cards" id="logTableWrap">
+        <div class="skeleton-overlay">
+          <div class="skeleton-row"><span class="skeleton" style="width:70px; height:14px;"></span><span class="skeleton" style="width:40px; height:14px;"></span><span class="skeleton" style="width:60px; height:14px;"></span><span class="skeleton" style="width:60px; height:14px;"></span><span class="skeleton" style="width:50px; height:14px; margin-left:auto;"></span></div>
+          <div class="skeleton-row"><span class="skeleton" style="width:70px; height:14px;"></span><span class="skeleton" style="width:40px; height:14px;"></span><span class="skeleton" style="width:60px; height:14px;"></span><span class="skeleton" style="width:60px; height:14px;"></span><span class="skeleton" style="width:50px; height:14px; margin-left:auto;"></span></div>
+          <div class="skeleton-row"><span class="skeleton" style="width:70px; height:14px;"></span><span class="skeleton" style="width:40px; height:14px;"></span><span class="skeleton" style="width:60px; height:14px;"></span><span class="skeleton" style="width:60px; height:14px;"></span><span class="skeleton" style="width:50px; height:14px; margin-left:auto;"></span></div>
+        </div>
         <table>
           <thead>
             <tr>
@@ -1859,7 +1929,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   // Loads entries + settings for whoever is currently being viewed (self,
   // or — for an admin — the person selected in the viewer switcher).
+  // Shows shimmer placeholders in the hero card, the 4 compact stat cards,
+  // and the log table while data is in flight, instead of letting the old
+  // (possibly stale, possibly zeroed) values sit there or pop in abruptly
+  // once the fetch resolves.
+  function setLoadingSkeletons(on){
+    var targets = [document.getElementById("heroStat"), document.getElementById("logTableWrap")]
+      .concat(Array.prototype.slice.call(document.querySelectorAll("#statsRow .stat-card")));
+    targets.forEach(function(el){ if(el) el.classList.toggle("is-loading", on); });
+  }
+
   async function loadDataForViewedUser(){
+    setLoadingSkeletons(true);
     try{
       var results = await Promise.all([
         sbFetchEntries(viewedUserId),
@@ -1876,6 +1957,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     isOwnData = viewedUserId === currentUser.id;
     updateViewingBanner();
     renderAll();
+    setLoadingSkeletons(false);
   }
 
   // ---------- Helpers ----------
