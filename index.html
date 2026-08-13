@@ -809,16 +809,20 @@
     .qc-time{font-size:23px;}
     .team-figures{width:100%; justify-content:space-between; margin-top:4px;}
   }
-  @media (max-width:480px){
+  @media (max-width:420px){
     .stats-row{grid-template-columns:1fr;}
+  }
+  @media (max-width:480px){
     /* Native date/time <input> controls render very differently across
        browsers — Safari/iOS in particular can render its own segmented
        date control wider than a 2-up grid cell allows, even though
        width:100% works fine in Chromium. Stacking to one column per row on
        real phones sidesteps that entirely by giving each field the full
        card width, rather than trying to chase an exact pixel budget for
-       every engine's native control rendering. */
-    .form-grid{grid-template-columns:1fr; gap:12px;}
+       every engine's native control rendering. Scoped to the New Entry
+       form specifically (.form-grid is shared with Settings and Apply-to-
+       Everyone, which should stay exactly as they were). */
+    #entryFormSection .form-grid{grid-template-columns:1fr; gap:12px;}
   }
 
   /* ---------- Auth screen ---------- */
