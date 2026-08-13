@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Attendance Ledger</title>
 
 <!-- PWA: manifest + icons. If you rename or move this HTML file, update
@@ -641,6 +641,11 @@
   }
 
   .filter-bar{display:flex; align-items:center; gap:10px; margin:-6px 0 18px; flex-wrap:wrap;}
+  /* Groups a label with its own select/input so flex-wrap moves them
+     together as one unit — otherwise a short label can fit in whatever
+     space is left on the current line while its (wider) control gets
+     pushed to the next line alone, leaving the label visually orphaned. */
+  .filter-field{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
   .filter-bar label{margin:0;}
   .filter-bar select{width:auto; min-width:170px;}
   .filter-spacer{margin-left:auto;}
@@ -1544,10 +1549,14 @@
     </div>
 
     <div class="filter-bar" id="monthFilterWrap">
-      <label for="logYearSelect">Year</label>
-      <select id="logYearSelect"></select>
-      <label for="monthFilterSelect" class="inline-lbl">Month</label>
-      <select id="monthFilterSelect"></select>
+      <div class="filter-field">
+        <label for="logYearSelect">Year</label>
+        <select id="logYearSelect"></select>
+      </div>
+      <div class="filter-field">
+        <label for="monthFilterSelect" class="inline-lbl">Month</label>
+        <select id="monthFilterSelect"></select>
+      </div>
       <div class="filter-spacer"></div>
       <button type="button" class="btn ghost small" id="printBtn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/></svg>
@@ -1572,10 +1581,14 @@
     </div>
 
     <div class="filter-bar" id="punctFilterWrap" style="display:none;">
-      <label for="punctYearSelect">Year</label>
-      <select id="punctYearSelect"></select>
-      <label for="punctMonthSelect" class="inline-lbl">Month</label>
-      <select id="punctMonthSelect"></select>
+      <div class="filter-field">
+        <label for="punctYearSelect">Year</label>
+        <select id="punctYearSelect"></select>
+      </div>
+      <div class="filter-field">
+        <label for="punctMonthSelect" class="inline-lbl">Month</label>
+        <select id="punctMonthSelect"></select>
+      </div>
       <div class="filter-spacer"></div>
       <span class="filter-count" id="punctCount"></span>
     </div>
@@ -1601,10 +1614,14 @@
       <select id="typeFilterSelect" title="Filter by day type">
         <option value="all">All Types</option>
       </select>
-      <label for="fromDate" class="inline-lbl">From</label>
-      <input type="date" id="fromDate" class="date-field" title="Only show days on or after this date">
-      <label for="toDate" class="inline-lbl">To</label>
-      <input type="date" id="toDate" class="date-field" title="Only show days on or before this date">
+      <div class="filter-field">
+        <label for="fromDate" class="inline-lbl">From</label>
+        <input type="date" id="fromDate" class="date-field" title="Only show days on or after this date">
+      </div>
+      <div class="filter-field">
+        <label for="toDate" class="inline-lbl">To</label>
+        <input type="date" id="toDate" class="date-field" title="Only show days on or before this date">
+      </div>
       <button type="button" class="btn ghost small" id="clearFiltersBtn">Clear</button>
     </div>
 

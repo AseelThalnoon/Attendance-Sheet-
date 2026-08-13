@@ -10,7 +10,7 @@
 // Every real request still goes to the network first; the cache is only a
 // fallback if that specific request fails (e.g. a flaky connection).
 
-const CACHE_NAME = "attendance-ledger-shell-v2";
+const CACHE_NAME = "attendance-ledger-shell-v3";
 const SHELL_FILES = [
   "./index.html",
   "./manifest.json",
