@@ -989,17 +989,25 @@
     align-items:flex-end;
   }
   /* Both sides get equal flex:1 width regardless of how many items each
-     holds (2 on the right for a regular user, 3 once Team appears for an
-     admin) — that's what keeps the clock button pixel-perfectly centered
-     in every case, rather than drifting off-center as items are added. */
+     holds (1-2 on the right — On Time, plus Team for an admin — vs 3 on
+     the left always) — that's what keeps the clock button pixel-perfectly
+     centered in every case. Items within each side cluster toward the
+     clock with a fixed, consistent gap, rather than stretching to fill
+     the whole half — otherwise a side with fewer items (like a lone
+     "On Time" for a regular user) ends up floating alone in the middle
+     of its half instead of sitting at a normal, uniform distance from
+     its neighbors. Any leftover slack goes to the outer bar edges, which
+     is where empty margin normally belongs, not next to the clock. */
   .bn-side{
-    flex:1 1 0; display:flex; align-items:flex-end; justify-content:space-around;
+    flex:1 1 0; display:flex; align-items:flex-end; gap:14px;
     min-width:0;
   }
+  .bn-side-left{justify-content:flex-end;}
+  .bn-side-right{justify-content:flex-start;}
   .bn-item{
     display:flex; flex-direction:column; align-items:center; gap:3px;
     background:none; border:none; cursor:pointer; color:var(--muted-2);
-    padding:5px 6px; border-radius:var(--radius-sm); min-width:0; flex:0 1 auto; min-height:48px;
+    padding:5px 6px; border-radius:var(--radius-sm); min-width:0; flex:0 0 auto; min-height:48px;
     transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
   .bn-item span{font-size:10px; font-weight:600; letter-spacing:.01em; white-space:nowrap;}
