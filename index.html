@@ -960,7 +960,8 @@
     .toast{max-width:100%;}
   }
 
-  /* ---------- Sticky mobile clock bar ---------- */
+  /* ---------- Sticky mobile clock bar (desktop/tablet fallback only —
+     mobile now uses the bottom nav's clock button instead) ---------- */
   .sticky-clock{
     display:none; position:fixed; left:12px; right:12px; bottom:14px; z-index:120;
     align-items:center; justify-content:space-between; gap:12px;
@@ -978,10 +979,49 @@
   .sticky-clock .btn{padding:8px 14px; min-height:36px;}
   .sticky-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:#20180A;}
   .sticky-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.1); border-color:rgba(227,203,143,.4); color:#fff;}
+
+  /* ---------- Bottom navigation (mobile) ---------- */
+  .bottom-nav{
+    display:none; position:fixed; left:0; right:0; bottom:0; z-index:150;
+    background:var(--card); border-top:1px solid var(--line-soft);
+    box-shadow:0 -6px 20px rgba(0,0,0,.07);
+    padding:7px 4px calc(7px + env(safe-area-inset-bottom));
+    align-items:flex-end; justify-content:space-around;
+  }
+  .bn-item{
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    background:none; border:none; cursor:pointer; color:var(--muted-2);
+    padding:5px 8px; border-radius:var(--radius-sm); min-width:56px; min-height:48px;
+    transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
+  }
+  .bn-item span{font-size:10px; font-weight:600; letter-spacing:.01em;}
+  .bn-item.active{color:var(--teal-700);}
+  body.dark .bn-item.active{color:var(--gold-light);}
+  .bn-item:active{background:var(--teal-50);}
+
+  .bn-clock-wrap{display:flex; flex-direction:column; align-items:center; gap:2px; flex-shrink:0;}
+  .bn-clock{
+    width:52px; height:52px; border-radius:50%; margin-top:-24px;
+    background:var(--gradient-gold); border:3px solid var(--card);
+    color:#20180A; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 4px 14px rgba(173,131,50,.4); cursor:pointer;
+    transition:transform var(--dur-fast) var(--ease-snap), background var(--dur-fast) var(--ease-snap);
+  }
+  .bn-clock:active{transform:scale(.93);}
+  .bn-clock.clocked-in{background:var(--gradient-teal); color:#fff; box-shadow:0 4px 14px rgba(20,92,87,.4);}
+  .bn-clock.disabled{opacity:.45; pointer-events:none;}
+  .bn-clock-label{font-size:10px; font-weight:600; color:var(--muted-2);}
+
   @media (max-width:760px){
-    .sticky-clock{display:flex;}
-    /* Leave room so the sticky bar never covers the footer's own buttons. */
-    body{padding-bottom:78px;}
+    .bottom-nav{display:flex;}
+    .tabs-wrap{display:none;}
+    .sticky-clock{display:none !important;}
+    /* Leave room so the bottom nav never covers the footer's own buttons. */
+    /* Clearance for the fixed bottom nav: the bar itself is ~63px, but the
+       raised clock button pokes another ~24px above that, plus real iOS
+       devices add safe-area-inset-bottom on top. Pad generously so nothing
+       in the footer ever sits underneath it. */
+    body{padding-bottom:108px;}
   }
 
   /* ---------- Confirm modal ---------- */
@@ -1734,6 +1774,31 @@
     </button>
   </div>
 </div>
+
+<nav class="bottom-nav" id="bottomNav" aria-label="Primary">
+  <button type="button" class="bn-item active" data-bn-tab="log">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6a1 1 0 0 1 1 1V5h.5A1.5 1.5 0 0 1 18 6.5v13A1.5 1.5 0 0 1 16.5 21h-9A1.5 1.5 0 0 1 6 19.5v-13A1.5 1.5 0 0 1 7.5 5H8v-.5a1 1 0 0 1 1-1z"/><path d="M9 10h6M9 13.5h6M9 17h3.5"/></svg>
+    <span>Log</span>
+  </button>
+  <button type="button" class="bn-item" data-bn-tab="trends">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>
+    <span>Trends</span>
+  </button>
+  <div class="bn-clock-wrap">
+    <button type="button" class="bn-clock" id="bnClockBtn" aria-label="Clock in or out">
+      <svg id="bnClockIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+    </button>
+    <span class="bn-clock-label" id="bnClockLabel">Clock In</span>
+  </div>
+  <button type="button" class="bn-item" data-bn-tab="punctuality">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+    <span>On Time</span>
+  </button>
+  <button type="button" class="bn-item" data-bn-tab="team" id="bnTeamBtn" style="display:none;">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    <span>Team</span>
+  </button>
+</nav>
 
 </div><!-- /#appShell -->
 
@@ -3011,6 +3076,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // words shrink so they never wrap inside the small circle.
     sealValue.classList.toggle("long", sealText.length > 6);
 
+    renderBnClock(todayEntry);
+
     document.getElementById("scheduleLine").textContent = scheduleSummary();
     renderLeaveBalance();
   }
@@ -4021,6 +4088,30 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   document.getElementById("stickyClockInBtn").addEventListener("click", function(){ punchClock("in"); });
   document.getElementById("stickyClockOutBtn").addEventListener("click", function(){ punchClock("out"); });
 
+  // The bottom nav has one smart button instead of separate In/Out buttons —
+  // it shows whichever action makes sense given today's entry, and simply
+  // calls the same punchClock() used everywhere else (including its
+  // existing "already clocked in, replace?" confirmation).
+  var BN_CLOCK_IN_PATH = 'M5 12h11M12 5l7 7-7 7';
+  var BN_CLOCK_OUT_PATH = 'M19 12H8M11 5l-7 7 7 7';
+  function renderBnClock(todayEntry){
+    var btn = document.getElementById("bnClockBtn");
+    if(!btn) return;
+    var icon = document.getElementById("bnClockIcon");
+    var label = document.getElementById("bnClockLabel");
+    var isOpen = !!(todayEntry && todayEntry.clockIn && !todayEntry.clockOut);
+
+    btn.classList.toggle("clocked-in", isOpen);
+    label.textContent = isOpen ? "Clock Out" : "Clock In";
+    icon.innerHTML = '<path d="'+(isOpen ? BN_CLOCK_OUT_PATH : BN_CLOCK_IN_PATH)+'"/>';
+    btn.setAttribute("data-bn-action", isOpen ? "out" : "in");
+    btn.classList.toggle("disabled", !isOwnData);
+  }
+  document.getElementById("bnClockBtn").addEventListener("click", function(){
+    if(this.classList.contains("disabled")) return;
+    punchClock(this.getAttribute("data-bn-action") || "in");
+  });
+
   // The sticky bar only appears once the main punch card has scrolled out of
   // view. It also steps aside whenever Settings is open, since clocking in
   // isn't the point of that screen and the bar would just compete for the
@@ -4111,6 +4202,28 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(tab === "trends") renderSubtab(activeSubtab());
       if(tab === "punctuality") renderPunctuality();
       if(tab === "team") renderTeam();
+
+      // Mirror the active tab onto the mobile bottom nav, which drives
+      // navigation via these same tab-btn elements rather than duplicating
+      // any of the logic above.
+      document.querySelectorAll(".bn-item").forEach(function(b){
+        b.classList.toggle("active", b.getAttribute("data-bn-tab") === tab);
+      });
+    });
+  });
+
+  // Bottom nav items are a thin visual layer over the existing tab-btns —
+  // clicking one just clicks the real tab button, so every render/filter/
+  // admin rule above applies identically regardless of which control was used.
+  document.querySelectorAll(".bn-item").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var tab = btn.getAttribute("data-bn-tab");
+      var realTab = document.querySelector('.tab-btn[data-tab="'+tab+'"]');
+      if(realTab) realTab.click();
+      // Instant, not smooth: an animated scroll takes time to settle, and
+      // during that time whatever content is scrolling past visibly slides
+      // behind the fixed nav. A tab switch should feel immediate.
+      window.scrollTo(0, 0);
     });
   });
 
@@ -4648,6 +4761,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("stickyClockInBtn").disabled = !isOwnData;
     document.getElementById("stickyClockOutBtn").disabled = !isOwnData;
     if(!isOwnData) document.getElementById("stickyClock").classList.remove("show");
+    document.getElementById("bnClockBtn").classList.toggle("disabled", !isOwnData);
     // Settings are admin-managed: an admin can edit anyone's schedule
     // (including their own); everyone else never sees the gear at all.
     document.getElementById("settingsBtn").style.display = isAdmin ? "flex" : "none";
@@ -4858,9 +4972,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(isAdmin){
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
+      document.getElementById("bnTeamBtn").style.display = "";
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
+      document.getElementById("bnTeamBtn").style.display = "none";
       document.getElementById("settingsCard").classList.remove("open");
       document.getElementById("accessCard").classList.remove("open");
       if(viewedUserId !== currentUser.id){
@@ -4981,9 +5097,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       await loadAllProfilesForSwitcher();
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
+      document.getElementById("bnTeamBtn").style.display = "";
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
+      document.getElementById("bnTeamBtn").style.display = "none";
     }
 
     showApp();
