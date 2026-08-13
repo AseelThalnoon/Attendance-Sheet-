@@ -988,32 +988,44 @@
     padding:7px 4px calc(7px + env(safe-area-inset-bottom));
     align-items:flex-end;
   }
-  /* Both sides get equal flex:1 width regardless of how many items each
-     holds (1-2 on the right — On Time, plus Team for an admin — vs 3 on
-     the left always) — that's what keeps the clock button pixel-perfectly
-     centered in every case. Items within each side cluster toward the
-     clock with a fixed, consistent gap, rather than stretching to fill
-     the whole half — otherwise a side with fewer items (like a lone
-     "On Time" for a regular user) ends up floating alone in the middle
-     of its half instead of sitting at a normal, uniform distance from
-     its neighbors. Any leftover slack goes to the outer bar edges, which
-     is where empty margin normally belongs, not next to the clock. */
+  /* Both sides get equal flex:1 width, and within each side every slot
+     (a real item, or an empty spacer when the count is odd) is an equal-
+     width grid column — laid out by layoutBottomNav() in JS. That's what
+     keeps the clock button exactly centered AND keeps spacing genuinely
+     uniform: an even item count splits evenly with no spacer needed; an
+     odd count gets ceil(n/2) slots per side, so the shorter side's one
+     real item still occupies a full slot instead of floating alone in
+     extra empty space. */
   .bn-side{
-    flex:1 1 0; display:flex; align-items:flex-end; gap:14px;
-    min-width:0;
+    flex:1 1 0; display:grid; grid-auto-flow:column; grid-auto-columns:1fr;
+    align-items:flex-end; min-width:0;
   }
-  .bn-side-left{justify-content:flex-end;}
-  .bn-side-right{justify-content:flex-start;}
+  .bn-item, .bn-spacer{
+    min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-end;
+  }
+  .bn-spacer{visibility:hidden; pointer-events:none;}
   .bn-item{
-    display:flex; flex-direction:column; align-items:center; gap:3px;
-    background:none; border:none; cursor:pointer; color:var(--muted-2);
-    padding:5px 6px; border-radius:var(--radius-sm); min-width:0; flex:0 0 auto; min-height:48px;
+    gap:3px; background:none; border:none; cursor:pointer; color:var(--muted-2);
+    padding:5px 2px; border-radius:var(--radius-sm); min-height:48px;
     transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
-  .bn-item span{font-size:10px; font-weight:600; letter-spacing:.01em; white-space:nowrap;}
+  .bn-item span{
+    font-size:10px; font-weight:600; letter-spacing:.005em;
+    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
   .bn-item.active{color:var(--teal-700);}
   body.dark .bn-item.active{color:var(--gold-light);}
   .bn-item:active{background:var(--teal-50);}
+  /* At the narrowest phones (down to 320px, the floor this app targets),
+     six equal slots for an admin leaves very little room per label —
+     a slightly smaller size gives longer words like "Calendar" and
+     "On Time" genuine room instead of relying on the ellipsis to hide
+     the shortfall. */
+  @media (max-width:340px){
+    .bn-item{padding-left:0; padding-right:0;}
+    .bn-item span{font-size:9px; letter-spacing:0;}
+    .bn-clock-label{font-size:9px;}
+  }
 
   .bn-clock-wrap{display:flex; flex-direction:column; align-items:center; gap:2px; flex:0 0 auto;}
   .bn-clock{
@@ -1792,7 +1804,21 @@
 </div>
 
 <nav class="bottom-nav" id="bottomNav" aria-label="Primary">
-  <div class="bn-side bn-side-left">
+  <div class="bn-side bn-side-left" id="bnSideLeft"></div>
+  <div class="bn-clock-wrap">
+    <button type="button" class="bn-clock" id="bnClockBtn" aria-label="Clock in or out">
+      <svg id="bnClockIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+    </button>
+    <span class="bn-clock-label" id="bnClockLabel">Clock In</span>
+  </div>
+  <div class="bn-side bn-side-right" id="bnSideRight"></div>
+
+  <!-- Pool of nav items, in display order. JS (layoutBottomNav) distributes
+       these into #bnSideLeft / #bnSideRight — plus an empty spacer slot
+       when the visible count is odd — so both sides always have the same
+       number of equal-width slots and the clock stays exactly centered
+       with mathematically even spacing, regardless of admin status. -->
+  <div id="bnItemPool" hidden>
     <button type="button" class="bn-item active" data-bn-tab="log">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6a1 1 0 0 1 1 1V5h.5A1.5 1.5 0 0 1 18 6.5v13A1.5 1.5 0 0 1 16.5 21h-9A1.5 1.5 0 0 1 6 19.5v-13A1.5 1.5 0 0 1 7.5 5H8v-.5a1 1 0 0 1 1-1z"/><path d="M9 10h6M9 13.5h6M9 17h3.5"/></svg>
       <span>Log</span>
@@ -1805,19 +1831,11 @@
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>
       <span>Calendar</span>
     </button>
-  </div>
-  <div class="bn-clock-wrap">
-    <button type="button" class="bn-clock" id="bnClockBtn" aria-label="Clock in or out">
-      <svg id="bnClockIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
-    </button>
-    <span class="bn-clock-label" id="bnClockLabel">Clock In</span>
-  </div>
-  <div class="bn-side bn-side-right">
     <button type="button" class="bn-item" data-bn-tab="punctuality">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
       <span>On Time</span>
     </button>
-    <button type="button" class="bn-item" data-bn-tab="team" id="bnTeamBtn" style="display:none;">
+    <button type="button" class="bn-item" data-bn-tab="team" id="bnTeamBtn">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span>Team</span>
     </button>
@@ -4212,6 +4230,38 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return el ? el.getAttribute("data-subtab") : "weekly";
   }
 
+  // Distributes the bottom-nav items into left/right zones so spacing stays
+  // genuinely even regardless of admin status: an even visible count splits
+  // equally; an odd count gives each side ceil(n/2) equal-width slots,
+  // padding the shorter side with an invisible spacer of the same width
+  // rather than letting its one real item float alone in extra space.
+  function layoutBottomNav(){
+    var leftEl = document.getElementById("bnSideLeft");
+    var rightEl = document.getElementById("bnSideRight");
+    if(!leftEl || !rightEl) return;
+
+    document.querySelectorAll("#bottomNav .bn-spacer").forEach(function(s){ s.remove(); });
+
+    var order = ["log", "trends", "calendar", "punctuality"].concat(isAdmin ? ["team"] : []);
+    var items = order.map(function(tab){
+      return document.querySelector('.bn-item[data-bn-tab="'+tab+'"]');
+    }).filter(Boolean);
+
+    var n = items.length;
+    var leftCount = Math.ceil(n / 2);
+
+    items.forEach(function(el, i){
+      (i < leftCount ? leftEl : rightEl).appendChild(el); // moves the node; listeners survive
+    });
+
+    if(n % 2 !== 0){
+      var spacer = document.createElement("div");
+      spacer.className = "bn-spacer";
+      spacer.setAttribute("aria-hidden", "true");
+      rightEl.appendChild(spacer);
+    }
+  }
+
   document.querySelectorAll(".tab-btn").forEach(function(btn){
     btn.addEventListener("click", function(){
       document.querySelectorAll(".tab-btn").forEach(function(b){ b.classList.remove("active"); });
@@ -4996,11 +5046,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(isAdmin){
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
-      document.getElementById("bnTeamBtn").style.display = "";
+      layoutBottomNav();
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
-      document.getElementById("bnTeamBtn").style.display = "none";
+      layoutBottomNav();
       document.getElementById("settingsCard").classList.remove("open");
       document.getElementById("accessCard").classList.remove("open");
       if(viewedUserId !== currentUser.id){
@@ -5121,11 +5171,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       await loadAllProfilesForSwitcher();
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
-      document.getElementById("bnTeamBtn").style.display = "";
+      layoutBottomNav();
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
-      document.getElementById("bnTeamBtn").style.display = "none";
+      layoutBottomNav();
     }
 
     showApp();
