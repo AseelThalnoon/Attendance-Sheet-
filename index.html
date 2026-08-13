@@ -1479,7 +1479,8 @@
       <div class="tabs" id="tabsBar">
         <button class="tab-btn active" data-tab="log">Log</button>
         <button class="tab-btn" data-tab="trends">Trends</button>
-        <button class="tab-btn" data-tab="punctuality">Punctuality</button>
+        <button class="tab-btn" data-tab="calendar">Calendar</button>
+        <button class="tab-btn" data-tab="punctuality">On Time</button>
         <button class="tab-btn" data-tab="team" id="teamTabBtn" style="display:none;">Team</button>
       </div>
     </div>
@@ -1488,7 +1489,6 @@
       <button type="button" class="sub-tab-btn active" data-subtab="weekly">Weekly</button>
       <button type="button" class="sub-tab-btn" data-subtab="monthly">Monthly</button>
       <button type="button" class="sub-tab-btn" data-subtab="yearly">Yearly</button>
-      <button type="button" class="sub-tab-btn" data-subtab="calendar">Calendar</button>
     </div>
 
     <div class="filter-bar" id="monthFilterWrap">
@@ -1658,28 +1658,28 @@
         </div>
         <div class="empty-state" id="yearlyEmpty" style="display:none;">No entries yet.</div>
       </div>
+    </div>
 
-      <div class="sub-tab-panel" id="subtab-calendar">
-        <div class="calendar-nav">
-          <button type="button" class="btn ghost small" id="calPrevBtn" aria-label="Previous month">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-          </button>
-          <span class="calendar-month-label display" id="calMonthLabel">—</span>
-          <button type="button" class="btn ghost small" id="calNextBtn" aria-label="Next month">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-          </button>
-          <button type="button" class="btn ghost small" id="calTodayBtn" style="margin-left:auto;">Today</button>
-        </div>
-        <div class="calendar-grid" id="calendarGrid"></div>
-        <div class="chart-legend" style="margin-top:14px;">
-          <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
-          <span><i class="swatch" style="background:var(--teal-600)"></i>Under target</span>
-          <span><i class="swatch" style="background:var(--gold)"></i>Leave / excused</span>
-          <span><i class="swatch" style="background:var(--negative)"></i>Missing</span>
-          <span><i class="swatch" style="background:var(--line)"></i>Day off</span>
-        </div>
-        <p class="settings-hint" style="margin-top:10px;">Tap a day to add or edit that entry.</p>
+    <div class="tab-panel" id="tab-calendar">
+      <div class="calendar-nav">
+        <button type="button" class="btn ghost small" id="calPrevBtn" aria-label="Previous month">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <span class="calendar-month-label display" id="calMonthLabel">—</span>
+        <button type="button" class="btn ghost small" id="calNextBtn" aria-label="Next month">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+        <button type="button" class="btn ghost small" id="calTodayBtn" style="margin-left:auto;">Today</button>
       </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+      <div class="chart-legend" style="margin-top:14px;">
+        <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
+        <span><i class="swatch" style="background:var(--teal-600)"></i>Under target</span>
+        <span><i class="swatch" style="background:var(--gold)"></i>Leave / excused</span>
+        <span><i class="swatch" style="background:var(--negative)"></i>Missing</span>
+        <span><i class="swatch" style="background:var(--line)"></i>Day off</span>
+      </div>
+      <p class="settings-hint" style="margin-top:10px;">Tap a day to add or edit that entry.</p>
     </div>
 
     <div class="tab-panel" id="tab-punctuality">
@@ -1783,6 +1783,10 @@
   <button type="button" class="bn-item" data-bn-tab="trends">
     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>
     <span>Trends</span>
+  </button>
+  <button type="button" class="bn-item" data-bn-tab="calendar">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>
+    <span>Calendar</span>
   </button>
   <div class="bn-clock-wrap">
     <button type="button" class="bn-clock" id="bnClockBtn" aria-label="Clock in or out">
@@ -4169,7 +4173,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(subtab === "weekly") renderWeekly();
     if(subtab === "monthly") renderMonthly();
     if(subtab === "yearly") renderYearly();
-    if(subtab === "calendar") renderCalendar();
   }
 
   document.querySelectorAll(".sub-tab-btn").forEach(function(btn){
@@ -4200,6 +4203,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       applyFilterBarVisibility(tab, activeSubtab());
 
       if(tab === "trends") renderSubtab(activeSubtab());
+      if(tab === "calendar") renderCalendar();
       if(tab === "punctuality") renderPunctuality();
       if(tab === "team") renderTeam();
 
