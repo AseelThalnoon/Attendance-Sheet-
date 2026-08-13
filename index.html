@@ -809,8 +809,16 @@
     .qc-time{font-size:23px;}
     .team-figures{width:100%; justify-content:space-between; margin-top:4px;}
   }
-  @media (max-width:420px){
+  @media (max-width:480px){
     .stats-row{grid-template-columns:1fr;}
+    /* Native date/time <input> controls render very differently across
+       browsers — Safari/iOS in particular can render its own segmented
+       date control wider than a 2-up grid cell allows, even though
+       width:100% works fine in Chromium. Stacking to one column per row on
+       real phones sidesteps that entirely by giving each field the full
+       card width, rather than trying to chase an exact pixel budget for
+       every engine's native control rendering. */
+    .form-grid{grid-template-columns:1fr; gap:12px;}
   }
 
   /* ---------- Auth screen ---------- */
@@ -1044,12 +1052,16 @@
     .bottom-nav{display:flex;}
     .tabs-wrap{display:none;}
     .sticky-clock{display:none !important;}
-    /* Leave room so the bottom nav never covers the footer's own buttons. */
     /* Clearance for the fixed bottom nav: the bar itself is ~63px, but the
        raised clock button pokes another ~24px above that, plus real iOS
        devices add safe-area-inset-bottom on top. Pad generously so nothing
        in the footer ever sits underneath it. */
     body{padding-bottom:108px;}
+    /* Without this, scrollIntoView() (ours or the browser's own anchor
+       navigation) has no idea the bottom nav covers part of the viewport,
+       and can happily scroll a target element to a position that's
+       actually hidden behind it. */
+    html{scroll-padding-bottom:108px;}
   }
 
   /* ---------- Confirm modal ---------- */
@@ -1456,6 +1468,12 @@
     </div>
     <p class="qc-note" id="qcStatusNote"></p>
 
+    <div class="accordion-section" id="entryFormSection" data-section="manual-entry">
+      <button type="button" class="accordion-head">
+        <span>Add or Edit a Specific Day</span>
+        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="accordion-body">
     <form id="entryForm" novalidate>
       <div class="form-grid">
         <div>
@@ -1500,9 +1518,11 @@
         <button type="button" class="btn ghost" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
       </div>
     </form>
+      </div>
+    </div>
   </section>
 
-  <section class="card">
+  <section class="card" id="tabContentCard">
     <div class="tabs-wrap">
       <div class="tabs" id="tabsBar">
         <button class="tab-btn active" data-tab="log">Log</button>
@@ -3542,6 +3562,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       resetForm();
       document.getElementById("fDate").value = dStr;
       document.getElementById("fToDate").value = dStr;
+      document.getElementById("entryFormSection").classList.add("open");
       form.scrollIntoView({behavior:"smooth", block:"center"});
     }
   });
@@ -3843,6 +3864,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("fToDateWrap").style.display = "none";
     document.getElementById("fRangeHint").style.display = "none";
     document.getElementById("fDateLabel").textContent = "Date";
+    document.getElementById("entryFormSection").classList.add("open");
     form.scrollIntoView({behavior:"smooth", block:"center"});
     document.getElementById("fOut").focus();
   }
@@ -4294,10 +4316,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var tab = btn.getAttribute("data-bn-tab");
       var realTab = document.querySelector('.tab-btn[data-tab="'+tab+'"]');
       if(realTab) realTab.click();
+      // Scroll to where the tab content actually lives, not the page's
+      // absolute top — jumping to the very top just shows the header/hero
+      // again, forcing a second manual scroll to see what was tapped for.
       // Instant, not smooth: an animated scroll takes time to settle, and
       // during that time whatever content is scrolling past visibly slides
       // behind the fixed nav. A tab switch should feel immediate.
-      window.scrollTo(0, 0);
+      var target = document.getElementById("tabContentCard");
+      if(target){
+        var top = target.getBoundingClientRect().top + window.scrollY - 12;
+        window.scrollTo(0, Math.max(0, top));
+      } else {
+        window.scrollTo(0, 0);
+      }
     });
   });
 
