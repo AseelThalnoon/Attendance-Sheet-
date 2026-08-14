@@ -374,19 +374,27 @@
      narrow — Safari/iOS draws its own segmented control at an intrinsic width
      and simply overflows the cell. A floor fixes it for every engine and every
      width at once, instead of chasing a breakpoint per device. */
-  .form-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:14px; align-items:end;}
-  .form-grid > div{min-width:0;}
+  .form-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:14px; align-items:stretch;}
+  /* Cells stretch to the tallest in their row and lay their control out as a
+     flex column, so the control fills whatever height the row settled on.
+     This is what keeps a date, time, number and select box the same height
+     side by side — a native time control is intrinsically ~0.7px taller than
+     the rest — without pinning any of them to a fixed height they might not
+     fit into on another engine. */
+  .form-grid > div{min-width:0; display:flex; flex-direction:column;}
+  .form-grid > div > input, .form-grid > div > select{flex:1 1 auto;}
   .form-grid .full{grid-column:1 / -1;}
   label{display:block; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px;}
   input[type="date"], input[type="time"], input[type="text"], input[type="number"],
   input[type="email"], input[type="password"], select{
-    /* Explicit height, not just min-height: a native <input type=time>
-       renders its own segmented control whose intrinsic content is taller
-       than 42px, so it grew to 42.69 while every neighbouring date, number,
-       text and select field stayed at 42 — visibly uneven box heights in a
-       single form row. Fixing the height makes every control match; setting
-       line-height instead does not (it pushes date and time to 44). */
-    width:100%; padding:10px 12px; height:42px; min-height:42px; border:1px solid var(--line); border-radius:var(--radius-sm);
+    /* min-height, never a fixed height: a native date/time control has its
+       own intrinsic height that varies by engine, and pinning the box to
+       42px leaves only 20px of content area — enough in Chromium, not on
+       iOS, where the control then paints outside its box and collides with
+       whatever sits next to it. Row-level evenness is handled by stretching
+       the grid cells instead (see .form-grid below), which equalises heights
+       without ever constraining a control below what it needs. */
+    width:100%; padding:10px 12px; min-height:42px; border:1px solid var(--line); border-radius:var(--radius-sm);
     font-size:14px; color:var(--ink); background:var(--input-bg); font-family:inherit;
     transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
@@ -849,10 +857,12 @@
        width:100% works fine in Chromium. Stacking to one column per row on
        real phones sidesteps that entirely by giving each field the full
        card width, rather than trying to chase an exact pixel budget for
-       every engine's native control rendering. Scoped to the New Entry
-       form specifically (.form-grid is shared with Settings and Apply-to-
-       Everyone, which should stay exactly as they were). */
-    #entryFormSection .form-grid{grid-template-columns:1fr; gap:12px;}
+       every engine's native control rendering.
+       Applies to every .form-grid, not just the New Entry form: Settings
+       still resolved to 2 columns of ~160px on a 430px phone, which is not
+       enough for a native time control, and its Standard Start / Standard
+       End fields collided there. */
+    .form-grid{grid-template-columns:1fr; gap:12px;}
   }
 
   /* ---------- Auth screen ---------- */

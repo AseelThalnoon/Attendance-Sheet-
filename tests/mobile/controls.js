@@ -51,19 +51,28 @@ function ok(cond, label, detail){
       });
       await page.waitForTimeout(150);
 
-      // --- 1. uniform control heights ---
-      const heights = await page.evaluate(() => {
-        const byType = {};
+      // --- 1. controls sharing a row must share a height ---
+      // Per row, not globally: only fields sitting side by side are compared
+      // by eye. Controls on different rows may legitimately differ by the
+      // fraction of a pixel a native time widget adds, and forcing a single
+      // global height means pinning a fixed height, which clips that widget
+      // on engines that need more room.
+      const rows = await page.evaluate(() => {
+        const byRow = {};
         document.querySelectorAll(".form-grid input, .form-grid select").forEach(el => {
           if(!el.getClientRects().length) return;
-          (byType[el.type] ||= new Set()).add(+el.getBoundingClientRect().height.toFixed(2));
+          const r = el.getBoundingClientRect();
+          const key = Math.round(r.top);
+          (byRow[key] ||= []).push({ id: el.id || el.type, h: +r.height.toFixed(2) });
         });
-        return Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, [...v]]));
+        return byRow;
       });
-      const all = [...new Set(Object.values(heights).flat())];
-      ok(all.length === 1,
-        `[${theme}/${width}px] every .form-grid control shares one height`,
-        `heights by type: ${JSON.stringify(heights)}`);
+      const badRows = Object.entries(rows)
+        .filter(([, items]) => items.length > 1 && new Set(items.map(i => i.h)).size > 1)
+        .map(([top, items]) => `row@${top}: ` + items.map(i => `${i.id}=${i.h}`).join(", "));
+      ok(badRows.length === 0,
+        `[${theme}/${width}px] controls sharing a row share a height`,
+        badRows.slice(0, 3).join("\n     "));
 
       // --- 2. dropdown options readable on a system-painted popup ---
       const opt = await page.evaluate(() => {

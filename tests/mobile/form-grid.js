@@ -6,7 +6,7 @@ const { chromium } = require("playwright");
 const PAGE_URL = process.env.ATTENDANCE_URL || "file:///workspaces/Attendance-Sheet-/index.html";
 const { revealApp, showTab, listTabs } = require("./fixtures");
 
-const FLOOR = 150;
+const FLOOR = 170;
 const WIDTHS = [1280, 1024, 932, 900, 844, 820, 768, 760, 700, 600, 540, 481, 480, 430, 393, 375, 360, 320];
 
 let fail = 0;
