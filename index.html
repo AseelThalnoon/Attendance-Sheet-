@@ -380,7 +380,13 @@
   label{display:block; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px;}
   input[type="date"], input[type="time"], input[type="text"], input[type="number"],
   input[type="email"], input[type="password"], select{
-    width:100%; padding:10px 12px; min-height:42px; border:1px solid var(--line); border-radius:var(--radius-sm);
+    /* Explicit height, not just min-height: a native <input type=time>
+       renders its own segmented control whose intrinsic content is taller
+       than 42px, so it grew to 42.69 while every neighbouring date, number,
+       text and select field stayed at 42 — visibly uneven box heights in a
+       single form row. Fixing the height makes every control match; setting
+       line-height instead does not (it pushes date and time to 44). */
+    width:100%; padding:10px 12px; height:42px; min-height:42px; border:1px solid var(--line); border-radius:var(--radius-sm);
     font-size:14px; color:var(--ink); background:var(--input-bg); font-family:inherit;
     transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
@@ -905,6 +911,16 @@
     background:rgba(255,255,255,.08); border:1px solid rgba(227,203,143,.35);
     color:#F5F1E6; min-width:150px; font-size:12.5px;
   }
+  /* The closed select sits on the dark header, so its text is near-white —
+     but the OPEN dropdown is painted by the browser on a system surface,
+     not on the header, and the options inherit that near-white colour. On
+     desktop that is white-on-white (1.13:1): the user list is invisible.
+     Mobile is unaffected because it uses the OS picker.
+     Canvas/CanvasText rather than --card/--ink: the page's dark mode is a
+     manual toggle independent of the OS, so theme tokens can put light text
+     on a light system popup all over again. The system keywords always
+     track whatever surface the browser actually paints. */
+  .viewer-switch select option{color:CanvasText; background:Canvas;}
   .user-chip{
     font-size:11.5px; color:#C6D6D2; padding:6px 10px;
     border:1px solid rgba(227,203,143,.25); border-radius:99px;

@@ -9,6 +9,7 @@
 // Run:  npm run test:mobile          (fails the run if anything is found)
 //       node mobile/scan.js --json   (machine-readable)
 const { chromium } = require("playwright");
+const PAGE_URL = process.env.ATTENDANCE_URL || "file:///workspaces/Attendance-Sheet-/index.html";
 const { revealApp, showTab, listTabs, buildGallery } = require("./fixtures");
 
 const WIDTHS = [430, 393, 375, 360, 320];
@@ -124,7 +125,7 @@ const COLLECT = () => {
         viewport: { width, height: 860 }, colorScheme: theme,
         deviceScaleFactor: 2, isMobile: true, hasTouch: true
       });
-      await page.goto("file:///workspaces/Attendance-Sheet-/index.html");
+      await page.goto(PAGE_URL);
       await page.waitForTimeout(300);
       await revealApp(page, theme);
       selectorCount = await buildGallery(page);

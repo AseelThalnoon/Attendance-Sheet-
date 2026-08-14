@@ -3,8 +3,9 @@
   "private": true,
   "description": "Regression tests. Each suite extracts its subject verbatim from ../index.html at run time rather than reimplementing it.",
   "scripts": {
-    "test": "node parsers/test-parsers.js && node modal/test-modal.js && node clock/test-clock.js && node mobile/form-grid.js",
-    "test:mobile": "node mobile/form-grid.js && node mobile/scan.js",
+    "test": "node parsers/test-parsers.js && node modal/test-modal.js && node clock/test-clock.js && node mobile/form-grid.js && node mobile/controls.js",
+    "test:mobile": "node mobile/form-grid.js && node mobile/controls.js && node mobile/scan.js",
+    "test:controls": "node mobile/controls.js",
     "scan": "node mobile/scan.js",
     "test:parsers": "node parsers/test-parsers.js",
     "test:modal": "node modal/test-modal.js",

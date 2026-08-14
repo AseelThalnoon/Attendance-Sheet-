@@ -3,6 +3,7 @@
 // nothing on its own — the floor is enforced on the grid TRACK, which is what
 // a non-shrinking control (Safari/iOS) actually needs.
 const { chromium } = require("playwright");
+const PAGE_URL = process.env.ATTENDANCE_URL || "file:///workspaces/Attendance-Sheet-/index.html";
 const { revealApp, showTab, listTabs } = require("./fixtures");
 
 const FLOOR = 150;
@@ -17,7 +18,7 @@ const problems = [];
 
   for(const width of WIDTHS){
     const page = await browser.newPage({ viewport: { width, height: 900 }, isMobile: width <= 932, hasTouch: true });
-    await page.goto("file:///workspaces/Attendance-Sheet-/index.html");
+    await page.goto(PAGE_URL);
     await page.waitForTimeout(220);
     await revealApp(page, "light");
 
