@@ -49,6 +49,13 @@
     --line-soft:#EAE3D0;
     --positive:#2E7D4F;
     --positive-bg:#E3F1E7;
+    /* Teal chip/badge pair. Its own tokens rather than raw --teal-100 +
+       --teal-700, because those two invert independently between themes:
+       --teal-100 flips to a dark surface for dark mode while --teal-700 stays
+       a dark shade (it doubles as a surface elsewhere), which collapsed the
+       two into near-identical colours. Same shape as --positive/-bg. */
+    --info:#145C57;
+    --info-bg:#E6EFEC;
     --negative:#AE3B3B;
     --negative-bg:#F7E9E7;
     --excused:#8A6E1F;
@@ -93,6 +100,8 @@
     --line-soft:#2A4A44;
     --positive:#6BC08D;
     --positive-bg:#183A28;
+    --info:#7FD0C6;
+    --info-bg:#1A423D;
     --negative:#E08585;
     --negative-bg:#3C1F1F;
     --excused:#D9BC72;
@@ -359,7 +368,13 @@
   .qc-note.success{color:var(--positive);}
 
   /* ---------- Form ---------- */
-  .form-grid{display:grid; grid-template-columns:repeat(6,1fr); gap:14px; align-items:end;}
+  /* auto-fit with a 150px floor rather than a fixed 6 columns: a fixed count
+     squeezed each cell to ~95px between 761px and 932px (phone landscape,
+     small tablets), and a native <input type=date>/<time> can't render that
+     narrow — Safari/iOS draws its own segmented control at an intrinsic width
+     and simply overflows the cell. A floor fixes it for every engine and every
+     width at once, instead of chasing a breakpoint per device. */
+  .form-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:14px; align-items:end;}
   .form-grid > div{min-width:0;}
   .form-grid .full{grid-column:1 / -1;}
   label{display:block; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px;}
@@ -480,7 +495,7 @@
   .filter-bar #typeFilterSelect{min-width:140px;}
   .filter-count{font-size:11.5px; color:var(--muted-2); white-space:nowrap;}
   #advancedFiltersToggle{display:inline-flex; align-items:center; gap:6px; position:relative;}
-  #advancedFiltersToggle.active{background:var(--teal-100); border-color:var(--teal-600); color:var(--teal-700);}
+  #advancedFiltersToggle.active{background:var(--info-bg); border-color:var(--teal-600); color:var(--info);}
   .filter-badge{
     display:inline-flex; align-items:center; justify-content:center;
     min-width:16px; height:16px; padding:0 4px; border-radius:99px;
@@ -491,7 +506,7 @@
     padding:12px; margin:-6px 0 18px;
   }
 
-  #selectModeToggle.active{background:var(--teal-100); border-color:var(--teal-600); color:var(--teal-700);}
+  #selectModeToggle.active{background:var(--info-bg); border-color:var(--teal-600); color:var(--info);}
 
   .bulk-toolbar{
     display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
@@ -682,7 +697,7 @@
   .pill::before{content:""; width:5px; height:5px; border-radius:50%; background:currentColor; flex-shrink:0; box-shadow:0 0 4px currentColor;}
   .pill.over{background:var(--positive-bg); color:var(--positive);}
   .pill.under{background:var(--negative-bg); color:var(--negative);}
-  .pill.onit{background:var(--teal-100); color:var(--teal-600);}
+  .pill.onit{background:var(--info-bg); color:var(--info);}
   .pill.excused{background:var(--excused-bg); color:var(--excused);}
   .pill.open{background:var(--warn-bg); color:var(--warn);}
 
@@ -800,7 +815,10 @@
 
   @media (max-width:760px){
     .stats-row{grid-template-columns:repeat(2,1fr); gap:10px;}
-    .form-grid{grid-template-columns:repeat(2,1fr);}
+    /* No .form-grid override here: a fixed 2 columns undercut the 150px floor
+       on small phones (~139px per cell at 320px), which is the squeeze the
+       floor exists to prevent. auto-fit already yields 2 columns through this
+       range and drops to 1 when even two no longer fit. */
     .seal{width:84px; height:84px;}
     .head-title{font-size:25px;}
     header.ledger-head{padding:24px 16px 20px;}
@@ -920,14 +938,14 @@
     padding:2px 7px; border-radius:99px; white-space:nowrap;
   }
   .admin-badge.role-admin{background:var(--gradient-gold); color:#20180A;}
-  .admin-badge.role-you{background:var(--teal-100); color:var(--teal-700);}
+  .admin-badge.role-you{background:var(--info-bg); color:var(--info);}
   .admin-badge.deactivated{background:var(--negative-bg); color:var(--negative);}
   .audit-action{
     font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:700;
     padding:2px 7px; border-radius:99px; white-space:nowrap; display:inline-block;
   }
   .audit-action.a-insert{background:var(--positive-bg); color:var(--positive);}
-  .audit-action.a-update{background:var(--teal-100); color:var(--teal-700);}
+  .audit-action.a-update{background:var(--info-bg); color:var(--info);}
   .audit-action.a-delete{background:var(--negative-bg); color:var(--negative);}
   .audit-action.a-admin{background:var(--excused-bg); color:var(--gold-deep);}
   .audit-detail{font-size:11.5px; color:var(--muted-2); white-space:normal;}
@@ -959,7 +977,7 @@
     font-size:10px; text-transform:uppercase; letter-spacing:.06em;
     color:var(--gold-deep); background:var(--excused-bg); padding:2px 7px; border-radius:99px;
   }
-  .you-badge{color:var(--teal-600); background:var(--teal-100);}
+  .you-badge{color:var(--info); background:var(--info-bg);}
 
   /* ---------- Team & Access: role management ---------- */
   .user-row{
