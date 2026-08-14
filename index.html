@@ -892,6 +892,44 @@
     white-space:nowrap; max-width:160px; overflow:hidden; text-overflow:ellipsis;
   }
   .viewing-other-banner{border-left-color:var(--gold); background:var(--excused-bg);}
+  .announcement-banner{border-left-color:var(--teal-600); background:var(--teal-50);}
+  .announcement-banner svg{color:var(--teal-600);}
+
+  /* ---------- Admin panel ---------- */
+  .admin-section-head{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    flex-wrap:wrap; margin:0 0 10px;
+  }
+  .admin-section-head h3{
+    margin:0; font-family:var(--font-display); font-size:17px; font-weight:600; color:var(--ink);
+  }
+  .stats-row.admin-stats{margin-bottom:18px;}
+  .admin-user-row{
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    border:1px solid var(--line-soft); border-radius:var(--radius-md);
+    padding:13px 15px; margin-bottom:9px; background:var(--card); box-shadow:var(--shadow-sm);
+  }
+  .admin-user-row.is-deactivated{opacity:.62; background:var(--teal-50);}
+  .admin-user-main{flex:1 1 200px; min-width:0;}
+  .admin-user-name{font-weight:600; font-size:14px; color:var(--ink); display:flex; align-items:center; gap:7px; flex-wrap:wrap;}
+  .admin-user-meta{font-size:11.5px; color:var(--muted-2); margin-top:3px;}
+  .admin-user-actions{display:flex; gap:7px; flex-wrap:wrap;}
+  .admin-badge{
+    font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:700;
+    padding:2px 7px; border-radius:99px; white-space:nowrap;
+  }
+  .admin-badge.role-admin{background:var(--gradient-gold); color:#20180A;}
+  .admin-badge.role-you{background:var(--teal-100); color:var(--teal-700);}
+  .admin-badge.deactivated{background:var(--negative-bg); color:var(--negative);}
+  .audit-action{
+    font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:700;
+    padding:2px 7px; border-radius:99px; white-space:nowrap; display:inline-block;
+  }
+  .audit-action.a-insert{background:var(--positive-bg); color:var(--positive);}
+  .audit-action.a-update{background:var(--teal-100); color:var(--teal-700);}
+  .audit-action.a-delete{background:var(--negative-bg); color:var(--negative);}
+  .audit-action.a-admin{background:var(--excused-bg); color:var(--gold-deep);}
+  .audit-detail{font-size:11.5px; color:var(--muted-2); white-space:normal;}
   .viewing-other-banner svg{color:var(--excused);}
   .viewing-other-banner .reminder-title{color:var(--excused);}
 
@@ -1214,6 +1252,13 @@
 </header>
 
 <main>
+
+  <div class="reminder announcement-banner" id="announcementBanner" style="display:none;">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+    <div class="reminder-body">
+      <p class="reminder-text" id="announcementText"></p>
+    </div>
+  </div>
 
   <div class="reminder viewing-other-banner" id="viewingOtherBanner" style="display:none;">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
@@ -1539,6 +1584,7 @@
         <button class="tab-btn" data-tab="calendar">Calendar</button>
         <button class="tab-btn" data-tab="punctuality">On Time</button>
         <button class="tab-btn" data-tab="team" id="teamTabBtn" style="display:none;">Team</button>
+        <button class="tab-btn" data-tab="admin" id="adminTabBtn" style="display:none;">Admin</button>
       </div>
     </div>
 
@@ -1808,6 +1854,121 @@
       <div id="teamList"></div>
       <div class="empty-state" id="teamEmpty" style="display:none;">No other users have registered yet.</div>
     </div>
+
+    <div class="tab-panel" id="tab-admin">
+      <!-- ---------- System / database stats ---------- -->
+      <div class="admin-section-head">
+        <h3>System</h3>
+        <button type="button" class="btn ghost small" id="refreshStatsBtn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+          Refresh
+        </button>
+      </div>
+      <div class="stats-row admin-stats" id="adminStatsRow">
+        <div class="stat-card">
+          <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>Database Size</p>
+          <p class="stat-value" id="statDbSize">—</p>
+          <p class="stat-detail" id="statDbSizeDetail">Total across all tables</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/></svg>Users</p>
+          <p class="stat-value" id="statUsers">—</p>
+          <p class="stat-detail" id="statUsersDetail">—</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6a1 1 0 0 1 1 1V5h.5A1.5 1.5 0 0 1 18 6.5v13A1.5 1.5 0 0 1 16.5 21h-9A1.5 1.5 0 0 1 6 19.5v-13A1.5 1.5 0 0 1 7.5 5H8v-.5a1 1 0 0 1 1-1z"/><path d="M9 10h6M9 13.5h6"/></svg>Total Entries</p>
+          <p class="stat-value" id="statEntries">—</p>
+          <p class="stat-detail">Attendance records stored</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>Connections</p>
+          <p class="stat-value" id="statConnections">—</p>
+          <p class="stat-detail" id="statConnectionsDetail">Active database connections</p>
+        </div>
+      </div>
+
+      <div class="table-wrap responsive-cards" style="margin-bottom:10px;">
+        <table>
+          <thead>
+            <tr><th>Table</th><th class="num">Rows</th><th class="num">Size</th></tr>
+          </thead>
+          <tbody id="adminTablesBody"></tbody>
+        </table>
+      </div>
+      <p class="settings-hint" id="adminStatsFooter" style="margin-bottom:26px;"></p>
+
+      <!-- ---------- User management ---------- -->
+      <div class="admin-section-head">
+        <h3>Users</h3>
+        <span class="filter-count" id="adminUserCount"></span>
+      </div>
+      <p class="settings-hint" style="margin:-4px 0 14px;">
+        Deactivating blocks sign-in but keeps all attendance history. Deleting removes the person and every entry they logged — that can't be undone.
+      </p>
+      <div id="adminUsersList"></div>
+
+      <!-- ---------- Audit log ---------- -->
+      <div class="admin-section-head" style="margin-top:30px;">
+        <h3>Activity Log</h3>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <select id="auditFilterAction" style="min-width:150px;">
+            <option value="">All activity</option>
+            <option value="insert">Entries added</option>
+            <option value="update">Entries edited</option>
+            <option value="delete">Entries deleted</option>
+            <option value="role_change">Role changes</option>
+            <option value="user_deactivated">Deactivations</option>
+            <option value="user_reactivated">Reactivations</option>
+            <option value="user_deleted">User deletions</option>
+          </select>
+          <button type="button" class="btn ghost small" id="refreshAuditBtn">Refresh</button>
+        </div>
+      </div>
+      <p class="settings-hint" style="margin:-4px 0 14px;">
+        Every change to attendance data and user roles, with who made it. Started recording from the moment this feature was installed.
+      </p>
+      <div class="table-wrap responsive-cards">
+        <table>
+          <thead>
+            <tr><th>When</th><th>Who</th><th>Action</th><th>Affected</th><th>Details</th></tr>
+          </thead>
+          <tbody id="auditBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="auditEmpty" style="display:none;">No activity recorded yet.</div>
+
+      <!-- ---------- App settings ---------- -->
+      <div class="admin-section-head" style="margin-top:30px;">
+        <h3>App Settings</h3>
+      </div>
+      <div class="accordion-section open" data-section="app-settings">
+        <div class="accordion-body" style="padding-top:4px;">
+          <label class="check-row" for="setAllowRegistration">
+            <input type="checkbox" id="setAllowRegistration">
+            <span>
+              <strong>Allow new registrations</strong>
+              <em>When off, the "Create an account" option is hidden on the sign-in screen.</em>
+            </span>
+          </label>
+
+          <label class="check-row" for="setAnnouncementActive" style="margin-top:12px;">
+            <input type="checkbox" id="setAnnouncementActive">
+            <span>
+              <strong>Show announcement banner</strong>
+              <em>Displays a message at the top of the app for everyone.</em>
+            </span>
+          </label>
+          <div style="margin-top:12px;">
+            <label for="setAnnouncement">Announcement message</label>
+            <input type="text" id="setAnnouncement" placeholder="e.g. Office closed Thursday for maintenance">
+          </div>
+
+          <div class="form-actions" style="margin-top:16px;">
+            <button type="button" class="btn" id="saveAppSettingsBtn">Save App Settings</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
 </main>
@@ -1879,6 +2040,10 @@
     <button type="button" class="bn-item" data-bn-tab="team" id="bnTeamBtn">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span>Team</span>
+    </button>
+    <button type="button" class="bn-item" data-bn-tab="admin" id="bnAdminBtn">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3.5v5c0 4.5-3 8.6-7.5 10-4.5-1.4-7.5-5.5-7.5-10v-5z"/><path d="M9.5 12l1.8 1.8 3.5-3.6"/></svg>
+      <span>Admin</span>
     </button>
   </div>
 </nav>
@@ -4285,7 +4450,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     document.querySelectorAll("#bottomNav .bn-spacer").forEach(function(s){ s.remove(); });
 
-    var order = ["log", "trends", "calendar", "punctuality"].concat(isAdmin ? ["team"] : []);
+    var order = ["log", "trends", "calendar", "punctuality"].concat(isAdmin ? ["team", "admin"] : []);
     var items = order.map(function(tab){
       return document.querySelector('.bn-item[data-bn-tab="'+tab+'"]');
     }).filter(Boolean);
@@ -4319,6 +4484,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(tab === "calendar") renderCalendar();
       if(tab === "punctuality") renderPunctuality();
       if(tab === "team") renderTeam();
+      if(tab === "admin") renderAdmin();
 
       // Mirror the active tab onto the mobile bottom nav, which drives
       // navigation via these same tab-btn elements rather than duplicating
@@ -5098,10 +5264,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(isAdmin){
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
+      document.getElementById("adminTabBtn").style.display = "";
       layoutBottomNav();
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
+      document.getElementById("adminTabBtn").style.display = "none";
       layoutBottomNav();
       document.getElementById("settingsCard").classList.remove("open");
       document.getElementById("accessCard").classList.remove("open");
@@ -5192,6 +5360,314 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
   }
 
+  // ---------- Admin panel ----------
+  var adminUsersCache = [];
+
+  function fmtBytes(n){
+    if(!isFinite(n) || n <= 0) return "0 B";
+    var units = ["B","KB","MB","GB","TB"], i = 0, v = n;
+    while(v >= 1024 && i < units.length-1){ v /= 1024; i++; }
+    return (v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)) + " " + units[i];
+  }
+
+  function fmtRelative(iso){
+    if(!iso) return "Never";
+    var then = new Date(iso), now = new Date();
+    var mins = Math.round((now - then) / 60000);
+    if(mins < 1) return "Just now";
+    if(mins < 60) return mins + "m ago";
+    var hrs = Math.round(mins/60);
+    if(hrs < 24) return hrs + "h ago";
+    var days = Math.round(hrs/24);
+    if(days < 30) return days + "d ago";
+    return then.toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"});
+  }
+
+  async function renderAdminStats(){
+    var res;
+    try{
+      res = await supabase.rpc("admin_db_stats");
+      if(res.error) throw res.error;
+    }catch(err){
+      showToast("Couldn't load system stats: " + (err.message || err), "error");
+      return;
+    }
+    var s = res.data || {};
+
+    document.getElementById("statDbSize").textContent = fmtBytes(s.db_size_bytes);
+    document.getElementById("statUsers").textContent = (s.counts && s.counts.profiles) || 0;
+    document.getElementById("statUsersDetail").textContent =
+      ((s.counts && s.counts.admins) || 0) + " admin" + (((s.counts && s.counts.admins) || 0) === 1 ? "" : "s");
+    document.getElementById("statEntries").textContent =
+      ((s.counts && s.counts.entries) || 0).toLocaleString();
+    document.getElementById("statConnections").textContent =
+      (s.active_connections || 0) + " / " + (s.max_connections || "?");
+
+    var pct = s.max_connections ? Math.round((s.active_connections / s.max_connections) * 100) : 0;
+    document.getElementById("statConnectionsDetail").textContent = pct + "% of the connection limit in use";
+
+    var body = document.getElementById("adminTablesBody");
+    body.innerHTML = "";
+    (s.tables || []).forEach(function(t){
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td data-label='Table'>"+escapeHtml(t.name)+"</td>"+
+        "<td class='num' data-label='Rows'>"+Number(t.rows).toLocaleString()+"</td>"+
+        "<td class='num' data-label='Size'>"+fmtBytes(t.total_bytes)+"</td>";
+      body.appendChild(tr);
+    });
+
+    document.getElementById("adminStatsFooter").textContent =
+      "Postgres " + (s.postgres_version || "?") +
+      " · Updated " + new Date(s.generated_at || Date.now()).toLocaleTimeString() +
+      " · CPU and bandwidth aren't available from the browser; see your Supabase dashboard for those.";
+  }
+
+  async function renderAdminUsers(){
+    var list = document.getElementById("adminUsersList");
+    var res;
+    try{
+      res = await supabase.rpc("admin_list_users");
+      if(res.error) throw res.error;
+    }catch(err){
+      showToast("Couldn't load users: " + (err.message || err), "error");
+      return;
+    }
+    adminUsersCache = res.data || [];
+    document.getElementById("adminUserCount").textContent =
+      adminUsersCache.length + " account" + (adminUsersCache.length === 1 ? "" : "s");
+
+    list.innerHTML = "";
+    adminUsersCache.forEach(function(u){
+      var isSelf = u.id === currentUser.id;
+      var row = document.createElement("div");
+      row.className = "admin-user-row" + (u.deactivated ? " is-deactivated" : "");
+      row.innerHTML =
+        '<div class="admin-user-main">'+
+          '<div class="admin-user-name">'+escapeHtml(u.full_name || u.email)+
+            (u.role === "admin" ? ' <span class="admin-badge role-admin">Admin</span>' : '')+
+            (isSelf ? ' <span class="admin-badge role-you">You</span>' : '')+
+            (u.deactivated ? ' <span class="admin-badge deactivated">Deactivated</span>' : '')+
+          '</div>'+
+          '<div class="admin-user-meta">'+escapeHtml(u.email)+' · '+
+            Number(u.entry_count).toLocaleString()+' entries · Last seen '+escapeHtml(fmtRelative(u.last_sign_in_at))+
+          '</div>'+
+        '</div>'+
+        '<div class="admin-user-actions">'+
+          '<button type="button" class="btn ghost small" data-reset="'+u.id+'">Reset Password</button>'+
+          (isSelf ? '' :
+            '<button type="button" class="btn ghost small" data-toggle-active="'+u.id+'">'+
+              (u.deactivated ? "Reactivate" : "Deactivate")+'</button>'+
+            '<button type="button" class="btn danger-ghost small" data-delete-user="'+u.id+'">Delete</button>')+
+        '</div>';
+      list.appendChild(row);
+    });
+  }
+
+  document.getElementById("adminUsersList").addEventListener("click", async function(ev){
+    var btn = ev.target.closest("button");
+    if(!btn) return;
+
+    var resetId = btn.getAttribute("data-reset");
+    var toggleId = btn.getAttribute("data-toggle-active");
+    var deleteId = btn.getAttribute("data-delete-user");
+    var user = adminUsersCache.find(function(u){
+      return u.id === (resetId || toggleId || deleteId);
+    });
+    if(!user) return;
+
+    // Password resets go through Supabase's own email flow — setting another
+    // user's password directly would need the service-role key, which must
+    // never live in browser code.
+    if(resetId){
+      var okReset = await showConfirm(
+        "Send a password reset email to " + user.email + "? They'll get a link to choose a new password themselves.",
+        {title:"Send reset email?", confirmText:"Send Email"}
+      );
+      if(!okReset) return;
+      btn.disabled = true;
+      try{
+        var r = await supabase.auth.resetPasswordForEmail(user.email, {redirectTo: window.location.href});
+        if(r.error) throw r.error;
+        showToast("Password reset email sent to " + user.email + ".", "success");
+      }catch(err){
+        showToast("Couldn't send reset email: " + (err.message || err), "error");
+      }
+      btn.disabled = false;
+      return;
+    }
+
+    if(toggleId){
+      var makeActive = !!user.deactivated;
+      var okToggle = await showConfirm(
+        makeActive
+          ? "Reactivate " + user.email + "? They'll be able to sign in again."
+          : "Deactivate " + user.email + "? They won't be able to sign in, but all " +
+            Number(user.entry_count).toLocaleString() + " of their entries stay intact.",
+        {title: makeActive ? "Reactivate account?" : "Deactivate account?",
+         confirmText: makeActive ? "Reactivate" : "Deactivate", danger: !makeActive}
+      );
+      if(!okToggle) return;
+      btn.disabled = true;
+      try{
+        var t = await supabase.rpc("admin_set_user_active", {target_id: user.id, make_active: makeActive});
+        if(t.error) throw t.error;
+        showToast(makeActive ? "Account reactivated." : "Account deactivated.", "success");
+        await renderAdminUsers();
+        await renderAuditLog();
+      }catch(err){
+        showToast(err.message || String(err), "error");
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    if(deleteId){
+      var okDelete = await showConfirm(
+        "Permanently delete " + user.email + " and all " + Number(user.entry_count).toLocaleString() +
+        " of their attendance entries? This cannot be undone.",
+        {title:"Delete this user?", confirmText:"Delete Permanently", danger:true}
+      );
+      if(!okDelete) return;
+      btn.disabled = true;
+      try{
+        var d = await supabase.rpc("admin_delete_user", {target_id: user.id});
+        if(d.error) throw d.error;
+        showToast("User deleted.", "success");
+        await renderAdminUsers();
+        await renderAdminStats();
+        await renderAuditLog();
+        await loadAllProfilesForSwitcher();
+      }catch(err){
+        showToast(err.message || String(err), "error");
+        btn.disabled = false;
+      }
+    }
+  });
+
+  var AUDIT_LABELS = {
+    insert:"Added", update:"Edited", delete:"Deleted",
+    role_change:"Role changed", user_created:"User created",
+    user_deactivated:"Deactivated", user_reactivated:"Reactivated", user_deleted:"User deleted"
+  };
+  function auditActionClass(action){
+    if(action === "insert") return "a-insert";
+    if(action === "update") return "a-update";
+    if(action === "delete" || action === "user_deleted") return "a-delete";
+    return "a-admin";
+  }
+  function auditDetail(row){
+    if(row.action === "role_change"){
+      var oldRole = row.old_values && row.old_values.role;
+      var newRole = row.new_values && row.new_values.role;
+      if(oldRole && newRole && oldRole !== newRole) return oldRole + " → " + newRole;
+      return "Profile updated";
+    }
+    if(row.action === "user_deleted"){
+      var n = row.old_values && row.old_values.entries_removed;
+      return n != null ? n + " entries removed" : "Account removed";
+    }
+    if(row.entry_date){
+      var src = row.new_values || row.old_values || {};
+      var bits = [];
+      if(src.type) bits.push(TYPE_LABELS[src.type] || src.type);
+      if(src.clock_in) bits.push(formatTime12(src.clock_in) + (src.clock_out ? "–" + formatTime12(src.clock_out) : ""));
+      return bits.join(" · ") || "—";
+    }
+    return "—";
+  }
+
+  async function renderAuditLog(){
+    var action = document.getElementById("auditFilterAction").value || null;
+    var res;
+    try{
+      res = await supabase.rpc("admin_audit_log", {limit_n: 150, filter_action: action, filter_user: null});
+      if(res.error) throw res.error;
+    }catch(err){
+      showToast("Couldn't load the activity log: " + (err.message || err), "error");
+      return;
+    }
+    var rows = res.data || [];
+    var body = document.getElementById("auditBody");
+    body.innerHTML = "";
+    document.getElementById("auditEmpty").style.display = rows.length ? "none" : "block";
+
+    rows.forEach(function(r){
+      var tr = document.createElement("tr");
+      var affected = r.entry_date
+        ? fmtDate(r.entry_date) + (r.target_email ? " · " + r.target_email : "")
+        : (r.target_email || "—");
+      tr.innerHTML =
+        "<td data-label='When'>"+escapeHtml(fmtRelative(r.created_at))+"</td>"+
+        "<td data-label='Who'>"+escapeHtml(r.actor_email || "System")+"</td>"+
+        "<td data-label='Action'><span class='audit-action "+auditActionClass(r.action)+"'>"+
+          escapeHtml(AUDIT_LABELS[r.action] || r.action)+"</span></td>"+
+        "<td data-label='Affected'>"+escapeHtml(affected)+"</td>"+
+        "<td data-label='Details' class='audit-detail'>"+escapeHtml(auditDetail(r))+"</td>";
+      body.appendChild(tr);
+    });
+  }
+
+  async function loadAppSettings(){
+    try{
+      var res = await supabase.from("app_settings").select("*").eq("id", 1).maybeSingle();
+      if(res.error) throw res.error;
+      var s = res.data || {};
+      document.getElementById("setAllowRegistration").checked = s.allow_registration !== false;
+      document.getElementById("setAnnouncementActive").checked = !!s.announcement_active;
+      document.getElementById("setAnnouncement").value = s.announcement || "";
+      applyAppSettings(s);
+    }catch(err){
+      console.error(err);
+    }
+  }
+
+  // Applies org-wide settings that affect every user, not just admins.
+  function applyAppSettings(s){
+    var banner = document.getElementById("announcementBanner");
+    if(s && s.announcement_active && s.announcement){
+      document.getElementById("announcementText").textContent = s.announcement;
+      banner.style.display = "flex";
+    } else {
+      banner.style.display = "none";
+    }
+    var regBtn = document.getElementById("showRegisterBtn");
+    if(regBtn) regBtn.style.display = (s && s.allow_registration === false) ? "none" : "";
+  }
+
+  document.getElementById("saveAppSettingsBtn").addEventListener("click", async function(){
+    var btn = this;
+    var payload = {
+      allow_registration: document.getElementById("setAllowRegistration").checked,
+      announcement_active: document.getElementById("setAnnouncementActive").checked,
+      announcement: document.getElementById("setAnnouncement").value.trim(),
+      updated_at: new Date().toISOString(),
+      updated_by: currentUser.id
+    };
+    if(payload.announcement_active && !payload.announcement){
+      showToast("Add an announcement message before turning the banner on.", "error");
+      return;
+    }
+    btn.disabled = true;
+    try{
+      var res = await supabase.from("app_settings").update(payload).eq("id", 1);
+      if(res.error) throw res.error;
+      applyAppSettings(payload);
+      showToast("App settings saved.", "success");
+    }catch(err){
+      showToast("Couldn't save app settings: " + (err.message || err), "error");
+    }
+    btn.disabled = false;
+  });
+
+  document.getElementById("refreshStatsBtn").addEventListener("click", renderAdminStats);
+  document.getElementById("refreshAuditBtn").addEventListener("click", renderAuditLog);
+  document.getElementById("auditFilterAction").addEventListener("change", renderAuditLog);
+
+  async function renderAdmin(){
+    await Promise.all([renderAdminStats(), renderAdminUsers(), renderAuditLog(), loadAppSettings()]);
+  }
+
   // ---------- Sign-in / sign-out transitions ----------
   async function handleSignedIn(user){
     currentUser = {id:user.id, email:user.email};
@@ -5223,10 +5699,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       await loadAllProfilesForSwitcher();
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
+      document.getElementById("adminTabBtn").style.display = "";
       layoutBottomNav();
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
+      document.getElementById("adminTabBtn").style.display = "none";
       layoutBottomNav();
     }
 
@@ -5238,6 +5716,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     updateLiveClock();
     await loadDataForViewedUser();
     fillSettingsForm();
+    // Org-wide settings (announcement banner, registration toggle) apply to
+    // everyone, so this runs regardless of admin status.
+    await loadAppSettings();
     setTimeout(updateTabsScrollHint, 0);
   }
 
