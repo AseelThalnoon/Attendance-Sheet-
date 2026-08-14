@@ -14,3 +14,7 @@ ruvector.db
 tests/node_modules/
 tests/package-lock.json
 tests/**/harness.html
+
+# Ruflo runtime state, wherever it gets created (it writes to CWD)
+**/.claude-flow/
+**/.swarm/
