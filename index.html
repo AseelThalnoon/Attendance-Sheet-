@@ -2551,7 +2551,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       }
       function onKey(ev){
         if(ev.key === "Escape"){ close(false); return; }
-        if(ev.key === "Enter"){ close(true); return; }
+        if(ev.key === "Enter"){
+          // Respect whichever button actually has focus — a danger dialog
+          // deliberately starts focus on Cancel, and Enter must not silently
+          // override that safety default by always confirming.
+          close(document.activeElement !== overlay.querySelector(".modal-cancel"));
+          return;
+        }
         if(ev.key === "Tab"){
           var els = focusable();
           if(!els.length) return;
@@ -4136,6 +4142,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       cursor.setDate(cursor.getDate() + 1);
       guard++;
     }
+    // If the scan stopped because it hit the safety cap rather than because
+    // it reached the end date, the range genuinely wasn't fully covered —
+    // say so rather than silently applying to fewer days than requested.
+    if(dateToStr(cursor) <= dateToStr(end)){
+      showToast("That date range is too large to scan in one go — narrow it and try again.", "error");
+      return;
+    }
     if(!dates.length){
       showToast("No scheduled workdays fall inside that date range.", "error");
       return;
@@ -4287,7 +4300,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     el.className = "qc-note" + (success ? " success" : "");
   }
 
+  // Disabled buttons only stop taps, and punchClock is also reachable
+  // programmatically (see the quick-clock dispatch further up). The buttons
+  // are the visual affordance; this flag is the actual lock that serialises
+  // punches — it also survives loadDataForViewedUser() calling
+  // updateViewingBanner(), which re-enables every clock control before the
+  // finally block runs.
+  var punchInFlight = false;
+
   async function punchClock(kind){
+    if(punchInFlight) return;
     if(!isOwnData){
       showToast("Switch back to \"Viewing: Me\" to clock in or out — you can only punch your own clock.", "error");
       return;
@@ -4306,8 +4328,21 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       : {date: today, clockIn: "", clockOut: "", type: "regular", note: ""};
     payload[field] = timeNow;
 
-    var inBtn = document.getElementById("clockInBtn"), outBtn = document.getElementById("clockOutBtn");
-    inBtn.disabled = true; outBtn.disabled = true;
+    // Every clock control calls this same function — desktop quick-clock,
+    // the sticky mobile bar, and the bottom nav's smart button — so all of
+    // them need to be guarded against a double-tap firing overlapping calls,
+    // not just the desktop pair.
+    var clockBtns = [
+      document.getElementById("clockInBtn"), document.getElementById("clockOutBtn"),
+      document.getElementById("stickyClockInBtn"), document.getElementById("stickyClockOutBtn"),
+      document.getElementById("bnClockBtn")
+    ].filter(Boolean);
+    // Set only now, after the "replace it?" confirmation has resolved — an
+    // open modal must never leave the flag wedged on.
+    punchInFlight = true;
+    clockBtns.forEach(function(b){ b.disabled = true; });
+    var bnClockBtnEl = document.getElementById("bnClockBtn");
+    if(bnClockBtnEl) bnClockBtnEl.classList.add("disabled");
     try{
       var saved = await sbUpsertEntry(currentUser.id, payload, existing ? existing.id : null);
       if(kind === "in") delete dismissedReminders[today];
@@ -4329,7 +4364,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }catch(err){
       showToast("Couldn't record that: " + (err.message || err), "error");
     }finally{
-      inBtn.disabled = false; outBtn.disabled = false;
+      punchInFlight = false;
+      clockBtns.forEach(function(b){ b.disabled = false; });
+      if(bnClockBtnEl) bnClockBtnEl.classList.remove("disabled");
     }
   }
 
@@ -4645,6 +4682,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return rows.filter(function(r){ return r.some(function(v){ return String(v).trim() !== ""; }); });
   }
 
+  // Real days in a given month, leap years included — new Date(y,mo,0) rolls
+  // back to the last day of the *previous* month index, i.e. month mo (1-12).
+  function daysInMonth(y, mo){ return new Date(y, mo, 0).getDate(); }
+
   // Accepts "2026-08-09", "9/8/2026", "Aug 9, 2026" etc. Returns "YYYY-MM-DD" or "".
   // dayFirst decides D/M vs M/D when both numbers could be a month.
   function parseDateCell(v, dayFirst){
@@ -4653,7 +4694,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var iso = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
     if(iso){
       var y=+iso[1], mo=+iso[2], da=+iso[3];
-      if(mo<1||mo>12||da<1||da>31) return "";
+      if(mo<1||mo>12||da<1||da>daysInMonth(y,mo)) return "";
       return y+"-"+pad2(mo)+"-"+pad2(da);
     }
     var slash = v.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/);
@@ -4663,7 +4704,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       else if(b > 12){ month=a; day=b; }   // second can't be a month
       else if(dayFirst){ day=a; month=b; } // genuinely ambiguous
       else { month=a; day=b; }
-      if(month<1||month>12||day<1||day>31) return "";
+      if(month<1||month>12||day<1||day>daysInMonth(yr,month)) return "";
       return yr+"-"+pad2(month)+"-"+pad2(day);
     }
     var d = new Date(v);
@@ -4677,22 +4718,57 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return !!m && +m[1] <= 12 && +m[2] <= 12 && +m[1] !== +m[2];
   }
 
-  // Accepts "8:00 AM", "08:00", "8:00am", "16:00", "4 PM". Returns "HH:MM" or "".
+  // Accepts "8:00 AM", "08:00", "8:00am", "16:00", "4 PM", "3:00:00 PM",
+  // "8.00 AM" (period separator), "0800"/"800" (compact, no separator),
+  // "16" (bare hour), and Excel's raw day-fraction decimals if a time cell
+  // wasn't formatted before export. Returns "HH:MM" or "".
   function parseTimeCell(v){
     v = String(v || "").trim();
     if(!v || v === "—" || v === "-") return "";
-    var m = v.match(/^(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\.?$/);
-    if(m){
-      var h = +m[1] % 12;
-      if(m[3].toLowerCase() === "p") h += 12;
-      return pad2(h)+":"+(m[2] || "00");
+
+    if(/^0?\.\d+$/.test(v)){
+      var totalMin = Math.round(parseFloat(v) * 24 * 60);
+      if(totalMin >= 0 && totalMin < 24*60) return pad2(Math.floor(totalMin/60))+":"+pad2(totalMin%60);
+      return "";
     }
-    m = v.match(/^(\d{1,2}):(\d{2})/);
+
+    // 12-hour with AM/PM. Colon or period as the minute separator; seconds
+    // (colon- or period-separated) are optional and ignored.
+    var m = v.match(/^(\d{1,2})(?:[:.](\d{2}))?(?:[:.]\d{2})?\s*([AaPp])\.?[Mm]\.?$/);
+    if(m){
+      var rawH = +m[1], mins = m[2] || "00";
+      if(rawH < 1 || rawH > 12 || +mins > 59) return "";
+      var h = rawH % 12;
+      if(m[3].toLowerCase() === "p") h += 12;
+      return pad2(h)+":"+mins;
+    }
+
+    // 24-hour, colon or period as separator, seconds optional and ignored.
+    m = v.match(/^(\d{1,2})[:.](\d{2})(?:[:.]\d{2})?$/);
     if(m){
       var hh = +m[1];
       if(hh > 23 || +m[2] > 59) return "";
       return pad2(hh)+":"+m[2];
     }
+
+    // Compact 24-hour with no separator at all: "800", "0800", "1630".
+    m = v.match(/^(\d{3,4})$/);
+    if(m){
+      var digits = m[1];
+      var hh2 = digits.length === 3 ? +digits.slice(0,1) : +digits.slice(0,2);
+      var mm2 = digits.length === 3 ? digits.slice(1) : digits.slice(2);
+      if(hh2 > 23 || +mm2 > 59) return "";
+      return pad2(hh2)+":"+mm2;
+    }
+
+    // Bare hour only, 24-hour, no separator or AM/PM suffix: "8", "16".
+    m = v.match(/^(\d{1,2})$/);
+    if(m){
+      var hh3 = +m[1];
+      if(hh3 > 23) return "";
+      return pad2(hh3)+":00";
+    }
+
     return "";
   }
 
@@ -5184,6 +5260,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       dates.push(dateToStr(cursor));
       cursor.setDate(cursor.getDate() + 1);
       guard++;
+    }
+    // If the scan stopped because it hit the safety cap rather than because
+    // it reached the end date, the range genuinely wasn't fully covered —
+    // proceeding would silently apply to fewer days than requested, and
+    // could even let the entry-count cap below pass on an undercount.
+    if(dateToStr(cursor) <= dateToStr(end)){
+      showToast("That date range is too large to scan in one go — narrow it and try again.", "error");
+      return;
     }
 
     var totalEntries = dates.length * allProfiles.length;

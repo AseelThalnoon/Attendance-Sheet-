@@ -1,0 +1,12 @@
+# Ruflo local secrets and runtime data
+.env
+.env.local
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# Test dependencies and generated harness pages
+tests/node_modules/
+tests/package-lock.json
+tests/**/harness.html
