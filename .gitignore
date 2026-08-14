@@ -6,6 +6,10 @@
 .claude-flow/logs/
 .claude-flow/sessions/
 
+# Local memory/vector databases — binary, machine-specific, and growing
+.swarm/
+ruvector.db
+
 # Test dependencies and generated harness pages
 tests/node_modules/
 tests/package-lock.json
