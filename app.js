@@ -1022,10 +1022,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   });
   document.getElementById("settingsBtn").addEventListener("click", function(){
     var card = document.getElementById("settingsCard");
-    var accessCard = document.getElementById("accessCard");
     var opening = !card.classList.contains("open");
     card.classList.toggle("open", opening);
-    accessCard.classList.toggle("open", opening && isAdmin);
     if(opening){
       document.getElementById("settingsForLabel").textContent = isOwnData
         ? "Editing your own schedule."
@@ -1035,13 +1033,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(applyAllRow) applyAllRow.style.display = isAdmin ? "" : "none";
       document.getElementById("sApplyAll").checked = false;
       fillSettingsForm();
-      if(isAdmin){
-        renderUsersList();
-        var bulkFrom = document.getElementById("bulkApplyFromDate");
-        var bulkTo = document.getElementById("bulkApplyToDate");
-        if(!bulkFrom.value) bulkFrom.value = todayStr();
-        if(!bulkTo.value) bulkTo.value = bulkFrom.value;
-      }
       card.scrollIntoView({behavior:"smooth", block:"nearest"});
     }
     updateStickyClockVisibility();
@@ -1049,7 +1040,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   });
   document.getElementById("closeSettingsBtn").addEventListener("click", function(){
     document.getElementById("settingsCard").classList.remove("open");
-    document.getElementById("accessCard").classList.remove("open");
     updateStickyClockVisibility();
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
@@ -1144,7 +1134,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
       if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = updated;
       document.getElementById("settingsCard").classList.remove("open");
-      document.getElementById("accessCard").classList.remove("open");
       updateStickyClockVisibility();
       renderAll();
       showToast(
@@ -3543,43 +3532,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     viewedProfile = allProfiles.find(function(p){ return p.id === newId; }) || null;
     resetForm();
     document.getElementById("settingsCard").classList.remove("open");
-    document.getElementById("accessCard").classList.remove("open");
     await loadDataForViewedUser();
   });
 
-  // ---------- Team & Access: grant/revoke admin rights ----------
-  function renderUsersList(){
-    var wrap = document.getElementById("usersList");
-    if(!allProfiles.length){
-      wrap.innerHTML = '<p class="periods-empty">No other users yet.</p>';
-      return;
-    }
-    wrap.innerHTML = allProfiles.map(function(p){
-      var initials = (p.full_name || p.email || "?").trim().split(/\s+/)
-        .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
-      var isSelf = p.id === currentUser.id;
-      return '<div class="user-row" data-uid="'+p.id+'">' +
-        '<div class="team-avatar">'+escapeHtml(initials)+'</div>' +
-        '<div class="team-info">' +
-          '<div class="team-name" dir="auto">'+escapeHtml(p.full_name || p.email)+
-            (isSelf ? ' <span class="admin-badge you-badge">You</span>' : '')+'</div>' +
-          '<div class="team-email" dir="auto">'+escapeHtml(p.email)+'</div>' +
-        '</div>' +
-        '<div class="role-toggle" role="group">' +
-          '<button type="button" class="role-btn'+(p.role!=='admin'?' active':'')+'" data-role="user">Employee</button>' +
-          '<button type="button" class="role-btn'+(p.role==='admin'?' active':'')+'" data-role="admin">Admin</button>' +
-        '</div>' +
-      '</div>';
-    }).join("");
-  }
-
-  document.getElementById("usersList").addEventListener("click", async function(ev){
+  // ---------- Roles: grant/revoke admin rights ----------
+  // The role toggle lives in the Admin tab's People list. Delegated from the
+  // list container so rows can be re-rendered freely by search and filtering.
+  document.getElementById("adminUsersList").addEventListener("click", async function(ev){
     var btn = ev.target.closest(".role-btn");
     if(!btn || btn.disabled) return;
-    var row = btn.closest(".user-row");
+    var row = btn.closest(".admin-user-row");
     var uid = row.getAttribute("data-uid");
     var newRole = btn.getAttribute("data-role");
-    var person = allProfiles.find(function(p){ return p.id === uid; });
+    var person = adminUsersCache.find(function(p){ return p.id === uid; });
     if(!person || person.role === newRole) return;
 
     var isSelf = uid === currentUser.id;
@@ -3587,7 +3552,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // rule now lives inside the admin_set_user_role RPC, so it cannot be
     // bypassed by calling the API directly the way this client-side guard could.
     if(isSelf && newRole !== "admin"){
-      var adminCount = allProfiles.filter(function(p){ return p.role === "admin"; }).length;
+      var adminCount = adminUsersCache.filter(function(p){ return p.role === "admin"; }).length;
       if(adminCount <= 1){
         showToast("You're the only admin. Promote someone else first — otherwise no one would be left with access to these controls.", "error");
         return;
@@ -3615,9 +3580,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var res = await supabase.rpc("admin_set_user_role", {target_id: uid, new_role: newRole});
       if(res.error) throw res.error;
       person.role = newRole;
-      renderUsersList();
+      renderAdminPeople();
       await loadAllProfilesForSwitcher();
       if(isSelf) await refreshCurrentProfile();
+      await renderAuditLog();
       showToast(label + " is now " + (newRole === "admin" ? "an admin." : "an employee."), "success");
     }catch(err){
       showToast("Couldn't update that role: " + friendlyError(err), "error");
@@ -3782,14 +3748,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("adminTabBtn").style.display = "none";
       layoutBottomNav();
       document.getElementById("settingsCard").classList.remove("open");
-      document.getElementById("accessCard").classList.remove("open");
       if(viewedUserId !== currentUser.id){
         viewedUserId = currentUser.id;
         viewedProfile = currentProfile;
         await loadDataForViewedUser();
       }
+      // Leave any admin-only tab the demoted user is standing on. Hiding the
+      // button alone would leave the panel — roles, the audit log, everyone's
+      // accounts — on screen until they happened to click elsewhere.
       var activeTab = document.querySelector(".tab-btn.active");
-      if(activeTab && activeTab.getAttribute("data-tab") === "team"){
+      var activeName = activeTab && activeTab.getAttribute("data-tab");
+      if(activeName === "team" || activeName === "admin"){
         document.querySelector('.tab-btn[data-tab="log"]').click();
       }
     }
@@ -3937,8 +3906,27 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       " · CPU and bandwidth aren't available from the browser; see your Supabase dashboard for those.";
   }
 
-  async function renderAdminUsers(){
-    var list = document.getElementById("adminUsersList");
+  // Which users hold a user_settings row of their own. Anyone missing from this
+  // set is running on the client-side fallback schedule — Sun–Thu 08:00–16:00 —
+  // which means every figure the app shows them is measured against a week they
+  // may not work. It is invisible from their side, so it is surfaced here.
+  var adminSettingsOwners = null;   // null = not loaded yet, Set once fetched
+
+  async function loadAdminSettingsOwners(){
+    try{
+      var res = await supabase.from("user_settings").select("user_id");
+      if(res.error) throw res.error;
+      adminSettingsOwners = new Set((res.data || []).map(function(r){ return r.user_id; }));
+    }catch(err){
+      adminSettingsOwners = null;   // unknown, not "nobody" — don't flag everyone
+    }
+  }
+
+  function isUnconfigured(u){
+    return adminSettingsOwners ? !adminSettingsOwners.has(u.id) : false;
+  }
+
+  async function loadAdminPeople(){
     var res;
     try{
       res = await supabase.rpc("admin_list_users");
@@ -3948,26 +3936,68 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return;
     }
     adminUsersCache = res.data || [];
-    document.getElementById("adminUserCount").textContent =
-      adminUsersCache.length + " account" + (adminUsersCache.length === 1 ? "" : "s");
+    fillAuditUserFilter();
+    renderAdminPeople();
+  }
 
+  // Renders from the cache, so typing in the search box never re-queries.
+  function renderAdminPeople(){
+    var list = document.getElementById("adminUsersList");
+    var empty = document.getElementById("adminUsersEmpty");
+    var term = (document.getElementById("adminUserSearch").value || "").trim().toLowerCase();
+    var filter = document.getElementById("adminUserFilter").value;
+
+    var shown = adminUsersCache.filter(function(u){
+      if(term){
+        var hay = ((u.full_name || "") + " " + (u.email || "")).toLowerCase();
+        if(hay.indexOf(term) === -1) return false;
+      }
+      if(filter === "admin") return u.role === "admin";
+      if(filter === "user") return u.role !== "admin";
+      if(filter === "deactivated") return !!u.deactivated;
+      if(filter === "unconfigured") return isUnconfigured(u);
+      return true;
+    });
+
+    var admins = adminUsersCache.filter(function(u){ return u.role === "admin"; }).length;
+    document.getElementById("adminUserCount").textContent =
+      (shown.length === adminUsersCache.length
+        ? adminUsersCache.length + " account" + (adminUsersCache.length === 1 ? "" : "s")
+        : shown.length + " of " + adminUsersCache.length) +
+      " · " + admins + " admin" + (admins === 1 ? "" : "s");
+
+    empty.style.display = shown.length ? "none" : "block";
     list.innerHTML = "";
-    adminUsersCache.forEach(function(u){
+
+    shown.forEach(function(u){
       var isSelf = u.id === currentUser.id;
+      var unconfigured = isUnconfigured(u);
+      var name = u.full_name || u.email;
       var row = document.createElement("div");
       row.className = "admin-user-row" + (u.deactivated ? " is-deactivated" : "");
+      row.setAttribute("data-uid", u.id);
       row.innerHTML =
         '<div class="admin-user-main">'+
-          '<div class="admin-user-name">'+escapeHtml(u.full_name || u.email)+
-            (u.role === "admin" ? ' <span class="admin-badge role-admin">Admin</span>' : '')+
+          '<div class="admin-user-name" dir="auto">'+escapeHtml(name)+
             (isSelf ? ' <span class="admin-badge role-you">You</span>' : '')+
             (u.deactivated ? ' <span class="admin-badge deactivated">Deactivated</span>' : '')+
+            (unconfigured ? ' <span class="admin-badge unconfigured">No schedule</span>' : '')+
           '</div>'+
-          '<div class="admin-user-meta">'+escapeHtml(u.email)+' · '+
+          '<div class="admin-user-meta" dir="auto">'+escapeHtml(u.email)+' · '+
             Number(u.entry_count).toLocaleString()+' entries · Last seen '+escapeHtml(fmtRelative(u.last_sign_in_at))+
           '</div>'+
         '</div>'+
+        // The role toggle sits on the same row as the account actions so an
+        // admin never has to hold "who is an admin" in their head across two
+        // different screens the way the old Team & Access card required.
+        '<div class="role-toggle" role="group" aria-label="Role for '+escapeAttr(name)+'">'+
+          '<button type="button" class="role-btn'+(u.role!=="admin"?" active":"")+'" data-role="user"'+
+            ' aria-pressed="'+(u.role!=="admin")+'">Employee</button>'+
+          '<button type="button" class="role-btn'+(u.role==="admin"?" active":"")+'" data-role="admin"'+
+            ' aria-pressed="'+(u.role==="admin")+'">Admin</button>'+
+        '</div>'+
         '<div class="admin-user-actions">'+
+          '<button type="button" class="btn ghost small" data-view-user="'+u.id+'">Open Record</button>'+
           '<button type="button" class="btn ghost small" data-reset="'+u.id+'">Reset Password</button>'+
           (isSelf ? '' :
             '<button type="button" class="btn ghost small" data-toggle-active="'+u.id+'">'+
@@ -3978,6 +4008,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
   }
 
+  document.getElementById("adminUserSearch").addEventListener("input", renderAdminPeople);
+  document.getElementById("adminUserFilter").addEventListener("change", renderAdminPeople);
+
   document.getElementById("adminUsersList").addEventListener("click", async function(ev){
     var btn = ev.target.closest("button");
     if(!btn) return;
@@ -3985,10 +4018,25 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var resetId = btn.getAttribute("data-reset");
     var toggleId = btn.getAttribute("data-toggle-active");
     var deleteId = btn.getAttribute("data-delete-user");
+    var viewId = btn.getAttribute("data-view-user");
     var user = adminUsersCache.find(function(u){
-      return u.id === (resetId || toggleId || deleteId);
+      return u.id === (resetId || toggleId || deleteId || viewId);
     });
     if(!user) return;
+
+    // Jump straight into someone's own view rather than making the admin hunt
+    // for them in the header switcher. The viewing-other banner then explains
+    // whose record any subsequent edit lands on.
+    if(viewId){
+      var sel = document.getElementById("viewerSelect");
+      if(sel && sel.value !== viewId){
+        sel.value = viewId;
+        sel.dispatchEvent(new Event("change"));
+      }
+      document.querySelector('.tab-btn[data-tab="log"]').click();
+      document.getElementById("appShell").scrollIntoView({behavior:"smooth", block:"start"});
+      return;
+    }
 
     // Password resets go through Supabase's own email flow — setting another
     // user's password directly would need the service-role key, which must
@@ -4027,7 +4075,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         var t = await supabase.rpc("admin_set_user_active", {target_id: user.id, make_active: makeActive});
         if(t.error) throw t.error;
         showToast(makeActive ? "Account reactivated." : "Account deactivated.", "success");
-        await renderAdminUsers();
+        await loadAdminPeople();
         await renderAuditLog();
       }catch(err){
         showToast(friendlyError(err), "error");
@@ -4048,8 +4096,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         var d = await supabase.rpc("admin_delete_user", {target_id: user.id});
         if(d.error) throw d.error;
         showToast("User deleted.", "success");
-        await renderAdminUsers();
+        await loadAdminSettingsOwners();
+        await loadAdminPeople();
         await renderAdminStats();
+        await renderAdminHealth();
         await renderAuditLog();
         await loadAllProfilesForSwitcher();
       }catch(err){
@@ -4091,20 +4141,53 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return "—";
   }
 
+  // The RPC takes a row limit but no offset, so "show more" raises the ceiling
+  // and re-fetches rather than paging. At audit-log scale that is cheaper than
+  // it sounds, and it keeps the newest rows correct when activity is ongoing.
+  var AUDIT_PAGE = 100;
+  var auditLimit = AUDIT_PAGE;
+  var auditRowsCache = [];
+
+  function fillAuditUserFilter(){
+    var sel = document.getElementById("auditFilterUser");
+    var prev = sel.value;
+    sel.innerHTML = '<option value="">Anyone</option>' +
+      adminUsersCache.map(function(u){
+        return '<option value="'+escapeAttr(u.id)+'">'+escapeHtml(u.full_name || u.email)+'</option>';
+      }).join("");
+    sel.value = adminUsersCache.some(function(u){ return u.id === prev; }) ? prev : "";
+  }
+
   async function renderAuditLog(){
     var action = document.getElementById("auditFilterAction").value || null;
+    var who = document.getElementById("auditFilterUser").value || null;
+    var since = document.getElementById("auditFilterSince").value || "";
     var res;
     try{
-      res = await supabase.rpc("admin_audit_log", {limit_n: 150, filter_action: action, filter_user: null});
+      res = await supabase.rpc("admin_audit_log",
+        {limit_n: auditLimit, filter_action: action, filter_user: who});
       if(res.error) throw res.error;
     }catch(err){
       showToast("Couldn't load the activity log: " + friendlyError(err), "error");
       return;
     }
-    var rows = res.data || [];
+    var fetched = res.data || [];
+    // The RPC has no date parameter, so the window is applied here. The count
+    // below reports what is actually on screen rather than what was fetched.
+    var rows = since
+      ? fetched.filter(function(r){ return (r.created_at || "").slice(0,10) >= since; })
+      : fetched;
+    auditRowsCache = rows;
+
     var body = document.getElementById("auditBody");
     body.innerHTML = "";
     document.getElementById("auditEmpty").style.display = rows.length ? "none" : "block";
+    document.getElementById("auditCount").textContent =
+      rows.length + (fetched.length >= auditLimit ? "+" : "") +
+      " entr" + (rows.length === 1 ? "y" : "ies");
+    // Only offer more when the fetch came back full — otherwise this is all of it.
+    document.getElementById("auditMoreWrap").style.display =
+      fetched.length >= auditLimit ? "" : "none";
 
     rows.forEach(function(r){
       var tr = document.createElement("tr");
@@ -4122,6 +4205,47 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
   }
 
+  function resetAuditPaging(){
+    auditLimit = AUDIT_PAGE;
+    return renderAuditLog();
+  }
+
+  document.getElementById("auditMoreBtn").addEventListener("click", async function(){
+    this.disabled = true;
+    auditLimit += AUDIT_PAGE;
+    await renderAuditLog();
+    this.disabled = false;
+  });
+
+  document.getElementById("auditExportBtn").addEventListener("click", function(){
+    if(!auditRowsCache.length){
+      showToast("Nothing to export with the current filters.", "error");
+      return;
+    }
+    var head = ["Timestamp","Actor","Action","Affected user","Entry date","Details"];
+    var lines = [head.map(csvCell).join(",")];
+    auditRowsCache.forEach(function(r){
+      lines.push([
+        r.created_at || "",
+        r.actor_email || "System",
+        AUDIT_LABELS[r.action] || r.action || "",
+        r.target_email || "",
+        r.entry_date || "",
+        auditDetail(r)
+      ].map(csvCell).join(","));
+    });
+    download("activity-log-" + todayStr() + ".csv", lines.join("\r\n"), "text/csv;charset=utf-8");
+    showToast("Exported " + auditRowsCache.length + " log entries.", "success");
+  });
+
+  // Quoted always: notes and names carry commas, quotes and newlines, and a
+  // leading =, + or - would be executed as a formula by a spreadsheet.
+  function csvCell(v){
+    var s = String(v == null ? "" : v);
+    if(/^[=+\-@]/.test(s)) s = "'" + s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+
   async function loadAppSettings(){
     try{
       var res = await supabase.from("app_settings").select("*").eq("id", 1).maybeSingle();
@@ -4130,6 +4254,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("setAllowRegistration").checked = s.allow_registration !== false;
       document.getElementById("setAnnouncementActive").checked = !!s.announcement_active;
       document.getElementById("setAnnouncement").value = s.announcement || "";
+      fillDefaultsForm(s.default_settings);
       applyAppSettings(s);
     }catch(err){
       // Non-fatal: the app works without org settings. Surfaced rather than
@@ -4150,6 +4275,148 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var regBtn = document.getElementById("showRegisterBtn");
     if(regBtn) regBtn.style.display = (s && s.allow_registration === false) ? "none" : "";
   }
+
+  // ---------- Organisation defaults ----------
+  // app_settings.default_settings is what handle_new_user() copies into a new
+  // account's user_settings row. The column existed from the start but nothing
+  // ever wrote to it, so it stayed {} and every new employee silently started
+  // on DEFAULT_SETTINGS instead of the organisation's actual working week.
+  var defaultsAreSet = false;
+
+  function buildDefaultsDayPicker(){
+    var wrap = document.getElementById("defaultsDayPicker");
+    wrap.innerHTML = DAY_NAMES.map(function(name, i){
+      return '<input type="checkbox" id="dwd'+i+'" value="'+i+'"><label for="dwd'+i+'">'+DAY_FULL[i]+'</label>';
+    }).join("");
+  }
+
+  function fillDefaultsForm(raw){
+    defaultsAreSet = !!(raw && typeof raw === "object" && Object.keys(raw).length);
+    var d = normalizeSettings(raw || {});
+    DAY_NAMES.forEach(function(_, i){
+      var box = document.getElementById("dwd"+i);
+      if(box) box.checked = d.workDays.indexOf(i) !== -1;
+    });
+    document.getElementById("dTargetH").value = Math.floor(d.targetMin / 60);
+    document.getElementById("dTargetM").value = d.targetMin % 60;
+    document.getElementById("dIn").value = d.standardIn;
+    document.getElementById("dOut").value = d.standardOut;
+    document.getElementById("dGrace").value = d.graceMin;
+    document.getElementById("dRemind").value = d.remindAfterHours;
+    document.getElementById("dLeaveDays").value = d.annualLeaveDays;
+
+    document.getElementById("adminDefaultsState").textContent = defaultsAreSet
+      ? "Set — new accounts start here"
+      : "Not set — new accounts fall back to Sun–Thu, 8h";
+  }
+
+  function readDefaultsForm(){
+    var days = [];
+    DAY_NAMES.forEach(function(_, i){
+      var box = document.getElementById("dwd"+i);
+      if(box && box.checked) days.push(i);
+    });
+    if(!days.length){
+      showToast("Pick at least one working day.", "error");
+      return null;
+    }
+    var h = parseInt(document.getElementById("dTargetH").value, 10);
+    var m = parseInt(document.getElementById("dTargetM").value, 10);
+    if(isNaN(h)) h = 0;
+    if(isNaN(m)) m = 0;
+    if(h < 0 || m < 0 || m > 59){
+      showToast("Minutes must be between 0 and 59.", "error");
+      return null;
+    }
+    if(h === 0 && m === 0){
+      showToast("A target of zero would make every worked day look like overtime.", "error");
+      return null;
+    }
+    // Run it through the same normaliser every other schedule goes through, so
+    // a value that would be rejected on a personal schedule can't enter the org
+    // default by the back door.
+    return normalizeSettings({
+      workDays: days,
+      targetMin: h * 60 + m,
+      standardIn: document.getElementById("dIn").value || DEFAULT_SETTINGS.standardIn,
+      standardOut: document.getElementById("dOut").value || DEFAULT_SETTINGS.standardOut,
+      graceMin: document.getElementById("dGrace").value,
+      remindAfterHours: document.getElementById("dRemind").value,
+      annualLeaveDays: document.getElementById("dLeaveDays").value,
+      periods: []
+    });
+  }
+
+  document.getElementById("saveDefaultsBtn").addEventListener("click", async function(){
+    var btn = this;
+    var defaults = readDefaultsForm();
+    if(!defaults) return;
+    btn.disabled = true;
+    try{
+      var res = await supabase.from("app_settings").update({
+        default_settings: defaults,
+        updated_at: new Date().toISOString(),
+        updated_by: currentUser.id
+      }).eq("id", 1);
+      if(res.error) throw res.error;
+      fillDefaultsForm(defaults);
+      showToast("Organisation defaults saved. New accounts will start with this schedule.", "success");
+    }catch(err){
+      showToast("Couldn't save the defaults: " + friendlyError(err), "error");
+    }
+    btn.disabled = false;
+  });
+
+  // Backfills people who never got a settings row. Deliberately never touches
+  // anyone who already has one — an admin fixing onboarding must not silently
+  // overwrite a schedule someone is already being measured against.
+  document.getElementById("seedSettingsBtn").addEventListener("click", async function(){
+    var btn = this;
+    var defaults = readDefaultsForm();
+    if(!defaults) return;
+
+    await loadAdminSettingsOwners();
+    if(!adminSettingsOwners){
+      showToast("Couldn't check who already has a schedule, so nothing was changed.", "error");
+      return;
+    }
+    var missing = adminUsersCache.filter(function(u){ return !adminSettingsOwners.has(u.id); });
+    if(!missing.length){
+      showToast("Everyone already has their own schedule. Nothing to do.", "info");
+      return;
+    }
+
+    var names = missing.slice(0, 4).map(function(u){ return u.full_name || u.email; });
+    var ok = await showConfirm(
+      missing.length + " " + (missing.length === 1 ? "person has" : "people have") +
+      " no schedule of their own (" + names.join(", ") +
+      (missing.length > 4 ? " and " + (missing.length - 4) + " more" : "") + ")." +
+      "\n\nThey'll be given the defaults above. Nobody who already has a schedule is touched.",
+      {title:"Give these people the default schedule?", confirmText:"Apply to " + missing.length}
+    );
+    if(!ok) return;
+
+    btn.disabled = true;
+    var done = 0, failed = 0;
+    for(var i = 0; i < missing.length; i++){
+      btn.textContent = "Applying " + (i+1) + " of " + missing.length + "…";
+      try{
+        await sbSaveSettings(missing[i].id, defaults);
+        done++;
+      }catch(err){ failed++; }
+    }
+    btn.disabled = false;
+    btn.textContent = "Give these to people with no schedule";
+
+    await loadAdminSettingsOwners();
+    renderAdminPeople();
+    await renderAdminHealth();
+    showToast(
+      "Applied to " + done + " " + (done === 1 ? "person" : "people") + "." +
+      (failed ? " " + failed + " failed." : ""),
+      failed ? "error" : "success"
+    );
+  });
 
   document.getElementById("saveAppSettingsBtn").addEventListener("click", async function(){
     var btn = this;
@@ -4176,12 +4443,124 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     btn.disabled = false;
   });
 
-  document.getElementById("refreshStatsBtn").addEventListener("click", renderAdminStats);
-  document.getElementById("refreshAuditBtn").addEventListener("click", renderAuditLog);
-  document.getElementById("auditFilterAction").addEventListener("change", renderAuditLog);
+  // ---------- Data health ----------
+  // Each check is a counted query rather than a client-side scan, so it stays
+  // honest as the table grows and never pulls the whole database down to the
+  // phone. head:true means no rows travel at all — only the count.
+  async function countEntries(build){
+    var q = supabase.from("entries").select("id", {count:"exact", head:true});
+    var res = await build(q);
+    if(res.error) throw res.error;
+    return res.count || 0;
+  }
+
+  async function renderAdminHealth(){
+    var wrap = document.getElementById("adminAttentionList");
+    var today = todayStr();
+    var horizon = dateToStr(new Date(Date.now() + 400*24*60*60*1000));
+    var findings = [];
+
+    try{
+      var noSchedule = adminSettingsOwners
+        ? adminUsersCache.filter(function(u){ return !adminSettingsOwners.has(u.id); }).length
+        : null;
+
+      var results = await Promise.all([
+        // Clocked in, never clocked out, on a day that has already ended. These
+        // are the days that quietly count as a full shortfall in the aggregates.
+        countEntries(function(q){
+          return q.not("clock_in","is",null).is("clock_out",null).lt("date", today);
+        }),
+        // Regular days carrying no hours at all — usually an import or a bulk
+        // apply that landed on a working day and blanked it.
+        countEntries(function(q){
+          return q.eq("type","regular").is("clock_in",null).is("clock_out",null).lt("date", today);
+        }),
+        // Dated beyond any plausible roster. The CHECK constraint stops the
+        // year-9999 case now, but older rows predate it.
+        countEntries(function(q){ return q.gt("date", horizon); })
+      ]);
+
+      if(noSchedule !== null){
+        findings.push({
+          count: noSchedule,
+          title: noSchedule === 1 ? "1 person has no schedule of their own"
+                                  : noSchedule + " people have no schedule of their own",
+          note: "Their hours, lateness and leave are all measured against the fallback " +
+                "Sunday–Thursday 08:00–16:00 week. Set the organisation defaults below, then apply them.",
+          clear: "Everyone has their own schedule."
+        });
+      }
+      findings.push({
+        count: results[0],
+        title: results[0] === 1 ? "1 open shift from a past day" : results[0] + " open shifts from past days",
+        note: "Someone clocked in and never clocked out. Each one counts as a full day's shortfall until it is corrected.",
+        clear: "No unfinished shifts."
+      });
+      findings.push({
+        count: results[1],
+        title: results[1] === 1 ? "1 blank working day" : results[1] + " blank working days",
+        note: "Regular days holding no clock times at all, usually from an import or a company-wide apply.",
+        clear: "No blank working days."
+      });
+      findings.push({
+        count: results[2],
+        title: results[2] === 1 ? "1 entry dated far in the future" : results[2] + " entries dated far in the future",
+        note: "More than 400 days ahead. These distort the year filter and the year-over-year chart.",
+        clear: "No implausible dates."
+      });
+    }catch(err){
+      wrap.innerHTML = '<p class="settings-hint" style="margin:0;">Couldn\'t run the data checks: ' +
+        escapeHtml(friendlyError(err)) + '</p>';
+      return;
+    }
+
+    // Worst first, but clean checks are still listed — an admin needs to see
+    // that a check ran and passed, not be left guessing whether it ran at all.
+    findings.sort(function(a, b){ return b.count - a.count; });
+    wrap.innerHTML = findings.map(function(f){
+      return '<div class="attention-item" role="listitem">'+
+        '<span class="attention-count'+(f.count ? '' : ' is-clear')+'">'+(f.count ? f.count : '✓')+'</span>'+
+        '<div class="attention-body">'+
+          '<div class="attention-title">'+escapeHtml(f.count ? f.title : f.clear)+'</div>'+
+          (f.count ? '<div class="attention-note">'+escapeHtml(f.note)+'</div>' : '')+
+        '</div>'+
+      '</div>';
+    }).join("");
+  }
+
+  document.getElementById("refreshStatsBtn").addEventListener("click", function(){ renderAdmin(); });
+  document.getElementById("refreshAuditBtn").addEventListener("click", resetAuditPaging);
+  document.getElementById("auditFilterAction").addEventListener("change", resetAuditPaging);
+  document.getElementById("auditFilterUser").addEventListener("change", resetAuditPaging);
+  document.getElementById("auditFilterSince").addEventListener("change", resetAuditPaging);
 
   async function renderAdmin(){
-    await Promise.all([renderAdminStats(), renderAdminUsers(), renderAuditLog(), loadAppSettings()]);
+    // Belt and braces. The tab button is hidden for employees and every RPC and
+    // policy behind this screen re-checks is_admin() server-side, but a stale
+    // tab left open across a demotion should not keep painting the console.
+    if(!isAdmin){
+      document.getElementById("adminUsersList").innerHTML = "";
+      document.getElementById("auditBody").innerHTML = "";
+      return;
+    }
+
+    // Owners first: both the People list and the health panel need to know who
+    // has a schedule, and neither should render a half-answer.
+    await loadAdminSettingsOwners();
+
+    var bulkFrom = document.getElementById("bulkApplyFromDate");
+    var bulkTo = document.getElementById("bulkApplyToDate");
+    if(!bulkFrom.value) bulkFrom.value = todayStr();
+    if(!bulkTo.value) bulkTo.value = bulkFrom.value;
+
+    await Promise.all([
+      renderAdminStats(),
+      loadAdminPeople(),
+      resetAuditPaging(),
+      loadAppSettings()
+    ]);
+    await renderAdminHealth();
   }
 
   // ---------- Sign-in / sign-out transitions ----------
@@ -4226,6 +4605,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     showApp();
     buildDayPicker();
+    // Built before loadAppSettings() below, which fills it from
+    // app_settings.default_settings.
+    buildDefaultsDayPicker();
     applyTheme(safeGet(THEME_KEY) === "dark" ? "dark" : "light");
     document.getElementById("fDate").value = todayStr();
     document.getElementById("fToDate").value = todayStr();

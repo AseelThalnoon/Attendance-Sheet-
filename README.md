@@ -54,6 +54,28 @@ header records what it covers and how it was verified. Note that the second
 file keeps its original `pending_` name so that its filename matches the version
 recorded in the remote migration history — it is applied, not pending.
 
+## The Admin console
+
+Everything an administrator can do lives in one tab, visible only to them:
+
+- **Overview** — database size, accounts, entries, connections, plus data-health
+  checks that run as counted queries: open shifts from past days, blank working
+  days, implausible dates, and people with no schedule of their own. Checks that
+  pass are listed too, so an admin can see a check ran rather than guess.
+- **People** — search and filter every account; grant or revoke admin; open
+  someone's record; send a password reset; deactivate or delete. Accounts with no
+  `user_settings` row of their own are flagged, since every figure the app shows
+  them is otherwise measured against a fallback week.
+- **Organisation Defaults** — edits `app_settings.default_settings`, the schedule
+  `handle_new_user()` copies into each new account. It can also backfill people
+  who have no schedule; it never overwrites one that exists.
+- **Company-Wide Days**, **Announcement & Sign-Up**, **Activity Log** (filter by
+  activity, person and date, page through, export CSV), and **Storage**.
+
+The tab button is hidden for employees, `renderAdmin()` refuses to paint for a
+non-admin, and every RPC and RLS policy behind the screen re-checks `is_admin()`
+server-side. The client-side half is convenience; the database is the authority.
+
 ### Authorisation model
 
 - `is_admin()` drives every policy. Admins can read and write anyone's data.
@@ -80,6 +102,7 @@ npm run test:regression   # just the audit regression suites
 | `clock` | Punch serialisation and button state under load |
 | `regression/audit-logic` | Hours arithmetic, leave, streak, week start, long-shift guard |
 | `regression/audit-dom` | Boot failure, banner rendering, contrast, ARIA, CSP |
+| `regression/admin-tab` | Admin console: admin-only gating, people/roles, health checks, defaults, log |
 | `mobile/*` | Responsive grid, control sizing, collision scanning |
 
 Suites extract their subject **verbatim from the shipping source at run time**

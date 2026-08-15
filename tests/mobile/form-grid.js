@@ -33,8 +33,15 @@ const problems = [];
         // string rather than pixel tracks, so only measure what is laid out.
         if(!g.getClientRects().length) return;
         const cs = getComputedStyle(g);
-        const tracks = cs.gridTemplateColumns.split(/\s+/).filter(Boolean).map(parseFloat);
-        if(tracks.some(Number.isNaN)) return;
+        const all = cs.gridTemplateColumns.split(/\s+/).filter(Boolean).map(parseFloat);
+        if(all.some(Number.isNaN)) return;
+        // repeat(auto-fit, ...) collapses surplus tracks to 0px when a grid has
+        // fewer cells than would fit. A collapsed track holds no control, so the
+        // 170px floor does not apply to it — minmax(170px, 1fr) guarantees the
+        // floor for every track that actually has something in it. Measuring the
+        // zeros would fail every short row (a two-field filter bar) for free.
+        const tracks = all.filter(t => t > 0.5);
+        if(!tracks.length) return;
         const id = g.closest("[id]") ? g.closest("[id]").id : "grid" + i;
         // .full must still span the whole row.
         const full = g.querySelector(".full");
