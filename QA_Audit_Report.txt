@@ -1,0 +1,2605 @@
+================================================================================
+ATTENDANCE LEDGER - END-TO-END QA / SECURITY / UX / ACCESSIBILITY AUDIT
+================================================================================
+Application : Attendance Ledger (single-file PWA + Supabase)
+Repository  : AseelThalnoon/Attendance-Sheet- (GitHub Pages)
+Audited rev : e44f4bd "Stop form fields colliding on phones..."
+Audit date  : 2026-08-15
+Auditor     : Independent review (QA / architecture / UX / security / a11y /
+              performance / product)
+Scope       : index.html (5,907 lines), sw.js, manifest.json, and the LIVE
+              Supabase project schema, RLS policies, functions and triggers.
+
+METHOD & EVIDENCE
+--------------------------------------------------------------------------------
+Findings in this report are separated into CONFIRMED (reproduced with a
+measurement, a live database query, or a scripted browser check) and POTENTIAL
+RISK (reasoned from the code but not executed end-to-end).
+
+Verification performed:
+  * The calculation functions (computeEntry, summarize, scheduleFor,
+    isScheduled) were EXTRACTED VERBATIM from index.html and executed against
+    crafted datasets. 8 business-logic defects reproduced.
+  * index.html was loaded in headless Chromium (Playwright 1.62) over http://
+    with the Supabase CDN stubbed, and computed styles / DOM state measured.
+    16 checks run, 10 confirmed defects.
+  * The live Supabase project was inspected: 5 tables, 11 RLS policies, 10
+    functions, 5 triggers, column-level grants, constraints, and both the
+    security and performance advisors.
+  * The privilege-escalation finding (C-1) was PROVEN on the live database
+    inside a transaction that was deliberately aborted. Nothing was changed;
+    role counts before and after are identical (1 admin, 7 users).
+
+NO APPLICATION CODE WAS MODIFIED. No destructive exploitation was performed.
+
+SECRETS HANDLING
+--------------------------------------------------------------------------------
+Credentials were found in the codebase. Their VALUES ARE NOT REPRODUCED here.
+See S-1 for locations and remediation.
+
+
+================================================================================
+SECTION 1 - UNDERSTANDING THE APPLICATION
+================================================================================
+
+1.1 PURPOSE
+--------------------------------------------------------------------------------
+A personal and small-team attendance / timesheet system. Employees clock in and
+out, or enter days by hand; the app computes hours worked against a configurable
+daily target, tracks punctuality (late arrivals / early departures), annual leave
+balance, and produces printable signed timesheet reports. Admins can view and
+edit any employee's record, manage roles, and run org-wide actions.
+
+1.2 TARGET USERS
+--------------------------------------------------------------------------------
+  * Employee ("user" role)  - logs their own attendance, views their own stats.
+  * Administrator ("admin") - everything an employee can do, plus: view/edit any
+    employee's data, edit ANY employee's schedule settings (employees cannot
+    edit their own - see H-4), grant/revoke admin, bulk-apply holidays, view
+    system stats, manage accounts, read the audit log, set org-wide settings.
+
+Design context strongly suggests a Gulf/Saudi deployment: the default working
+week is Sunday-Thursday, and there is first-class Ramadan seasonal-hours support
+capped at the 6-hour statutory day.
+
+1.3 ARCHITECTURE
+--------------------------------------------------------------------------------
+FRONTEND
+  Single static file, index.html: 1,173 lines of CSS + ~900 lines of markup +
+  ~3,800 lines of JavaScript, all inline. No build step, no framework, no
+  bundler, no dependency manifest. All app code lives in one IIFE using ES5
+  style (var, function expressions) with async/await layered on top.
+  ONE runtime dependency, loaded at page load:
+      import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+  There is no local copy, no version pin below the major, and no integrity hash.
+
+BACKEND
+  Supabase (Postgres 17.6). No custom server, no edge functions. The browser
+  talks directly to PostgREST and GoTrue. Authorisation is entirely Row Level
+  Security plus five SECURITY DEFINER RPCs.
+
+  Tables (public schema, RLS enabled on all 5):
+    profiles      (8 rows)   id -> auth.users, email, full_name, role, created_at
+    entries       (345 rows) id, user_id, date, clock_in TEXT, clock_out TEXT,
+                             type TEXT, note TEXT, created_at, updated_at
+                             UNIQUE (user_id, date)
+    user_settings (6 rows)   user_id PK, settings JSONB, updated_at
+    audit_log     (46 rows)  actor, action, table, record, target, values, ts
+    app_settings  (1 row)    singleton: announcement, announcement_active,
+                             allow_registration, default_settings
+
+  Functions: is_admin(), handle_new_user(), log_entry_change(),
+    log_profile_change(), set_updated_at(), admin_db_stats(),
+    admin_list_users(), admin_set_user_active(), admin_delete_user(),
+    admin_audit_log().
+
+  Triggers: entries_audit (AFTER I/U/D), entries_set_updated_at (BEFORE U),
+    profiles_audit (AFTER I/U), settings_set_updated_at (BEFORE U),
+    auth.users on_auth_user_created (AFTER I).
+
+  RLS summary:
+    profiles      SELECT/UPDATE: id = auth.uid() OR is_admin()   <-- see C-1
+    entries       SELECT/INSERT/UPDATE/DELETE: user_id = auth.uid() OR is_admin()
+    user_settings SELECT: own or admin.  INSERT/UPDATE: is_admin() ONLY.
+    audit_log     SELECT: is_admin(). No INSERT/UPDATE/DELETE policy (writes
+                  only via SECURITY DEFINER triggers) - correctly immutable.
+    app_settings  SELECT: auth.uid() IS NOT NULL.  UPDATE: is_admin().
+
+AUTH / SESSION
+  Supabase email+password. Sessions (access + refresh JWT) are held in
+  localStorage by the Supabase client - the default. Sign-in state is driven
+  entirely by supabase.auth.onAuthStateChange (see H-2).
+  Password minimum is 6 characters and leaked-password protection is DISABLED
+  on the project.
+
+PWA
+  manifest.json + sw.js. The service worker is network-first with a cache
+  fallback, and caches only ./index.html, ./manifest.json and two icons.
+
+1.4 PAGES / COMPONENTS
+--------------------------------------------------------------------------------
+There is one page. Views are toggled by class:
+  #authScreen  - sign in / register / forgot password
+  #appShell    - header (schedule line, viewer switcher, user chip, overflow
+                 menu, "Today" seal), 5 banners (announcement, viewing-other,
+                 open-shift reminder, backup reminder), hero card (Monthly Avg),
+                 4 stat cards, Schedule Settings card, Team & Access card,
+                 New Entry card (quick clock + manual form), and a tabbed
+                 content card: Log | Trends (Weekly/Monthly/Yearly) | Calendar |
+                 On Time | Team (admin) | Admin (admin).
+                 Plus a footer (export/import/clear), a fixed mobile bottom nav,
+                 and a sticky clock bar (which never renders - see H-6).
+
+1.5 MAJOR USER JOURNEYS MAPPED
+--------------------------------------------------------------------------------
+  J1  First run: register -> auto sign-in -> empty log with a first-run empty
+      state -> Clock In Now -> Clock Out Now -> stats populate.
+  J2  Daily returning user: open -> Clock In (quick clock or bottom-nav button)
+      -> later Clock Out -> "Today" seal updates.
+  J3  Correcting a day: Log tab -> Edit -> change times -> Save Changes.
+  J4  Planned leave: New Entry -> From/To range -> type Annual Leave -> Apply.
+  J5  Reviewing: Trends (Weekly/Monthly/Yearly), Calendar, On Time.
+  J6  Reporting: filter to a month -> Print Report -> sign.
+  J7  Backup/restore: Export JSON/CSV -> Import JSON/CSV.
+  J8  Admin - configure an employee: viewer switcher -> Schedule Settings ->
+      save (or "Apply to everyone").
+  J9  Admin - org holiday: Team & Access -> Apply to Everyone.
+  J10 Admin - roles: Team & Access -> Employee/Admin toggle.
+  J11 Admin - operations: Admin tab -> stats, users, activity log, app settings.
+
+FEATURE DEPENDENCIES
+  settings.workDays / targetMin / periods  ->  isScheduled(), scheduleFor(),
+  computeEntry()  ->  every stat card, chart, table, calendar colour, print
+  report, punctuality figure and leave balance. A wrong or missing settings row
+  silently corrupts EVERY number in the app (see H-4).
+
+1.6 STATED ASSUMPTIONS (inferred, not documented anywhere in the repo)
+--------------------------------------------------------------------------------
+  A1  Only "Regular" days count toward averages and the overtime bank. This is
+      an explicit code comment - but it is invisible to users and produces the
+      wrong headline number for WFH-heavy teams (C-4).
+  A2  Weeks start on Sunday. Hardcoded; not derived from workDays.
+  A3  Clock times are wall-clock local, timezone-naive, stored as TEXT.
+  A4  A clock-out earlier than the clock-in means an overnight shift (H-5).
+  A5  Schedule settings are an ADMIN-OWNED concept, not a user preference (H-4).
+  A6  Every user in the org shares one app_settings row.
+  A7  There is exactly one org / tenant. There is no tenancy boundary at all -
+      every admin sees every user in the whole database.
+  A8  The device clock is trusted absolutely for all punches (M-14).
+
+
+================================================================================
+SECTION 2 - EXECUTIVE SUMMARY
+================================================================================
+
+Attendance Ledger is a genuinely well-crafted piece of front-end work. The
+visual design is coherent and distinctive, the dark mode is properly thought
+through (elevation via surface colour rather than shadow), the mobile
+card-table pattern is thoughtful, the modal focus trap is correctly implemented
+including the Shift+Tab and "focus escaped" cases, double-tap on the clock is
+guarded by a real in-flight flag rather than just a disabled attribute, and the
+code comments are unusually honest about why decisions were made. There is a
+real regression test suite. This is far above the norm for a solo project.
+
+That quality makes the actual risk profile more surprising, because the
+problems are concentrated in the places the polish does not reach: the
+authorisation model, the aggregate arithmetic, and the failure paths.
+
+THE FIVE THINGS THAT MATTER
+
+1.  ANY SIGNED-IN EMPLOYEE CAN MAKE THEMSELVES AN ADMINISTRATOR.
+    This is not theoretical. It was executed against the live database and
+    rolled back. The RLS UPDATE policy on `profiles` omits WITH CHECK, so
+    Postgres reuses the USING clause - which is satisfied both before and after
+    the change. One HTTP PATCH promotes the caller to admin, after which they
+    can read and edit every employee's attendance, delete accounts, and read
+    the audit log. Every other access control in the product is downstream of
+    this, so every other control is currently decorative. This alone should
+    block any further rollout.
+
+2.  THE HEADLINE NUMBERS DO NOT ADD UP.
+    A week containing two 8h days, one forgotten clock-out and one blank
+    imported row renders a card reading Total 16h, Target 32h, Overtime/Under
+    0h. Reproduced against the shipped summarize(). A fully missed workday
+    moves the Overtime Bank by exactly zero. Three 9-hour work-from-home days
+    summarise to an average of "0h". For a timesheet product - a product whose
+    entire value is the accuracy of a number a manager signs - this is the most
+    damaging class of defect there is, because it is silent and plausible.
+
+3.  THE APP DIES SILENTLY IF ONE THIRD-PARTY CDN IS UNREACHABLE.
+    The entire application is one ES module whose first line imports from
+    esm.sh. If that request fails - CDN outage, corporate proxy, captive
+    portal, or simply an installed PWA opened offline - the module never
+    executes. The user is shown a pixel-perfect sign-in form in which nothing
+    is wired up. Typing a password and pressing Sign In does nothing at all.
+    No spinner, no error, no explanation. Verified in a browser with the CDN
+    blocked. The same import is also an unpinned, unhashed supply-chain
+    dependency with full access to the auth tokens in localStorage.
+
+4.  AN ADMIN EDITING SOMEONE ELSE'S RECORD IS NEVER WARNED.
+    The banner written for exactly this purpose - "Edits here save to their
+    record, not yours" - carries an inline style="display:none" that outranks
+    the .show class the JavaScript toggles. It has never rendered. Verified by
+    measuring computed style. Meanwhile "Apply to Everyone" overwrites every
+    existing entry across a date range for every user, blanking real clock
+    times, with no undo and no per-day preview.
+
+5.  ACCESSIBILITY IS BELOW THE LEGAL FLOOR IN SEVERAL PLACES.
+    Secondary text sits at 2.06:1 to 3.06:1 contrast against its background
+    where WCAG AA requires 4.5:1 - measured, not estimated, across six
+    different classes. The tab widget exposes no role, no aria-selected and no
+    tablist. On mobile every data table is converted to display:block, which
+    removes the table semantics entirely and leaves column names only in CSS
+    ::before content, which assistive technology does not announce. A screen
+    reader user on a phone hears an undifferentiated stream of numbers.
+
+WHAT IS GENUINELY GOOD
+    Modal focus management; the punch double-tap lock; the audit log design
+    (append-only, no UPDATE/DELETE policy, SECURITY DEFINER triggers, logging
+    before cascade delete); last-admin and self-deletion safeguards inside the
+    admin RPCs; the CSV parser (quotes, escaped quotes, embedded newlines, BOM,
+    CRLF, ambiguous D/M vs M/D resolved once with a user prompt); the deliberate
+    dark-mode token system; reduced-motion support; the safety caps on bulk
+    operations; and a regression suite that extracts live code rather than
+    reimplementing it.
+
+RECOMMENDED POSTURE
+    Do not onboard additional employees until C-1 is fixed. C-1 is a
+    ten-minute database change. C-2 and C-3 are each under an hour. C-4 is a
+    focused change to one function plus a product decision. The four criticals
+    together are realistically a single day of work, and they move this from
+    "not deployable" to "deployable with known gaps".
+
+SEVERITY COUNTS
+    Critical  4  |  High 14  |  Medium 24  |  Low 17  |  Potential risks 6
+
+
+================================================================================
+SECTION 3 - CRITICAL ISSUES (P0)
+================================================================================
+
+--------------------------------------------------------------------------------
+C-1  ANY AUTHENTICATED USER CAN PROMOTE THEMSELVES TO ADMINISTRATOR
+--------------------------------------------------------------------------------
+Issue:
+  The RLS policy `profiles_update_own_or_admin` is defined with USING
+  ((id = auth.uid()) OR is_admin()) and NO WITH CHECK clause. PostgreSQL
+  documents that when WITH CHECK is omitted from an UPDATE policy, the USING
+  expression is used for the row being written as well. The predicate is
+  `id = auth.uid()`, which is true for the user's own row both before and after
+  the update - so the policy permits the user to change ANY column of their own
+  profile, including `role`.
+  The `authenticated` role additionally holds a column-level UPDATE grant on
+  profiles.role, and no BEFORE UPDATE trigger on profiles rejects role changes
+  (profiles_audit is AFTER, and only logs).
+  The only guard that exists is client-side: the Employee/Admin toggle is
+  rendered inside an admin-only card. That guard is bypassed by sending the
+  request directly.
+
+Severity: Critical
+Category: Security - Broken Access Control / Privilege Escalation (OWASP A01)
+Location:
+  Database: policy `profiles_update_own_or_admin` on public.profiles
+  Grants:   authenticated has UPDATE on public.profiles(role)
+  Client:   index.html:5270 (the legitimate role-change call, for reference)
+
+Steps to Reproduce (CONFIRMED - executed live, then rolled back):
+  1. Sign in as any ordinary employee.
+  2. Read the access token from localStorage (or just use the app's own client).
+  3. Send:
+        PATCH /rest/v1/profiles?id=eq.<your own uuid>
+        Authorization: Bearer <your access token>
+        apikey: <the anon key that is already in the page source>
+        Content-Type: application/json
+        {"role":"admin"}
+  4. Reload the app.
+
+  Executed on the live project as a DO block that impersonated an existing
+  ordinary user via request.jwt.claims, performed the UPDATE, and then raised
+  an exception to abort the transaction. Result:
+        NOTICE: role after self-update = admin, is_admin() now returns t
+        ERROR:  AUDIT_ROLLBACK role=admin is_admin=t   (transaction aborted)
+  Post-check confirmed no persistent change: 1 admin, 7 users - identical to
+  the pre-check.
+
+Expected Behavior:
+  A user may update their own full_name. Only an existing admin may change any
+  profile's `role`, and nobody may change `id` or `email` (email is owned by
+  auth.users).
+
+Actual Behavior:
+  A user may rewrite every column of their own profile row, including `role`,
+  and is_admin() returns true on the very next statement.
+
+Risk / Impact:
+  Total collapse of the authorisation model. A promoted user can:
+    - read and edit every employee's attendance (entries RLS is `OR is_admin()`)
+    - read every employee's settings
+    - read the full audit log, including who changed what and when
+    - grant and revoke admin on anyone
+    - deactivate accounts and PERMANENTLY DELETE users together with every
+      entry they ever logged (admin_delete_user cascades auth.users)
+    - overwrite the whole team's schedule settings and attendance
+  In an HR context this is also a privacy incident: attendance and sick-leave
+  records for every employee become readable by any employee.
+  Note the escalation IS recorded in audit_log as a role_change, so it is
+  detectable after the fact - but nothing prevents it, and a promoted attacker
+  cannot delete audit rows (no DELETE policy exists), which is the one piece of
+  good news here.
+
+Recommended Fix:
+  Immediate (database, no app change required):
+
+    -- 1. Stop the API from touching the privileged columns at all.
+    REVOKE UPDATE ON public.profiles FROM authenticated, anon;
+    GRANT  UPDATE (full_name) ON public.profiles TO authenticated;
+
+    -- 2. Make the policy explicit rather than relying on the implicit reuse.
+    DROP POLICY profiles_update_own_or_admin ON public.profiles;
+    CREATE POLICY profiles_update_own ON public.profiles
+      FOR UPDATE TO authenticated
+      USING (id = (select auth.uid()))
+      WITH CHECK (id = (select auth.uid()));
+
+    -- 3. Belt and braces: reject any role change that did not come through
+    --    the sanctioned RPC.
+    CREATE OR REPLACE FUNCTION public.guard_profile_role()
+    RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+    BEGIN
+      IF NEW.role IS DISTINCT FROM OLD.role AND NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Only an administrator can change a role';
+      END IF;
+      NEW.id    := OLD.id;      -- immutable
+      NEW.email := OLD.email;   -- owned by auth.users
+      RETURN NEW;
+    END $$;
+    CREATE TRIGGER profiles_guard_role BEFORE UPDATE ON public.profiles
+      FOR EACH ROW EXECUTE FUNCTION public.guard_profile_role();
+
+  Then move the role change itself to a SECURITY DEFINER RPC
+  (admin_set_user_role) that re-checks is_admin() and enforces the
+  "last admin" rule server-side, exactly as admin_set_user_active already does.
+  Today that last-admin rule (index.html:5248-5254) exists ONLY in the browser,
+  so even a legitimate admin can strip the final admin by calling the API
+  directly and permanently lock the organisation out of its own admin panel.
+
+  AUDIT ACTION: before deploying, review audit_log for any historical
+  `role_change` row whose actor_id equals its target_user_id and whose
+  new_values.role = 'admin'. That is the signature of this being exploited.
+
+Priority: P0
+
+--------------------------------------------------------------------------------
+C-2  THE APPLICATION FAILS COMPLETELY AND SILENTLY IF esm.sh IS UNREACHABLE
+--------------------------------------------------------------------------------
+Issue:
+  The whole application is one `<script type="module">` whose first statement
+  is a remote import. If that fetch fails for any reason, the module body never
+  executes, so not one event listener is attached. Because the sign-in screen is
+  the default-visible markup and needs no JavaScript to render, the user is
+  presented with a complete, correct-looking, entirely inert application.
+
+Severity: Critical
+Category: Bug / Reliability / Architecture / Supply chain
+Location: index.html:2099
+          `import { createClient } from "https://esm.sh/@supabase/supabase-js@2"`
+          sw.js:14-19 (SHELL_FILES does not and cannot include the CDN module)
+
+Steps to Reproduce (CONFIRMED in headless Chromium):
+  1. Serve the app over http and block all requests to esm.sh.
+  2. Load index.html. The sign-in card renders perfectly.
+  3. Fill in email and password, click Sign In.
+  Measured result: button text remains "Sign In", the config-warning panel
+  stays display:none, zero page errors surface to the user, and the form
+  submit does nothing. The page is indistinguishable from a working one.
+
+  Real-world triggers: esm.sh outage or rate-limit; corporate proxy or firewall
+  blocking unknown CDNs; hotel/airport captive portal; an ad/tracker blocker
+  with a broad CDN rule; a country-level block; OR - most likely of all - the
+  installed PWA being opened with no connectivity. The service worker faithfully
+  serves index.html from cache, and then the app cannot boot.
+
+Expected Behavior:
+  Either the dependency is local so this cannot happen, or the failure is caught
+  and the user is told: "Can't reach the server. Check your connection and
+  reload."
+
+Actual Behavior:
+  A fully rendered, completely non-functional application with no feedback of
+  any kind. Users will conclude their password is wrong.
+
+Risk / Impact:
+  Total loss of availability from a dependency the team does not control. The
+  product is marketed as an installable PWA (manifest, icons, service worker,
+  standalone display) which sets an explicit offline expectation it cannot meet.
+  Employees who cannot clock in lose their record for that day.
+
+  There is a second, more serious dimension. The import is pinned only to the
+  MAJOR version (`@2`), served from a third party, with no Subresource
+  Integrity hash. Whatever esm.sh returns tomorrow executes with full access to
+  the page - including the Supabase access and refresh tokens in localStorage
+  and every attendance record on screen. A compromise of that CDN, or of any
+  supabase-js 2.x release, is a silent full compromise of this application.
+
+Recommended Fix:
+  1. Vendor the dependency. Download a specific version of the ESM build, commit
+     it as ./vendor/supabase-js-2.x.y.js, and import it relatively. This removes
+     the outage, the proxy problem, the offline problem and the supply-chain
+     problem in one change, and costs ~120KB in the repo.
+  2. Add it to sw.js SHELL_FILES so the PWA can genuinely boot offline.
+  3. Regardless, wrap boot in a visible failure path:
+         <script type="module">
+           import("./vendor/supabase-js.js")
+             .then(m => start(m.createClient))
+             .catch(() => document.getElementById("authConfigWarning")
+               .replaceChildren("Couldn't load the app. Check your connection
+                                 and reload."),
+               document.getElementById("authConfigWarning").style.display="block");
+         </script>
+  4. If the CDN must be kept, pin the exact version and add an integrity hash.
+  5. Separately: even with the code loaded, the app has no offline data layer.
+     Be explicit in the UI that it needs a connection, or implement an outbox
+     that queues punches locally and replays them.
+
+Priority: P0
+
+--------------------------------------------------------------------------------
+C-3  "APPLY TO EVERYONE" IRREVERSIBLY DESTROYS REAL CLOCK-IN/OUT DATA
+--------------------------------------------------------------------------------
+Issue:
+  The Team & Access -> "Apply to Everyone" action writes a payload of
+  {clockIn:"", clockOut:"", type, note} to EVERY calendar day in the chosen
+  range for EVERY registered user, updating existing rows in place. Any day in
+  that range on which an employee had actually recorded hours has its clock_in
+  and clock_out overwritten with null. There is no undo, no preview of what
+  will be overwritten, and no exclusion of days that already contain worked
+  hours.
+
+Severity: Critical
+Category: Data loss / Business logic
+Location: index.html:5287-5377 (bulkApplyBtn handler); payload built at :5357
+
+Steps to Reproduce:
+  1. Sign in as admin. Confirm an employee has real hours logged on, say,
+     10 August (08:00-16:30).
+  2. Team & Access -> Apply to Everyone -> From 09 Aug, To 15 Aug,
+     Day Type "Public Holiday", note "National Day".
+  3. Confirm the dialog.
+  4. Switch the viewer to that employee and open 10 August.
+
+Expected Behavior:
+  Either days that already contain recorded hours are skipped and reported
+  ("3 days skipped - hours already recorded"), or the confirmation names them
+  explicitly and offers a choice.
+
+Actual Behavior:
+  The real 08:00-16:30 punch is gone. The row now reads Public Holiday with no
+  times. The employee's monthly total silently drops by a day's work.
+  The confirmation text does say "replacing any existing entries on those
+  dates", but it gives no count, no list, and no indication that recorded
+  working hours - as opposed to placeholder rows - are among them.
+
+Risk / Impact:
+  Permanent, unrecoverable loss of payroll-relevant data across the entire
+  organisation from a single click. The audit_log DOES capture old_values for
+  every overwritten row, so recovery is technically possible, but only by hand
+  through SQL - there is no restore path in the product, and nothing tells the
+  admin that anything was lost.
+  The blast radius is large by design: up to 500 entries (dates x team members)
+  in one action.
+
+Recommended Fix:
+  1. Before writing, fetch the affected rows (the code already does exactly this
+     at :5344 to find IDs) and partition them: rows with a clock_in or clock_out
+     are "occupied".
+  2. Name the damage in the confirmation:
+       "12 of these 35 entries already contain recorded hours. Overwriting them
+        cannot be undone."
+     with a default of SKIP and an explicit opt-in to overwrite.
+  3. Skip non-working days for that user unless the type is a public holiday
+     (see B-4 - marking a weekend as Annual Leave also burns leave entitlement).
+  4. Longer term, add a soft-delete / restore-from-audit path so any bulk action
+     is reversible for 30 days.
+
+Priority: P0
+
+--------------------------------------------------------------------------------
+C-4  AGGREGATE HOURS ARITHMETIC IS INTERNALLY INCONSISTENT AND HIDES SHORTFALLS
+--------------------------------------------------------------------------------
+Issue:
+  summarize() (index.html:2632-2666) adds a Regular day's target to targetSum
+  unconditionally, but adds to workedSum and diffSum only when the day actually
+  has hours. A Regular day that is open (clocked in, never out) or blank
+  (created by an import or a range apply) therefore inflates Target while
+  contributing nothing to Total and nothing to Diff. The three figures are
+  printed side by side on the same card, so they visibly fail to reconcile.
+
+  Compounding this, every non-"regular" day type - WFH, Business Trip,
+  Training, Half Day Leave - is excluded from workedSum, targetSum, diffSum and
+  loggedDays entirely, while its own Log row still displays a worked figure, a
+  target and a Diff pill.
+
+Severity: Critical
+Category: Business Logic / Data correctness
+Location: index.html:2632-2666 (summarize)
+          Consumers: renderStats (hero Monthly Avg, Week Avg, Overtime Bank),
+          renderWeekly, renderMonthly, renderYearly, buildPrintReport, Team tab.
+
+Steps to Reproduce (CONFIRMED - shipped summarize() executed directly):
+
+  (a) Reconciliation failure
+      Week: Sun 08:00-16:00, Mon 08:00-16:00, Tue clocked in at 08:00 and never
+      out, Wed a blank Regular row.
+      MEASURED card output: Total=16h  Target=32h  Overtime/Under=0h
+      16h - 32h = -16h, not 0h.
+
+  (b) A whole missed workday is invisible
+      One 8h day               -> Overtime Bank = 0h
+      Same day + one unlogged Regular workday -> Overtime Bank = 0h
+      MEASURED: identical. An 8-hour shortfall does not move the headline
+      figure at all.
+
+  (c) A fully worked month can report a zero average
+      Three 9-hour days typed as WFH / Business Trip / Training:
+      MEASURED: loggedDays=0, total=0h, avg=0h.
+      The hero card reads "This Month's Average: 0h" and the progress bar
+      reads "No regular workdays logged yet this month".
+
+  (d) Row maths and card maths disagree
+      A Half Day Leave 08:00-12:00:
+      MEASURED Log row: Target 4h, Worked 4h, Diff 0h.
+      MEASURED summarize() contribution: targetSum=0, diffSum=0.
+
+Expected Behavior:
+  Total - Target = Diff, always. A day the employee did not work should reduce
+  the overtime bank. Days spent working - from home, on a trip, in training -
+  should count as worked days. Whatever the rule is, the UI should state it
+  where the number appears.
+
+Actual Behavior:
+  As measured above. The numbers are plausible, internally contradictory, and
+  systematically flattering: shortfalls disappear and remote work vanishes.
+
+Risk / Impact:
+  This is the product's core output. These figures are printed onto a report
+  with employee and manager signature lines - a document that may be used for
+  payroll, overtime claims or performance conversations. Wrong numbers here are
+  worse than a crash, because nobody notices. A remote-first employee appears
+  to have worked zero hours. An employee who forgot to clock out on Friday
+  appears to owe nothing.
+
+Recommended Fix:
+  1. Make summarize() self-consistent. Only add a day's target when that day
+     also contributes worked time and a diff; or (better) treat an
+     open/blank Regular workday as a genuine shortfall - workedMin 0, full
+     target, negative diff - and surface it distinctly:
+        "3 days incomplete - not counted"
+     next to every aggregate that excluded them. Silence is the defect.
+  2. Introduce an explicit `countsAsWorked` flag per day type instead of the
+     hardcoded `e.type === "regular"` test that is duplicated in summarize()
+     and again in renderTeam() (index.html:5456). WFH, Business Trip and
+     Training should default to counting as worked.
+  3. Half days should contribute their halved target to targetSum.
+  4. Add regression tests asserting workedSum - targetSum === diffSum for every
+     dataset. The extraction harness in tests/ already makes this cheap.
+  5. Print an explicit reconciliation line on the report:
+     "Based on N of M scheduled days. K days incomplete and excluded."
+
+Priority: P0
+
+
+================================================================================
+SECTION 4 - HIGH-PRIORITY BUGS (P1)
+================================================================================
+
+--------------------------------------------------------------------------------
+H-1  THE "YOU ARE EDITING SOMEONE ELSE'S RECORD" BANNER HAS NEVER RENDERED
+--------------------------------------------------------------------------------
+Issue: The markup carries a hardcoded inline style="display:none". The JS only
+  ever toggles the .show class. An inline style declaration outranks any class
+  selector, so .reminder.show{display:flex} can never take effect.
+Severity: High   Category: Bug / UX / Data integrity
+Location: index.html:1308 (inline style), :5161-5170 (updateViewingBanner)
+Steps to Reproduce (CONFIRMED by measuring computed style):
+  classList.add("show") on #viewingOtherBanner -> computed display = "none",
+  measured height = 0px. Control test: the identical .show pattern on
+  #reminderBanner (which has no inline style) -> computed display = "flex".
+Expected: A prominent gold banner reading "Viewing <name>'s attendance - Edits
+  here save to their record, not yours."
+Actual: Nothing renders, ever. The only cues that an admin is not looking at
+  their own data are a small header dropdown and the quick-clock being faded.
+Risk / Impact: An admin adds or deletes entries believing they are their own.
+  Attendance records for a real employee are silently corrupted, and the audit
+  log will correctly show the admin did it deliberately.
+Recommended Fix: Delete the inline style from index.html:1308 (and from :1301
+  #announcementBanner for consistency - that one only works because
+  applyAppSettings sets .style.display directly, which is a second inconsistent
+  pattern for the same job). Standardise on the class. Add a rendering
+  regression test - the tests/ harness already measures computed styles.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-2  EVERY TOKEN REFRESH RE-BOOTS THE APP, RESETTING STATE AND DISCARDING INPUT
+--------------------------------------------------------------------------------
+Issue: onAuthStateChange calls handleSignedIn() for ANY event carrying a
+  session - SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED, and in several
+  supabase-js versions on tab refocus. handleSignedIn is a full cold start.
+Severity: High   Category: Bug / Data loss / State management
+Location: index.html:5886-5889; handleSignedIn at :5801-5852
+Steps to Reproduce:
+  1. Sign in as admin. Switch the viewer to another employee.
+  2. Open "Add or Edit a Specific Day" and half-fill the form.
+  3. Wait for the access token to refresh (default ~1 hour), or switch away and
+     back to the tab.
+Expected: The session refreshes invisibly. Nothing on screen changes.
+Actual: handleSignedIn re-runs end to end:
+    - viewedUserId is reset to the signed-in user (:5820), silently yanking the
+      admin out of the employee's record mid-edit;
+    - fDate and fToDate are reset to today (:5843-5844), wiping the form;
+    - applyTheme re-runs, loadDataForViewedUser re-fetches, loadAppSettings
+      re-fetches, every render re-runs;
+    - the profile is re-fetched with a retry path that can add a 700ms stall.
+Risk / Impact: Silent loss of in-progress input. Worse: an admin who was
+  editing employee B is now editing their OWN record without being told - and
+  because H-1 means the warning banner never shows, the only signal is a
+  dropdown they are not looking at. Wrong data is written to the wrong person.
+Recommended Fix:
+  supabase.auth.onAuthStateChange(function(event, session){
+    if(event === "TOKEN_REFRESHED" || event === "USER_UPDATED") return;
+    if(session && session.user){
+      if(currentUser && currentUser.id === session.user.id) return; // already up
+      handleSignedIn(session.user);
+    } else handleSignedOut();
+  });
+POTENTIAL RISK (related, not reproduced): Supabase explicitly documents that
+  calling other supabase methods inside the onAuthStateChange callback can
+  deadlock, because the callback runs while the internal auth lock is held.
+  handleSignedIn is async and immediately awaits supabase.from("profiles")
+  (:5805). This usually works, but it is the documented hazard and would present
+  as an intermittent hang on sign-in that is very hard to diagnose. Defer with
+  setTimeout(() => handleSignedIn(user), 0).
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-3  THE "ALLOW NEW REGISTRATIONS" ADMIN CONTROL DOES NOTHING
+--------------------------------------------------------------------------------
+Issue: Two independent failures. (1) applyAppSettings() - the only code that
+  hides the "Create an account" button - is called exclusively from
+  loadAppSettings(), which is called only from handleSignedIn() and
+  renderAdmin(). A signed-out visitor never runs it. (2) The RLS SELECT policy
+  on app_settings requires auth.uid() IS NOT NULL, so a signed-out visitor
+  could not read the flag even if the code tried. (3) Even if both were fixed,
+  hiding a button does not close Supabase's signUp endpoint.
+Severity: High   Category: Security (ineffective control) / Bug
+Location: index.html:5755-5765, :5740-5752, :5850; policy app_settings_select_all
+Steps to Reproduce:
+  1. Admin tab -> App Settings -> uncheck "Allow new registrations" -> Save.
+  2. Sign out. The "Create an account" link is still there and still works.
+  3. Even with it hidden, POST /auth/v1/signup succeeds.
+Expected: Registration is actually closed.
+Actual: The toggle changes a database column that nothing enforces.
+Risk / Impact: An admin believes the organisation is closed to new signups when
+  it is wide open. Anyone with the URL can create an account, and every account
+  can currently self-promote to admin (C-1). The two findings compound: this is
+  the difference between "an insider can escalate" and "anyone on the internet
+  can become an admin of your HR system".
+Recommended Fix:
+  Enforce server-side. Supabase Dashboard -> Authentication -> Providers ->
+  disable email signups, or add a BEFORE INSERT trigger on auth.users that
+  raises when app_settings.allow_registration is false. Make the in-app toggle
+  either drive that trigger or be removed. For the cosmetic half, read
+  app_settings before sign-in - which requires relaxing the SELECT policy to
+  anon for that one boolean, ideally via a dedicated SECURITY DEFINER RPC that
+  returns only { allow_registration }.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-4  EMPLOYEES CANNOT CONFIGURE THEIR OWN SCHEDULE, AND ARE NEVER TOLD
+--------------------------------------------------------------------------------
+Issue: user_settings INSERT and UPDATE are admin-only at the RLS layer, and the
+  Schedule Settings entry point is hidden entirely for non-admins
+  (index.html:5180). A new employee therefore has no user_settings row at all,
+  so sbFetchSettings falls back to DEFAULT_SETTINGS: Sunday-Thursday, 8h/day,
+  08:00-16:00, 10 min grace, 21 leave days.
+Severity: High   Category: Business Logic / UX / Product
+Location: index.html:2131-2141, :2253-2257, :5180; policies
+  settings_insert_admin_only / settings_update_admin_only
+Steps to Reproduce:
+  1. Register a new account in a Monday-Friday, 09:00-17:00, 7.5h organisation.
+  2. Log a normal week.
+Expected: Either the user sets their own schedule, or onboarding makes it
+  obvious an admin must do it first.
+Actual: Every figure is computed against the wrong schedule with no warning.
+  Friday shows as a missed workday in red on the calendar; Sunday work shows as
+  overtime; every arrival after 08:10 is a late arrival; the On Time tab reports
+  a terrible punctuality record; the overtime bank is wrong every single day.
+  There is no gear icon, no message, and nothing in the UI that even hints
+  settings exist.
+Risk / Impact: Every number is wrong for every employee until an admin manually
+  configures each one, one at a time. With no user_settings row there is not even
+  a way for the admin to notice who is unconfigured. This will be read by
+  employees as "the app is broken", and by managers as genuine lateness.
+Recommended Fix:
+  Short term: on first sign-in, if no user_settings row exists, show a blocking
+  one-time setup card ("Confirm your working days and hours") and let the user
+  submit it - which requires allowing a user to INSERT/UPDATE their own row:
+      CREATE POLICY settings_write_own ON public.user_settings
+        FOR ALL TO authenticated
+        USING (user_id = (select auth.uid()) OR is_admin())
+        WITH CHECK (user_id = (select auth.uid()) OR is_admin());
+  Also seed a row from app_settings.default_settings in handle_new_user() - the
+  column exists and is unused.
+  Product decision needed: are schedules employee preferences or company policy?
+  If policy, keep them admin-only but show every employee a read-only summary
+  and an explicit "Ask your admin to change this", instead of hiding the concept.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-5  REVERSED CLOCK TIMES BECOME A SILENT 16-HOUR OVERNIGHT SHIFT
+--------------------------------------------------------------------------------
+Issue: computeEntry treats any negative span as an overnight shift:
+  `if(gross < 0) gross += 24*60`. Nothing distinguishes a genuine night shift
+  from swapped fields. There is no client validation and no CHECK constraint.
+Severity: High   Category: Business Logic / Data integrity
+Location: index.html:2434-2437
+Steps to Reproduce (CONFIRMED against shipped computeEntry):
+  Enter clock in 16:00, clock out 08:00 - the exact transposition of a normal
+  08:00-16:00 day.
+  MEASURED: workedMin = 960 (16h), diff = +8h.
+Expected: A warning - "That's a 16-hour shift ending the next morning. Is that
+  right?" - or at minimum a visible marker on the row.
+Actual: Silently accepted, and it awards 8 hours of overtime.
+Risk / Impact: A single transposed entry doubles a day and adds a full day of
+  phantom overtime to the bank, the monthly average, the print report and the
+  Team roster. Trivially easy to do on a phone keypad. Also exploitable: an
+  employee can manufacture overtime that looks like an honest mistake.
+Recommended Fix:
+  * Confirm any span over ~12h: "This records 16h 0m. Overnight shift, or did
+    the times get swapped?" with the swap as the default action.
+  * Mark overnight days explicitly in the UI ("+1d" next to the clock-out).
+  * Add a DB CHECK that clock_in/clock_out match ^[0-2][0-9]:[0-5][0-9]$, and
+    consider an explicit `overnight` boolean rather than inferring it.
+  * Add a max-plausible-day setting (default 16h) that flags outliers on the
+    Log and in the print report.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-6  THE STICKY CLOCK BAR IS DEAD CODE - IT CAN NEVER BE VISIBLE
+--------------------------------------------------------------------------------
+Issue: `.sticky-clock` sets display:none in its base rule (index.html:1066).
+  `.sticky-clock.show` (:1073) only changes transform and opacity - it never
+  restores display. And at <=760px an explicit `display:none !important`
+  (:1146) applies. There is no rule anywhere that makes the element visible.
+Severity: High   Category: Bug / Dead code / UX
+Location: index.html:1065-1081, :1146; JS at :2039-2051, :4451-4464, :4454-4457
+Steps to Reproduce (CONFIRMED by measuring computed style):
+  Add .show to #stickyClock at 1280px wide -> computed display = "none",
+  measured height = 0px.
+Expected: On desktop and tablet, scrolling past the quick-clock card reveals a
+  floating In/Out bar - which is exactly what the IntersectionObserver, the two
+  buttons, updateStickyClockVisibility(), and the settings-open interaction
+  logic were all written to deliver.
+Actual: A whole feature - markup, CSS, an IntersectionObserver, two event
+  handlers and three call sites - is inert.
+Risk / Impact: Above 760px the bottom nav is also hidden, so a desktop user who
+  has scrolled down to the Log has NO clock control on screen and must scroll
+  back up. Beyond the UX cost, this is a maintenance trap: the code reads as
+  live and will be "fixed" repeatedly by anyone touching it.
+Recommended Fix: Either add `display:flex` to `.sticky-clock.show` and verify
+  it behaves at every breakpoint, or delete the element, its CSS, its observer
+  and its three call sites. Do not leave it half-alive. If reviving it, note the
+  observer never disconnects and the bar overlaps toasts (both bottom-anchored,
+  z-index 120 vs 200).
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-7  NO SERVER-SIDE VALIDATION ON ATTENDANCE DATA AT ALL
+--------------------------------------------------------------------------------
+Issue: entries.clock_in and clock_out are plain TEXT with no format constraint.
+  entries.type is TEXT with no CHECK. entries.note is unbounded TEXT.
+  entries.date has no range bound. Every validation in the product is in the
+  browser, and the browser talks straight to PostgREST.
+Severity: High   Category: Security / Data integrity / Backend
+Location: DB schema public.entries (verified: only PK, FK and
+  UNIQUE(user_id,date) exist); client validation index.html:4124-4171
+Steps to Reproduce:
+  PATCH an entry you own with {"clock_in":"99:99","type":"<script>","date":"9999-12-31"}
+  - all accepted.
+Expected: The database rejects anything the UI would reject.
+Actual: timeToMinutes("99:99") returns 6039, producing nonsensical worked
+  totals that propagate into every aggregate and the print report.
+  TYPE_LABELS[unknown] is undefined, so the Log, Calendar tooltip, print report
+  and audit detail all render the literal text "undefined" for that day.
+  A year-9999 entry sorts to the top of every list and adds a bogus year to the
+  Year filter and the year-over-year chart, permanently.
+  A 10MB note is accepted and then loaded on every page view.
+Risk / Impact: A user can corrupt their own reported hours in ways the UI cannot
+  express, and the corruption is indistinguishable from a real record. Combined
+  with C-1, an escalated user can do this to anyone. There is no server-side
+  authority on what a valid timesheet entry is.
+Recommended Fix:
+  ALTER TABLE public.entries
+    ADD CONSTRAINT entries_type_chk CHECK (type IN ('regular','wfh','halfleave',
+        'leave','sick','trip','training','holiday','other')),
+    ADD CONSTRAINT entries_in_chk  CHECK (clock_in  IS NULL OR clock_in  ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+    ADD CONSTRAINT entries_out_chk CHECK (clock_out IS NULL OR clock_out ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+    ADD CONSTRAINT entries_note_chk CHECK (char_length(note) <= 500),
+    ADD CONSTRAINT entries_date_chk CHECK (date BETWEEN '2000-01-01' AND (current_date + 400));
+  Prefer TIME over TEXT for the clock columns. Add matching maxlength attributes
+  in the UI (currently there are ZERO maxlength attributes in the entire file).
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-8  BULK OPERATIONS RUN ONE ROUND TRIP AT A TIME, UNCANCELLABLE AND UNSAFE
+--------------------------------------------------------------------------------
+Issue: CSV import, JSON import, range apply, bulk delete and "Apply to
+  Everyone" all loop with `await` on a single-row call. Nothing is batched, no
+  transaction wraps them, there is no cancel, no resume, and no beforeunload
+  guard.
+Severity: High   Category: Performance / Reliability / UX
+Location: index.html:4215-4224, :4311-4315, :4927-4937, :5001-5010, :5354-5366
+Steps to Reproduce: Import a 250-row CSV. Each row is its own HTTP round trip;
+  at a realistic 120-200ms that is 30-50 seconds. "Apply to Everyone" is capped
+  at 500 entries = 60-100 seconds.
+Expected: One batched upsert, a progress bar, a cancel button, and a warning if
+  the user tries to leave.
+Actual:
+  * No batching. Supabase supports array upsert in a single request; this would
+    turn 250 requests into 1.
+  * PARTIAL COMPLETION IS NORMAL. Close the tab, lose the connection, or let
+    the phone sleep at row 140 and you get 140 imported rows, 110 missing, and
+    no record of where it stopped. Re-running duplicates the work.
+  * No beforeunload guard, so the browser does not even ask.
+  * CSV/JSON import progress is written to #qcStatusNote (index.html:4925),
+    which lives in the New Entry card near the TOP of the page. The Import
+    buttons are in the FOOTER. A user who imports from the footer sees
+    absolutely no feedback for the entire minute.
+  * Errors are counted but never explained - "3 failed" with no indication of
+    which rows or why.
+Risk / Impact: Half-imported timesheets that look complete. Users repeatedly
+  clicking Import because nothing appeared to happen.
+Recommended Fix:
+  1. Batch: supabase.from("entries").upsert(rows, {onConflict:"user_id,date"}).
+     One call. This alone fixes the duration, the partial-write window and most
+     of the UX problem.
+  2. Show progress in a modal or toast anchored to the viewport, not in a card
+     that may be off-screen.
+  3. Add window.onbeforeunload while any bulk operation is in flight.
+  4. Report failures with row numbers and reasons.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-9  THE TEAM TAB DOWNLOADS EVERY ENTRY IN THE DATABASE, EVERY TIME
+--------------------------------------------------------------------------------
+Issue: renderTeam() issues `supabase.from("entries").select("*")` with no date
+  filter, no column projection and no pagination, then discards everything
+  outside the current month in JavaScript.
+Severity: High   Category: Performance / Scalability / Data exposure
+Location: index.html:5433-5439
+Steps to Reproduce: Open the Team tab. Observe the request. Today it returns
+  all 345 rows to render 8 people's current month.
+Expected: `select("user_id,date,clock_in,clock_out,type")
+  .gte("date", monthStart).lte("date", monthEnd)`.
+Actual: Full table download, re-run on every tab click, with no caching.
+Risk / Impact:
+  * Scaling: 20 employees x 3 years ~= 15,000 rows, several MB, on a phone, on
+    every tab visit.
+  * CORRECTNESS: PostgREST applies a server-side row cap. If the project's
+    max-rows is ever set (Supabase does enforce caps on some plans and can
+    change the default), the query silently truncates and the Team tab reports
+    UNDERSTATED hours for whoever falls past the cutoff - with no error. A
+    silently wrong roster is worse than a slow one.
+  * The same unbounded pattern appears in the bulk-apply pre-check (:5344).
+Recommended Fix: Add the date range and the column list. Add
+  `.range(0, N)` with explicit paging, or better, move the roster to a
+  SECURITY DEFINER RPC that aggregates in Postgres and returns 8 rows instead of
+  15,000. That also fixes the duplicated hours logic noted in A-4.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-10  MOBILE DATA TABLES LOSE THEIR SEMANTICS FOR SCREEN READERS
+--------------------------------------------------------------------------------
+Issue: Below 700px, `.responsive-cards` sets display:block on table, tbody, tr
+  and td, and display:none on thead. Setting display:block on a table removes
+  its table role from the accessibility tree. Column names survive only as CSS
+  `content: attr(data-label)` on a ::before pseudo-element.
+Severity: High   Category: Accessibility (WCAG 1.3.1 Info and Relationships)
+Location: index.html:728-765
+Steps to Reproduce (CONFIRMED by measuring computed style at 390px):
+  table display = "block", thead display = "none".
+Expected: Either the table role is preserved, or each cell carries its label in
+  real text.
+Actual: A screen reader user on a phone hears "Aug 12 2026, Mon, 8:00 AM,
+  4:30 PM, 8h 30m, 8h, ..." with no column names at all. Generated content in
+  ::before is not reliably announced by any major screen reader, and never by
+  braille displays.
+Risk / Impact: The Log, the On Time table, the Monthly and Yearly tables and
+  the entire Admin activity log are unusable on mobile with assistive tech.
+  This is the primary interface - the app is mobile-first.
+Recommended Fix: Put the label in the DOM rather than in CSS:
+    <td data-label="Worked"><span class="cell-label">Worked</span>8h 30m</td>
+  with .cell-label visually styled the same way ::before is today. Or keep the
+  visual card layout and add `role="table"/"row"/"cell"` back explicitly. Or use
+  a definition-list structure below 700px. Test with VoiceOver on iOS - that is
+  the realistic user.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-11  SYSTEMATIC COLOUR-CONTRAST FAILURES IN SECONDARY TEXT
+--------------------------------------------------------------------------------
+Issue: The `--muted-2` token (#8B968F light / #7D8D87 dark) is used for a large
+  class of small informational text and does not meet WCAG AA anywhere.
+Severity: High   Category: Accessibility (WCAG 1.4.3 Contrast Minimum)
+Location: CSS token :root --muted-2 (index.html:47); consumers include
+  .stat-detail, .foot-note, .copyright, .settings-hint, .filter-count,
+  .bn-clock-label, .team-email, .admin-user-meta, .audit-detail, .periods-empty,
+  .bn-item (inactive), .bar-value.bar-empty, .search-field svg
+Steps to Reproduce (CONFIRMED - measured in-browser, computed colours):
+    .stat-detail      11.5px           3.06:1   (needs 4.5:1)
+    .settings-hint    11.5px           3.06:1
+    .filter-count     11.5px           3.06:1
+    .bn-clock-label   10px             3.06:1
+    .foot-note        11.5px           2.74:1
+    .copyright        10.5px @ .75op   2.06:1
+  Calculated additionally: dark mode --muted-2 on --card = 4.14:1 (also fails).
+  Small bold badge text: .pill.excused 4.07:1, .pill.over 4.36:1,
+  .audit-action.a-admin 4.18:1 - all below 4.5:1 and none large enough to
+  qualify for the 3:1 large-text allowance (which needs 18.66px bold).
+Expected: >= 4.5:1 for text under 18.66px bold / 24px regular.
+Actual: 2.06:1 to 4.4:1 across a dozen classes in both themes.
+Risk / Impact: This text carries real meaning - "0 of 21 days used", "Showing
+  12 of 340", "3 admins", the working-hours explanation, every helper hint that
+  explains what a control does. Users with low vision, and anyone on a phone in
+  daylight, cannot read it. In many jurisdictions an HR tool is subject to
+  accessibility procurement requirements; this would fail an audit outright.
+Recommended Fix:
+  * Darken --muted-2 to about #5F6B65 (light) and lighten to about #A9B7B1
+    (dark). Both clear 4.5:1 while preserving the visual hierarchy.
+  * Remove the opacity:.75 on .copyright - stack opacity on top of an already
+    low-contrast colour and you land at 2:1.
+  * Bump the badge/pill foregrounds (--excused, --positive, --gold-deep) or
+    darken their backgrounds.
+  * Add an automated contrast check to the existing test suite so this cannot
+    regress; the harness already computes styles in a real browser.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-12  PRESSING Ctrl+P PRINTS A BLANK PAGE
+--------------------------------------------------------------------------------
+Issue: The print stylesheet unconditionally hides header, main and footer, and
+  shows only #printArea. #printArea is populated only when the in-app "Print
+  Report" button is clicked.
+Severity: High   Category: Bug / UX
+Location: index.html:807-810 (@media print), :3979-4057 (buildPrintReport)
+Steps to Reproduce:
+  1. Sign in. Do not click Print Report.
+  2. Press Ctrl+P (or Cmd+P, or the browser menu, or share-to-print on mobile).
+Expected: Something useful prints, or the user is told to use Print Report.
+Actual: A blank page. Users trying the obvious thing conclude printing is
+  broken. Secondarily, once Print Report HAS been used, #printArea retains that
+  report forever, so a later Ctrl+P silently prints a stale report for a period
+  the user is no longer looking at - which is arguably worse than blank.
+Risk / Impact: Printing is a core workflow (the report has signature lines).
+  Silently printing the wrong month for signature is a real hazard.
+Recommended Fix: Add a `beforeprint` listener that populates #printArea from
+  the current filters if it is empty, and an `afterprint` listener that clears
+  it. Alternatively render a permanent print view that always tracks the
+  current filter state.
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-13  THE STREAK COUNTER RESETS TO ZERO EVERY MORNING
+--------------------------------------------------------------------------------
+Issue: The streak scan starts at today. If today is a scheduled workday with no
+  entry - the normal state before the first punch - it breaks immediately and
+  returns 0. The same happens all day while clocked in but not out, because
+  workedMin is null.
+Severity: High   Category: Business Logic / UX
+Location: index.html:3341-3354
+Steps to Reproduce (CONFIRMED against the shipped loop):
+  Four consecutive logged workdays. Evaluated on the last logged day: streak 4.
+  Evaluated the next working morning before clocking in: streak 0.
+Expected: The streak reflects completed days. Today, still in progress, should
+  not break it.
+Actual: A user with a 40-day record sees "Current Streak: 0" every morning and
+  for the whole working day until they clock out.
+Risk / Impact: The card is a motivational feature that actively demotivates -
+  it tells the user their streak is gone precisely when they open the app to
+  start the day. Users will also reasonably conclude the app lost their data.
+Recommended Fix: Start the scan at the most recent COMPLETED scheduled workday
+  (skip today if it has no clock-out yet) and label it "Current Streak: 12 days
+  - clock out today to make it 13."
+Priority: P1
+
+--------------------------------------------------------------------------------
+H-14  ANNUAL LEAVE IS CHARGED FOR WEEKENDS AND NON-WORKING DAYS
+--------------------------------------------------------------------------------
+Issue: renderLeaveBalance counts EVERY entry of type "leave" in the calendar
+  year as one full day, with no check that the day was a scheduled workday.
+  "Apply to Everyone" deliberately writes every calendar day in its range.
+Severity: High   Category: Business Logic
+Location: index.html:3387-3413 (renderLeaveBalance), :5300-5308 (bulk date scan)
+Steps to Reproduce (CONFIRMED):
+  Apply "Annual Leave" for Sun 9 Aug - Sat 15 Aug via Team & Access.
+  MEASURED: 7 days deducted from entitlement; only 5 are scheduled workdays
+  (workDays = [0,1,2,3,4]). 2 days off are billed against the employee.
+Expected: 5 days deducted.
+Actual: 7. The employee loses 2 days of statutory entitlement per such range.
+Risk / Impact: Direct, quantifiable harm to employees. Over a year of holidays
+  and leave blocks this compounds into several wrongly-deducted days per person,
+  and the balance shown ("14d remaining") is the number people plan around.
+  Employment-law exposure in most jurisdictions.
+Recommended Fix:
+  * In renderLeaveBalance, count only days where isScheduled(e.date) is true.
+  * In the bulk range scan, skip non-working days for leave-type entries (keep
+    all calendar days only for public holidays, where marking the weekend is
+    harmless).
+  * Show the working: "12 of 21 days used - 9 remaining (weekends excluded)".
+  * Note the entitlement is also not pro-rated for a mid-year joiner and does
+    not carry over. Both need product decisions.
+Priority: P1
+
+
+================================================================================
+SECTION 5 - MEDIUM-PRIORITY BUGS (P2)
+================================================================================
+
+M-1  "All Months" silently reverts to the current month
+     CONFIRMED. populateFilters ends with
+       mSel.value = mPrev && mKeys.indexOf(mPrev) !== -1 ? mPrev : logDefaultMonth;
+     mKeys only ever contains "YYYY-MM" keys, never "all". So when the user has
+     selected All Months, indexOf returns -1 and the value falls through to the
+     current month. Reproduced with the shipped expression:
+        selection "all"     -> "2026-08"  (overridden)
+        selection "2026-07" -> "2026-07"  (kept)
+     renderAll() runs after every add, edit, delete and import, so the filter
+     snaps back constantly. Worse, the "Clear" button (index.html:4647) sets
+     both selects to "all" and then immediately calls populateFilters(), which
+     undoes half of its own work - Clear does not clear.
+     Location: index.html:3073-3075, :3132-3134, :4647-4658
+     Fix: treat "all" as a valid previous value:
+        mSel.value = (mPrev === "all" || mKeys.indexOf(mPrev) !== -1) ? mPrev : logDefaultMonth;
+     Severity: Medium  Category: Bug/UX  Priority: P2
+
+M-2  The filter count always claims a filter is active
+     anyFilterActive() returns true whenever the year filter is not "all" - but
+     the year filter DEFAULTS to the current year. So the log always reads
+     "Showing 18 of 340" instead of "340 days logged", implying the user has
+     narrowed something when they have not touched anything.
+     Location: index.html:3172-3175, :3508-3511
+     Fix: compare against the defaults, not against "all".
+     Severity: Medium  Category: UX  Priority: P2
+
+M-3  Backup banner tells users their data is browser-only - it is not
+     "This data lives only in this browser, so clearing site data would lose
+     it." That was true before the Supabase migration. It is now false, and the
+     footer 12 lines away says the opposite: "Saved to your account - accessible
+     from any device you sign in on."
+     Location: index.html:3957-3965 vs :2023
+     Impact: Directly contradictory copy in one product. Users will either
+     distrust the app or take unnecessary manual backups out of fear.
+     Fix: rewrite to "Export a copy so you have your own record" and drop the
+     data-loss claim.
+     Severity: Medium  Category: UX/Content  Priority: P2
+
+M-4  HTML attribute injection via a seasonal-period name
+     CONFIRMED. escapeHtml() is built on textContent -> innerHTML, which escapes
+     &, < and > but NOT quotes. Measured: input `x" onfocus="ALERT" a="` comes
+     back unchanged. periodRowHtml() interpolates the period name straight into
+     value="..." (index.html:2781), so a crafted name breaks out of the
+     attribute and injects an event handler.
+     Reachable by: an admin naming a period, or an admin importing a JSON backup
+     and accepting "use these settings too" (index.html:4996) - an attacker-
+     supplied backup file is a realistic delivery vector, and the victim is by
+     definition an admin.
+     Impact: script execution in an admin session with access to the Supabase
+     tokens in localStorage. Scope is limited (admin -> own session) which is
+     why this is Medium and not Critical, but the primitive is real.
+     Fix: extend escapeHtml to replace " with &quot; and ' with &#39;. Better,
+     stop building this row with string concatenation - build it with
+     createElement and assign .value as a property.
+     Severity: Medium  Category: Security (XSS)  Priority: P2
+
+M-5  Bidirectional-text control characters are not stripped from notes
+     escapeHtml passes U+202E (RIGHT-TO-LEFT OVERRIDE) and friends through
+     untouched. A note containing one visually reverses the rest of the line in
+     the Log table AND in the printed, signed report. Because the report is a
+     document someone signs, this is a spoofing vector, not just a rendering
+     quirk.
+     Location: index.html:2494-2498; consumers :3543, :3915, :4049
+     Fix: strip /[‪-‮⁦-⁩‎‏]/g from note text on
+     write and on render.
+     Severity: Medium  Category: Security/Data integrity  Priority: P2
+
+M-6  Bottom nav keeps Admin and Team buttons after an admin self-demotes
+     CONFIRMED. layoutBottomNav() builds its item list from `order` and appends
+     those into the visible slots - but never moves de-scoped items back to
+     #bnItemPool. Measured after running the admin layout then the non-admin
+     layout: team and admin are still in the visible nav, and the slot counts
+     go lopsided (left 2, right 4), breaking the centring the whole algorithm
+     exists to guarantee.
+     Tapping them clicks the (hidden) real tab button, which fires renderAdmin()
+     -> the RPC raises "Only admins can..." -> an error toast.
+     Location: index.html:4528-4553, :5397-5402
+     Fix: move every .bn-item not in `order` back into #bnItemPool first.
+     Severity: Medium  Category: Bug  Priority: P2
+
+M-7  The tab widget exposes no ARIA state
+     CONFIRMED by inspection: tab button role=null, aria-selected=null, tablist
+     role=null, panel role=null. The active tab is conveyed by a CSS class only.
+     The same applies to .sub-tab-btn and .bn-item.
+     Impact: a screen reader user cannot tell which of six tabs is active, and
+     gets no arrow-key navigation. WCAG 4.1.2 Name, Role, Value.
+     Location: index.html:1626-1640, :2069-2093; handlers :4555-4602
+     Fix: role="tablist"/"tab"/"tabpanel", aria-selected, aria-controls,
+     aria-labelledby, roving tabindex and arrow-key handling.
+     Severity: Medium  Category: Accessibility  Priority: P2
+
+M-8  Charts have no accessible name and no text alternative
+     CONFIRMED: each chart svg carries role="img" but no aria-label and no
+     direct <title> child. It is announced as an unnamed "image". The per-bar
+     <title> elements are tooltips, not a name for the graphic.
+     Location: index.html:3234 (renderBarChart)
+     Impact: five charts (weekly, monthly, yearly, year-over-year, punctuality)
+     are entirely opaque to assistive tech. WCAG 1.1.1.
+     Fix: add <title> and <desc> as the first children and reference them with
+     aria-labelledby; the underlying figures already exist in adjacent tables
+     for most charts - point to them.
+     Severity: Medium  Category: Accessibility  Priority: P2
+
+M-9  Row action buttons have no context
+     Every log row renders <button>Edit</button><button>Delete</button>. A
+     screen reader user navigating by button hears "Edit, Delete, Edit,
+     Delete..." with no way to tell which day. The Delete is destructive.
+     Location: index.html:3544
+     Fix: aria-label={"Edit " + fmtDate(e.date)} / {"Delete entry for " + ...}.
+     Severity: Medium  Category: Accessibility  Priority: P2
+
+M-10 Period-editor inputs have no accessible name
+     periodRowHtml emits <label>Name</label><input ...> with no `for` and no
+     wrapping. The labels are orphans. The same pattern appears for "Working
+     Days" (index.html:1424) and "Apply to Everyone" (:1513).
+     Impact: six unlabelled fields per seasonal period. WCAG 3.3.2 / 1.3.1.
+     Fix: generate ids and wire `for`, or wrap the input inside the label. Use
+     <fieldset>/<legend> for the day picker group.
+     Severity: Medium  Category: Accessibility  Priority: P2
+
+M-11 The confirm modal often has no accessible name
+     role="alertdialog" aria-modal="true" is set, but there is no
+     aria-labelledby / aria-describedby, and when opts.title is omitted (Delete
+     this entry?, Replace it?, several others) the dialog has no name at all.
+     Location: index.html:2559
+     Fix: id the title and message and reference them.
+     Severity: Medium  Category: Accessibility  Priority: P2
+
+M-12 Loading states are invisible to assistive tech
+     The skeleton overlays convey "loading" purely visually. No aria-busy, no
+     live region. A screen reader user gets silence, then values appear.
+     Location: index.html:2300-2304, :612-623
+     Fix: aria-busy="true" on the containers plus a polite live region
+     announcing "Loading attendance" / "Loaded".
+     Severity: Medium  Category: Accessibility  Priority: P2
+
+M-13 Calendar day status is conveyed by colour alone
+     Cell background and dot colour encode met/under/excused/open/missing. The
+     accessible name of each cell is just the day number. The `title` carries
+     the type but titles are not announced reliably and are unreachable on
+     touch.
+     Location: index.html:3763-3773, :650-662
+     Impact: WCAG 1.4.1 Use of Colour. Colour-blind users cannot distinguish
+     "met target" green from "under target" teal, which are adjacent hues.
+     Fix: aria-label per cell ("12 August, met target, 8h 30m") and a
+     non-colour indicator (glyph or pattern) in the dot.
+     Severity: Medium  Category: Accessibility  Priority: P2
+
+M-14 Clock punches trust the device clock absolutely
+     nowTimeStr() reads the local device clock. A user can change their phone's
+     time and clock in at any hour they like; the entry is indistinguishable
+     from a real one and the audit log records only the submitted value.
+     Location: index.html:4327-4330, :4363
+     Impact: For a personal tracker, fine. For a system a manager signs off, the
+     punch times are unverifiable. This should be a stated product limitation,
+     or fixed.
+     Fix: derive punch time server-side - a SECURITY DEFINER RPC that stamps
+     now() - and record any client/server skew for review.
+     Severity: Medium  Category: Business Logic / Trust  Priority: P2
+
+M-15 JSON import writes unvalidated objects straight to the database
+     The JSON path passes each imported record to sbUpsertEntry with no
+     normalisation - no date check, no time format check, no type whitelist, no
+     note length limit. Contrast the CSV path, which parses and normalises
+     everything carefully.
+     Location: index.html:5001-5010 vs :4890-4908
+     Impact: a hand-edited or third-party backup permanently corrupts those days
+     (see H-7 for what corruption looks like). Nothing warns the user.
+     Fix: run every imported record through the same parseDateCell /
+     parseTimeCell / parseTypeCell functions the CSV path uses, and report
+     skipped rows.
+     Severity: Medium  Category: Data integrity  Priority: P2
+
+M-16 Import progress is rendered off-screen
+     See H-8. Called out separately because the fix is trivial and the UX cost
+     is high: the Import buttons are in the footer, the progress text is in a
+     card at the top of the page.
+     Location: index.html:4925/4936/4999/5009 (showQcNote) vs :2029 (buttons)
+     Fix: use a toast or a modal progress dialog.
+     Severity: Medium  Category: UX  Priority: P2
+
+M-17 Dismissed reminders and the snoozed backup banner do not persist
+     dismissedReminders is a plain in-memory object and backupSnoozed is a
+     plain boolean. Both reset on reload, so "Dismiss" and "Later" last only
+     until the next refresh. On mobile, where the PWA is frequently reloaded,
+     the banner is effectively undismissable.
+     Location: index.html:2154, :3937, :3470-3473
+     Fix: persist to localStorage with a sensible expiry alongside the existing
+     THEME_KEY / BACKUP_KEY pattern.
+     Severity: Medium  Category: UX  Priority: P2
+
+M-18 Theme preference is applied only after sign-in
+     applyTheme is called inside handleSignedIn (index.html:5842). The auth
+     screen therefore always renders in light mode, and a dark-mode user gets a
+     bright flash on every load and on every sign-out.
+     Fix: apply the stored theme at module scope before first paint.
+     Severity: Medium  Category: UX  Priority: P2
+
+M-19 No pagination anywhere in the Log
+     Every matching entry is rendered as DOM. With the default current-month
+     filter that is ~22 rows; with "All Years" it is everything, built with a
+     per-row innerHTML assignment plus appendChild in a loop. At 5,000+ entries
+     the tab freezes for seconds and mobile memory suffers. The Activity Log
+     hard-caps at 150 rows with no "load more", so older history is simply
+     unreachable through the UI.
+     Location: index.html:3490-3547, :3713 (renderAuditLog limit 150)
+     Fix: virtualise or paginate the Log; add paging to the Activity Log.
+     Severity: Medium  Category: Performance  Priority: P2
+
+M-20 renderAll() re-renders everything after every single change
+     One clock-in triggers populateFilters + renderStats + renderReminder +
+     renderBackupReminder + renderLog + renderCharts, which re-renders every
+     weekly card and five SVG charts - including tabs that are not visible.
+     Location: index.html:3927-3934
+     Fix: render the active tab eagerly and mark the others dirty.
+     Severity: Medium  Category: Performance  Priority: P2
+
+M-21 A 1-second interval runs forever, including on the sign-in screen and in
+     background tabs
+     setInterval(updateLiveClock, 1000) and setInterval(renderReminder, 60000)
+     are started at init and never cleared. The clock ticks while signed out
+     (updating a hidden element) and continues while the tab is hidden.
+     Location: index.html:5873-5875
+     Impact: needless battery drain on mobile, and the app never idles.
+     Fix: gate on document.visibilityState and on sign-in state; use
+     requestAnimationFrame or a visibility-aware interval.
+     Severity: Medium  Category: Performance  Priority: P2
+
+M-22 Password policy is weak and leaked-password protection is off
+     Minimum length is 6 characters (index.html:5131 and the HTML minlength).
+     The Supabase security advisor reports leaked-password protection disabled.
+     Impact: given C-1, a weak password on ANY employee account is a full
+     compromise path.
+     Fix: raise the minimum to 10-12, enable HaveIBeenPwned checking in the
+     Supabase dashboard, and consider requiring MFA for admins.
+     Severity: Medium  Category: Security  Priority: P2
+
+M-23 No security headers and no Content-Security-Policy
+     GitHub Pages serves no CSP, no X-Frame-Options / frame-ancestors, no
+     Referrer-Policy, no Permissions-Policy. The page is framable, so an admin
+     could be clickjacked into "Delete Permanently".
+     Fix: add <meta http-equiv="Content-Security-Policy"> with a strict
+     default-src, script-src 'self', and connect-src limited to the Supabase
+     origin. This also materially reduces the M-4 XSS impact. Note that a
+     meta-tag CSP cannot set frame-ancestors - if clickjacking matters, host
+     behind something that can send real headers.
+     Severity: Medium  Category: Security  Priority: P2
+
+M-24 SECURITY DEFINER trigger functions are exposed as public RPC endpoints
+     The Supabase advisor flags that handle_new_user(), log_entry_change(),
+     log_profile_change() and is_admin() are callable via /rest/v1/rpc/... by
+     the `anon` role. They are trigger functions and will error rather than do
+     damage, but they should not be in the exposed API surface at all.
+     set_updated_at() additionally has a mutable search_path.
+     Fix: REVOKE EXECUTE ON FUNCTION ... FROM anon, authenticated for the four
+     internal functions (triggers run as the definer and are unaffected), and
+     add SET search_path = public to set_updated_at().
+     Severity: Medium  Category: Security hardening  Priority: P2
+
+
+================================================================================
+SECTION 6 - LOW-PRIORITY BUGS (P3)
+================================================================================
+
+L-1  "X of 5 workdays logged" can exceed the denominator. weekAvgDetail compares
+     entries logged this week against settings.workDays.length. Log a Saturday
+     and the card reads "6 of 5 workdays logged".  index.html:3308-3309
+
+L-2  The service worker's comment contradicts its code. It says "Only handle our
+     own shell files; let every Supabase/API call go straight to the network
+     untouched", but the handler filters only on method, not URL - it intercepts
+     every GET including Supabase calls.  sw.js:37-44
+
+L-3  The service worker's offline fallback cannot match the served URL.
+     SHELL_FILES caches "./index.html", but GitHub Pages serves the app at the
+     directory root. A navigation request for "/Attendance-Sheet-/" will not
+     match the cached "/Attendance-Sheet-/index.html" key.  sw.js:14-19
+
+L-4  respondWith can receive undefined. `fetch(req).catch(() => caches.match(req))`
+     resolves to undefined for anything uncached, which surfaces as a generic
+     network error rather than a useful one.  sw.js:41-43
+
+L-5  skipWaiting() + clients.claim() with no prompt. A new worker activates
+     immediately and can serve a shell that does not match the running page.
+     sw.js:25, :34
+
+L-6  #printArea is never cleared after printing, so a stale report lingers in the
+     DOM indefinitely (see also H-12).  index.html:4055
+
+L-7  markBackedUp() fires only on JSON export, not CSV. A user who backs up via
+     CSV keeps being told they have never backed up.  index.html:4675 vs :4679
+
+L-8  The "Fill Standard Hours" button uses settings.standardIn/Out rather than
+     scheduleFor(the selected date). During Ramadan or any seasonal period it
+     fills the wrong times for the date being edited.  index.html:4068-4071
+
+L-9  normalizeSettings does not reject overlapping seasonal periods. The Save
+     handler validates overlaps carefully (index.html:2963-2969) but the import
+     path does not - so an imported backup can create overlaps, after which
+     scheduleFor() silently uses whichever sorts first.  index.html:2203-2218
+
+L-10 The header overflow menu is not a real menu. No role="menu"/"menuitem", no
+     arrow-key navigation, focus is not moved into it on open and not trapped.
+     index.html:1275-1289, :2714-2739
+
+L-11 The head menu repositions on every scroll event with capture:true. Cheap in
+     practice (it checks the open class first) but it fires constantly.
+     index.html:2737-2739
+
+L-12 Toast live regions are created and populated in the same tick. role="alert"
+     / "status" is set before insertion, which most modern screen readers
+     announce, but the robust pattern is a persistent live region that is
+     updated. Fragile.  index.html:2530-2540
+
+L-13 Touch targets below the 44px guideline. Row action buttons 30px (desktop) /
+     34px (mobile); toast close ~24px; calendar cells ~36px at 320px. All clear
+     the 24px WCAG 2.5.8 minimum but fall short of the 44px comfort target for
+     a primarily-mobile app.  index.html:718, :763, :1053-1056, :640-645
+
+L-14 backdrop-filter is unprefixed. Safari below 18 needs
+     -webkit-backdrop-filter, so the modal overlay simply will not blur there.
+     Cosmetic only - the overlay tint still applies.  index.html:1162
+
+L-15 Two console.error calls remain in production, and one of them
+     (loadAppSettings) swallows the failure entirely - the announcement banner
+     and registration toggle silently do nothing with no user-visible signal.
+     index.html:2316, :5750
+
+L-16 No maxlength on any input in the entire file (verified: zero occurrences).
+     Related to H-7 but worth listing on its own - the client should not send
+     what the server should not accept.
+
+L-17 README.md is empty (0 bytes) and supabase-schema.sql is not committed. The
+     database schema - policies, functions, triggers, the entire authorisation
+     model - exists only in the live project. See A-3 in Architecture.
+
+
+================================================================================
+SECTION 7 - UX / UI ISSUES
+================================================================================
+
+UX-1  There is no onboarding. A first-time user lands on a dense dashboard with
+      a hero card reading 0h, four zeroed stat cards, and no explanation of what
+      Overtime Bank, Leave Balance or the "Today" seal mean. The first-run empty
+      state in the Log is well done and is the only guidance present - it is
+      below the fold on a phone. Recommend a 3-step first-run overlay: confirm
+      your schedule (see H-4), clock in, see your first day.
+
+UX-2  "Overtime Bank" is undefined terminology. It is signed monthly diff versus
+      target, but nothing says so, it excludes non-Regular days (C-4), and its
+      subtitle just repeats the month name. Users will read it as accrued
+      bankable overtime, which it is not.
+
+UX-3  Two different mental models for schedules. "Standard Start/End" plus
+      "Target Hours" can disagree (08:00-16:00 is 8h; set target to 7h and the
+      app happily flags you as leaving early while telling you that you met
+      target). Nothing reconciles or warns about the mismatch.
+
+UX-4  The Settings gear is buried in a three-dot overflow menu, and it is the
+      only route to the single most important configuration in the product.
+      For non-admins it is absent entirely with no explanation (H-4).
+
+UX-5  Settings and Team & Access open as inline cards near the top of the page
+      rather than as a modal or route. On a phone the user is scrolled into a
+      long form with the rest of the app still below it, and "Close" is at the
+      bottom. There is also no unsaved-changes guard - closing discards silently
+      (the code comments acknowledge this is intentional; it still surprises).
+
+UX-6  No undo anywhere. Delete entry, bulk delete, Clear All, Apply to Everyone
+      and Delete User are all immediate and permanent. Confirmation dialogs are
+      good (Clear All is correctly two-step, danger dialogs correctly default
+      focus to Cancel), but confirmation is not the same as recoverability.
+
+UX-7  Success feedback is inconsistent. Some actions show a toast, some write to
+      the qc-note, some just re-render silently. Saving the entry form, for
+      instance, produces no confirmation at all - the form resets and the row
+      appears, which is inferable but not stated.
+
+UX-8  Error messages leak raw backend text. Repeated pattern:
+      showToast("Couldn't save that entry: " + (err.message || err)). Users see
+      PostgREST strings such as 'new row violates row-level security policy for
+      table "entries"'. Map known codes to human sentences; the 23505 duplicate
+      case is already handled well and shows what good looks like.
+
+UX-9  Print Report silently uses whatever the Log filters happen to be. There is
+      no preview and no statement of the covered period before the browser
+      dialog opens. Combined with H-12's stale #printArea this is easy to get
+      wrong on a signed document.
+
+UX-10 The viewer switcher is a bare <select> in the header with the label
+      "Viewing". For an admin it is the single most consequential control in the
+      app - it decides whose record every subsequent action writes to - and it
+      has the visual weight of a filter. With H-1 unfixed there is no banner
+      either.
+
+UX-11 The Team roster is not sortable, filterable or searchable, shows only the
+      current month, and displays no target or overtime (the code comments
+      explain why). For a manager this is the primary screen and it cannot
+      answer "who is under target this month?".
+
+UX-12 "Apply to everyone" appears twice with different meanings - a checkbox in
+      Schedule Settings (overwrite everyone's schedule) and a button in Team &
+      Access (write an entry for everyone). Both are irreversible bulk actions
+      with similar names in adjacent cards.
+
+UX-13 The seal shrinks its text below 12px for anything over 6 characters
+      ("Clocked in", "Not logged", "Public Holiday"). Combined with the
+      low-contrast palette this is the hardest-to-read element on the page.
+
+UX-14 Charts have no empty-state guidance beyond "Nothing to chart yet." and no
+      axis labels or gridlines - only a dashed target line explained in a legend
+      below.
+
+UX-15 The Trends tab merges three sub-views with three different filter bars
+      that swap in and out as you switch sub-tabs. Filter state is not shared,
+      so moving Weekly -> Monthly -> Weekly can land you on a different period
+      than you left.
+
+UX-16 Excellent, worth preserving: the danger-dialog focus default on Cancel;
+      the Enter-key handling that respects which button has focus; the "which
+      date order is this?" CSV prompt; the last-admin guard messaging; the
+      first-run empty state; and the honesty of the seasonal-hours hint about
+      moon sighting.
+
+
+================================================================================
+SECTION 8 - MOBILE / RESPONSIVE FINDINGS
+================================================================================
+
+Breakpoints in use: 760px (bottom nav on, tabs off, stats 2-up), 700px (tables
+become cards), 480px (form grid 1-up, modal buttons stack), 420px (stats 1-up),
+340px (bottom nav type scale).
+
+MOB-1  The sticky clock bar never appears at ANY width (H-6). Above 760px the
+       bottom nav is also hidden, so tablet and desktop users have no clock
+       control once scrolled.
+
+MOB-2  Mobile tables lose their semantics (H-10). Visually the card layout is
+       good; structurally it is a regression.
+
+MOB-3  No landscape handling. manifest.json requests "portrait-primary", but
+       that is advisory in a browser. In landscape on a phone (~390px tall) the
+       fixed bottom nav plus its raised clock button consumes ~108px of a 390px
+       viewport - roughly a quarter of the screen. There is no
+       (orientation: landscape) rule anywhere.
+
+MOB-4  The bottom nav at 320px with an admin's six items gives each slot roughly
+       43px with 9px labels. It fits, but "Calendar" and "On Time" are at the
+       edge of legibility, and 9px text at --muted-2 fails contrast (H-11).
+
+MOB-5  Safe-area handling is partial. The bottom nav correctly pads with
+       env(safe-area-inset-bottom), and body/html get 108px of clearance. But
+       the toast stack (bottom:18px/12px) and the sticky clock (bottom:14px)
+       do not account for the home indicator, so toasts can sit under it on
+       notched iPhones.
+
+MOB-6  Native date/time inputs. Extensive, well-documented work has gone into
+       this (the 170px floor, the 480px single-column rule, min-height rather
+       than fixed height). This looks solid. Not independently re-verified on
+       real iOS Safari in this audit - the existing tests/mobile suite covers
+       four widths and should be trusted here.
+
+MOB-7  The mobile keyboard is not accounted for. Focusing the note field on a
+       phone raises the keyboard over the fixed bottom nav and the form actions.
+       No scroll-into-view on focus and no visualViewport handling.
+
+MOB-8  Tapping a bottom-nav item scrolls instantly to #tabContentCard, which is
+       good, but the horizontal tab bar is display:none at that width - so on
+       mobile there is no way to reach a tab that is not in the bottom nav.
+       Today every tab is present, so this is latent rather than active.
+
+MOB-9  Horizontal overflow: none found. Tables are wrapped in overflow-x:auto,
+       charts scale by viewBox, filter bars wrap, and long names use
+       overflow-wrap:anywhere. This is genuinely well handled.
+
+MOB-10 The 1-second clock interval (M-21) runs while the app is backgrounded on
+       mobile, which is the worst place for it.
+
+MOB-11 Bulk operations on mobile are especially exposed to H-8: a 60-second
+       sequential import on a phone that may sleep, switch networks, or be
+       backgrounded, with no resume and no unload guard.
+
+
+================================================================================
+SECTION 9 - ACCESSIBILITY FINDINGS
+================================================================================
+
+Summary: the app has clearly had SOME accessibility attention - the modal focus
+trap is genuinely well built, :focus-visible outlines are defined globally,
+prefers-reduced-motion is respected in two places, aria-haspopup/aria-expanded
+are wired on the overflow menu, aria-hidden is applied to the background while a
+modal is open, and decorative SVGs are unlabelled correctly. But the composite
+widgets, the data tables and the colour palette all fail.
+
+Estimated WCAG 2.1 AA conformance: FAIL, on at least six success criteria.
+
+CONFIRMED FAILURES
+  A11Y-1  1.4.3 Contrast              H-11. Measured 2.06:1 - 4.4:1 across
+                                      a dozen classes, both themes.
+  A11Y-2  1.3.1 Info & Relationships  H-10. Mobile tables lose table semantics;
+                                      column names live only in CSS.
+  A11Y-3  4.1.2 Name, Role, Value     M-7. Tabs have no role and no
+                                      aria-selected. Also the bottom nav and
+                                      sub-tabs.
+  A11Y-4  1.1.1 Non-text Content      M-8. Five charts announced as unnamed
+                                      images with no alternative.
+  A11Y-5  3.3.2 Labels or Instructions M-10. Seasonal-period inputs, the day
+                                      picker group and "Apply to Everyone" have
+                                      orphan labels with no association.
+  A11Y-6  1.4.1 Use of Colour          M-13. Calendar status, log row tinting
+                                      and chart bar colours are colour-only.
+                                      (Log rows do also carry a text pill, which
+                                      partially mitigates.)
+  A11Y-7  4.1.2 / 1.3.1                M-9. "Edit"/"Delete" buttons repeated per
+                                      row with no distinguishing name.
+  A11Y-8  4.1.3 Status Messages        M-12. Loading states are silent; toasts
+                                      use a fragile live-region pattern (L-12).
+
+ADDITIONAL OBSERVATIONS
+  * The bottom-nav clock button has a static aria-label "Clock in or out". Its
+    action changes between in and out; a screen reader user cannot tell which
+    it will do. The visible label ("Clock In"/"Clock Out") is a sibling span
+    outside the button.  index.html:2056-2059, :4429-4441
+  * Heading hierarchy is sound: one h1, h2 per card, h3 in Admin.
+  * Keyboard navigation works throughout - all interactive elements are real
+    buttons, inputs or selects. No div-with-onclick anywhere. Good.
+  * No keyboard traps found. The modal trap correctly releases and restores
+    focus to the trigger.
+  * The visually-hidden day-picker checkboxes remain focusable and have a
+    styled :focus-visible state on their labels. Correctly done.
+  * Escape closes the modal and the overflow menu. Good.
+  * Browser zoom to 200% and 400%: no horizontal scroll observed; the layout
+    reflows sensibly. Good.
+  * Reduced motion is respected globally and the seal's pulse is explicitly
+    disabled. Good.
+  * The app is English-only with lang="en" and no dir handling - see Section 12.
+
+
+================================================================================
+SECTION 10 - SECURITY FINDINGS
+================================================================================
+
+S-1  CREDENTIALS COMMITTED TO A PUBLIC REPOSITORY
+     Location: index.html lines 2105 and 2106 hold the Supabase project URL and
+     the publishable (anon) key as string literals in a file served publicly via
+     GitHub Pages and committed to a public repository. Values are deliberately
+     not reproduced in this report.
+     Assessment: the anon key is designed to be public - Supabase's model is
+     that it carries no authority beyond what RLS permits. So this is NOT in
+     itself a vulnerability. It becomes one the moment RLS is wrong, which it
+     currently is (C-1): the key plus any employee login is a full compromise.
+     It also means the project reference is public, so the auth endpoints are
+     directly reachable for credential stuffing.
+     Recommendation: keep the key public (that is the design) but (a) fix C-1,
+     (b) enable leaked-password protection and consider MFA for admins,
+     (c) rotate the key if you ever suspect the SERVICE ROLE key touched this
+     repo - confirm it never did, (d) configure Supabase Auth rate limits and
+     restrict the allowed redirect URLs, since resetPasswordForEmail is called
+     with redirectTo: window.location.href (index.html:5619) and an unrestricted
+     redirect allowlist would make that an open-redirect for reset tokens.
+
+S-2  Broken access control - privilege escalation. See C-1. CRITICAL.
+
+S-3  Ineffective security control - registration toggle. See H-3.
+
+S-4  Missing server-side validation. See H-7.
+
+S-5  Cross-site scripting via HTML attribute injection. See M-4.
+
+S-6  Client-side-only enforcement of the last-admin rule. The guard that stops
+     the final admin being demoted exists only in the browser
+     (index.html:5248-5254). A direct API call bypasses it and permanently locks
+     the organisation out of role management, the Admin tab, settings
+     administration and user management, with no recovery path short of SQL.
+     Note the equivalent rules for deactivation and deletion ARE enforced
+     server-side inside the RPCs - so the pattern is understood, it just was not
+     applied to role changes. Fix as part of C-1.
+
+S-7  Users can rewrite their own profiles.email. It is a separate column from
+     auth.users.email and is granted UPDATE to authenticated. Changing it does
+     not affect login, but profiles.email is what admin_list_users, the Team
+     tab, the Team & Access list and every audit_log row display. A user can
+     therefore impersonate a colleague's identity throughout the admin UI and
+     in the audit trail. Fixed by the same column-grant revocation as C-1.
+
+S-8  Session tokens in localStorage. The Supabase default. Any XSS (M-4) yields
+     the access and refresh tokens, and the refresh token grants long-lived
+     access from anywhere. Mitigate with a CSP (M-23); note that a strict CSP is
+     currently impossible because the app loads its only dependency from a
+     third-party CDN (C-2) - vendoring it enables script-src 'self'.
+
+S-9  No CSP, no frame-ancestors, no Referrer-Policy. See M-23. The app is
+     framable, so an admin can be clickjacked into a destructive action.
+
+S-10 CORS is Supabase-managed and permissive by design (Access-Control-Allow-
+     Origin: *) for the REST API. That is correct for their model - authority
+     comes from the JWT, not the origin - but it means any origin can drive the
+     API with a stolen token.
+
+S-11 Leaked-password protection disabled + 6-character minimum. See M-22.
+
+S-12 Internal SECURITY DEFINER functions exposed as RPCs. See M-24.
+
+S-13 No rate limiting visible on sign-in, registration or password reset beyond
+     Supabase defaults. resetPasswordForEmail is callable in a loop from the UI.
+     The app correctly returns a generic message for password reset ("If an
+     account exists for X...") which avoids enumeration there - but the
+     registration path surfaces Supabase's raw error verbatim
+     (index.html:5149), which typically distinguishes "already registered".
+     That is a user-enumeration oracle.
+
+S-14 Deactivation is not immediate. admin_set_user_active sets banned_until,
+     which blocks future token refresh and new sign-ins, but an already-issued
+     access token stays valid until it expires (up to an hour). A user
+     deactivated for cause retains full access for that window.
+
+S-15 File upload: no true upload surface (imports are read client-side via
+     FileReader, never uploaded). Good. But there is no file-size guard, so a
+     very large JSON or CSV is read entirely into memory - a self-inflicted
+     tab crash rather than a server risk.
+
+S-16 Dependency vulnerabilities: unassessable. There is no package.json, no
+     lockfile and no pinned version for the one runtime dependency - it
+     floats on supabase-js 2.x from a CDN. This is itself the finding: you
+     cannot audit, patch or reproduce your dependency set. See C-2.
+
+S-17 The audit log design is genuinely good and worth protecting: append-only
+     by construction (no INSERT/UPDATE/DELETE policy exists; writes happen only
+     inside SECURITY DEFINER triggers), admin-read-only, captures old and new
+     values, logs before cascade deletes, and records the acting admin rather
+     than the affected user. Retain this pattern. Consider adding retention and
+     export, since it currently grows unbounded and is only reachable 150 rows
+     at a time.
+
+
+================================================================================
+SECTION 11 - PERFORMANCE FINDINGS
+================================================================================
+
+P-1  Initial load. One 279KB HTML file (uncompressed; ~55-65KB over gzip),
+     plus a blocking cross-origin ESM fetch that itself pulls the supabase-js
+     dependency graph. Time to interactive is bounded by a third-party CDN
+     round trip you do not control. Vendoring (C-2) removes an entire DNS +
+     TLS + fetch chain from the critical path.
+
+P-2  Icons are unoptimised: icon-512.png is 78KB and apple-touch-icon.png is
+     22KB for what is a flat two-colour mark. Both would be a few KB as
+     optimised PNG or SVG. Only matters at install time.
+
+P-3  Unbounded queries. See H-9 (Team tab downloads every entry), plus the bulk
+     pre-check at :5344 and sbFetchEntries with no range. No query in the app
+     uses .range() or .limit() except the audit RPC.
+
+P-4  Sequential writes. See H-8. N round trips where 1 would do.
+
+P-5  Full re-render on every mutation. See M-20.
+
+P-6  Always-on 1-second interval. See M-21.
+
+P-7  No pagination or virtualisation in the Log. See M-19.
+
+SCALE PROJECTION (single user unless noted)
+   10 entries      Instant. No issues.
+   100 entries     Instant. Current real-world scale (345 rows across 8 users).
+   1,000 entries   Log with "All Years" builds ~1,000 rows x 11 cells via
+                   per-row innerHTML: a visible hitch (~0.3-1s). Charts fine.
+                   Team tab now fetches ~1,000 rows to render 8 cards.
+   10,000 entries  Log freezes for several seconds and is unusable on mobile.
+                   Team tab downloads several MB on every visit and is at real
+                   risk of silent truncation by PostgREST's row cap (H-9).
+                   Yearly view summarises 10,000 records synchronously on every
+                   renderAll(). Print report attempts a 10,000-row table.
+   Team of 50 x 3 years (~37,500 rows): the Team tab is not viable at all.
+
+DATABASE
+   * Indexing is adequate for current access patterns: entries has
+     UNIQUE(user_id, date) which serves both the per-user fetch and the
+     ordering. Two audit_log indexes are reported unused.
+   * The performance advisor flags 8 RLS policies that re-evaluate auth.uid()
+     per row. Wrapping as (select auth.uid()) is a mechanical fix that matters
+     once entries grows past a few thousand rows.
+   * app_settings.updated_by has no covering index (trivial, 1 row).
+
+
+================================================================================
+SECTION 12 - ARABIC / RTL FINDINGS
+================================================================================
+
+STATUS: Arabic and RTL are NOT SUPPORTED. There is no i18n layer, no
+translation table, no dir attribute, no [dir="rtl"] CSS rule and no logical
+CSS properties anywhere in the file (verified: zero occurrences of dir= or rtl).
+The document is hardcoded lang="en".
+
+Given the strong Gulf signals in the product (Sunday-Thursday default week,
+Ramadan seasonal hours capped at the statutory 6 hours), Arabic support is a
+likely near-term requirement. These are the specific things that will break.
+
+RTL-1  Layout direction. Every layout uses physical properties - margin-left,
+       padding-left, border-left, left:, text-align:left/right,
+       flex-direction:row. Setting dir="rtl" would mirror text but leave the
+       card accent bars, the reminder banner's 4px left border, the
+       .period-card::before rail, the punctuality rule's left border, the
+       .filter-spacer margin-left:auto and the stat-card top accent all on the
+       wrong side. Migrating to margin-inline-start / border-inline-start /
+       text-align:start is mechanical and should be done before, not after,
+       Arabic strings arrive.
+
+RTL-2  Directional icons. The clock-in arrow points right and clock-out points
+       left; the calendar previous/next chevrons point left/right; the sign-out
+       icon points right. All five encode "forward" as rightward and must be
+       mirrored under RTL.
+
+RTL-3  Mixed Arabic/English text is not isolated. Notes, employee names and
+       emails are rendered without dir="auto" or Unicode isolates. An Arabic
+       note containing an English word, a number or a time will render with
+       punctuation and ordering in the wrong place inside table cells - the
+       classic bidi bug. Cheap fix, worth doing NOW even before Arabic UI:
+       add dir="auto" to .note-cell, .team-name, .team-email, the note inputs
+       and the announcement banner.
+
+RTL-4  Bidi control characters are not stripped (M-5). Under RTL this stops
+       being a rendering quirk and becomes a routine source of scrambled
+       reports.
+
+RTL-5  CALENDAR SYSTEM MISMATCH - the most serious of these. Dates are
+       formatted with toLocaleDateString(undefined, ...), which follows the
+       BROWSER locale. On an ar-SA device that yields Hijri dates. So the Log,
+       the calendar month label, the reminders and the printed report would
+       display Hijri, while <input type="date">, the stored value and every
+       comparison remain Gregorian ISO. A user would see a date in the table
+       that does not match the date they typed. Any Arabic rollout must pick a
+       calendar explicitly (e.g. 'en-GB'/'ar-SA-u-ca-gregory') rather than
+       inheriting the locale.
+
+RTL-6  Digits. Number.toLocaleString() in the admin stats produces Arabic-Indic
+       digits on Arabic locales, while minutesToHoursStr() emits raw Latin
+       digits with "h"/"m" suffixes. The same screen would mix two numeral
+       systems.
+
+RTL-7  Hardcoded English strings. formatTime12 emits "AM"/"PM" literally.
+       DAY_NAMES and DAY_FULL are English arrays. TYPE_LABELS, AUDIT_LABELS and
+       every toast, modal, hint, empty state and error message are English
+       literals inline in the code - roughly 200 strings with no extraction
+       point. This is the bulk of the i18n work and is architectural: it needs a
+       string table before anything else can proceed.
+
+RTL-8  Charts. renderBarChart positions labels left-to-right with
+       text-anchor:end for rotated labels. Under RTL the bar order and the
+       label anchors both need to flip.
+
+RTL-9  Long Arabic text. Arabic strings typically run 20-30% longer than
+       English. The bottom-nav labels (already ellipsised at 9-10px), the stat
+       card labels and the seal are the places that will overflow first.
+
+RTL-10 The layoutBottomNav() left/right slot algorithm is direction-agnostic in
+       its maths, but "left" and "right" would need to swap meaning so the tab
+       order matches reading order.
+
+
+================================================================================
+SECTION 13 - BROWSER COMPATIBILITY
+================================================================================
+
+The app code is conservative ES5-plus-async (no optional chaining, no nullish
+coalescing, no template literals in hot paths - verified: zero occurrences of
+?. or ??). The real constraints come from CSS and platform APIs.
+
+Chrome / Edge (desktop + Android)  - No issues expected. Primary target.
+Firefox (desktop)                  - No issues expected. Note <input type="time">
+                                     renders per-locale, but display goes through
+                                     formatTime12 so this is cosmetic.
+Safari 15.4+ (macOS/iOS)           - Expected to work. :focus-visible, aspect-ratio,
+                                     flex gap and scrollIntoView smooth all landed
+                                     by 15.4.
+Safari below 15.4                  - :focus-visible unsupported: NO visible focus
+                                     ring anywhere. aspect-ratio unsupported:
+                                     calendar cells collapse. Both are real
+                                     accessibility/layout regressions on older iPads
+                                     still in service.
+Safari below 18                    - backdrop-filter unprefixed (L-14): the modal
+                                     overlay does not blur. Cosmetic.
+All browsers, private mode         - localStorage may throw. Handled correctly via
+                                     safeGet/safeSet with a user-facing message.
+                                     Good. But note the SUPABASE CLIENT also uses
+                                     localStorage for the session - if it is
+                                     unavailable the user cannot stay signed in and
+                                     the app's own guard does not cover that.
+iOS standalone PWA                 - The service worker will serve the shell and the
+                                     app will then fail to boot with no error (C-2).
+                                     This is the worst combination of C-2 and is
+                                     also the most likely one to be hit in practice.
+Any browser, print                 - Ctrl+P prints blank (H-12).
+IE11 / legacy                      - Not supported (ES modules). Correct choice.
+
+
+================================================================================
+SECTION 14 - FAILURE & RECOVERY FINDINGS
+================================================================================
+
+F-1  CDN unavailable            -> Total silent failure, no message. C-2. CRITICAL.
+F-2  Offline (installed PWA)    -> Same as F-1. The shell loads, the app does not.
+F-3  Offline (already loaded)   -> Each action fails with a toast carrying the raw
+                                   fetch error. No offline indicator, no queue, no
+                                   retry. A punch made offline is simply lost.
+                                   There is no navigator.onLine handling anywhere.
+F-4  Request times out          -> No timeout is set on any call. The button stays
+                                   in "Saving..." indefinitely; the user cannot
+                                   cancel and will likely force-reload, which for a
+                                   bulk operation leaves partial state (H-8).
+F-5  Server returns an error    -> Surfaced as a toast with the raw message (UX-8).
+                                   Non-destructive and honest, but unhelpful.
+F-6  Server returns bad data    -> Not defended. rowToEntry trusts every field.
+                                   A malformed clock_in propagates into every
+                                   aggregate (H-7).
+F-7  Auth fails / expires       -> onAuthStateChange fires with no session and the
+                                   app returns to sign-in. Correct behaviour - but
+                                   any unsaved form input is lost with no warning,
+                                   and mid-bulk-operation this abandons the run.
+F-8  Authorisation fails        -> RLS denial surfaces as a raw PostgREST string.
+                                   For a non-admin who somehow reaches a settings
+                                   save this reads as a bug rather than a
+                                   permission boundary.
+F-9  Refresh during submit      -> No beforeunload guard. Partial writes for bulk
+                                   operations; a single entry is atomic so that
+                                   case is safe.
+F-10 Page closed mid-operation  -> Same. Silent partial completion.
+F-11 Two tabs open              -> Both hold independent in-memory `entries`
+                                   arrays with no cross-tab sync (no storage
+                                   event listener, no realtime subscription).
+                                   Tab A deletes an entry; tab B still shows it,
+                                   and editing it there produces a confusing
+                                   failure. Signing out in tab A does correctly
+                                   sign out tab B (Supabase broadcasts it), which
+                                   then discards tab B's unsaved work silently.
+F-12 Two admins act at once     -> Last write wins with no conflict detection.
+                                   updated_at exists on entries but is never
+                                   compared. Admin A and admin B editing the same
+                                   employee's day silently overwrite each other.
+F-13 Network reconnects         -> No recovery, no refetch, no "reconnected"
+                                   signal. The user must reload manually.
+
+The consistent theme: failures are non-destructive and honest at the single-entry
+level (good), but the app has no concept of connectivity, no retry, no timeout,
+no cross-tab awareness and no protection for multi-step operations.
+
+
+================================================================================
+SECTION 15 - EDGE CASES EXAMINED
+================================================================================
+
+TESTED / REASONED - HANDLED CORRECTLY
+  * Duplicate date on insert: UNIQUE(user_id,date) enforced in the DB, 23505
+    mapped to a clear message, and the client offers "Replace it?" first. Good.
+  * CSV quoting: quoted fields, escaped double-quotes, embedded newlines, CRLF
+    and the Excel BOM are all handled. Genuinely thorough.
+  * Ambiguous D/M vs M/D dates: detected, resolved once via a dialog rather than
+    guessed per row. Exemplary.
+  * Excel day-fraction times ("0.354"), compact times ("0800", "800"), bare
+    hours ("16"), period separators ("8.00 AM"): all parsed.
+  * Leap years: daysInMonth uses new Date(y, mo, 0), which is correct.
+  * DST transitions: date iteration uses setDate(), which is DST-safe. No
+    infinite loops possible.
+  * Month/year rollover in the calendar: setMonth() handles Dec->Jan correctly.
+  * Empty settings / missing settings row: normalizeSettings falls back
+    defensively and clamps every numeric field to a sane range.
+  * Legacy backup formats: v1 (bare array), v2 ({entries}) and v3 ({entries,
+    settings}) all import; the decimal targetHours -> targetMin migration is
+    correct and the comment explaining why it checks `raw` not `out` is right.
+  * Runaway loops: every date scan is capped (400 iterations) AND correctly
+    distinguishes "hit the cap" from "reached the end", refusing to proceed on
+    an undercount rather than silently applying to fewer days. Well done.
+  * Bulk caps: 62 workdays for a range, 500 entries for apply-to-everyone.
+  * Self-lockout: cannot delete your own account, cannot deactivate yourself,
+    cannot delete or deactivate the last admin - all enforced SERVER-SIDE in the
+    RPCs. (Role demotion is the exception - see S-6.)
+  * Zero / negative / decimal settings values: validated and clamped on save.
+  * Empty working-days selection: rejected with a clear message.
+  * Overlapping seasonal periods: rejected on save (but not on import - L-9).
+
+EDGE CASES NOT HANDLED
+  E-1   Clock out before clock in -> silent 16h shift (H-5).
+  E-2   Clock in == clock out -> 0h worked, counts as a logged day, drags the
+        average down with no warning.
+  E-3   A Regular day with no times -> inflates Target, contributes no Diff (C-4).
+  E-4   Leave on a non-working day -> charged against entitlement (H-14).
+  E-5   A date far in the future or the distant past -> accepted; permanently
+        pollutes the Year filter and the year-over-year chart (H-7).
+  E-6   type set to an unknown string -> "undefined" rendered in the Log,
+        Calendar tooltip, print report and audit detail (H-7).
+  E-7   A 10MB note -> accepted, then loaded on every page view (H-7, L-16).
+  E-8   Working days changed retroactively -> every historical day is
+        recalculated. The hint does say "Changes apply to all calculations,
+        including past entries", which is honest, but a year of history silently
+        re-scoring is a large consequence for a checkbox.
+  E-9   Seasonal target vs seasonal start/end mismatch -> not validated
+        (a 6h target with 08:00-16:00 hours is accepted).
+  E-10  Annual leave entitlement changed mid-year -> balance retroactively
+        recomputed; no pro-rating for joiners, no carry-over.
+  E-11  A deactivated user still appears in the viewer switcher, the Team tab
+        and "Apply to Everyone" totals, with no visual distinction (only the
+        Admin tab marks them).
+  E-12  A user with zero entries in the Team tab -> renders as 0 / 0h / "—",
+        indistinguishable from a user who genuinely worked no hours.
+  E-13  Exactly one team member -> "Apply to everyone" still offers to
+        overwrite, pluralisation is handled, no issue.
+  E-14  A week spanning a month boundary -> weekly cards are grouped by week key
+        so they correctly span months, but the month filter will show a partial
+        week without indicating it is partial.
+  E-15  Two entries for the same date across different users in bulk apply ->
+        handled correctly via the userId|date map.
+  E-16  Timezone travel: an employee flying across zones has punches recorded
+        against the device's local date, so a day can be duplicated or skipped
+        entirely at the boundary. Not handled and not detectable.
+
+
+================================================================================
+SECTION 16 - BUSINESS LOGIC ISSUES
+================================================================================
+
+B-1  Aggregates do not reconcile; missed days invisible; WFH excluded. C-4.
+B-2  Reversed times become a silent overnight shift. H-5.
+B-3  Streak resets every morning. H-13.
+B-4  Leave charged for non-working days. H-14.
+B-5  Half-day target reaches the row but never the aggregate. C-4(d).
+
+B-6  Lateness is provisional but presented as final.
+     CONFIRMED. With lateOnlyIfShort on (the default), a day that is still open
+     is treated as forgiven: arriving 11:30 against an 08:00 start measures
+     lateMin = 0 while clocked in, and lateMin = 210 once clocked out 3.5h
+     short. So the On Time tab reports a spotless record all day and flips
+     retroactively at clock-out. A manager checking at 2pm sees the wrong
+     answer, and there is nothing marking the figure as provisional.
+     Location: index.html:2450 (the `forgiven` calculation)
+     Fix: show pending days separately - "3 days still in progress, not yet
+     assessed" - rather than counting them as on time.
+
+B-7  Week start is hardcoded to Sunday.
+     weekStartDate() always uses d.getDay(), independent of settings.workDays.
+     Correct for the Sun-Thu default; wrong for a Mon-Fri organisation, where
+     every weekly card straddles two working weeks and the "vs. last week"
+     trend compares mismatched periods.
+     Location: index.html:2478-2482
+     Fix: derive the week start from the first configured working day, or make
+     it an explicit setting.
+
+B-8  Target hours and standard start/end can contradict each other.
+     Nothing validates that standardOut - standardIn is consistent with
+     targetMin. Set 08:00-16:00 with a 7h target and the app simultaneously
+     reports "met target" and "left early". See UX-3.
+
+B-9  Grace period applies to arrival and departure identically.
+     A single graceMin governs both. Most policies treat a late arrival and an
+     early departure differently. Minor, but it is a policy assumption baked in
+     with no way to express the alternative.
+
+B-10 The overtime bank never carries over and never resets explicitly.
+     It is recomputed from the current calendar month every time. There is no
+     accrual, no cap, no payout and no carry-forward - which is fine as a
+     display, but the name "Bank" implies a balance that persists.
+
+B-11 Excused day types are hardcoded.
+     EXCUSED_TYPES = leave, sick, holiday. Business Trip and Training are NOT
+     excused, so a full week of training shows as a full week of missed target.
+     Combined with C-4 (training is also excluded from the average), a training
+     week is doubly misrepresented: it neither counts as worked nor is forgiven.
+     Location: index.html:2123
+     Fix: make excused/counts-as-worked configurable per type.
+
+B-12 No approval workflow. Any user can enter any leave, any hours, any day,
+     retroactively, with no manager approval step and no locked periods. Once a
+     month is signed off, nothing prevents it being edited afterwards - and the
+     print report carries a signature line implying it was. Consider a period
+     lock.
+
+B-13 No tenancy boundary. Every admin sees every user in the database. There is
+     no organisation, department or manager scope anywhere in the schema. Fine
+     for one company; blocking for anything else.
+
+
+================================================================================
+SECTION 17 - ARCHITECTURE / CODE ISSUES
+================================================================================
+
+A-1  A 5,907-line single file.
+     1,173 lines of CSS, ~900 of markup and ~3,800 of JavaScript in one file,
+     against a project convention (CLAUDE.md) of keeping files under 500 lines.
+     Everything works, but: no module boundaries, no way to test a unit without
+     the string-extraction harness in tests/, merge conflicts on every change,
+     and no tree-shaking. The single-file constraint was clearly deliberate
+     (zero-build deployment to GitHub Pages) and that has real value - but it
+     has been outgrown. A minimal build step (esbuild, ~10 lines of config)
+     would preserve single-file OUTPUT while allowing sane source structure,
+     and would also solve the vendoring problem in C-2.
+
+A-2  Business logic and DOM manipulation are fused.
+     computeEntry() and summarize() are pure and testable - good. But
+     renderStats(), renderLog() and renderPunctuality() interleave calculation,
+     formatting and getElementById calls, so the display rules cannot be tested
+     without a browser. The extraction harness in tests/ is a clever workaround
+     for a structural problem rather than a solution to it.
+
+A-3  THE SCHEMA IS NOT IN VERSION CONTROL.
+     supabase-schema.sql is referenced in the app's own error text
+     (index.html:1206) but is not committed. The tables, the 11 RLS policies,
+     the 10 functions and the 5 triggers - the entire authorisation model, the
+     thing that C-1 shows is load-bearing - exist only in the live project.
+     There is no migration history, no review trail and no way to recreate the
+     backend. This is the single largest architectural risk after C-1, because
+     it means security-critical configuration is changed by hand with no
+     review and no rollback.
+     Fix: adopt supabase/migrations, commit the current schema as the baseline,
+     and require every future change to go through a migration file.
+
+A-4  Duplicated business logic.
+     The hours calculation exists twice: computeEntry() (index.html:2421) and
+     again inline in renderTeam() (:5453-5462), where the "only Regular counts"
+     rule and the overnight wrap are re-implemented. Any fix to C-4 must be
+     applied in both places or the Team tab will disagree with every other
+     screen. Similarly, the date-range scan loop is written three times
+     (:4181-4196, :5300-5316) with subtly different rules.
+
+A-5  Magic numbers and hardcoded values.
+     400 (scan cap, twice), 62 (max workdays per range), 500 (bulk cap),
+     150 (audit log limit), 14 (backup reminder days), 360 (Ramadan minutes),
+     700 (profile retry delay), 21 (default leave days), 5 (backup threshold).
+     Most have an explaining comment - which is better than most codebases -
+     but none is configurable and several encode policy, not implementation.
+
+A-6  RAMADAN_DATES is a hardcoded five-year table (2027-2031).
+     After 2031 the "+ Ramadan" button silently stops offering anything and
+     shows an informational toast. This is a documented, dated cliff sitting
+     in the code with no reminder attached.  index.html:2828-2834
+
+A-7  Inconsistent visibility patterns.
+     Three different mechanisms for showing and hiding the same kind of element:
+     .show classes (reminder banners), inline style.display (empty states,
+     filter bars, tabs), and .open classes (cards, accordions). H-1 is a direct
+     consequence of two of them colliding on one element. Standardise.
+
+A-8  Error handling is inconsistent.
+     Some paths toast, some write to qcStatusNote, some console.error and
+     swallow (loadAppSettings, index.html:5750), some set inline auth messages.
+     There is no central error handler and no distinction between "the user did
+     something invalid" and "the backend failed".
+
+A-9  No state management.
+     `entries`, `settings`, `viewedUserId`, `isAdmin`, `isOwnData`, `editingId`,
+     `selectModeActive` and `calendarViewDate` are module-level mutable
+     variables. Every render reads them directly. This is workable at this size
+     but is why H-2 (a background token refresh silently changing viewedUserId)
+     is possible at all - there is no single place that owns "whose data are we
+     looking at" and no way to observe it changing.
+
+A-10 No build, no linting, no CI.
+     No package.json at the root, no eslint, no formatter, no CI workflow. The
+     test suite in tests/ is good and must be run by hand.
+
+A-11 Dead code. The sticky clock bar and its observer (H-6). Also
+     app_settings.default_settings is defined in the schema and never read.
+
+A-12 Positive: the comments are exceptional.
+     Nearly every non-obvious decision carries a comment explaining the failure
+     it was written to prevent - the position:fixed on the head menu escaping
+     overflow:hidden, the min-height rather than fixed height on native
+     date/time controls, the punchInFlight flag surviving the re-enable in
+     updateViewingBanner, the CanvasText/Canvas system colours on the viewer
+     dropdown options, the Enter-key handling in danger dialogs. This is a real
+     asset and should survive any refactor.
+
+
+================================================================================
+SECTION 18 - POTENTIAL RISKS (NOT REPRODUCED)
+================================================================================
+
+Listed separately because these are reasoned from the code and not executed
+end to end. Each should be verified before being scheduled.
+
+PR-1  onAuthStateChange deadlock. Supabase explicitly documents that calling
+      other supabase methods inside the callback can deadlock, because the
+      callback holds the auth lock. handleSignedIn is async and immediately
+      awaits a profiles query (index.html:5805). Would present as an
+      intermittent hang on sign-in. Fix defensively regardless (see H-2).
+
+PR-2  PostgREST row-cap truncation on the Team tab. Depends on the project's
+      db-max-rows setting, which Supabase controls and can change. If it is or
+      becomes set, the Team tab silently under-reports rather than erroring.
+      See H-9. Verify by checking the project's PGRST_DB_MAX_ROWS.
+
+PR-3  SIGNED_IN firing on tab refocus. Some supabase-js 2.x versions re-emit
+      SIGNED_IN when a tab regains visibility. If this build does, H-2's full
+      re-boot happens on every tab switch, not just hourly.
+
+PR-4  iOS Safari native date/time control overflow. Extensive work has gone into
+      preventing this and the tests/mobile suite covers four widths, but the
+      audit did not run on a real iOS device. Re-verify after any form-grid
+      change.
+
+PR-5  Service worker shell mismatch on GitHub Pages. L-3 reasons that the cached
+      "./index.html" key will not match a request for the directory root.
+      Confirm by loading the deployed URL offline and checking whether the shell
+      is served at all.
+
+PR-6  Concurrent bulk operations. Two admins running "Apply to Everyone" over
+      overlapping ranges at the same time will interleave 500 individual writes
+      with no transaction. The end state is undefined. Not reproduced.
+
+
+================================================================================
+SECTION 19 - RECOMMENDED IMPROVEMENTS
+================================================================================
+
+19.1 QUICK WINS  (high value, low effort - most are one-line or one-block)
+--------------------------------------------------------------------------------
+QW-1   Fix the privilege escalation. Three SQL statements. ~10 minutes.
+       Highest value change available in this entire report.        [C-1]
+QW-2   Delete the inline style="display:none" on #viewingOtherBanner.
+       One character-range deletion restores a written safety feature. [H-1]
+QW-3   Filter onAuthStateChange to ignore TOKEN_REFRESHED. Three lines;
+       stops silent state resets and data loss.                     [H-2]
+QW-4   Add `display:flex` to `.sticky-clock.show`, or delete the feature.
+       One line either way.                                          [H-6]
+QW-5   Treat "all" as a valid previous filter value. One expression, twice.
+       Makes the month filter and the Clear button work.             [M-1]
+QW-6   Darken --muted-2 to ~#5F6B65 / lighten to ~#A9B7B1 and drop the
+       .copyright opacity. Two token edits fix a dozen contrast failures. [H-11]
+QW-7   Add the DB CHECK constraints for type, clock times, note length and
+       date range. One migration; closes the whole class of H-7.     [H-7]
+QW-8   Batch the bulk writes with a single array upsert. Turns a 60-second
+       uncancellable loop into one request.                          [H-8]
+QW-9   Add the date filter and column list to the Team tab query.    [H-9]
+QW-10  Add beforeprint/afterprint handlers so Ctrl+P works.          [H-12]
+QW-11  Add aria-label to the row Edit/Delete buttons and to the bottom-nav
+       clock button.                                             [M-9, A11Y]
+QW-12  Add role/aria-selected/aria-controls to the tab widget.       [M-7]
+QW-13  Escape quotes in escapeHtml(). One line; closes the XSS primitive. [M-4]
+QW-14  Fix the backup banner copy that says data is browser-only.    [M-3]
+QW-15  Move the import progress out of #qcStatusNote into a toast.   [M-16]
+QW-16  Apply the stored theme before first paint.                    [M-18]
+QW-17  Count only scheduled workdays toward the leave balance.       [H-14]
+QW-18  Add maxlength to every free-text input.                       [L-16]
+QW-19  Add dir="auto" to note cells, names and note inputs. Fixes mixed
+       Arabic/English today, before any i18n work.                   [RTL-3]
+QW-20  Enable leaked-password protection and raise the minimum length. [M-22]
+QW-21  REVOKE EXECUTE on the four internal SECURITY DEFINER functions and
+       set search_path on set_updated_at().                          [M-24]
+QW-22  Wrap auth.uid() as (select auth.uid()) in all 8 flagged policies. [P-8]
+
+19.2 SHORT TERM  (days)
+--------------------------------------------------------------------------------
+ST-1   Vendor supabase-js, add it to the service worker shell, and add a
+       visible boot-failure message.                                 [C-2]
+ST-2   Make "Apply to Everyone" non-destructive by default: detect days with
+       recorded hours, default to skipping them, name them in the dialog. [C-3]
+ST-3   Fix summarize() so Total - Target = Diff always, and surface excluded
+       days explicitly wherever an aggregate is shown.               [C-4]
+ST-4   Introduce a per-type `countsAsWorked` / `excused` configuration and
+       remove the duplicated rule in renderTeam().              [C-4, A-4, B-11]
+ST-5   Let users set their own schedule, or explain clearly why they cannot,
+       and seed a settings row on signup.                            [H-4]
+ST-6   Move the role change to a SECURITY DEFINER RPC that enforces the
+       last-admin rule server-side.                                  [S-6]
+ST-7   Commit the schema and adopt supabase/migrations.               [A-3]
+ST-8   Add a CSP meta tag (possible once ST-1 lands).                [M-23]
+ST-9   Confirm long/overnight shifts instead of accepting them silently. [H-5]
+ST-10  Add DOM-labels to the mobile card tables so they are readable by
+       assistive technology.                                         [H-10]
+ST-11  Restore the table role or provide an equivalent structure.     [H-10]
+ST-12  Add aria-label and <title>/<desc> to every chart.              [M-8]
+ST-13  Persist dismissed reminders and the backup snooze.             [M-17]
+ST-14  Add a beforeunload guard during bulk operations.               [H-8]
+ST-15  Add regression tests for every confirmed finding in this report. The
+       extraction harness already makes this cheap, and the project's own
+       testing discipline expects it.
+
+19.3 LONG TERM  (weeks - architectural and product)
+--------------------------------------------------------------------------------
+LT-1   Introduce a minimal build step (esbuild) that keeps a single-file
+       deployment output but allows split sources, vendored dependencies, a
+       lockfile, linting and CI. This unblocks A-1, A-2, C-2 and S-16 at once.
+LT-2   Separate calculation from rendering. Extract a pure `stats` module with
+       full unit coverage, so the numbers in a signed document are provably
+       correct rather than spot-checked.
+LT-3   Add pagination or virtualisation to the Log, and move team aggregation
+       into Postgres RPCs. Required before ~20 users or ~3 years of history.
+LT-4   Add an offline outbox: queue punches locally and replay on reconnect.
+       This is the one thing that would make the PWA claim honest.
+LT-5   Add cross-tab and multi-admin consistency: a storage-event listener or
+       a Supabase Realtime subscription, plus optimistic-concurrency checks
+       against entries.updated_at.                              [F-11, F-12]
+LT-6   Add soft delete and a restore-from-audit path so bulk actions are
+       reversible for 30 days.                                  [C-3, UX-6]
+LT-7   Add an approval workflow and period locking, so a signed month cannot
+       be silently edited afterwards.                                [B-12]
+LT-8   Move punch timestamps server-side so they are verifiable.      [M-14]
+LT-9   Full accessibility remediation and an external audit. Given this is an
+       HR tool, treat WCAG 2.1 AA as a requirement, not a goal.
+LT-10  Build the i18n layer: extract ~200 strings, migrate to logical CSS
+       properties, pin the calendar system explicitly, and mirror directional
+       icons. Do the logical-properties migration FIRST - it is mechanical,
+       invisible, and makes the rest tractable.                 [Section 12]
+LT-11  Add an organisation/department dimension to the schema if this will ever
+       serve more than one company or need manager-scoped access.    [B-13]
+LT-12  Add observability: error reporting, and an alert on any role_change
+       where actor = target.
+LT-13  Replace the hardcoded RAMADAN_DATES table with a calculation or a
+       maintained data source before 2031.                            [A-6]
+
+
+================================================================================
+SECTION 20 - FINAL SCORECARD
+================================================================================
+
+  Overall Quality      5 / 10
+      Exceptional front-end craft sitting on top of an authorisation model that
+      does not hold and aggregate arithmetic that does not reconcile. The
+      distance between how good this looks and how it behaves under pressure is
+      the story of this audit.
+
+  Security             2 / 10
+      Any employee can become an administrator - proven live. The registration
+      control does nothing. There is no server-side validation. The one
+      dependency is unpinned and unhashed from a third-party CDN. Points are
+      awarded for a genuinely well-designed append-only audit log, correct
+      server-side self-lockout guards, and RLS being present and largely
+      correct everywhere except the one place that matters most.
+
+  UX                   6 / 10
+      Coherent visual language, careful copy, well-judged confirmations,
+      thoughtful empty states. Undermined by a never-rendering safety banner, a
+      dead sticky bar, filters that reset themselves, contradictory backup copy,
+      off-screen progress feedback and blank printing.
+
+  Mobile               6 / 10
+      Mobile-first and mostly successful: no horizontal overflow anywhere, a
+      well-engineered bottom nav, real work done on native date/time controls.
+      Lost points for the card tables breaking assistive technology, no
+      landscape handling, partial safe-area coverage and an always-on interval.
+
+  Accessibility        3 / 10
+      Fails at least six WCAG 2.1 AA criteria, several confirmed by
+      measurement. Real credit for the modal focus trap, reduced-motion support,
+      genuine semantic buttons throughout and no keyboard traps - the
+      foundations are right, the composite widgets and the palette are not.
+
+  Performance          5 / 10
+      Fine at today's 345 rows. Unbounded queries, sequential writes, no
+      pagination and full re-renders mean it degrades sharply from about 1,000
+      entries and is not viable for a team of 50.
+
+  Reliability          3 / 10
+      One CDN outage takes the whole app down silently. No timeouts, no retry,
+      no offline handling, no cross-tab sync, no concurrency control, and bulk
+      operations that complete partially without saying so.
+
+  Maintainability      5 / 10
+      A 5,907-line file with no build, no linting and no CI, and a
+      security-critical database schema that is not in version control at all.
+      Offset substantially by unusually honest comments, a real regression test
+      suite that extracts live code, and consistently readable style.
+
+
+================================================================================
+TOP 10 THINGS TO FIX FIRST
+================================================================================
+
+ 1. C-1  PRIVILEGE ESCALATION - any user can make themselves an admin.
+         Proven against the live database. Every other access control in the
+         product is downstream of this one, so until it is fixed nothing else
+         you enforce is actually enforced - and the fix is three SQL
+         statements. Also audit existing role_change rows for prior abuse.
+         Nothing else on this list matters as much, and nothing else is
+         cheaper.
+
+ 2. C-2  THE APP DIES SILENTLY WHEN ONE CDN IS UNREACHABLE.
+         Complete loss of availability from a dependency you do not control,
+         presented to the user as a working screen that ignores them. It also
+         hits every installed PWA opened offline - the most likely real-world
+         path. Vendoring the file fixes the outage, the proxy case, the offline
+         case AND the unpinned supply-chain exposure in one change, and unblocks
+         a real CSP.
+
+ 3. C-4  THE HEADLINE NUMBERS DO NOT RECONCILE.
+         Total 16h, Target 32h, Overtime 0h on the same card. A missed workday
+         moves the overtime bank by zero. Three 9-hour WFH days average to "0h".
+         This is a timesheet product; these figures are printed onto a document
+         people sign. Wrong-but-plausible numbers are more damaging than a
+         crash because nobody catches them. Fix third only because 1 and 2 are
+         cheaper and broader.
+
+ 4. C-3  "APPLY TO EVERYONE" DESTROYS REAL CLOCK DATA IRREVERSIBLY.
+         One admin click can blank recorded hours for the whole team across a
+         date range, with no undo and no preview of what will be lost. The data
+         is recoverable only by hand through the audit log. Make it skip
+         occupied days by default - a contained change to one handler.
+
+ 5. H-1  THE "EDITING SOMEONE ELSE'S RECORD" WARNING HAS NEVER RENDERED.
+         The safeguard was written, reviewed and shipped, and an inline style
+         has silently suppressed it since. An admin can corrupt a real
+         employee's attendance believing it is their own. The fix is deleting
+         one attribute, which makes the cost/benefit unbeatable - and it pairs
+         directly with C-3 and H-2.
+
+ 6. H-3  THE REGISTRATION LOCK DOES NOTHING.
+         An admin who has closed signups has not closed signups. On its own
+         that is bad; combined with C-1 it means anyone on the internet can
+         create an account and then promote themselves to administrator of your
+         HR system. These two findings must be fixed together or not at all.
+
+ 7. H-11 + H-10  ACCESSIBILITY FALLS BELOW THE LEGAL FLOOR.
+         Contrast measured at 2.06:1 where 4.5:1 is required, across a dozen
+         classes in both themes; and on mobile every data table loses its
+         semantics entirely, making the primary interface unusable with a
+         screen reader. For an HR tool this is compliance exposure, not polish.
+         The contrast half is two token edits.
+
+ 8. H-4  EMPLOYEES CANNOT SET THEIR OWN SCHEDULE AND ARE NEVER TOLD.
+         Every new user silently gets Sunday-Thursday 08:00-16:00. In a
+         Monday-Friday organisation every number they see is wrong, every
+         Friday shows red, and their punctuality record looks terrible. There
+         is no gear icon and no message. This is the difference between users
+         trusting the app and abandoning it in week one.
+
+ 9. H-2  TOKEN REFRESH SILENTLY RESETS STATE AND DISCARDS INPUT.
+         Once an hour the app cold-boots: unsaved form input is wiped and an
+         admin is yanked out of the employee record they were editing without
+         being told. With H-1 unfixed there is no banner to catch it, so the
+         next save lands on the wrong person. Three lines of event filtering.
+
+10. H-7 + H-8  NO SERVER-SIDE VALIDATION, AND BULK WRITES ARE UNSAFE.
+         The database accepts "99:99" as a clock time and arbitrary strings as
+         a day type, so the UI's careful validation is advisory only. Meanwhile
+         imports and bulk actions run one request at a time for up to a minute
+         with no cancel, no batching and no unload guard, so partial completion
+         is routine and invisible. A single migration plus a single batched
+         upsert closes both.
+
+FIXING ITEMS 1-6 IS REALISTICALLY ONE FOCUSED DAY OF WORK AND MOVES THIS
+APPLICATION FROM "SHOULD NOT BE ROLLED OUT FURTHER" TO "DEPLOYABLE WITH KNOWN,
+DOCUMENTED GAPS".
+
+
+================================================================================
+APPENDIX - VERIFICATION ARTEFACTS
+================================================================================
+
+BROWSER MEASUREMENT (headless Chromium 1.62, real computed styles)
+  16 checks executed, 10 confirmed defects:
+    - CDN blocked: sign-in screen renders fully, no listeners attached, no
+      error shown to the user
+    - #stickyClock with .show at 1280px: computed display "none", height 0px
+    - #viewingOtherBanner with .show: computed display "none", height 0px
+    - control: #reminderBanner with .show: computed display "flex"
+    - escapeHtml('x" onfocus="ALERT" a="') returns the string unchanged
+    - .stat-detail 3.06:1  |  .settings-hint 3.06:1  |  .filter-count 3.06:1
+    - .bn-clock-label 3.06:1  |  .foot-note 2.74:1  |  .copyright 2.06:1
+    - at 390px: table display "block", thead display "none"
+    - layoutBottomNav after demotion: team and admin still in the visible nav
+    - zero maxlength attributes across five representative inputs
+    - tab role null, aria-selected null, tablist role null, panel role null
+    - chart svg has no aria-label and no direct <title>
+
+BUSINESS LOGIC (functions extracted verbatim from index.html and executed)
+  8 defects reproduced:
+    - 16:00->08:00 records 960 min (16h) and +8h diff, silently
+    - week card: Total 16h, Target 32h, Diff 0h  (16 - 32 != 0)
+    - overtime bank identical with and without a fully missed workday
+    - three 9h WFH/trip/training days summarise to loggedDays 0, avg 0h
+    - streak 4 on the last logged day, 0 the next working morning
+    - a 7-day leave range charges 7 days against a 5-workday week
+    - half day: row shows Target 4h / Diff 0h; summarize contributes 0 / 0
+    - lateness 0 while clocked in, 210 min after clocking out
+
+LIVE DATABASE (Supabase project, Postgres 17.6)
+  - 5 tables, RLS enabled on all; 11 policies; 10 functions; 5 triggers
+  - security advisor: 15 warnings (search_path, exposed SECURITY DEFINER
+    functions, leaked-password protection disabled)
+  - performance advisor: 8 auth-initplan warnings, 1 unindexed FK, 2 unused
+    indexes
+  - C-1 proven by impersonating an existing ordinary user via
+    request.jwt.claims and executing the self-promotion UPDATE inside a
+    transaction that was then aborted:
+        NOTICE: role after self-update = admin, is_admin() now returns t
+        ERROR:  AUDIT_ROLLBACK role=admin is_admin=t
+    Post-check: 1 admin, 7 users - identical to the pre-check. No data was
+    modified at any point during this audit.
+
+SECRETS: no credentials, keys, tokens or passwords are reproduced in this file.
+================================================================================
+END OF REPORT
+================================================================================
+
+
+================================================================================
+REMEDIATION RECORD - 2026-08-15
+================================================================================
+Work carried out on branch: fix/audit-remediation
+Verification: 8 test suites, 231 assertions + 54 grid measurements, 0 failures.
+
+WHAT CHANGED STRUCTURALLY
+--------------------------------------------------------------------------------
+  * The application JavaScript moved out of index.html into app.js. An inline
+    module would have forced script-src 'unsafe-inline', which defeats the point
+    of a CSP. index.html is now 2,154 lines (was 6,334); app.js is ~4,200.
+  * supabase-js is vendored at vendor/supabase-js.min.js, pinned to 2.58.0 and
+    built with esbuild from the npm package. Verified self-contained (no
+    remaining imports) and functional in a browser.
+  * The database schema is now in version control at supabase/migrations/.
+  * tests/extract.js matches anchors across both app.js and index.html, so every
+    pre-existing suite keeps working unchanged.
+
+FIXED AND VERIFIED
+--------------------------------------------------------------------------------
+CRITICAL
+  C-1  Privilege escalation closed. Column grants revoked (full_name only),
+       explicit WITH CHECK added, BEFORE UPDATE trigger rejects role/id/email
+       rewrites, role changes moved to admin_set_user_role() which enforces the
+       last-admin rule server-side. Re-ran the original exploit against the live
+       database inside an aborted transaction:
+         [1 self-promote: BLOCKED 42501] [2 rpc as non-admin: BLOCKED 42501]
+         [3 rename self: ALLOWED] [4 spoof email: BLOCKED 42501]
+       Admin path re-verified: promote OK, demote OK, last-admin demote blocked
+       with "Cannot remove the only administrator". No data was modified.
+  C-2  Dependency vendored; boot failure now reported. Verified in-browser: with
+       esm.sh fully blocked the app boots normally; with the vendored file
+       blocked the user sees "Couldn't load the application…" and a disabled
+       sign-in button. Service worker caches the full shell including app.js and
+       the vendored library.
+  C-3  "Apply to Everyone" now detects days holding recorded hours, names them,
+       and defaults to SKIPPING them. Overwriting is an explicit opt-in.
+  C-4  summarize() rewritten. Total - Target = Diff now holds for every dataset
+       shape (verified across 4 shapes incl. empty). A missed workday moves the
+       overtime bank. WFH / trip / training count as worked. Half days
+       contribute their halved target. Incomplete days are counted and surfaced
+       ("9 workdays logged this month - 1 incomplete").
+
+HIGH
+  H-1  Inline display:none removed; banner renders (measured: display=flex, 51px).
+  H-2  onAuthStateChange filters TOKEN_REFRESHED / USER_UPDATED and defers out of
+       the callback (Supabase deadlock hazard). Admin viewer state and in-progress
+       form input survive a token refresh.
+  H-3  Enforced in handle_new_user() + public_app_flags() for the signed-out
+       screen.                                        [PENDING MIGRATION]
+  H-4  Users can now reach and save their own schedule; settings row seeded on
+       signup.                                        [PENDING MIGRATION for the
+       RLS half - the front end is already updated]
+  H-5  Long/transposed shifts prompt before saving. Verified: 16:00/08:00 prompts
+       and mentions swapping; 08:00-16:00 and a routine 22:00-06:00 night shift
+       are not interrupted; a 14h shift prompts and can be confirmed through.
+  H-6  .sticky-clock.show now sets display:flex (measured: 56px tall).
+  H-7  CHECK constraints on type, clock times, note length and date range, plus a
+       normalising trigger.                           [PENDING MIGRATION]
+       Client-side half done: maxlength on every free-text input, and typeLabel()
+       so an unknown type can never render as the literal word "undefined".
+  H-8  All bulk paths batched into single upserts, with a beforeunload guard while
+       any bulk operation is in flight. Import progress moved to a toast.
+  H-9  Team tab query scoped to the displayed month with an explicit column list.
+  H-10 Column labels are real DOM elements (42 cells), not CSS ::before content.
+  H-11 --muted-2 darkened/lightened, .copyright opacity removed, badge colours
+       adjusted. Worst measured secondary text now 4.97:1 (was 2.06:1).
+  H-12 beforeprint builds the report on demand; afterprint clears it.
+  H-13 Streak skips today while in progress; label explains how to extend it.
+  H-14 Leave charges scheduled workdays only (verified: 7-day range now costs 5).
+
+MEDIUM / LOW / RTL
+  M-1  "All Months" is preserved; Clear no longer undoes itself.
+  M-2  anyFilterActive() compares against defaults, not against "all".
+  M-3  Backup copy no longer claims data lives only in the browser.
+  M-4  escapeAttr() added; periodRowHtml no longer breaks out of value="".
+  M-5  Bidi override characters stripped from all user text.
+  M-6  layoutBottomNav returns de-scoped items to the pool (verified: no strays,
+       slots balanced 2/2).
+  M-7  role=tablist/tab/tabpanel, aria-selected, aria-controls, aria-labelledby.
+  M-8  Every chart has <title>, <desc> and aria-labelledby (4 verified).
+  M-9  Row Edit/Delete buttons name their date.
+  M-10 Period-editor and day-picker labels associated.
+  M-11 Modal has aria-labelledby / aria-describedby.
+  M-12 aria-busy plus a polite live region for loading.
+  M-13 Calendar cells carry a full spoken label and aria-current.
+  M-15 JSON import routed through the same parsers as CSV.
+  M-16 Import progress shown in a toast, not an off-screen note.
+  M-17 Dismissals and backup snooze persisted (30-day / 7-day windows).
+  M-18 Theme applied before first paint - no light flash on the auth screen.
+  M-19 Log paginates at 200 rows with a "show more" control.
+  M-21 Clock/reminder timers pause when hidden or signed out.
+  M-22 Password floor raised to 10 characters.
+  M-23 CSP added; script-src 'self' with no unsafe-inline.
+  M-24 Internal SECURITY DEFINER functions revoked from the API.
+                                                      [PENDING MIGRATION]
+  L-1  Workday denominator clamped ("6 of 5" fixed).
+  L-2..L-5  Service worker rewritten: same-origin only, navigation fallback,
+       never resolves undefined, caches "./" as well as "./index.html".
+  L-6  #printArea cleared after printing.
+  L-7  CSV export marks the backup reminder satisfied.
+  L-8  "Fill Standard Hours" resolves seasonal periods for the edited date.
+  L-9  normalizeSettings drops overlapping seasonal periods on import.
+  L-10 Overflow menu has role=menu / menuitem.
+  L-13 Touch targets raised (row actions 36/44px, toast close 32px).
+  L-14 -webkit-backdrop-filter added for Safari.
+  L-15 Swallowed app-settings failure now surfaces.
+  L-16 maxlength on every free-text input.
+  L-17 README written; schema committed.
+  B-6  In-progress days held back from the on-time rate instead of scored clean.
+  B-7  Week start derived from the configured schedule (verified across 5
+       schedules including the wrapping Sat-Wed case).
+  B-11 Trips and training with no clock times are credited, not booked as a
+       full-day shortfall - while genuinely unlogged Regular days still are.
+  UX-8 Backend errors mapped to human sentences (22 call sites).
+  MOB-3 Phone-landscape layout added.
+  MOB-5 Safe-area insets on the toast stack and sticky clock.
+  RTL-3 dir="auto" on notes, names, emails and the announcement.
+  A-4  renderTeam uses summarize() instead of a second copy of the hours rules.
+
+NOT DONE - REQUIRES YOUR ACTION
+--------------------------------------------------------------------------------
+  1. APPLY THE PENDING MIGRATION.
+     supabase/migrations/20260815020000_pending_data_integrity_and_hardening.sql
+     The tooling blocked DDL against the live project, so this one could not be
+     applied automatically. It covers H-7, H-4, H-3, M-24, P-8 and the unindexed
+     foreign key. All 345 existing rows were checked against the new constraints
+     first and already satisfy them.
+     IMPORTANT: the front end already exposes Schedule Settings to every user.
+     Until this migration runs, a non-admin saving their schedule will be
+     rejected by RLS.
+
+  2. Enable leaked-password protection (Dashboard -> Authentication -> Policies)
+     and consider disabling email signups there as well as in the trigger.
+
+  3. Review audit_log for any historical role_change where actor_id equals
+     target_user_id and new_values.role = 'admin' - the signature of C-1 having
+     been exploited before it was closed.
+
+NOT DONE - DELIBERATELY DEFERRED (architectural, needs a product decision)
+--------------------------------------------------------------------------------
+  LT-1  Build pipeline. app.js is now a separate file, which was the part needed
+        for the CSP; a bundler/linter/CI is still absent.
+  LT-4  Offline outbox. The PWA can now BOOT offline but still cannot record a
+        punch offline.
+  LT-5  Cross-tab sync and optimistic concurrency (F-11, F-12).
+  LT-6  Soft delete / restore-from-audit, so bulk actions become reversible.
+  LT-7  Approval workflow and period locking (B-12).
+  LT-10 Full i18n and RTL layout. Only the cheap half (bidi isolation) is done;
+        ~200 English strings are still inline, and the calendar-system mismatch
+        under an Arabic locale (RTL-5) is unaddressed.
+  LT-11 Multi-tenancy (B-13).
+  M-14  Server-stamped punch times.
+
+REVISED SCORECARD (post-remediation, unapplied migration accounted for)
+--------------------------------------------------------------------------------
+  Overall Quality   5 -> 8      Security          2 -> 7  (8 once migration lands)
+  UX                6 -> 8      Mobile            6 -> 8
+  Accessibility     3 -> 7      Performance       5 -> 7
+  Reliability       3 -> 6      Maintainability   5 -> 7
+
+  Security is held at 7 because the pending migration still gates server-side
+  input validation and the registration control. Reliability is held at 6
+  because there is still no offline queue, no cross-tab sync and no concurrency
+  control - the app now fails visibly rather than silently, which is the
+  improvement, but it does not yet fail gracefully.
+================================================================================
