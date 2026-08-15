@@ -175,6 +175,49 @@ function ok(cond, name, detail){
       `worst = ${worst.toFixed(2)}:1 at ${worstSel}`);
   }
 
+  // ---------------------------------------------------------------- iOS date/time sizing
+  // Reported from a real iPhone: the Standard Start / Standard End fields in
+  // Schedule Settings ran past the right edge of their card while every other
+  // field sat inside it. iOS Safari lays a native date/time control out from its
+  // own shadow DOM and ignores box-sizing on it, so width:100% resolved to 100%
+  // plus 24px of padding. Chromium sizes them correctly, so the overflow itself
+  // cannot be reproduced here — what CAN be checked is that the rules which
+  // disable that behaviour are present and that nothing overflows once a
+  // pessimistic intrinsic width is forced on the control.
+  {
+    const css = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+    const hasReset = /input\[type="date"\], input\[type="time"\]\{[^}]*appearance:none/.test(css);
+    const hasClamp = /input\[type="date"\], input\[type="time"\]\{[^}]*max-width:100%/.test(css);
+    ok(hasReset && hasClamp,
+      "date/time controls opt out of the UA box model that overflows on iOS",
+      JSON.stringify({hasReset, hasClamp}));
+  }
+  {
+    const worst = await page.evaluate(() => {
+      document.querySelectorAll(".settings-card, .accordion-section").forEach(e => e.classList.add("open"));
+      // Model what iOS does and Chromium will not: resolve the control to a
+      // width far larger than its cell. Forced as `width`, not `min-width` —
+      // min-width beats max-width in the cascade, so pinning it that way would
+      // model something no clamp could ever fix and fail for free.
+      const st = document.createElement("style");
+      st.textContent = 'input[type="time"]{width:220px !important;} input[type="date"]{width:240px !important;}';
+      document.head.appendChild(st);
+      let over = 0, who = "";
+      document.querySelectorAll('input[type="date"], input[type="time"]').forEach(i => {
+        if(!i.getClientRects().length) return;
+        const p = i.parentElement, cs = getComputedStyle(p);
+        const inner = p.getBoundingClientRect().width -
+          (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+        const diff = Math.round(i.getBoundingClientRect().width - inner);
+        if(diff > over){ over = diff; who = i.id || i.type; }
+      });
+      st.remove();
+      return {over, who, page: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth)};
+    });
+    ok(worst.over <= 1 && worst.page === 0,
+      "no date or time field can outgrow its cell, even refusing to shrink", JSON.stringify(worst));
+  }
+
   // ---------------------------------------------------------------- M-7 / M-8 / M-9
   {
     const t = await page.evaluate(() => {

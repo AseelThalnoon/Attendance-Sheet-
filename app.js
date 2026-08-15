@@ -865,9 +865,21 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(punctSection) punctSection.classList.toggle("open", !settings.lateOnlyIfShort);
   }
 
-  document.querySelectorAll(".accordion-head").forEach(function(head){
+  // Collapsible sections. The open/closed state was conveyed by a rotated
+  // chevron alone, so a screen reader had no way to know whether a heading's
+  // content was showing — which matters more now the Admin console is seven of
+  // these stacked.
+  document.querySelectorAll(".accordion-head").forEach(function(head, i){
+    var section = head.closest(".accordion-section");
+    var body = section.querySelector(".accordion-body");
+    if(body){
+      if(!body.id) body.id = "acc-body-" + (section.getAttribute("data-section") || i);
+      head.setAttribute("aria-controls", body.id);
+    }
+    head.setAttribute("aria-expanded", section.classList.contains("open") ? "true" : "false");
     head.addEventListener("click", function(){
-      head.closest(".accordion-section").classList.toggle("open");
+      var open = section.classList.toggle("open");
+      head.setAttribute("aria-expanded", open ? "true" : "false");
     });
   });
 

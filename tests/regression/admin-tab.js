@@ -204,6 +204,9 @@ async function boot(browser, server, query){
       strip: [...document.querySelectorAll(".tabs .tab-btn")].map(b => b.getAttribute("data-tab")),
     }));
     ok(!s.menu && !s.menuBtn, "the header overflow menu is gone", JSON.stringify(s));
+    const deskHeader = await page.evaluate(() => Math.round(
+      document.querySelector("header.ledger-head").getBoundingClientRect().height));
+    ok(deskHeader <= 130, "the header stays under 130px on a laptop", `${deskHeader}px`);
     ok(s.onBar.length === 0, "theme, settings, sign out and admin are visible, named header buttons",
       JSON.stringify(s.onBar));
     ok(!s.adminInStrip, "Admin is no longer a tab", JSON.stringify(s.strip));
@@ -262,10 +265,62 @@ async function boot(browser, server, query){
     ok(s.w >= 40 && s.h >= 40, "the Admin button stays a 40px touch target on a phone", JSON.stringify(s));
     ok(s.labelShown === "none" && s.name.length > 0,
       "the collapsed Admin button keeps an accessible name", JSON.stringify(s));
+
+    // The header was eating a third of a phone screen before any attendance
+    // showed. These are the budgets it was trimmed to; they are the point of
+    // the change, so they are asserted rather than eyeballed once.
+    const phone = await page.evaluate(() => Math.round(
+      document.querySelector("header.ledger-head").getBoundingClientRect().height));
+    ok(phone <= 200, "the header stays under 200px on a phone", `${phone}px`);
     await page.setViewportSize({width: 1280, height: 900});
     await page.waitForTimeout(150);
     await page.evaluate(() => document.getElementById("adminBtn").click());
     await page.waitForTimeout(300);
+  }
+
+  // ------------------------------------------------------------ collapsing
+  // Seven sections open at once was several thousand pixels of scrolling to
+  // reach the log. Collapsed, the console is one screen you can scan.
+  {
+    const s = await page.evaluate(() => {
+      const secs = [...document.querySelectorAll("#tab-admin .accordion-section")];
+      const head = s => s.querySelector(".accordion-head");
+      return {
+        count: secs.length,
+        open: secs.filter(x => x.classList.contains("open"))
+                  .map(x => x.getAttribute("data-section")),
+        panelHeight: Math.round(document.getElementById("tab-admin").getBoundingClientRect().height),
+        aria: secs.map(x => head(x).getAttribute("aria-expanded") ===
+                            (x.classList.contains("open") ? "true" : "false")).every(Boolean),
+        controls: secs.every(x => {
+          const id = head(x).getAttribute("aria-controls");
+          return id && x.querySelector(".accordion-body").id === id;
+        }),
+      };
+    });
+    ok(s.count === 7, "the console is split into collapsible sections", JSON.stringify(s.count));
+    ok(s.open.join(",") === "admin-overview,admin-people",
+      "only the two everyday sections start open", JSON.stringify(s.open));
+    ok(s.panelHeight < 1800, "the collapsed console fits a scannable page", `${s.panelHeight}px`);
+    ok(s.aria, "each head reports its expanded state", JSON.stringify(s.aria));
+    ok(s.controls, "each head points at the body it controls", JSON.stringify(s.controls));
+  }
+  {
+    const s = await page.evaluate(() => {
+      const sec = document.querySelector('#tab-admin [data-section="admin-audit"]');
+      const head = sec.querySelector(".accordion-head");
+      const body = sec.querySelector(".accordion-body");
+      const shut = getComputedStyle(body).display;
+      head.click();
+      const opened = {display: getComputedStyle(body).display, aria: head.getAttribute("aria-expanded")};
+      head.click();
+      return {shut, opened, reshut: getComputedStyle(body).display,
+        aria: head.getAttribute("aria-expanded")};
+    });
+    ok(s.shut === "none" && s.opened.display !== "none" && s.reshut === "none",
+      "a section opens and closes on its heading", JSON.stringify(s));
+    ok(s.opened.aria === "true" && s.aria === "false",
+      "the heading's expanded state follows it", JSON.stringify(s));
   }
 
   // ------------------------------------------------------------ People
