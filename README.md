@@ -56,7 +56,10 @@ recorded in the remote migration history — it is applied, not pending.
 
 ## The Admin console
 
-Everything an administrator can do lives in one tab, visible only to them:
+Everything an administrator can do lives in one screen, opened from the **Admin**
+button in the header and visible only to admins. It is deliberately not a tab:
+the tab strip holds views of your own attendance, and this manages the
+organisation.
 
 - **Overview** — database size, accounts, entries, connections, plus data-health
   checks that run as counted queries: open shifts from past days, blank working
@@ -72,7 +75,7 @@ Everything an administrator can do lives in one tab, visible only to them:
 - **Company-Wide Days**, **Announcement & Sign-Up**, **Activity Log** (filter by
   activity, person and date, page through, export CSV), and **Storage**.
 
-The tab button is hidden for employees, `renderAdmin()` refuses to paint for a
+The header button is hidden for employees, `renderAdmin()` refuses to paint for a
 non-admin, and every RPC and RLS policy behind the screen re-checks `is_admin()`
 server-side. The client-side half is convenience; the database is the authority.
 

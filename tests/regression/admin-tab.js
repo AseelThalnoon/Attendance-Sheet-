@@ -43,9 +43,11 @@ const AUDIT = [
   {created_at:new Date().toISOString(), actor_email:"boss@example.com", action:"delete",
    target_email:"sam@example.com", entry_date:"2026-08-11", old_values:{type:"regular"}},
 ];
-// Consumed in call order by the three counted health queries: open shifts,
-// blank working days, implausible dates.
+// Answered in call order to the three counted health queries: open shifts,
+// blank working days, implausible dates. Cycles rather than draining, so a
+// second render of the console reports the same picture as the first.
 const HEAD_COUNTS = [3, 0, 0];
+let headIdx = 0;
 const RPC = {
   admin_db_stats: {db_size_bytes: 12582912, counts:{profiles:3, admins:1, entries:345},
     active_connections:4, max_connections:60, postgres_version:"17.6", generated_at:new Date().toISOString(),
@@ -61,7 +63,7 @@ function builder(table, rpcName){
   const settle = () => {
     if(rpcName) return {data: RPC[rpcName] !== undefined ? RPC[rpcName] : [], error:null};
     if(table === "entries"){
-      if(head) return {data:null, count: HEAD_COUNTS.length ? HEAD_COUNTS.shift() : 0, error:null};
+      if(head) return {data:null, count: HEAD_COUNTS[headIdx++ % HEAD_COUNTS.length], error:null};
       return {data:[], error:null};
     }
     if(table === "profiles") return kind === "single" ? {data:PROFILE, error:null} : {data:PROFILES, error:null};
@@ -130,13 +132,13 @@ async function boot(browser, server, query){
   {
     const {ctx, page} = await boot(browser, server, "?role=user");
     const s = await page.evaluate(() => ({
-      tabBtn: getComputedStyle(document.getElementById("adminTabBtn")).display,
+      adminBtn: getComputedStyle(document.getElementById("adminBtn")).display,
       teamBtn: getComputedStyle(document.getElementById("teamTabBtn")).display,
       panelVisible: document.getElementById("tab-admin").classList.contains("active"),
       people: document.querySelectorAll("#adminUsersList .admin-user-row").length,
       audit: document.querySelectorAll("#auditBody tr").length,
     }));
-    ok(s.tabBtn === "none", "an employee cannot see the Admin tab button", JSON.stringify(s));
+    ok(s.adminBtn === "none", "an employee cannot see the header Admin button", JSON.stringify(s));
     ok(s.teamBtn === "none", "an employee cannot see the Team tab button", JSON.stringify(s));
     ok(!s.panelVisible, "the Admin panel is not the active tab for an employee", JSON.stringify(s));
     ok(s.people === 0 && s.audit === 0,
@@ -146,7 +148,7 @@ async function boot(browser, server, query){
     // !isAdmin, so a stale tab across a demotion cannot keep painting the console.
     const after = await page.evaluate(async () => {
       document.getElementById("tab-admin").classList.add("active");
-      const btn = document.getElementById("adminTabBtn");
+      const btn = document.getElementById("adminBtn");
       btn.style.display = "";
       btn.click();
       await new Promise(r => setTimeout(r, 400));
@@ -162,7 +164,7 @@ async function boot(browser, server, query){
 
   // ------------------------------------------------------------ admin console
   const {ctx, page, errors} = await boot(browser, server, "?role=admin");
-  await page.evaluate(() => document.getElementById("adminTabBtn").click());
+  await page.evaluate(() => document.getElementById("adminBtn").click());
   await page.waitForTimeout(700);
 
   ok(errors.length === 0, "the Admin tab renders with no uncaught errors", errors.join(" | "));
@@ -180,6 +182,90 @@ async function boot(browser, server, query){
     ok(!s.oldCard && !s.oldList, "the old Team & Access card is gone", JSON.stringify(s));
     ok(s.bulkInAdmin && s.bulkCount === 1, "Apply to Everyone lives in the Admin tab, once", JSON.stringify(s));
     ok(s.roleToggles === 3, "every account has a role toggle in the People list", JSON.stringify(s));
+  }
+
+  // ------------------------------------------------------------ header
+  // Theme, schedule settings and sign-out were behind a "More" overflow menu.
+  // They are buttons on the bar now, and Admin sits with them rather than in the
+  // tab strip — so none of the old menu machinery may survive.
+  {
+    const s = await page.evaluate(() => ({
+      menu: !!document.getElementById("headMenu"),
+      menuBtn: !!document.getElementById("headMenuBtn"),
+      onBar: ["themeBtn","settingsBtn","logoutBtn","adminBtn"].map(id => {
+        const el = document.getElementById(id);
+        if(!el) return `${id}: MISSING`;
+        const r = el.getBoundingClientRect();
+        const named = (el.getAttribute("aria-label") || el.textContent).trim();
+        return r.width > 0 && r.height > 0 && named ? null : `${id}: ${r.width}x${r.height} "${named}"`;
+      }).filter(Boolean),
+      adminInStrip: !!document.querySelector('.tab-btn[data-tab="admin"]'),
+      adminInBottomNav: !!document.querySelector('.bn-item[data-bn-tab="admin"]'),
+      strip: [...document.querySelectorAll(".tabs .tab-btn")].map(b => b.getAttribute("data-tab")),
+    }));
+    ok(!s.menu && !s.menuBtn, "the header overflow menu is gone", JSON.stringify(s));
+    ok(s.onBar.length === 0, "theme, settings, sign out and admin are visible, named header buttons",
+      JSON.stringify(s.onBar));
+    ok(!s.adminInStrip, "Admin is no longer a tab", JSON.stringify(s.strip));
+    ok(!s.adminInBottomNav, "Admin is no longer in the mobile bottom nav", JSON.stringify(s));
+    ok(s.strip.join(",") === "log,trends,calendar,punctuality,team",
+      "the tab strip keeps the attendance views", JSON.stringify(s.strip));
+  }
+  {
+    // The header button drives the same activation path as a tab, and carries
+    // the "you are here" state itself since it sits outside the tablist.
+    const s = await page.evaluate(() => {
+      document.querySelector('.tab-btn[data-tab="log"]').click();
+      const before = document.getElementById("adminBtn").getAttribute("aria-current");
+      document.getElementById("adminBtn").click();
+      return {
+        before,
+        after: document.getElementById("adminBtn").getAttribute("aria-current"),
+        panel: document.getElementById("tab-admin").classList.contains("active"),
+        logPanel: document.getElementById("tab-log").classList.contains("active"),
+        stripSelected: [...document.querySelectorAll(".tabs .tab-btn")]
+          .filter(b => b.getAttribute("aria-selected") === "true").length,
+      };
+    });
+    ok(s.panel && !s.logPanel, "the header Admin button opens the Admin panel", JSON.stringify(s));
+    ok(s.before === "false" && s.after === "page",
+      "the Admin button shows when it is the open screen", JSON.stringify(s));
+    ok(s.stripSelected === 0, "no tab claims selection while Admin is open", JSON.stringify(s));
+  }
+  {
+    // Icon-only: the accessible name must describe the action and follow it.
+    const s = await page.evaluate(() => {
+      const b = document.getElementById("themeBtn");
+      const before = b.getAttribute("aria-label");
+      b.click();
+      const mid = {label: b.getAttribute("aria-label"), dark: document.body.classList.contains("dark")};
+      b.click();
+      return {before, mid, after: b.getAttribute("aria-label"),
+        light: !document.body.classList.contains("dark")};
+    });
+    ok(/dark/i.test(s.before) && s.mid.dark && /light/i.test(s.mid.label),
+      "the theme button toggles and renames itself to the next action", JSON.stringify(s));
+    ok(s.light && /dark/i.test(s.after), "toggling back restores light mode", JSON.stringify(s));
+  }
+  {
+    // At phone width the Admin label is hidden to save the bar, so the button
+    // must still carry a name for anyone who cannot see the icon.
+    await page.setViewportSize({width: 390, height: 850});
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const b = document.getElementById("adminBtn");
+      const r = b.getBoundingClientRect();
+      return {w: Math.round(r.width), h: Math.round(r.height),
+        labelShown: getComputedStyle(b.querySelector("span")).display,
+        name: (b.getAttribute("aria-label") || b.getAttribute("title") || "").trim()};
+    });
+    ok(s.w >= 40 && s.h >= 40, "the Admin button stays a 40px touch target on a phone", JSON.stringify(s));
+    ok(s.labelShown === "none" && s.name.length > 0,
+      "the collapsed Admin button keeps an accessible name", JSON.stringify(s));
+    await page.setViewportSize({width: 1280, height: 900});
+    await page.waitForTimeout(150);
+    await page.evaluate(() => document.getElementById("adminBtn").click());
+    await page.waitForTimeout(300);
   }
 
   // ------------------------------------------------------------ People
@@ -324,7 +410,7 @@ async function boot(browser, server, query){
   await ctx.close();
   {
     const {ctx: c2, page: p2} = await boot(browser, server, "?role=admin&defaults=none");
-    await p2.evaluate(() => document.getElementById("adminTabBtn").click());
+    await p2.evaluate(() => document.getElementById("adminBtn").click());
     await p2.waitForTimeout(500);
     const state = await p2.evaluate(() => document.getElementById("adminDefaultsState").textContent);
     ok(/Not set/.test(state), "an empty default_settings is called out, not hidden", state);

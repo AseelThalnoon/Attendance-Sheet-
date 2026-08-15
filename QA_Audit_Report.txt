@@ -2602,7 +2602,9 @@ NOT DONE - DELIBERATELY DEFERRED (architectural, needs a product decision)
 NOT DONE - SMALL ITEMS STILL OPEN (no product decision needed, just not done)
 --------------------------------------------------------------------------------
   M-20 / P-5  renderAll() still re-renders everything after every mutation.
-  L-11  The header overflow menu still repositions on every scroll event.
+  L-11  Fixed as a side effect of the Admin rebuild: the header overflow menu is
+        gone entirely, so there is no longer a position:fixed panel to reposition
+        on scroll. Theme, schedule settings and sign-out are buttons on the bar.
   L-12  Toasts are still created and populated in the same tick, so role="alert"
         may not be announced.
   P-1 / P-2  index.html + app.js + vendor is ~435KB uncompressed and unminified;

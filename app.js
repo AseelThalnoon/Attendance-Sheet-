@@ -811,62 +811,29 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var dark = mode === "dark";
     document.body.classList.toggle("dark", dark);
     document.getElementById("themeIcon").innerHTML = dark ? SUN_ICON : MOON_ICON;
-    document.getElementById("themeBtn").title = dark ? "Switch to light theme" : "Switch to dark theme";
-    document.getElementById("themeMenuLabel").textContent = dark ? "Light Mode" : "Dark Mode";
+    // The button is icon-only now, so the accessible name has to carry what the
+    // menu label used to say — and it must describe the action, not the state.
+    var themeBtn = document.getElementById("themeBtn");
+    themeBtn.title = dark ? "Light mode" : "Dark mode";
+    themeBtn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
     safeSet(THEME_KEY, mode);
   }
   document.getElementById("themeBtn").addEventListener("click", function(){
     var next = document.body.classList.contains("dark") ? "light" : "dark";
     applyTheme(next);
     renderCharts();
-    closeHeadMenu();
   });
 
-  // ---------- Header overflow menu ----------
-  function closeHeadMenu(){
-    document.getElementById("headMenu").classList.remove("open");
-    document.getElementById("headMenuBtn").setAttribute("aria-expanded", "false");
-  }
-  function positionHeadMenu(){
-    var btn = document.getElementById("headMenuBtn");
-    var menu = document.getElementById("headMenu");
-    var btnRect = btn.getBoundingClientRect();
-    var menuWidth = menu.offsetWidth || 200;
-    // Right-align to the button by default, but clamp so it never runs off
-    // either edge of the viewport on a narrow phone screen.
-    var left = Math.min(
-      Math.max(8, btnRect.right - menuWidth),
-      window.innerWidth - menuWidth - 8
-    );
-    menu.style.top = (btnRect.bottom + 8) + "px";
-    menu.style.left = left + "px";
-  }
-  document.getElementById("headMenuBtn").addEventListener("click", function(ev){
-    ev.stopPropagation();
-    var menu = document.getElementById("headMenu");
-    var opening = !menu.classList.contains("open");
-    if(opening){
-      // Position before showing so there's no visible jump/flash.
-      menu.classList.add("open");
-      positionHeadMenu();
-    } else {
-      menu.classList.remove("open");
-    }
-    this.setAttribute("aria-expanded", opening ? "true" : "false");
+  // ---------- Header Admin button ----------
+  // Not a tab: the tab strip is views of attendance, and this manages the
+  // organisation. Employees never see the button, and renderAdmin() refuses to
+  // paint for a non-admin regardless of how the panel was opened.
+  document.getElementById("adminBtn").addEventListener("click", function(){
+    if(!isAdmin) return;
+    activateTab("admin");
+    var card = document.getElementById("tabContentCard");
+    if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
   });
-  document.addEventListener("click", function(ev){
-    var wrap = document.querySelector(".head-menu-wrap");
-    if(wrap && !wrap.contains(ev.target)) closeHeadMenu();
-  });
-  document.addEventListener("keydown", function(ev){
-    if(ev.key === "Escape") closeHeadMenu();
-  });
-  window.addEventListener("resize", function(){
-    if(document.getElementById("headMenu").classList.contains("open")) positionHeadMenu();
-  });
-  window.addEventListener("scroll", function(){
-    if(document.getElementById("headMenu").classList.contains("open")) positionHeadMenu();
-  }, true);
 
   // ---------- Settings UI ----------
   function buildDayPicker(){
@@ -1036,7 +1003,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       card.scrollIntoView({behavior:"smooth", block:"nearest"});
     }
     updateStickyClockVisibility();
-    closeHeadMenu();
   });
   document.getElementById("closeSettingsBtn").addEventListener("click", function(){
     document.getElementById("settingsCard").classList.remove("open");
@@ -2806,7 +2772,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     document.querySelectorAll("#bottomNav .bn-spacer").forEach(function(s){ s.remove(); });
 
-    var order = ["log", "trends", "calendar", "punctuality"].concat(isAdmin ? ["team", "admin"] : []);
+    // Admin is deliberately absent: it moved to the header, which is on screen
+    // on phones too, and leaving it here would push the nav to six slots and
+    // knock the centred clock button off balance.
+    var order = ["log", "trends", "calendar", "punctuality"].concat(isAdmin ? ["team"] : []);
 
     // Return anything no longer in scope to the hidden pool FIRST. Without this,
     // an admin who demoted themselves kept Team and Admin sitting in the visible
@@ -2840,34 +2809,43 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   }
 
+  // One activation path for every control that can open a panel: the tab strip,
+  // the mobile bottom nav, and the header's Admin button — which is not a tab at
+  // all, since managing the organisation is not a view of your own attendance.
+  function activateTab(tab){
+    var panel = document.getElementById("tab-" + tab);
+    if(!panel) return;
+
+    document.querySelectorAll(".tab-btn").forEach(function(b){
+      var on = b.getAttribute("data-tab") === tab;
+      b.classList.toggle("active", on);
+      // The active tab was previously conveyed by a CSS class alone, so
+      // assistive tech could not tell which of the tabs was selected.
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".tab-panel").forEach(function(p){ p.classList.remove("active"); });
+    panel.classList.add("active");
+
+    // Admin lives outside the tablist, so its own trigger carries the state.
+    var adminBtn = document.getElementById("adminBtn");
+    if(adminBtn) adminBtn.setAttribute("aria-current", tab === "admin" ? "page" : "false");
+
+    applyFilterBarVisibility(tab, activeSubtab());
+
+    if(tab === "trends") renderSubtab(activeSubtab());
+    if(tab === "calendar") renderCalendar();
+    if(tab === "punctuality") renderPunctuality();
+    if(tab === "team") renderTeam();
+    if(tab === "admin") renderAdmin();
+
+    document.querySelectorAll(".bn-item").forEach(function(b){
+      b.classList.toggle("active", b.getAttribute("data-bn-tab") === tab);
+    });
+  }
+
   document.querySelectorAll(".tab-btn").forEach(function(btn){
     btn.addEventListener("click", function(){
-      document.querySelectorAll(".tab-btn").forEach(function(b){
-        b.classList.remove("active");
-        b.setAttribute("aria-selected", "false");
-      });
-      document.querySelectorAll(".tab-panel").forEach(function(p){ p.classList.remove("active"); });
-      btn.classList.add("active");
-      // The active tab was previously conveyed by a CSS class alone, so
-      // assistive tech could not tell which of six tabs was selected.
-      btn.setAttribute("aria-selected", "true");
-
-      var tab = btn.getAttribute("data-tab");
-      document.getElementById("tab-"+tab).classList.add("active");
-      applyFilterBarVisibility(tab, activeSubtab());
-
-      if(tab === "trends") renderSubtab(activeSubtab());
-      if(tab === "calendar") renderCalendar();
-      if(tab === "punctuality") renderPunctuality();
-      if(tab === "team") renderTeam();
-      if(tab === "admin") renderAdmin();
-
-      // Mirror the active tab onto the mobile bottom nav, which drives
-      // navigation via these same tab-btn elements rather than duplicating
-      // any of the logic above.
-      document.querySelectorAll(".bn-item").forEach(function(b){
-        b.classList.toggle("active", b.getAttribute("data-bn-tab") === tab);
-      });
+      activateTab(btn.getAttribute("data-tab"));
     });
   });
 
@@ -3477,7 +3455,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   });
 
   document.getElementById("logoutBtn").addEventListener("click", async function(){
-    closeHeadMenu();
     await supabase.auth.signOut();
   });
 
@@ -3740,12 +3717,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(isAdmin){
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
-      document.getElementById("adminTabBtn").style.display = "";
+      document.getElementById("adminBtn").style.display = "";
       layoutBottomNav();
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
-      document.getElementById("adminTabBtn").style.display = "none";
+      document.getElementById("adminBtn").style.display = "none";
       layoutBottomNav();
       document.getElementById("settingsCard").classList.remove("open");
       if(viewedUserId !== currentUser.id){
@@ -4594,12 +4571,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       await loadAllProfilesForSwitcher();
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
-      document.getElementById("adminTabBtn").style.display = "";
+      document.getElementById("adminBtn").style.display = "";
       layoutBottomNav();
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
-      document.getElementById("adminTabBtn").style.display = "none";
+      document.getElementById("adminBtn").style.display = "none";
       layoutBottomNav();
     }
 
