@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(npm --version)",
+      "Bash(npm view *)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(npm ls *)",
+      "Bash(node_modules/.bin/ruflo --version)",
+      "Bash(node_modules/.bin/ruflo init *)",
+      "Bash(node_modules/.bin/ruflo swarm *)",
+      "Bash(node_modules/.bin/ruflo status *)",
+      "Bash(node_modules/.bin/ruflo providers *)",
+      "Bash(npx ruflo *)",
+      "Bash(node_modules/.bin/ruflo daemon *)",
+      "Bash(node test-logic.js)",
+      "Bash(node -e \"require.resolve\\('playwright'\\)\")",
+      "Bash(node *)",
+      "Bash(npm i *)",
+      "Bash(bash build-modal-harness.sh)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "claude-flow"
+  ]
+}

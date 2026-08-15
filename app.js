@@ -3755,18 +3755,115 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     setTimeout(updateTabsScrollHint, 0);
   }
 
-  // Roster view: this month's worked hours per person. Kept deliberately
-  // simple (no per-user target/overtime) since that would need fetching
-  // every team member's schedule settings just for a summary screen —
-  // admins can switch into someone's own view for the full breakdown.
+  // ---------- Team roster ----------
+  // Every figure here is computed against the person's OWN schedule. The old
+  // version ran everyone's entries through whichever settings the viewer
+  // happened to be holding, so a Sun–Thu admin looking at a Mon–Fri employee
+  // saw a target, a shortfall and a punctuality record for a week that employee
+  // does not work.
+  var teamMonth = null;          // "YYYY-MM"; null until first render
+  var teamSettingsCache = null;  // user_id -> normalised settings
+  var teamRowsCache = [];        // [{profile, summary, today, settings}]
+
+  async function loadTeamSettings(){
+    if(teamSettingsCache) return teamSettingsCache;
+    var map = {};
+    try{
+      var res = await supabase.from("user_settings").select("user_id,settings");
+      if(res.error) throw res.error;
+      (res.data || []).forEach(function(r){ map[r.user_id] = normalizeSettings(r.settings); });
+    }catch(err){
+      // Fall through with what we have: everyone without a row is measured
+      // against the defaults, which is exactly what the app does for them too.
+    }
+    teamSettingsCache = map;
+    return map;
+  }
+
+  // summarize(), computeEntry() and scheduleFor() all read the module-level
+  // `settings`. Rather than change the signature of functions the regression
+  // suite extracts verbatim, swap the value for the duration of one synchronous
+  // call. Nothing awaits in between, so nothing else can observe the swap.
+  function summarizeAs(personSettings, rows){
+    var saved = settings;
+    settings = personSettings;
+    try { return summarize(rows); }
+    finally { settings = saved; }
+  }
+  function scheduledFor(personSettings, dateStr){
+    var saved = settings;
+    settings = personSettings;
+    try { return isScheduled(dateStr); }
+    finally { settings = saved; }
+  }
+
+  // What this person was scheduled to work so far this month, and which of those
+  // days have no entry at all.
+  //
+  // summarize() deliberately counts a target only for days that HAVE an entry —
+  // that is the app-wide rule, and the dashboard, the print report and the log
+  // all follow it. It is the wrong denominator for a roster: someone who logged
+  // nothing has a target of zero, so they can never appear behind, and their
+  // card would read "no scheduled days" when they simply never clocked in. So
+  // the roster measures against the calendar instead, using the same
+  // isScheduled/scheduleFor primitives, and reports unlogged days as their own
+  // figure rather than folding them into a second, competing "diff".
+  function scheduledToDate(personSettings, mk, rows){
+    var saved = settings;
+    settings = personSettings;
+    try{
+      var byDate = {};
+      rows.forEach(function(r){ byDate[r.date] = r; });
+      var p = mk.split("-");
+      var lastDay = new Date(+p[0], +p[1], 0).getDate();
+      var end = (mk === monthKey(todayStr()))
+        ? Math.min(new Date().getDate(), lastDay)
+        : lastDay;
+
+      var minutes = 0, unlogged = 0;
+      for(var d = 1; d <= end; d++){
+        var ds = mk + "-" + pad2(d);
+        if(!isScheduled(ds)) continue;
+        var e = byDate[ds];
+        // Leave, sick days and public holidays are excused: the person is not
+        // expected to have worked them, so they lower the bar rather than
+        // counting against it.
+        if(e && EXCUSED_TYPES.indexOf(e.type) !== -1) continue;
+        var target = scheduleFor(ds).targetMin;
+        if(e && HALF_TYPES.indexOf(e.type) !== -1) target = Math.round(target / 2);
+        minutes += target;
+        if(!e) unlogged++;
+      }
+      return {minutes: minutes, unlogged: unlogged};
+    } finally { settings = saved; }
+  }
+
+  // What that person is doing today — the question a roster is actually opened
+  // to answer, and one the old three-number row could not answer at all.
+  function teamStatus(rows, personSettings){
+    var today = todayStr();
+    var e = rows.find(function(r){ return r.date === today; });
+    if(e && e.clockIn && !e.clockOut) return {cls:"in", label:"Clocked in"};
+    if(e && EXCUSED_TYPES.indexOf(e.type) !== -1) return {cls:"excused", label:typeLabel(e.type)};
+    if(e && e.clockIn && e.clockOut) return {cls:"done", label:"Done today"};
+    if(!scheduledFor(personSettings, today)) return {cls:"off", label:"Day off"};
+    return {cls:"missing", label:"Not logged"};
+  }
+
   async function renderTeam(){
     if(!isAdmin) return;
     var list = document.getElementById("teamList");
     var empty = document.getElementById("teamEmpty");
+    if(!teamMonth) teamMonth = monthKey(todayStr());
+    document.getElementById("teamMonthLabel").textContent = monthLabel(teamMonth);
+    // Nobody has attendance in the future; stop the arrow rather than let it
+    // walk into empty months.
+    document.getElementById("teamNextMonth").disabled = teamMonth >= monthKey(todayStr());
+
     list.innerHTML = '<p class="empty-state" style="padding:24px 0;">Loading team…</p>';
     empty.style.display = "none";
+    document.getElementById("teamSummary").hidden = true;
 
-    var mk = monthKey(todayStr());
     var byUser = {};
     try{
       // Scoped to the month being displayed, with an explicit column list.
@@ -3775,8 +3872,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       // side. Besides the bandwidth, an unbounded select risks PostgREST's row
       // cap silently truncating the result, which would under-report someone's
       // hours with no error at all.
-      var monthStart = mk + "-01";
-      var mp = mk.split("-");
+      var monthStart = teamMonth + "-01";
+      var mp = teamMonth.split("-");
       var monthEnd = dateToStr(new Date(+mp[0], +mp[1], 0)); // last day of month
       var res = await supabase.from("entries")
         .select("user_id,date,clock_in,clock_out,type")
@@ -3793,43 +3890,153 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return;
     }
 
-    list.innerHTML = "";
-    if(!allProfiles.length){ empty.style.display = "block"; return; }
+    var settingsByUser = await loadTeamSettings();
 
-    allProfiles.forEach(function(p){
+    teamRowsCache = allProfiles.map(function(p){
       var rows = byUser[p.id] || [];
-      // Uses the same summarize() as every other screen rather than a second
-      // copy of the hours rules. The inline duplicate here silently disagreed
-      // with the rest of the app the moment those rules changed.
-      var ts = summarize(rows);
-      var workedSum = ts.workedSum, loggedDays = ts.loggedDays;
-      var avg = ts.avgMin;
+      var own = settingsByUser[p.id] || normalizeSettings({});
+      return {
+        profile: p,
+        rows: rows,
+        settings: own,
+        summary: summarizeAs(own, rows),
+        status: teamStatus(rows, own),
+        configured: !!settingsByUser[p.id]
+      };
+    });
+
+    renderTeamCards();
+  }
+
+  function renderTeamCards(){
+    var list = document.getElementById("teamList");
+    var empty = document.getElementById("teamEmpty");
+    var summaryEl = document.getElementById("teamSummary");
+    var term = (document.getElementById("teamSearch").value || "").trim().toLowerCase();
+    var sort = document.getElementById("teamSort").value;
+
+    if(!teamRowsCache.length){
+      list.innerHTML = "";
+      empty.textContent = "No other users have registered yet.";
+      empty.style.display = "block";
+      summaryEl.hidden = true;
+      return;
+    }
+
+    // The summary covers the whole team, not the filtered view — a search box
+    // should not appear to change the month's totals.
+    var totals = teamRowsCache.reduce(function(a, t){
+      a.worked += t.summary.workedSum;
+      a.target += t.summary.targetSum;
+      a.days   += t.summary.loggedDays;
+      if(t.summary.ratedDays){ a.onTime += t.summary.onTimeDays; a.rated += t.summary.ratedDays; }
+      if(t.status.cls === "in") a.inNow++;
+      return a;
+    }, {worked:0, target:0, days:0, onTime:0, rated:0, inNow:0});
+
+    summaryEl.hidden = false;
+    summaryEl.innerHTML = [
+      ['<span class="ts-value">'+teamRowsCache.length+'</span><span class="ts-label">people</span>'],
+      ['<span class="ts-value">'+totals.inNow+'</span><span class="ts-label">clocked in now</span>'],
+      ['<span class="ts-value">'+totals.days+'</span><span class="ts-label">days logged</span>'],
+      ['<span class="ts-value">'+minutesToHoursStr(totals.worked)+'</span><span class="ts-label">of '+minutesToHoursStr(totals.target)+' target</span>'],
+      ['<span class="ts-value">'+(totals.rated ? Math.round((totals.onTime/totals.rated)*100)+"%" : "—")+'</span><span class="ts-label">on time</span>']
+    ].map(function(x){ return '<div class="ts-item">'+x+'</div>'; }).join("");
+
+    var shown = teamRowsCache.filter(function(t){
+      if(!term) return true;
+      return ((t.profile.full_name || "") + " " + (t.profile.email || "")).toLowerCase().indexOf(term) !== -1;
+    });
+
+    shown.sort(function(a, b){
+      if(sort === "worked") return b.summary.workedSum - a.summary.workedSum;
+      if(sort === "short")  return a.summary.diffSum - b.summary.diffSum;
+      if(sort === "ontime"){
+        var ar = a.summary.onTimeRate, br = b.summary.onTimeRate;
+        if(ar === null && br === null) return 0;
+        if(ar === null) return 1;          // never rated sorts last, not best
+        if(br === null) return -1;
+        return ar - br;
+      }
+      return (a.profile.full_name || a.profile.email || "")
+        .localeCompare(b.profile.full_name || b.profile.email || "");
+    });
+
+    empty.style.display = shown.length ? "none" : "block";
+    if(!shown.length) empty.textContent = "Nobody matches that search.";
+    list.innerHTML = "";
+
+    shown.forEach(function(t){
+      var p = t.profile, s = t.summary;
       var initials = (p.full_name || p.email || "?").trim().split(/\s+/)
         .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
+      var name = p.full_name || p.email;
+      var pct = s.targetSum ? Math.min(100, Math.round((s.workedSum / s.targetSum) * 100)) : 0;
+      var barCls = !s.targetSum ? "" : (s.diffSum >= 0 ? " is-met" : (pct >= 90 ? " is-short" : " is-short"));
+      var diffCls = s.diffSum > 0 ? " over" : (s.diffSum < 0 ? " short" : "");
+      var diffTxt = (s.diffSum > 0 ? "+" : "") + minutesToHoursStr(s.diffSum);
 
-      var row = document.createElement("div");
-      row.className = "team-row";
-      row.style.cursor = "pointer";
-      row.innerHTML =
-        '<div class="team-avatar">'+escapeHtml(initials)+'</div>'+
-        '<div class="team-info">'+
-          '<div class="team-name" dir="auto">'+escapeHtml(p.full_name || p.email)+
-            (p.role==="admin" ? ' <span class="admin-badge">Admin</span>' : '')+'</div>'+
-          '<div class="team-email" dir="auto">'+escapeHtml(p.email)+'</div>'+
+      var card = document.createElement("button");
+      card.type = "button";
+      card.className = "team-card";
+      card.setAttribute("data-uid", p.id);
+      card.setAttribute("aria-label", "Open " + name + "'s attendance for " + monthLabel(teamMonth));
+      card.innerHTML =
+        '<div class="team-card-head">'+
+          '<div class="team-avatar">'+escapeHtml(initials)+'</div>'+
+          '<div class="team-info">'+
+            '<div class="team-name" dir="auto">'+escapeHtml(name)+
+              (p.role === "admin" ? ' <span class="admin-badge">Admin</span>' : '')+
+              (t.configured ? '' : ' <span class="admin-badge unconfigured">No schedule</span>')+
+            '</div>'+
+            '<div class="team-email" dir="auto">'+escapeHtml(p.email)+'</div>'+
+          '</div>'+
+          '<span class="team-status '+t.status.cls+'">'+escapeHtml(t.status.label)+'</span>'+
         '</div>'+
-        '<div class="team-figures">'+
-          '<div><div class="label">Days</div><div class="value">'+loggedDays+'</div></div>'+
-          '<div><div class="label">Total</div><div class="value">'+minutesToHoursStr(workedSum)+'</div></div>'+
-          '<div><div class="label">Avg/Day</div><div class="value">'+(loggedDays?minutesToHoursStr(avg):"—")+'</div></div>'+
+        '<div>'+
+          '<div class="team-bar'+barCls+'"><span style="width:'+pct+'%"></span></div>'+
+          '<div class="team-bar-note">'+
+            (s.targetSum
+              ? minutesToHoursStr(s.workedSum)+' of '+minutesToHoursStr(s.targetSum)+' target'+
+                (s.incompleteDays ? ' · '+s.incompleteDays+' incomplete' : '')
+              : 'No scheduled days this month')+
+          '</div>'+
+        '</div>'+
+        '<div class="team-card-figures">'+
+          '<div><div class="label">Days</div><div class="value">'+s.loggedDays+'</div></div>'+
+          '<div><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
+          '<div><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
+          '<div><div class="label">On Time</div><div class="value">'+
+            (s.onTimeRate === null ? "—" : Math.round(s.onTimeRate)+"%")+'</div></div>'+
         '</div>';
-      row.addEventListener("click", function(){
-        var sel = document.getElementById("viewerSelect");
-        sel.value = p.id;
-        sel.dispatchEvent(new Event("change"));
-        document.querySelector('.tab-btn[data-tab="log"]').click();
-      });
-      list.appendChild(row);
+      list.appendChild(card);
     });
+  }
+
+  document.getElementById("teamList").addEventListener("click", function(ev){
+    var card = ev.target.closest(".team-card");
+    if(!card) return;
+    var sel = document.getElementById("viewerSelect");
+    sel.value = card.getAttribute("data-uid");
+    sel.dispatchEvent(new Event("change"));
+    activateTab("log");
+  });
+  document.getElementById("teamSearch").addEventListener("input", renderTeamCards);
+  document.getElementById("teamSort").addEventListener("change", renderTeamCards);
+  document.getElementById("teamPrevMonth").addEventListener("click", function(){
+    teamMonth = shiftMonth(teamMonth || monthKey(todayStr()), -1);
+    renderTeam();
+  });
+  document.getElementById("teamNextMonth").addEventListener("click", function(){
+    var next = shiftMonth(teamMonth || monthKey(todayStr()), 1);
+    if(next > monthKey(todayStr())) return;
+    teamMonth = next;
+    renderTeam();
+  });
+  function shiftMonth(key, delta){
+    var p = key.split("-");
+    var d = new Date(+p[0], +p[1] - 1 + delta, 1);
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1);
   }
 
   // ---------- Admin panel ----------
