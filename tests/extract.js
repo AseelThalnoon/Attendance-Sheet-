@@ -13,8 +13,18 @@ const path = require("path");
 //   ATTENDANCE_SRC=/tmp/head.html npm run test:clock
 const SRC = process.env.ATTENDANCE_SRC || path.join(__dirname, "..", "index.html");
 
+// The application JavaScript moved out of index.html into app.js so the page
+// could ship a real Content-Security-Policy (an inline module would have forced
+// script-src 'unsafe-inline'). Anchors are matched across BOTH files so JS
+// anchors resolve in app.js and CSS/markup anchors still resolve in index.html,
+// and every existing suite keeps working unchanged.
+const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "app.js");
+
 function source(){
-  return fs.readFileSync(SRC, "utf8").split("\n");
+  const parts = [];
+  if(fs.existsSync(APP_SRC)) parts.push(fs.readFileSync(APP_SRC, "utf8"));
+  parts.push(fs.readFileSync(SRC, "utf8"));
+  return parts.join("\n").split("\n");
 }
 
 // Returns the lines from the one starting with `from` up to (not including)
@@ -38,4 +48,4 @@ function line(match){
   return found[0];
 }
 
-module.exports = { SRC, source, slice, line };
+module.exports = { SRC, APP_SRC, source, slice, line };

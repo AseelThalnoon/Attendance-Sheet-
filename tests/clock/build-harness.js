@@ -18,6 +18,10 @@ function computeEntry(){ return { workedMin: 480 }; }
 function showToast(m){ window.__toasts.push(m); }
 function showQcNote(m){ window.__notes.push(m); }
 async function showConfirm(){ return true; }
+// Dismissed reminders are now persisted to localStorage, and backend errors are
+// mapped to human sentences before display. Neither is what this suite measures.
+function persistDismissals(){}
+function friendlyError(e){ return (e && e.message) || String(e); }
 window.__toasts = []; window.__notes = [];
 
 // Counts how many punches actually reached the save call. Stays pending until

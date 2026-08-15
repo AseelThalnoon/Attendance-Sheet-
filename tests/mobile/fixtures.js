@@ -19,7 +19,7 @@ async function revealApp(page, theme){
     if(auth) auth.style.display = "none";
 
     document.querySelectorAll(".accordion-section").forEach(el => el.classList.add("open"));
-    // Settings and Team & Access are panels toggled by .open, not tabs.
+    // Schedule Settings is a panel toggled by .open, not a tab.
     document.querySelectorAll(".settings-card").forEach(el => el.classList.add("open"));
     document.querySelectorAll(".accordion-body").forEach(el => {
       el.style.maxHeight = "none";

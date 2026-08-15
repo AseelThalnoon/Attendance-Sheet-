@@ -12,7 +12,7 @@ const html = `<!doctype html><meta charset="utf-8"><title>modal harness</title>
 <div id="appShell"></div><div id="authScreen" style="display:none"></div>
 <button id="trigger">trigger</button>
 <script>
-${slice("function escapeHtml(s){", "var TOAST_ICONS")}
+${slice("var BIDI_CONTROLS", "var TOAST_ICONS")}
 ${slice("// Promise-based modal.", "// Rolls a list of entries into one summary")}
 window.showConfirm = showConfirm;
 </script>
