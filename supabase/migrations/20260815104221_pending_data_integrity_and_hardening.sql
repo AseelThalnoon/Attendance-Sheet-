@@ -1,15 +1,16 @@
--- STATUS: NOT YET APPLIED.
+-- STATUS: APPLIED to the live project on 2026-08-15.
 --
--- This migration was written during the 2026-08-15 audit remediation but could
--- not be applied automatically — the tooling blocked DDL against the live
--- project. Apply it yourself via the Supabase SQL Editor or the CLI:
+-- Pre-flight: all 345 existing entries satisfied every CHECK below, and no row
+-- held an empty-string clock time — which would have failed the constraint,
+-- since the normalising trigger only fires on write, never on existing rows.
 --
---     supabase db push
---   or paste into  Dashboard -> SQL Editor -> Run
---
--- Everything here was checked against the live data first: all 345 existing
--- entries already satisfy the CHECK constraints below, so this will not fail on
--- existing rows. Re-verify before running if the data has changed since.
+-- Verified afterwards by impersonating an ordinary employee inside a transaction
+-- that was then aborted. Nothing persisted: 345 entries and 1 admin before and
+-- after.
+--   [H-4 own settings write: ALLOWED]  [another user's settings: 0 rows affected]
+--   [H-7 clock_in '99:99': REJECTED]   [H-7 type '<script>': REJECTED]
+--   [H-7 date 1900-01-01: REJECTED]    [empty string normalised to NULL]
+--   [public_app_flags: {"allow_registration": true}]
 --
 -- Covers audit findings H-7, H-4, H-3, M-24, P-8, and the unindexed foreign key.
 

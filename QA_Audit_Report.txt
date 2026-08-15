@@ -2485,16 +2485,24 @@ HIGH
        the callback (Supabase deadlock hazard). Admin viewer state and in-progress
        form input survive a token refresh.
   H-3  Enforced in handle_new_user() + public_app_flags() for the signed-out
-       screen.                                        [PENDING MIGRATION]
-  H-4  Users can now reach and save their own schedule; settings row seeded on
-       signup.                                        [PENDING MIGRATION for the
-       RLS half - the front end is already updated]
+       screen. Verified live: public_app_flags() returns
+       {"allow_registration": true} to an unauthenticated caller and exposes no
+       other column of app_settings.
+  H-4  Users can now reach and save their own schedule. Verified live as an
+       ordinary employee: writing their OWN settings row is allowed, and an
+       UPDATE aimed at another user's row affects 0 rows.
+       NOTE: the "seed a settings row on signup" half is inert until
+       app_settings.default_settings is populated - it is currently {} , so new
+       users still start on the implicit Sun-Thu 08:00-16:00 defaults. They can
+       now change it themselves, which is the part that mattered.
   H-5  Long/transposed shifts prompt before saving. Verified: 16:00/08:00 prompts
        and mentions swapping; 08:00-16:00 and a routine 22:00-06:00 night shift
        are not interrupted; a 14h shift prompts and can be confirmed through.
   H-6  .sticky-clock.show now sets display:flex (measured: 56px tall).
   H-7  CHECK constraints on type, clock times, note length and date range, plus a
-       normalising trigger.                           [PENDING MIGRATION]
+       normalising trigger. Verified live against the API as an ordinary user:
+       clock_in "99:99" REJECTED, type "<script>" REJECTED, date 1900-01-01
+       REJECTED, empty-string clock time normalised to NULL.
        Client-side half done: maxlength on every free-text input, and typeLabel()
        so an unknown type can never render as the literal word "undefined".
   H-8  All bulk paths batched into single upserts, with a beforeunload guard while
@@ -2530,8 +2538,13 @@ MEDIUM / LOW / RTL
   M-21 Clock/reminder timers pause when hidden or signed out.
   M-22 Password floor raised to 10 characters.
   M-23 CSP added; script-src 'self' with no unsafe-inline.
-  M-24 Internal SECURITY DEFINER functions revoked from the API.
-                                                      [PENDING MIGRATION]
+  M-24 Internal SECURITY DEFINER functions revoked from the API. Confirmed by
+       the Supabase security advisor: handle_new_user, log_entry_change,
+       log_profile_change, guard_profile_columns, set_updated_at and
+       normalize_entry no longer appear as callable RPCs. The functions that
+       remain callable are the admin RPCs (each re-checks is_admin() itself)
+       and public_app_flags(), which is anon-callable by design and returns
+       one boolean.
   L-1  Workday denominator clamped ("6 of 5" fixed).
   L-2..L-5  Service worker rewritten: same-origin only, navigation fallback,
        never resolves undefined, caches "./" as well as "./index.html".
@@ -2558,18 +2571,14 @@ MEDIUM / LOW / RTL
 
 NOT DONE - REQUIRES YOUR ACTION
 --------------------------------------------------------------------------------
-  1. APPLY THE PENDING MIGRATION.
-     supabase/migrations/20260815020000_pending_data_integrity_and_hardening.sql
-     The tooling blocked DDL against the live project, so this one could not be
-     applied automatically. It covers H-7, H-4, H-3, M-24, P-8 and the unindexed
-     foreign key. All 345 existing rows were checked against the new constraints
-     first and already satisfy them.
-     IMPORTANT: the front end already exposes Schedule Settings to every user.
-     Until this migration runs, a non-admin saving their schedule will be
-     rejected by RLS.
+  1. Populate app_settings.default_settings with your organisation's working
+     week and hours. It is currently {} , so the settings row seeded at signup
+     (H-4) is a no-op and every new employee still starts on the implicit
+     Sun-Thu 08:00-16:00 defaults until they change it themselves.
 
   2. Enable leaked-password protection (Dashboard -> Authentication -> Policies)
      and consider disabling email signups there as well as in the trigger.
+     This is the only item the Supabase security advisor still reports.
 
   3. Review audit_log for any historical role_change where actor_id equals
      target_user_id and new_values.role = 'admin' - the signature of C-1 having
@@ -2590,15 +2599,31 @@ NOT DONE - DELIBERATELY DEFERRED (architectural, needs a product decision)
   LT-11 Multi-tenancy (B-13).
   M-14  Server-stamped punch times.
 
-REVISED SCORECARD (post-remediation, unapplied migration accounted for)
+NOT DONE - SMALL ITEMS STILL OPEN (no product decision needed, just not done)
 --------------------------------------------------------------------------------
-  Overall Quality   5 -> 8      Security          2 -> 7  (8 once migration lands)
+  M-20 / P-5  renderAll() still re-renders everything after every mutation.
+  L-11  The header overflow menu still repositions on every scroll event.
+  L-12  Toasts are still created and populated in the same tick, so role="alert"
+        may not be announced.
+  P-1 / P-2  index.html + app.js + vendor is ~435KB uncompressed and unminified;
+        icon-512.png is still 78KB.
+  S-16  Still no package.json at the repo root. The one runtime dependency is
+        pinned and vendored, but there is no manifest and no audit path.
+  A-2   Business logic and DOM manipulation remain fused; app.js is 4,346 lines.
+  B-8, B-9, B-10  Target hours vs standard start/end can still contradict each
+        other; the grace period still applies identically to arrival and
+        departure; the overtime bank still never carries over or resets.
+
+REVISED SCORECARD (post-remediation, both migrations applied)
+--------------------------------------------------------------------------------
+  Overall Quality   5 -> 8      Security          2 -> 8
   UX                6 -> 8      Mobile            6 -> 8
   Accessibility     3 -> 7      Performance       5 -> 7
   Reliability       3 -> 6      Maintainability   5 -> 7
 
-  Security is held at 7 because the pending migration still gates server-side
-  input validation and the registration control. Reliability is held at 6
+  Security reaches 8 now that server-side validation and the registration
+  control are live; it is not a 9 while leaked-password protection is still
+  disabled and there is no tenancy boundary. Reliability is held at 6
   because there is still no offline queue, no cross-tab sync and no concurrency
   control - the app now fails visibly rather than silently, which is the
   improvement, but it does not yet fail gracefully.

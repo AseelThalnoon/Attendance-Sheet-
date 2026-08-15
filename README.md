@@ -49,11 +49,10 @@ supabase db push
 
 …or paste a migration into **Dashboard → SQL Editor → Run**.
 
-> **`20260815020000_pending_data_integrity_and_hardening.sql` has not been
-> applied yet.** It adds the `entries` CHECK constraints, lets users own their
-> own schedule settings, and enforces the registration toggle server-side. The
-> front end already expects the settings-ownership half, so **schedule saves by
-> non-admin users will be rejected by RLS until this migration is run.**
+Both migrations are applied to the live project as of 2026-08-15. Each file's
+header records what it covers and how it was verified. Note that the second
+file keeps its original `pending_` name so that its filename matches the version
+recorded in the remote migration history — it is applied, not pending.
 
 ### Authorisation model
 
