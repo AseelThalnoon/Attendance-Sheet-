@@ -440,6 +440,28 @@
   input:focus, select:focus{border-color:var(--teal-600); box-shadow:0 0 0 3px rgba(27,114,107,.16);}
   body.dark input[type="date"], body.dark input[type="time"]{color-scheme:dark;}
 
+  /* iOS Safari lays a native date/time control out from its own shadow DOM and
+     ignores box-sizing on it, so width:100% resolved to 100% PLUS the 24px of
+     horizontal padding and the field ran past the right edge of its card. Every
+     other control obeyed the global *{box-sizing:border-box}, which is why only
+     Standard Start and Standard End overhung. Chromium sizes these correctly,
+     so nothing here is visible in the test browser.
+     Turning the UA appearance off restores the standard box model; max-width
+     and min-width stop the control exceeding its cell whatever the engine
+     decides its intrinsic width is. */
+  input[type="date"], input[type="time"]{
+    -webkit-appearance:none; appearance:none;
+    max-width:100%; min-width:0;
+  }
+  /* Safari centres the value inside the control and adds its own margin, so a
+     time read as centred while the number beside it read as left-aligned. */
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value{text-align:left; margin:0;}
+  /* The picker indicator keeps its own intrinsic width in Safari; let it shrink
+     rather than push the value out of the box. */
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator{margin-left:4px; flex-shrink:0;}
+
   .btn{
     position:relative; overflow:hidden;
     display:inline-flex; align-items:center; justify-content:center; gap:6px;
