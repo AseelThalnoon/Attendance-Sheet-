@@ -33,7 +33,7 @@ vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
 
 const { computeEntry, summarize, minutesToHoursStr, isScheduled,
-        dateToStr, confirmLongShift, weekStartDow, settings } = sandbox;
+        dateToStr, todayStr, confirmLongShift, weekStartDow, settings } = sandbox;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -186,6 +186,55 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
   eq(sandbox.typeLabel(""), "Regular", "H-7 an empty type falls back to Regular");
   ok(String(sandbox.typeLabel("zzz")).indexOf("undefined") === -1,
     "H-7 no code path renders the literal string 'undefined'");
+}
+
+// ---------------------------------------------------------------- overtime bank: open day in progress
+// A shift still running right now hasn't failed to meet anything yet — the
+// day isn't over. It must not already read as a missed day in the bank. A
+// clock-in left open from a PAST day is different: that day has ended, so it
+// still counts as the shortfall it is.
+{
+  const savedWorkDays = settings.workDays;
+  settings.workDays = [0,1,2,3,4,5,6]; // guarantee "today" is scheduled, whenever the suite runs
+  const today = todayStr();
+
+  const runningToday = summarize([entry({date:today, clockIn:"09:00"})]);
+  eq([runningToday.diffSum, runningToday.incompleteDays], [0, 0],
+    "an in-progress shift today is held out of the bank, not booked as a miss");
+
+  const forgottenPast = summarize([entry({date:"2026-08-10", clockIn:"09:00"})]);
+  ok(forgottenPast.diffSum < 0 && forgottenPast.incompleteDays === 1,
+    "a stale open day from a past date still counts as a shortfall",
+    JSON.stringify(forgottenPast));
+
+  settings.workDays = savedWorkDays;
+}
+
+// ---------------------------------------------------------------- overtime bank: WFH/trip/training have no fixed target
+// These are work, but not work against a fixed daily target. Whatever gets
+// logged is credit, never a shortfall — unlike a Regular day held to the same
+// hours.
+{
+  const wfhShort = summarize([entry({date:"2026-08-10", clockIn:"09:00", clockOut:"11:00", type:"wfh"})]);
+  eq([wfhShort.targetSum, wfhShort.diffSum], [0, 120],
+    "a short WFH day is credited in full, not booked against a target");
+
+  const tripShort = summarize([entry({date:"2026-08-11", clockIn:"09:00", clockOut:"10:00", type:"trip"})]);
+  eq([tripShort.targetSum, tripShort.diffSum], [0, 60],
+    "a short business-trip day is credited in full too");
+
+  const trainingShort = summarize([entry({date:"2026-08-12", clockIn:"09:00", clockOut:"09:30", type:"training"})]);
+  eq([trainingShort.targetSum, trainingShort.diffSum], [0, 30],
+    "a short training day is credited in full too");
+
+  const regularShort = summarize([entry({date:"2026-08-13", clockIn:"09:00", clockOut:"11:00"})]);
+  ok(regularShort.diffSum < 0,
+    "a Regular day held to the same hours is still a shortfall", JSON.stringify(regularShort));
+
+  // Still an open day like any other if there's a clock-in with no clock-out —
+  // the zero target is not a free pass to look closed.
+  const openWfh = computeEntry(entry({date:"2026-08-10", clockIn:"09:00", type:"wfh"}));
+  eq(openWfh.open, true, "an in-progress WFH day is still flagged open");
 }
 
 console.log(`  audit-logic  pass ${pass}   fail ${fail}`);
