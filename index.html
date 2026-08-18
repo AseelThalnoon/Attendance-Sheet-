@@ -96,6 +96,7 @@
     --radius-md:10px;
     --radius:14px;
     --font-num:Calibri, "Segoe UI", Candara, Optima, "Trebuchet MS", sans-serif;
+    --font-display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
     --shadow-sm:0 1px 2px rgba(10,54,52,.06), 0 1px 1px rgba(10,54,52,.04);
     --shadow-md:0 6px 20px rgba(10,54,52,.08), 0 2px 6px rgba(10,54,52,.05);
     --shadow-lg:0 16px 40px rgba(10,54,52,.14), 0 4px 12px rgba(10,54,52,.08);
@@ -162,11 +163,14 @@
     transition:background-color var(--dur-base) var(--ease-soft), color var(--dur-base) var(--ease-soft);
   }
 
-  .display{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;}
+  .display{font-family:var(--font-display);}
   a{color:inherit;}
   button{font-family:inherit; transition:background-color var(--dur-fast) var(--ease-snap), border-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);}
   button:focus-visible, input:focus-visible, select:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
   @media (prefers-reduced-motion: reduce){*{animation-duration:.001ms !important; transition-duration:.001ms !important;}}
+
+  ::selection{background:var(--gold-light); color:var(--teal-950);}
+  input, textarea{caret-color:var(--gold);}
 
   /* ---------- Header ---------- */
   header.ledger-head{
@@ -371,7 +375,7 @@
   .card:hover{box-shadow:var(--shadow-md);}
   .card h2{
     display:flex; align-items:center; gap:10px;
-    font-family:"Iowan Old Style",Palatino,Georgia,serif; font-weight:400; font-size:19px;
+    font-family:var(--font-display); font-weight:400; font-size:19px;
     margin:0 0 18px; color:var(--ink);
     border-bottom:1px solid var(--line-soft); padding-bottom:12px;
   }
@@ -768,7 +772,14 @@
   .filter-spacer{margin-left:auto;}
 
   /* ---------- Table ---------- */
-  .table-wrap{overflow-x:auto; border:1px solid var(--line-soft); border-radius:var(--radius-sm);}
+  .table-wrap{
+    overflow-x:auto; border:1px solid var(--line-soft); border-radius:var(--radius-sm);
+    scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+  }
+  .table-wrap::-webkit-scrollbar{height:8px;}
+  .table-wrap::-webkit-scrollbar-track{background:transparent;}
+  .table-wrap::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
+  .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted-2);}
   .table-wrap.is-loading table{display:none;}
   table{width:100%; border-collapse:collapse; font-size:13px;}
   thead th{
@@ -812,7 +823,7 @@
   .empty-state{text-align:center; padding:36px 10px; color:var(--muted); font-size:13.5px;}
   .first-run-empty{display:flex; flex-direction:column; align-items:center; gap:10px; max-width:320px; margin:0 auto;}
   .first-run-empty svg{color:var(--gold); opacity:.8;}
-  .first-run-title{font-family:"Iowan Old Style",Palatino,Georgia,serif; font-size:16px; color:var(--ink); margin:2px 0 0;}
+  .first-run-title{font-family:var(--font-display); font-size:16px; color:var(--ink); margin:2px 0 0;}
   .first-run-sub{font-size:12.5px; color:var(--muted); line-height:1.6; margin:0;}
   .first-run-sub strong{color:var(--teal-600);}
 
@@ -873,7 +884,7 @@
     background:var(--gradient-gold); border-radius:2px;
   }
   .period-card-head{display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
-  .period-title{font-family:"Iowan Old Style",Palatino,Georgia,serif; font-size:17px; color:var(--ink);}
+  .period-title{font-family:var(--font-display); font-size:17px; color:var(--ink);}
   .period-meta{font-size:11.5px; color:var(--muted);}
   .period-figures{display:flex; gap:26px; flex-wrap:wrap; margin-bottom:14px;}
   .period-figure .label{font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
@@ -1397,7 +1408,7 @@
     background:var(--gradient-gold); border-radius:0 0 3px 3px;
   }
   .modal-title{
-    font-family:"Iowan Old Style",Palatino,Georgia,serif; font-weight:400; font-size:17px;
+    font-family:var(--font-display); font-weight:400; font-size:17px;
     margin:2px 0 8px; color:var(--ink);
   }
   .modal-msg{font-size:13.5px; line-height:1.55; color:var(--muted); margin:0; white-space:pre-line;}
