@@ -258,6 +258,17 @@
     50%{box-shadow:inset 0 0 0 1px rgba(227,203,143,.5), var(--shadow-md), 0 0 18px rgba(227,203,143,.28);}
   }
   @media (prefers-reduced-motion: reduce){.seal{animation:none;}}
+  /* One-shot confirmation beat for a fresh clock-in/out, distinct from the
+     ambient loop above — replaces it for the pulse's duration (so it never
+     fights the loop's own box-shadow keyframes), then the ambient glow
+     resumes on its own once this class is removed. Pure transform, so it
+     never overrides the status-over/status-under ring tint underneath. */
+  .seal.punched{animation:sealPunch .55s var(--ease-soft);}
+  @keyframes sealPunch{
+    0%{transform:scale(1);}
+    40%{transform:scale(1.09);}
+    100%{transform:scale(1);}
+  }
   .seal::before{content:""; position:absolute; inset:5px; border-radius:50%; border:1px dashed rgba(227,203,143,.45);}
   .seal .seal-label{font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--gold-light); position:relative;}
   .seal .seal-value{font-family:var(--font-num); font-weight:600; font-size:16px; margin-top:2px; position:relative; line-height:1.15; color:#fff; padding:0 8px;}
@@ -421,6 +432,7 @@
   .quick-clock .btn.secondary.qc-btn:hover{background:rgba(255,255,255,.16);}
   .qc-note{font-size:12px; color:var(--muted); margin:10px 2px 18px; min-height:16px;}
   .qc-note.success{color:var(--positive);}
+  .qc-note.pulse{animation:fadeIn .3s var(--ease-soft);}
 
   /* ---------- Form ---------- */
   /* auto-fit with a 150px floor rather than a fixed 6 columns: a fixed count
@@ -753,6 +765,11 @@
   }
   .cal-cell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm);}
   .cal-cell.cal-empty{visibility:hidden; cursor:default; pointer-events:none;}
+  /* Row-by-row reveal on month navigation (delay staggered in JS); the grid
+     is rebuilt from scratch on every nav click, so this retriggers cleanly.
+     Empty leading cells are invisible filler and skip the entrance. */
+  .cal-cell:not(.cal-empty){animation:calCellIn .3s var(--ease-soft) backwards;}
+  @keyframes calCellIn{from{opacity:0; transform:scale(.9);} to{opacity:1; transform:scale(1);}}
   .cal-daynum{font-family:var(--font-num); font-size:12.5px; font-weight:600; color:var(--ink);}
   .cal-dot{width:6px; height:6px; border-radius:50%; background:var(--line);}
   .cal-cell.cal-met .cal-dot{background:var(--positive);}
@@ -915,6 +932,16 @@
   .bar-label{font-family:var(--font-num); font-size:9.5px; fill:var(--muted);}
   .bar-value{font-family:var(--font-num); font-size:9px; fill:var(--ink); font-variant-numeric:tabular-nums; font-weight:700;}
   .bar-value.bar-empty{fill:var(--muted-2); font-weight:400;}
+  /* Bars grow up from the baseline instead of just appearing — the chart is
+     re-rendered from scratch on every filter change, so these are always
+     freshly-inserted elements and the animation retriggers naturally. */
+  .bar-rect{transform-box:fill-box; transform-origin:bottom; animation:barGrow .5s var(--ease-soft) both;}
+  @keyframes barGrow{from{transform:scaleY(0);} to{transform:scaleY(1);}}
+  .bar-value{animation:fadeIn .35s ease both;}
+  /* Opacity-only: rotated axis labels carry their own SVG rotate() transform
+     attribute, and a CSS transform (as fadeIn uses) would override it. */
+  .bar-label{animation:barLabelIn .35s ease both;}
+  @keyframes barLabelIn{from{opacity:0;} to{opacity:1;}}
   .chart-legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:var(--muted);}
   .chart-legend span{display:inline-flex; align-items:center; gap:6px;}
   .swatch{width:10px; height:10px; border-radius:2px; display:inline-block;}

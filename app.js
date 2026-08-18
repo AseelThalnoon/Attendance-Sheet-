@@ -1415,8 +1415,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var barH = Math.max(val*scale, val > 0 ? 2 : 1);
       var y = h - padBottom - barH;
       var color = !d.hasEntry ? cLine : (val >= (d.targetMin != null ? d.targetMin : targetMin) ? cPos : cUnder);
+      // Capped stagger: a 30-bar yearly chart shouldn't take a full second to
+      // finish appearing, so the delay ramp stops growing past ~10 bars.
+      var delay = Math.min(i, 10) * 28;
+      var delayStyle = "animation-delay:" + delay + "ms;";
 
-      svg += '<rect x="'+(cx-barW/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+barH.toFixed(1)+'" fill="'+color+'" rx="2">'+
+      svg += '<rect x="'+(cx-barW/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+barH.toFixed(1)+'" fill="'+color+'" rx="2" class="bar-rect" style="'+delayStyle+'">'+
              '<title>'+escapeHtml(d.label)+': '+valueText(val)+'</title></rect>';
 
       // Value label: above the bar, or tucked inside when the bar reaches the top.
@@ -1425,19 +1429,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         var ty2 = above ? y - 5 : y + valueFont + 3;
         var fill = above ? "" : ' fill="#fff"';
         svg += '<text x="'+cx.toFixed(1)+'" y="'+ty2.toFixed(1)+'" text-anchor="middle" class="bar-value" '+
-               'style="font-size:'+valueFont+'px"'+fill+'>'+valueText(val)+'</text>';
+               'style="font-size:'+valueFont+'px;'+delayStyle+'"'+fill+'>'+valueText(val)+'</text>';
       } else {
         svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-padBottom-6)+'" text-anchor="middle" class="bar-value bar-empty" '+
-               'style="font-size:'+valueFont+'px">–</text>';
+               'style="font-size:'+valueFont+'px;'+delayStyle+'">–</text>';
       }
 
       if(rotate){
         var lx = cx.toFixed(1), ly = (h - padBottom + 12).toFixed(1);
         svg += '<text x="'+lx+'" y="'+ly+'" text-anchor="end" class="bar-label" '+
-               'transform="rotate(-45 '+lx+' '+ly+')" style="font-size:'+axisFont+'px">'+escapeHtml(d.label)+'</text>';
+               'transform="rotate(-45 '+lx+' '+ly+')" style="font-size:'+axisFont+'px;'+delayStyle+'">'+escapeHtml(d.label)+'</text>';
       } else {
         svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-7)+'" text-anchor="middle" class="bar-label" '+
-               'style="font-size:'+axisFont+'px">'+escapeHtml(d.label)+'</text>';
+               'style="font-size:'+axisFont+'px;'+delayStyle+'">'+escapeHtml(d.label)+'</text>';
       }
     });
     svg += '</svg>';
@@ -2004,10 +2008,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var statusWord = CAL_STATUS_LABELS[status] || status;
       var calLabel = fmtDateLong(dStr) + ", " + statusWord +
         (entry ? ", " + title : "") + (isToday ? ", today" : "");
+      // Row-by-row reveal on month navigation; capped so a 5-6 week month
+      // doesn't drag the animation out past a quick, routine transition.
+      var gridIndex = startDow + day - 1;
+      var cellDelay = Math.min(gridIndex, 20) * 12;
       html +=
         '<button type="button" class="cal-cell cal-'+status+(isToday?' cal-today':'')+'" data-date="'+dStr+'" ' +
           'title="'+escapeAttr(title)+'" aria-label="'+escapeAttr(calLabel)+'"' +
-          (isToday ? ' aria-current="date"' : '') + '>' +
+          (isToday ? ' aria-current="date"' : '') +
+          ' style="animation-delay:'+cellDelay+'ms">' +
           '<span class="cal-daynum" aria-hidden="true">'+day+'</span>' +
           '<span class="cal-dot" aria-hidden="true"></span>' +
         '</button>';
@@ -2653,6 +2662,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var el = document.getElementById("qcStatusNote");
     el.textContent = msg;
     el.className = "qc-note" + (success ? " success" : "");
+    void el.offsetWidth; // force reflow so back-to-back punches re-trigger the fade
+    el.classList.add("pulse");
+  }
+
+  // The one-shot "confirmed" beat on the seal, separate from its ambient
+  // idle glow — removing the class after the animation ends lets a repeat
+  // punch (e.g. clock out shortly after clock in) retrigger it cleanly.
+  function pulseSeal(){
+    var seal = document.getElementById("todaySeal");
+    if(!seal) return;
+    seal.classList.remove("punched");
+    void seal.offsetWidth;
+    seal.classList.add("punched");
   }
 
   // Disabled buttons only stop taps, and punchClock is also reachable
@@ -2709,6 +2731,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       }
 
       await loadDataForViewedUser();
+      pulseSeal();
 
       var msg = "Clocked " + kind + " at " + formatTime12(timeNow) + " · " + fmtDate(today);
       if(kind === "out"){
