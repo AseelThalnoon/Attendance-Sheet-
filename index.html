@@ -569,7 +569,7 @@
   .check-row input{width:16px; height:16px; margin:1px 0 0; flex-shrink:0; accent-color:var(--teal-700); cursor:pointer;}
   .check-row > span{flex:1; min-width:0;}
   .check-row strong{display:block; font-size:12.5px; font-weight:600; color:var(--ink); text-transform:none; letter-spacing:0;}
-  .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted); margin-top:3px; text-transform:none; letter-spacing:0;}
+  .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted-2); margin-top:3px; text-transform:none; letter-spacing:0;}
 
   .periods-section{margin-top:22px; padding-top:18px; border-top:1px solid var(--line-soft);}
   .periods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:2px;}
@@ -658,7 +658,7 @@
 
   .punct-stats{margin-bottom:22px;}
   .punct-rule{
-    font-size:11.5px; color:var(--muted); margin:-4px 0 16px;
+    font-size:11.5px; color:var(--muted-2); margin:-4px 0 16px;
     padding:9px 12px; border-left:3px solid var(--gold);
     background:var(--teal-50); border-radius:0 7px 7px 0;
   }
@@ -732,9 +732,9 @@
 
   /* ---------- Calendar grid ---------- */
   .calendar-nav{
-    display:flex; align-items:center; gap:10px; margin-bottom:14px;
+    display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;
   }
-  .calendar-nav .btn.ghost.small{padding:7px 10px; min-height:32px;}
+  .calendar-nav .btn.ghost.small{padding:7px 10px; min-height:32px; flex-shrink:0;}
   .calendar-month-label{font-size:16px; color:var(--ink); min-width:140px; text-align:center;}
   .calendar-grid{
     display:grid; grid-template-columns:repeat(7, 1fr); gap:5px;
@@ -757,8 +757,8 @@
   .cal-dot{width:6px; height:6px; border-radius:50%; background:var(--line);}
   .cal-cell.cal-met .cal-dot{background:var(--positive);}
   .cal-cell.cal-met{background:var(--positive-bg);}
-  .cal-cell.cal-under .cal-dot{background:var(--teal-600);}
-  .cal-cell.cal-under{background:var(--teal-100);}
+  .cal-cell.cal-under .cal-dot{background:var(--negative);}
+  .cal-cell.cal-under{background:var(--negative-bg);}
   .cal-cell.cal-excused .cal-dot{background:var(--gold);}
   .cal-cell.cal-excused{background:var(--excused-bg);}
   .cal-cell.cal-open .cal-dot{background:var(--warn);}
@@ -1100,7 +1100,7 @@
   .audit-action.a-insert{background:var(--positive-bg); color:var(--positive);}
   .audit-action.a-update{background:var(--info-bg); color:var(--info);}
   .audit-action.a-delete{background:var(--negative-bg); color:var(--negative);}
-  .audit-action.a-admin{background:var(--excused-bg); color:var(--gold-deep);}
+  .audit-action.a-admin{background:var(--excused-bg); color:var(--excused);}
   .audit-detail{font-size:11.5px; color:var(--muted-2); white-space:normal;}
   .admin-badge.unconfigured{background:var(--negative-bg); color:var(--negative);}
 
@@ -1196,8 +1196,8 @@
   }
   .team-status.in{background:var(--positive-bg); color:var(--positive);}
   .team-status.done{background:var(--info-bg); color:var(--info);}
-  .team-status.off{background:var(--teal-50); color:var(--muted);}
-  .team-status.excused{background:var(--excused-bg); color:var(--gold-deep);}
+  .team-status.off{background:var(--teal-50); color:var(--muted-2);}
+  .team-status.excused{background:var(--excused-bg); color:var(--excused);}
   .team-status.missing{background:var(--negative-bg); color:var(--negative);}
 
   .sr-only{
@@ -1216,7 +1216,7 @@
   .team-email{font-size:11.5px; color:var(--muted-2); overflow-wrap:anywhere;}
   .admin-badge{
     font-size:10px; text-transform:uppercase; letter-spacing:.06em;
-    color:var(--gold-deep); background:var(--excused-bg); padding:2px 7px; border-radius:99px;
+    color:var(--excused); background:var(--excused-bg); padding:2px 7px; border-radius:99px;
   }
 
   /* ---------- Role toggle (Admin tab People list) ----------
@@ -1974,7 +1974,7 @@
           <div class="chart-holder" id="monthlyChart"></div>
           <div class="chart-legend">
             <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
-            <span><i class="swatch" style="background:var(--teal-600)"></i>Below target</span>
+            <span><i class="swatch" style="background:var(--negative)"></i>Below target</span>
             <span><i class="swatch target"></i>Daily target</span>
           </div>
         </div>
@@ -2002,7 +2002,7 @@
           <div class="chart-holder" id="yearChart"></div>
           <div class="chart-legend">
             <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
-            <span><i class="swatch" style="background:var(--teal-600)"></i>Below target</span>
+            <span><i class="swatch" style="background:var(--negative)"></i>Below target</span>
             <span><i class="swatch" style="background:var(--line)"></i>No entries</span>
             <span><i class="swatch target"></i>Daily target</span>
           </div>
@@ -2045,7 +2045,7 @@
       <div class="calendar-grid" id="calendarGrid"></div>
       <div class="chart-legend" style="margin-top:14px;">
         <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
-        <span><i class="swatch" style="background:var(--teal-600)"></i>Under target</span>
+        <span><i class="swatch" style="background:var(--negative)"></i>Under target</span>
         <span><i class="swatch" style="background:var(--gold)"></i>Leave / excused</span>
         <span><i class="swatch" style="background:var(--negative)"></i>Missing</span>
         <span><i class="swatch" style="background:var(--line)"></i>Day off</span>
