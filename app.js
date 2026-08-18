@@ -664,8 +664,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var timer = setTimeout(dismiss, type === "error" ? 7000 : 4200);
     function dismiss(){
       clearTimeout(timer);
+      el.classList.add("hiding");
       el.classList.remove("show");
-      setTimeout(function(){ el.remove(); }, 220);
+      setTimeout(function(){ el.remove(); }, 200);
     }
     el.querySelector(".toast-close").addEventListener("click", dismiss);
   }
