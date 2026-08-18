@@ -384,6 +384,11 @@
     font-variant-numeric:tabular-nums; color:var(--ink); letter-spacing:-.01em;
   }
   .stat-detail{font-size:11.5px; color:var(--muted-2); margin:5px 0 0;}
+  /* A streak milestone reuses --positive (this row's existing "good news"
+     colour, e.g. Overtime Bank) rather than introducing gold text in a new
+     context or any glow/border — the wax seal stays the only element
+     allowed to look ornamental. */
+  .stat-detail.milestone{color:var(--positive); font-weight:600;}
   .stat-trend{
     display:flex; align-items:center; gap:4px; font-size:11px; color:var(--muted-2);
     margin:6px 0 0; min-height:15px;

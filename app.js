@@ -1544,10 +1544,23 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       cursor.setDate(cursor.getDate()-1);
     }
     document.getElementById("streak").textContent = streak;
-    document.querySelector("#streak + .stat-detail").textContent =
-      todayComplete || !isScheduled(todayStr())
-        ? "Consecutive workdays logged"
-        : "Consecutive workdays · clock out today to extend it";
+    // Marks a genuine milestone the day the streak reaches it — never
+    // permanent, since tomorrow it's just one more day and the exact match
+    // stops firing on its own. Kept to the ledger's own quiet register: no
+    // exclamation marks, no badge, nothing that reads as a second ornament
+    // alongside the seal (see DESIGN.md's one-ornament rule).
+    var STREAK_MILESTONES = {
+      7: "a full week unbroken", 14: "two weeks unbroken", 30: "a month unbroken",
+      50: "fifty days unbroken", 100: "a hundred days unbroken",
+      200: "two hundred days unbroken", 365: "a full year unbroken"
+    };
+    var streakDetailEl = document.querySelector("#streak + .stat-detail");
+    var streakBase = todayComplete || !isScheduled(todayStr())
+      ? "Consecutive workdays logged"
+      : "Consecutive workdays · clock out today to extend it";
+    var milestone = STREAK_MILESTONES[streak];
+    streakDetailEl.textContent = milestone ? streakBase + " — " + milestone : streakBase;
+    streakDetailEl.classList.toggle("milestone", !!milestone);
 
     var todayEntry = entries.find(function(e){ return e.date === today; });
     var seal = document.getElementById("todaySeal");
