@@ -211,8 +211,6 @@
     color:var(--gold-light); display:inline-flex; align-items:center; justify-content:center;
     transition:background-color var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
-  .icon-btn:hover{background:rgba(255,255,255,.16); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
-  .icon-btn:active{transform:translateY(0);}
 
   /* ---------- Header actions ----------
      Replaced the "More" overflow menu. That menu also had to be repositioned on
@@ -223,7 +221,6 @@
   .icon-btn.danger{
     border-color:rgba(226,143,143,.35);
   }
-  .icon-btn.danger:hover{background:rgba(226,143,143,.18);}
   .head-action{
     display:inline-flex; align-items:center; gap:7px; cursor:pointer;
     height:40px; padding:0 14px; border-radius:var(--radius-md);
@@ -232,8 +229,6 @@
     letter-spacing:.02em; white-space:nowrap;
     transition:background-color var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
-  .head-action:hover{background:rgba(255,255,255,.16); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
-  .head-action:active{transform:translateY(0);}
   /* The Admin panel is not a tab, so the button itself has to show that it is
      the thing currently open. */
   .head-action[aria-current="page"]{
@@ -306,7 +301,7 @@
       radial-gradient(600px 220px at 88% -25%, rgba(227,203,143,.16), transparent 65%),
       linear-gradient(135deg, var(--teal-900), var(--teal-950));
     border-radius:var(--radius); margin-bottom:18px; box-shadow:var(--shadow-md);
-    animation:cardIn .4s ease both;
+    animation:cardIn .4s var(--ease-soft) both;
     display:grid; grid-template-columns:1fr 1fr; column-gap:24px; align-items:center;
     padding:26px 28px 24px;
   }
@@ -355,7 +350,7 @@
     position:relative; background:var(--card); border:1px solid var(--line-soft);
     border-radius:var(--radius); padding:16px 17px 15px; box-shadow:var(--shadow-sm);
     transition:transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
-    animation:cardIn .45s ease backwards;
+    animation:cardIn .45s var(--ease-soft) backwards;
   }
   .stats-row .stat-card:nth-child(1){animation-delay:.02s;}
   .stats-row .stat-card:nth-child(2){animation-delay:.07s;}
@@ -367,7 +362,6 @@
     content:""; position:absolute; top:0; left:14px; right:14px; height:3px;
     background:var(--gradient-gold); border-radius:0 0 3px 3px;
   }
-  .stat-card:hover{transform:translateY(-3px); box-shadow:var(--shadow-glow);}
   .stat-label{
     display:flex; align-items:center; gap:8px; font-size:10px;
     text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:2px 0 12px;
@@ -399,7 +393,6 @@
     padding:22px 22px 24px; margin-bottom:24px; box-shadow:var(--shadow-sm);
     transition:box-shadow var(--dur-fast) var(--ease-snap);
   }
-  .card:hover{box-shadow:var(--shadow-md);}
   .card h2{
     display:flex; align-items:center; gap:10px;
     font-family:var(--font-display); font-weight:400; font-size:19px;
@@ -427,9 +420,7 @@
   .quick-clock-actions{display:flex; gap:10px; flex-wrap:wrap; position:relative;}
   .qc-btn{display:inline-flex; align-items:center; gap:7px;}
   .quick-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:#20180A;}
-  .quick-clock .btn.qc-btn:hover{filter:brightness(1.08);}
   .quick-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.07); border-color:rgba(227,203,143,.4); color:#F5F1E6;}
-  .quick-clock .btn.secondary.qc-btn:hover{background:rgba(255,255,255,.16);}
   .qc-note{font-size:12px; color:var(--muted); margin:10px 2px 18px; min-height:16px;}
   .qc-note.success{color:var(--positive);}
   .qc-note.pulse{animation:fadeIn .3s var(--ease-soft);}
@@ -468,7 +459,6 @@
     font-size:14px; color:var(--ink); background:var(--input-bg); font-family:inherit;
     transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
-  input:hover, select:hover{border-color:var(--muted-2);}
   input:focus, select:focus{border-color:var(--teal-600); box-shadow:0 0 0 3px rgba(27,114,107,.16);}
   .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(174,59,59,.16);}
   body.dark input[type="date"], body.dark input[type="time"]{color-scheme:dark;}
@@ -507,25 +497,19 @@
     background:linear-gradient(115deg, transparent 30%, rgba(255,255,255,.16) 45%, transparent 60%);
     transform:translateX(-120%); transition:transform var(--dur-slower) var(--ease-soft);
   }
-  .btn:hover::before{transform:translateX(120%);}
   body.dark .btn{border-color:var(--teal-600);}
-  .btn:hover{transform:translateY(-1px); box-shadow:var(--shadow-md);}
-  .btn:active{transform:translateY(0);}
   .btn.secondary{background:var(--card); color:var(--ink); border-color:var(--line);}
   .btn.secondary::before{display:none;}
-  .btn.secondary:hover{background:var(--teal-50);}
   .btn.ghost{background:transparent; border-color:var(--line); color:var(--muted); font-weight:500; box-shadow:none;}
   .btn.ghost::before{display:none;}
-  .btn.ghost:hover{border-color:var(--teal-600); color:var(--teal-600); background:var(--teal-50); transform:none; box-shadow:none;}
   .btn.small{padding:7px 13px; min-height:36px; font-size:12px;}
   .btn.danger-ghost{background:transparent; border-color:var(--line); color:var(--negative); font-weight:500; box-shadow:none;}
   .btn.danger-ghost::before{display:none;}
-  .btn.danger-ghost:hover{border-color:var(--negative); background:var(--negative-bg); transform:none; box-shadow:none;}
   .form-actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
 
   /* ---------- Settings ---------- */
   .settings-card{display:none;}
-  .settings-card.open{display:block; animation:fadeIn .25s ease;}
+  .settings-card.open{display:block; animation:fadeIn .25s var(--ease-soft);}
   .daypicker{display:flex; gap:6px; flex-wrap:wrap;}
   .daypicker input{position:absolute; opacity:0; width:0; height:0;}
   .daypicker label{
@@ -534,7 +518,6 @@
     font-size:11.5px; letter-spacing:.04em; text-transform:none; color:var(--muted);
     background:var(--input-bg); transition:background-color var(--dur-fast) var(--ease-snap), border-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap);
   }
-  .daypicker label:hover{border-color:var(--teal-600); color:var(--teal-600);}
   .daypicker input:checked + label{
     background:var(--gradient-teal); border-color:var(--teal-800); color:#fff; font-weight:600;
     box-shadow:0 2px 8px rgba(10,54,52,.25);
@@ -550,11 +533,10 @@
     padding:13px 16px; font-size:13px; font-weight:600; color:var(--ink);
     text-align:left; min-height:46px;
   }
-  .accordion-head:hover{background:var(--teal-100);}
   .accordion-chevron{transition:transform var(--dur-slow) var(--ease-soft); color:var(--muted); flex-shrink:0;}
   .accordion-section.open .accordion-chevron{transform:rotate(180deg);}
   .accordion-body{display:none; padding:18px 16px 16px;}
-  .accordion-section.open .accordion-body{display:block; animation:fadeIn .2s ease;}
+  .accordion-section.open .accordion-body{display:block; animation:fadeIn .2s var(--ease-soft);}
   .accordion-head-right{display:inline-flex; align-items:center; gap:10px; min-width:0;}
   /* The Admin console is seven sections deep. Collapsed, the whole thing is one
      screen of headings you can scan; expanded, it was several thousand pixels of
@@ -577,7 +559,6 @@
     border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--teal-50);
     cursor:pointer; text-transform:none; letter-spacing:0; font-size:inherit; color:inherit;
   }
-  .check-row:hover{border-color:var(--teal-600);}
   .check-row input{width:16px; height:16px; margin:1px 0 0; flex-shrink:0; accent-color:var(--teal-700); cursor:pointer;}
   .check-row > span{flex:1; min-width:0;}
   .check-row strong{display:block; font-size:12.5px; font-weight:600; color:var(--ink); text-transform:none; letter-spacing:0;}
@@ -600,7 +581,6 @@
     background:none; border:1px solid var(--line); color:var(--negative);
     border-radius:var(--radius-xs); cursor:pointer; padding:7px 10px; font-size:12px; height:34px; white-space:nowrap;
   }
-  .period-del:hover{background:var(--negative-bg); border-color:var(--negative);}
   .periods-empty{font-size:12px; color:var(--muted-2); padding:10px 2px;}
   @media (max-width:760px){
     /* Single column: every seasonal-hours field gets its own full-width row,
@@ -639,9 +619,7 @@
   .bulk-select-all input{width:16px; height:16px; accent-color:var(--gold);}
   .bulk-actions{display:flex; gap:8px;}
   .bulk-toolbar .btn.danger-ghost{background:rgba(255,255,255,.06); border-color:rgba(224,133,133,.5); color:#F0AFAF;}
-  .bulk-toolbar .btn.danger-ghost:hover{background:rgba(224,133,133,.18);}
   .bulk-toolbar .btn.ghost{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.25); color:#fff;}
-  .bulk-toolbar .btn.ghost:hover{background:rgba(255,255,255,.16);}
   th.select-col{width:34px;}
   td.select-col{width:1%;}
   td.select-col input, th.select-col input{width:16px; height:16px; accent-color:var(--teal-700); cursor:pointer;}
@@ -696,10 +674,9 @@
     cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; border-radius:var(--radius-xs) 6px 0 0;
     white-space:nowrap; flex-shrink:0; transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
-  .tab-btn:hover{color:var(--teal-600); background:var(--teal-50);}
   .tab-btn.active{color:var(--ink); border-bottom-color:var(--gold); font-weight:600; background:var(--teal-50);}
   .tab-panel{display:none;}
-  .tab-panel.active{display:block; animation:fadeIn .25s ease;}
+  .tab-panel.active{display:block; animation:fadeIn .25s var(--ease-soft);}
 
   .sub-tabs{
     display:flex; gap:6px; margin:16px 0 18px; padding:3px;
@@ -712,7 +689,7 @@
   }
   .sub-tab-btn.active{background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm);}
   .sub-tab-panel{display:none;}
-  .sub-tab-panel.active{display:block; animation:fadeIn .2s ease;}
+  .sub-tab-panel.active{display:block; animation:fadeIn .2s var(--ease-soft);}
   @keyframes fadeIn{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
 
   /* ---------- Skeleton loading states ---------- */
@@ -763,7 +740,6 @@
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
     font-family:inherit; transition:transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
-  .cal-cell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm);}
   .cal-cell.cal-empty{visibility:hidden; cursor:default; pointer-events:none;}
   /* Row-by-row reveal on month navigation (delay staggered in JS); the grid
      is rebuilt from scratch on every nav click, so this retriggers cleanly.
@@ -813,7 +789,6 @@
   .table-wrap::-webkit-scrollbar{height:8px;}
   .table-wrap::-webkit-scrollbar-track{background:transparent;}
   .table-wrap::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
-  .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted-2);}
   .table-wrap.is-loading table{display:none;}
   table{width:100%; border-collapse:collapse; font-size:13px;}
   thead th{
@@ -824,17 +799,12 @@
   tbody td{padding:10px 12px; border-bottom:1px solid var(--line-soft); white-space:nowrap;}
   tbody tr:last-child td{border-bottom:none;}
   tbody tr:nth-child(even){background:var(--teal-50);}
-  tbody tr:hover{background:var(--teal-100);}
   /* Status tinting: lets a problem day (under target, forgot to clock out)
      stand out without having to read the Status column. */
   tbody tr.row-under{background:var(--negative-bg); border-left:3px solid var(--negative);}
-  tbody tr.row-under:hover{filter:brightness(0.97);}
   tbody tr.row-open{background:var(--warn-bg); border-left:3px solid var(--warn);}
-  tbody tr.row-open:hover{filter:brightness(0.97);}
   tbody tr.row-excused{background:var(--excused-bg); border-left:3px solid var(--gold);}
-  tbody tr.row-excused:hover{filter:brightness(0.97);}
   tbody tr.row-over{background:var(--positive-bg); border-left:3px solid var(--positive);}
-  tbody tr.row-over:hover{filter:brightness(0.97);}
   td.num, th.num{text-align:right; font-variant-numeric:tabular-nums;}
   td.num{font-family:var(--font-num); font-size:13.5px;}
   td.note-cell{white-space:normal; max-width:220px; color:var(--muted);}
@@ -848,7 +818,6 @@
   .pill.open{background:var(--warn-bg); color:var(--warn);}
 
   .row-actions button{background:none; border:none; cursor:pointer; font-size:11.5px; color:var(--muted); padding:8px 10px; border-radius:var(--radius-xs); min-height:36px;}
-  .row-actions button:hover{color:var(--teal-600); background:var(--teal-50);}
   .log-more-row td{text-align:center; padding:14px 10px; border-bottom:none;}
   .table-wrap.responsive-cards tr.log-more-row{
     background:transparent; border:none; box-shadow:none; padding:0;
@@ -912,7 +881,6 @@
     padding:18px 18px 16px 20px; margin-bottom:16px; background:var(--card); box-shadow:var(--shadow-sm);
     transition:box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
-  .period-card:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
   .period-card::before{
     content:""; position:absolute; left:0; top:14px; bottom:14px; width:3px;
     background:var(--gradient-gold); border-radius:2px;
@@ -937,10 +905,10 @@
      freshly-inserted elements and the animation retriggers naturally. */
   .bar-rect{transform-box:fill-box; transform-origin:bottom; animation:barGrow .5s var(--ease-soft) both;}
   @keyframes barGrow{from{transform:scaleY(0);} to{transform:scaleY(1);}}
-  .bar-value{animation:fadeIn .35s ease both;}
+  .bar-value{animation:fadeIn .35s var(--ease-soft) both;}
   /* Opacity-only: rotated axis labels carry their own SVG rotate() transform
      attribute, and a CSS transform (as fadeIn uses) would override it. */
-  .bar-label{animation:barLabelIn .35s ease both;}
+  .bar-label{animation:barLabelIn .35s var(--ease-soft) both;}
   @keyframes barLabelIn{from{opacity:0;} to{opacity:1;}}
   .chart-legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:var(--muted);}
   .chart-legend span{display:inline-flex; align-items:center; gap:6px;}
@@ -1039,7 +1007,7 @@
     position:relative; width:100%; max-width:380px;
     background:var(--card); border:1px solid var(--line-soft); border-radius:var(--radius);
     padding:34px 28px 28px; box-shadow:var(--shadow-lg);
-    animation:cardIn .5s ease backwards;
+    animation:cardIn .5s var(--ease-soft) backwards;
   }
   .auth-card::before{
     content:""; position:absolute; top:0; left:20px; right:20px; height:3px;
@@ -1056,7 +1024,6 @@
     background:none; border:none; padding:2px; cursor:pointer;
     color:var(--teal-600); font-size:12px; text-decoration:underline; text-underline-offset:2px;
   }
-  .link-btn:hover{color:var(--teal-700);}
   .auth-error{
     font-size:12px; color:var(--negative); margin:0; min-height:1px;
   }
@@ -1173,7 +1140,6 @@
     width:36px; height:36px; background:var(--input-bg); border:1px solid var(--line);
     color:var(--muted); border-radius:var(--radius-sm);
   }
-  .icon-btn.small:hover{background:var(--teal-50); color:var(--teal-600); transform:none; box-shadow:none;}
   .icon-btn.small:disabled{opacity:.4; cursor:default; background:var(--input-bg); color:var(--muted-2);}
   .team-controls{display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
   .team-controls input[type="search"]{width:auto; min-width:180px;}
@@ -1200,7 +1166,6 @@
     background:var(--card); box-shadow:var(--shadow-sm); cursor:pointer; font-family:inherit;
     transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
-  .team-card:hover{border-color:var(--teal-600); box-shadow:var(--shadow-md); transform:translateY(-1px);}
   .team-card:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
   .team-card-head{display:flex; align-items:center; gap:11px; min-width:0;}
   .team-card-figures{display:flex; gap:16px; flex-wrap:wrap;}
@@ -1282,6 +1247,9 @@
     transition:opacity var(--dur-slow) var(--ease-soft), transform var(--dur-slow) var(--ease-soft);
   }
   .toast.show{opacity:1; transform:translateY(0) scale(1);}
+  /* Dismissal should feel snappier than arrival — the system doesn't need to
+     work as hard to get out of the way as it did to earn your attention. */
+  .toast.hiding{transition:opacity var(--dur-base) var(--ease-snap), transform var(--dur-base) var(--ease-snap);}
   .toast-icon{flex-shrink:0; margin-top:1px;}
   .toast-error .toast-icon{color:var(--negative);}
   .toast-success .toast-icon{color:var(--positive);}
@@ -1293,7 +1261,6 @@
     align-items:center; justify-content:center;
     border-radius:var(--radius-xs); margin-top:-2px;
   }
-  .toast-close:hover{color:var(--ink); background:var(--teal-50);}
   @media (max-width:480px){
     .toast-stack{bottom:calc(12px + env(safe-area-inset-bottom)); padding:0 10px;}
     .toast{max-width:100%;}
@@ -1395,7 +1362,7 @@
     box-shadow:0 4px 14px rgba(173,131,50,.4); cursor:pointer;
     transition:transform var(--dur-fast) var(--ease-snap), background var(--dur-fast) var(--ease-snap);
   }
-  .bn-clock:active{transform:scale(.93);}
+  .bn-clock:active{transform:scale(.96);}
   .bn-clock.clocked-in{background:var(--gradient-teal); color:#fff; box-shadow:0 4px 14px rgba(20,92,87,.4);}
   .bn-clock.disabled{opacity:.45; pointer-events:none;}
   .bn-clock-label{font-size:10px; font-weight:600; color:var(--muted-2);}
@@ -1461,12 +1428,65 @@
     background:linear-gradient(135deg, #C24A4A, #9C3434); border-color:#9C3434; color:#fff;
   }
   .btn.danger-solid::before{display:none;}
-  .btn.danger-solid:hover{filter:brightness(1.06);}
   @media (max-width:480px){
     .modal-actions{flex-direction:column-reverse;}
     .modal-actions .btn{width:100%;}
   }
-</style>
+
+  /* ---------- Hover states (mouse/trackpad only) ----------
+     Consolidated here instead of scattered per-component: on a touch
+     device every :hover rule fires on tap and can stay "stuck" until
+     the next tap elsewhere, since touch has no true pointer-leave. This
+     app is mobile-first (see PRODUCT.md), so gating matters here more
+     than most projects. */
+  @media (hover:hover) and (pointer:fine){
+    .icon-btn:hover{background:rgba(255,255,255,.16); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
+    .icon-btn.danger:hover{background:rgba(226,143,143,.18);}
+    .head-action:hover{background:rgba(255,255,255,.16); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
+    .stat-card:hover{transform:translateY(-3px); box-shadow:var(--shadow-glow);}
+    .card:hover{box-shadow:var(--shadow-md);}
+    .quick-clock .btn.qc-btn:hover{filter:brightness(1.08);}
+    .quick-clock .btn.secondary.qc-btn:hover{background:rgba(255,255,255,.16);}
+    input:hover, select:hover{border-color:var(--muted-2);}
+    .btn:hover::before{transform:translateX(120%);}
+    .btn:hover{transform:translateY(-1px); box-shadow:var(--shadow-md);}
+    .btn.secondary:hover{background:var(--teal-50);}
+    .btn.ghost:hover{border-color:var(--teal-600); color:var(--teal-600); background:var(--teal-50); transform:none; box-shadow:none;}
+    .btn.danger-ghost:hover{border-color:var(--negative); background:var(--negative-bg); transform:none; box-shadow:none;}
+    .daypicker label:hover{border-color:var(--teal-600); color:var(--teal-600);}
+    .accordion-head:hover{background:var(--teal-100);}
+    .check-row:hover{border-color:var(--teal-600);}
+    .period-del:hover{background:var(--negative-bg); border-color:var(--negative);}
+    .bulk-toolbar .btn.danger-ghost:hover{background:rgba(224,133,133,.18);}
+    .bulk-toolbar .btn.ghost:hover{background:rgba(255,255,255,.16);}
+    .tab-btn:hover{color:var(--teal-600); background:var(--teal-50);}
+    .cal-cell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm);}
+    .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted-2);}
+    tbody tr:hover{background:var(--teal-100);}
+    tbody tr.row-under:hover{filter:brightness(0.97);}
+    tbody tr.row-open:hover{filter:brightness(0.97);}
+    tbody tr.row-excused:hover{filter:brightness(0.97);}
+    tbody tr.row-over:hover{filter:brightness(0.97);}
+    .row-actions button:hover{color:var(--teal-600); background:var(--teal-50);}
+    .period-card:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
+    .link-btn:hover{color:var(--teal-700);}
+    .icon-btn.small:hover{background:var(--teal-50); color:var(--teal-600); transform:none; box-shadow:none;}
+    .team-card:hover{border-color:var(--teal-600); box-shadow:var(--shadow-md); transform:translateY(-1px);}
+    .toast-close:hover{color:var(--ink); background:var(--teal-50);}
+    .btn.danger-solid:hover{filter:brightness(1.06);}
+  }
+
+  /* :active rules live after the :hover block on purpose (LVHA order) —
+     a real mouse click has both :hover and :active true at once, and the
+     later rule wins. Without this, the hover-only translateY would beat
+     the press scale instead of the two combining. Unlike :hover, :active
+     is never gated behind (hover:hover): touch devices rely on it for
+     press feedback. */
+  .icon-btn:active{transform:translateY(0) scale(.96);}
+  .head-action:active{transform:translateY(0) scale(.96);}
+  .btn:active{transform:translateY(0) scale(.97);}
+
+  </style>
 </head>
 <body>
 
