@@ -1385,7 +1385,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     maxVal = maxVal * 1.12;
     var scale = (h - padTop - padBottom) / maxVal;
 
-    var cPos = cssVar("--positive"), cTeal = cssVar("--teal-600"),
+    var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
         cLine = cssVar("--line"), cGold = cssVar("--gold");
 
     function valueText(mins){
@@ -1414,7 +1414,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var val = d.value || 0;
       var barH = Math.max(val*scale, val > 0 ? 2 : 1);
       var y = h - padBottom - barH;
-      var color = !d.hasEntry ? cLine : (val >= (d.targetMin != null ? d.targetMin : targetMin) ? cPos : cTeal);
+      var color = !d.hasEntry ? cLine : (val >= (d.targetMin != null ? d.targetMin : targetMin) ? cPos : cUnder);
 
       svg += '<rect x="'+(cx-barW/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+barH.toFixed(1)+'" fill="'+color+'" rx="2">'+
              '<title>'+escapeHtml(d.label)+': '+valueText(val)+'</title></rect>';
