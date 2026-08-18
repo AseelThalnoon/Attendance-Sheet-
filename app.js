@@ -612,6 +612,26 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return root;
   }
 
+  // Marks a field invalid alongside its showToast() announcement — the toast
+  // is heard, but a sighted mouse user still needs to see which field to fix,
+  // and a screen-reader user tabbing back in needs aria-invalid on it.
+  function markFieldInvalid(id, focus){
+    var el = typeof id === "string" ? document.getElementById(id) : id;
+    if(!el) return;
+    el.classList.add("field-invalid");
+    el.setAttribute("aria-invalid", "true");
+    if(focus !== false) el.focus();
+  }
+  function clearFieldInvalid(id){
+    var el = typeof id === "string" ? document.getElementById(id) : id;
+    if(!el) return;
+    el.classList.remove("field-invalid");
+    el.removeAttribute("aria-invalid");
+  }
+  document.addEventListener("input", function(ev){
+    if(ev.target.classList && ev.target.classList.contains("field-invalid")) clearFieldInvalid(ev.target);
+  });
+
   var TOAST_ICONS = {
     error:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>',
     success:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
@@ -688,7 +708,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           .filter(function(el){ return !el.disabled && el.offsetParent !== null; });
       }
 
-      function close(result){
+      // A back-gesture/hardware back button had no handler here at all, so it
+      // backgrounded the whole app instead of closing the dialog in front of
+      // it — unlike Escape, which already closes it correctly. Pushing one
+      // history entry on open lets popstate reuse that same Escape close path.
+      var closed = false;
+      history.pushState({ledgerModal:true}, "");
+      function onPopState(){ close(false, true); }
+      window.addEventListener("popstate", onPopState);
+
+      function close(result, fromPopState){
+        if(closed) return;
+        closed = true;
+        window.removeEventListener("popstate", onPopState);
         document.removeEventListener("keydown", onKey);
         bgRoot.removeAttribute("aria-hidden");
         overlay.classList.remove("show");
@@ -698,6 +730,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
             previouslyFocused.focus();
           }
         }, 180);
+        // The back button already consumed the pushed entry itself; closing
+        // any other way (Escape, Cancel, Confirm, overlay click) still has to
+        // consume it so a second back press doesn't just reopen this dialog.
+        if(!fromPopState) history.back();
         resolve(result);
       }
       function onKey(ev){
@@ -1049,7 +1085,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var tm = parseInt(document.getElementById("sTargetM").value, 10);
     if(isNaN(th)) th = 0;
     if(isNaN(tm)) tm = 0;
-    if(th < 0 || tm < 0 || tm > 59){ showToast("Minutes must be between 0 and 59.", "error"); return; }
+    if(th < 0 || tm < 0 || tm > 59){
+      showToast("Minutes must be between 0 and 59.", "error");
+      markFieldInvalid(th < 0 ? "sTargetH" : "sTargetM");
+      return;
+    }
     var targetMin = th*60 + tm;
     if(targetMin <= 0){ showToast("Set a daily target greater than zero.", "error"); return; }
     if(targetMin > 24*60){ showToast("A daily target can't exceed 24 hours.", "error"); return; }
@@ -1063,6 +1103,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var leaveDays = parseFloat(document.getElementById("sLeaveDays").value);
     if(isNaN(leaveDays) || leaveDays < 0 || leaveDays > 365){
       showToast("Annual leave days must be between 0 and 365.", "error");
+      markFieldInvalid("sLeaveDays");
       return;
     }
 
@@ -2355,7 +2396,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   form.addEventListener("submit", async function(ev){
     ev.preventDefault();
     var date = document.getElementById("fDate").value;
-    if(!date){ showToast("Pick a date first.", "error"); return; }
+    if(!date){ showToast("Pick a date first.", "error"); markFieldInvalid("fDate"); return; }
 
     var toDateVal = document.getElementById("fToDate").value;
     // A range only actually applies when adding new entries with a genuinely
@@ -2495,7 +2536,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   document.getElementById("logBody").addEventListener("click", async function(ev){
     var btn = ev.target.closest("button");
-    if(!btn) return;
+    if(!btn){
+      // The visible checkbox is 16px, well under a comfortable tap target —
+      // let a click anywhere in the cell toggle it instead of just the box.
+      var cell = ev.target.closest("td.select-col");
+      var box = cell && cell.querySelector(".row-select");
+      if(box){ box.checked = !box.checked; box.dispatchEvent(new Event("change", {bubbles:true})); }
+      return;
+    }
     var editId = btn.getAttribute("data-edit");
     var delId = btn.getAttribute("data-del");
     if(editId) loadEntryIntoForm(editId);
