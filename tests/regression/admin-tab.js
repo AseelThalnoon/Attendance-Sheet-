@@ -29,7 +29,27 @@ const PROFILES = [
 ];
 // Only two of the three have a schedule of their own — Sam is the unconfigured
 // case the People filter and the health panel both have to notice.
-const SETTINGS_ROWS = [{user_id:UID}, {user_id:"u-2"}];
+// Kim works Mon–Fri on a 7h day; the signed-in admin works Sun–Thu on 8h. The
+// Team roster has to measure each of them against their own week, which is the
+// thing the old roster got wrong for everybody.
+const SETTINGS_ROWS = [
+  {user_id:UID,   settings:{workDays:[0,1,2,3,4], targetMin:480, standardIn:"08:00", standardOut:"16:00"}},
+  {user_id:"u-2", settings:{workDays:[1,2,3,4,5], targetMin:420, standardIn:"09:00", standardOut:"17:00"}},
+];
+// One Friday and one Sunday in the current month: a working day for exactly one
+// of those two schedules each, so a card computed with the wrong settings shows
+// a different target.
+const MONTH = (() => { const d = new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); })();
+function nthDow(dow){
+  const d = new Date(); d.setDate(1);
+  while(d.getDay() !== dow) d.setDate(d.getDate()+1);
+  return MONTH + "-" + String(d.getDate()).padStart(2,"0");
+}
+const FRIDAY = nthDow(5), SUNDAY = nthDow(0);
+const TEAM_ENTRIES = [
+  {user_id:"u-2", date:FRIDAY, clock_in:"09:00", clock_out:"17:00", type:"regular"},
+  {user_id:"u-2", date:SUNDAY, clock_in:"09:00", clock_out:"13:00", type:"regular"},
+];
 const APP_SETTINGS = {
   allow_registration:true, announcement_active:false, announcement:"",
   default_settings: DEFAULTS === "none" ? {} : {workDays:[1,2,3,4,5], targetMin:450, graceMin:5,
@@ -64,7 +84,7 @@ function builder(table, rpcName){
     if(rpcName) return {data: RPC[rpcName] !== undefined ? RPC[rpcName] : [], error:null};
     if(table === "entries"){
       if(head) return {data:null, count: HEAD_COUNTS[headIdx++ % HEAD_COUNTS.length], error:null};
-      return {data:[], error:null};
+      return {data: TEAM_ENTRIES, error:null};
     }
     if(table === "profiles") return kind === "single" ? {data:PROFILE, error:null} : {data:PROFILES, error:null};
     if(table === "user_settings") return kind === "single"
@@ -440,6 +460,97 @@ async function boot(browser, server, query){
     ok(s.controls > 15, "the panel really was scanned", JSON.stringify({controls:s.controls}));
     ok(s.unlabelled.length === 0, "every admin control has an accessible name", JSON.stringify(s.unlabelled));
     ok(s.buttons === 0, "every admin button has an accessible name", JSON.stringify(s));
+  }
+
+  // ------------------------------------------------------------ Team roster
+  // The other admin-only surface. Its old form was a flat list of three numbers
+  // per person, all computed against whichever schedule the VIEWER happened to
+  // hold — so a Sun–Thu admin looking at a Mon–Fri employee saw a target for a
+  // week that employee does not work.
+  {
+    await page.evaluate(() => document.querySelector('.tab-btn[data-tab="team"]').click());
+    await page.waitForTimeout(600);
+    const s = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll("#teamList .team-card")];
+      return {
+        cards: cards.length,
+        tags: cards.map(c => c.tagName),
+        focusable: cards.every(c => c.tabIndex >= 0),
+        named: cards.every(c => (c.getAttribute("aria-label") || "").length > 10),
+        month: document.getElementById("teamMonthLabel").textContent,
+        nextDisabled: document.getElementById("teamNextMonth").disabled,
+        summary: document.getElementById("teamSummary").textContent.replace(/\s+/g, " ").trim(),
+        statuses: cards.map(c => (c.querySelector(".team-status") || {}).textContent),
+        bars: cards.map(c => (c.querySelector(".team-bar span") || {}).style?.width),
+      };
+    });
+    ok(s.cards === 3, "the roster renders a card per person", JSON.stringify(s.cards));
+    ok(s.tags.every(t => t === "BUTTON") && s.focusable,
+      "cards are real buttons, reachable from a keyboard", JSON.stringify(s.tags));
+    ok(s.named, "each card says whose record it opens", JSON.stringify(s.named));
+    ok(s.nextDisabled, "the roster cannot walk into future months", JSON.stringify(s));
+    ok(/people/.test(s.summary) && /on time/.test(s.summary) && /target/.test(s.summary),
+      "a team-wide summary sits above the cards", s.summary.slice(0, 120));
+    ok(s.statuses.every(x => typeof x === "string" && x.length),
+      "every card says what that person is doing today", JSON.stringify(s.statuses));
+    ok(s.bars.every(w => /%$/.test(w || "")), "every card shows progress against target",
+      JSON.stringify(s.bars));
+  }
+  {
+    // Kim is Mon–Fri 7h with one Friday (8h worked) and one Sunday (4h) logged.
+    // Under her OWN schedule the Friday is a working day and the Sunday is not:
+    // target 7h, worked 12h, diff +5h. Under the viewer's Sun–Thu 8h schedule it
+    // would read target 8h and diff +4h — which is what the old roster showed.
+    const s = await page.evaluate(() => {
+      const card = [...document.querySelectorAll("#teamList .team-card")]
+        .find(c => /Kim/.test(c.textContent));
+      const fig = {};
+      card.querySelectorAll(".team-card-figures > div").forEach(d => {
+        fig[d.querySelector(".label").textContent.trim()] = d.querySelector(".value").textContent.trim();
+      });
+      return {note: card.querySelector(".team-bar-note").textContent.trim(), fig};
+    });
+    ok(/of 7h target/.test(s.note),
+      "a card is measured against that person's own schedule, not the viewer's", JSON.stringify(s));
+    ok(s.fig.Diff === "+5h", "the difference follows from their own target", JSON.stringify(s.fig));
+    ok(s.fig.Days === "2", "both logged days count", JSON.stringify(s.fig));
+  }
+  {
+    const s = await page.evaluate(async () => {
+      const names = () => [...document.querySelectorAll("#teamList .team-card .team-name")]
+        .map(n => n.textContent.trim().split(" ")[0]);
+      const search = document.getElementById("teamSearch");
+      search.value = "kim"; search.dispatchEvent(new Event("input"));
+      const searched = names();
+      search.value = ""; search.dispatchEvent(new Event("input"));
+
+      const sort = document.getElementById("teamSort");
+      sort.value = "worked"; sort.dispatchEvent(new Event("change"));
+      const byWorked = names();
+      sort.value = "name"; sort.dispatchEvent(new Event("change"));
+      return {searched, byWorked, byName: names()};
+    });
+    ok(s.searched.length === 1 && /Kim/.test(s.searched[0]), "search narrows the roster", JSON.stringify(s));
+    ok(s.byWorked[0] === "Kim", "sorting by hours puts the only logger first", JSON.stringify(s.byWorked));
+    ok(s.byName.join(",") === "Ada,Kim,Sam", "sorting by name is alphabetical", JSON.stringify(s.byName));
+  }
+  {
+    // The month control must actually re-query, and the label must follow.
+    const s = await page.evaluate(async () => {
+      const label = () => document.getElementById("teamMonthLabel").textContent;
+      const before = label();
+      document.getElementById("teamPrevMonth").click();
+      await new Promise(r => setTimeout(r, 400));
+      const prev = label();
+      document.getElementById("teamNextMonth").click();
+      await new Promise(r => setTimeout(r, 400));
+      return {before, prev, back: label(), nextDisabled: document.getElementById("teamNextMonth").disabled};
+    });
+    ok(s.prev !== s.before && s.back === s.before,
+      "the month arrows move the roster and come back", JSON.stringify(s));
+    ok(s.nextDisabled, "forward is disabled again on the current month", JSON.stringify(s));
+    await page.evaluate(() => document.getElementById("adminBtn").click());
+    await page.waitForTimeout(300);
   }
 
   // ------------------------------------------------------------ dark mode
