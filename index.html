@@ -962,7 +962,14 @@
     @page{margin:14mm;}
   }
 
-  @media (max-width:760px){
+  /* Widened from 760px: below ~850px the header's VIEWING/chip/Admin/icon
+     row no longer fits beside the seal, so flex-wrap sends the seal alone
+     onto its own row with dead space beside it — a real gap between this
+     breakpoint and where the natural one-row layout resumes at ~850px+.
+     Everything else in this block (stat grid, padding, type scale) reads
+     fine at these wider tablet widths too, so it moves along with it
+     rather than leaving the seal fix isolated in its own query. */
+  @media (max-width:860px){
     .stats-row{grid-template-columns:repeat(2,1fr); gap:10px;}
     /* No .form-grid override here: a fixed 2 columns undercut the 150px floor
        on small phones (~139px per cell at 320px), which is the squeeze the
