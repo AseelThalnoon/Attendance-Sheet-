@@ -9,6 +9,14 @@
      manifest.json's "start_url" to match, or "Add to Home Screen" will
      point at the wrong path. -->
 <link rel="manifest" href="manifest.json">
+<!-- app.js reaches this via a dynamic import() (see app.js's own comment —
+     that's deliberate, so a failed load can be caught and shown as an error
+     instead of a dead sign-in screen). Dynamic imports aren't discoverable
+     by the browser's module graph scan, so without this hint the 129KB
+     vendor bundle only starts fetching after app.js finishes loading and
+     executing, instead of in parallel. Preloading doesn't change when or
+     how it's imported, just when the browser starts fetching it. -->
+<link rel="modulepreload" href="vendor/supabase-js.min.js">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
