@@ -18,3 +18,17 @@ tests/**/harness.html
 # Ruflo runtime state, wherever it gets created (it writes to CWD)
 **/.claude-flow/
 **/.swarm/
+
+# Impeccable: sidecar/session state (DESIGN.md and PRODUCT.md are the source
+# of truth) and the CSP-loosened dev-only HTML copy used for local live-mode
+# iteration. Never deploy the dev copy.
+.impeccable/
+index.live-dev.html
+
+# Local Claude Code / ruflo tooling install — not project content. Includes
+# nested agent worktrees with their own .git dirs; never stage this tree.
+.claude/
+.mcp.json
+CLAUDE.md
+agentdb.rvf
+agentdb.rvf.lock

@@ -287,13 +287,22 @@
   .stats-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px; margin-bottom:28px;}
 
   /* ---------- Hero stat: Monthly Avg ---------- */
+  /* Two-column split (headline figure | context) — chosen via impeccable
+     live-mode from three variants; see git history for the alternatives. */
   .hero-stat{
     position:relative; overflow:hidden;
     background:
       radial-gradient(600px 220px at 88% -25%, rgba(227,203,143,.16), transparent 65%),
       linear-gradient(135deg, var(--teal-900), var(--teal-950));
-    border-radius:var(--radius); padding:24px 26px 22px; margin-bottom:18px; box-shadow:var(--shadow-md);
+    border-radius:var(--radius); margin-bottom:18px; box-shadow:var(--shadow-md);
     animation:cardIn .4s ease both;
+    display:grid; grid-template-columns:1fr 1fr; column-gap:24px; align-items:center;
+    padding:26px 28px 24px;
+  }
+  .hero-col-value{display:flex; flex-direction:column;}
+  .hero-col-meta{
+    display:flex; flex-direction:column; gap:12px;
+    padding-left:24px; border-left:1px solid rgba(227,203,143,.5);
   }
   .hero-stat-top{display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap;}
   .hero-label{
@@ -301,7 +310,7 @@
     font-size:10px; text-transform:uppercase; letter-spacing:.09em; color:var(--gold-light);
   }
   .hero-period{font-size:12px; color:#C6D6D2;}
-  .hero-value-row{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-top:10px;}
+  .hero-value-row{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-top:8px;}
   .hero-value{
     font-family:var(--font-num); font-weight:700; font-size:52px; line-height:1;
     color:#fff; font-variant-numeric:tabular-nums; letter-spacing:-.01em;
@@ -310,7 +319,7 @@
   .hero-stat .hero-trend.trend-up{color:#9FD8A8;}
   .hero-stat .hero-trend.trend-down{color:#E0A5A5;}
   .hero-stat .hero-trend.trend-flat{color:#C6D6D2;}
-  .hero-detail{font-size:12.5px; color:#C6D6D2; margin:4px 0 16px;}
+  .hero-detail{font-size:12.5px; color:#C6D6D2; margin:0;}
   .hero-progress{display:flex; align-items:center; gap:12px;}
   .hero-progress-track{
     flex:1; height:8px; border-radius:99px; background:rgba(255,255,255,.12); overflow:hidden;
@@ -320,6 +329,13 @@
     transition:width var(--dur-slower) var(--ease-soft);
   }
   .hero-progress-label{font-size:11px; color:#C6D6D2; white-space:nowrap; font-variant-numeric:tabular-nums;}
+  @media (max-width:640px){
+    .hero-stat{display:flex; flex-direction:column; padding:22px 22px 20px;}
+    .hero-col-meta{
+      border-left:none; padding-left:0; margin-top:14px; padding-top:14px;
+      border-top:1px solid rgba(227,203,143,.5);
+    }
+  }
   @media (max-width:480px){
     .hero-stat{padding:20px 18px 18px;}
     .hero-value{font-size:42px;}
@@ -442,6 +458,7 @@
   }
   input:hover, select:hover{border-color:var(--muted-2);}
   input:focus, select:focus{border-color:var(--teal-600); box-shadow:0 0 0 3px rgba(27,114,107,.16);}
+  .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(174,59,59,.16);}
   body.dark input[type="date"], body.dark input[type="time"]{color-scheme:dark;}
 
   /* iOS Safari lays a native date/time control out from its own shadow DOM and
@@ -1126,7 +1143,7 @@
     min-width:150px; text-align:center;
   }
   .icon-btn.small{
-    width:34px; height:34px; background:var(--input-bg); border:1px solid var(--line);
+    width:36px; height:36px; background:var(--input-bg); border:1px solid var(--line);
     color:var(--muted); border-radius:var(--radius-sm);
   }
   .icon-btn.small:hover{background:var(--teal-50); color:var(--teal-600); transform:none; box-shadow:none;}
@@ -1578,18 +1595,22 @@
       <span class="skeleton-dark" style="width:220px; height:10px; margin-top:4px; border-radius:4px;"></span>
       <span class="skeleton-dark" style="width:100%; height:8px; border-radius:99px; margin-top:12px;"></span>
     </div>
-    <div class="hero-stat-top">
-      <span class="hero-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month's Average</span>
-      <span class="hero-period" id="heroMonthLabel">—</span>
+    <div class="hero-col-value">
+      <div class="hero-stat-top">
+        <span class="hero-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month's Average</span>
+        <span class="hero-period" id="heroMonthLabel">—</span>
+      </div>
+      <div class="hero-value-row">
+        <span class="hero-value" id="monthAvg">0h</span>
+        <span class="hero-trend" id="monthTrend"></span>
+      </div>
     </div>
-    <div class="hero-value-row">
-      <span class="hero-value" id="monthAvg">0h</span>
-      <span class="hero-trend" id="monthTrend"></span>
-    </div>
-    <p class="hero-detail" id="monthAvgDetail">—</p>
-    <div class="hero-progress">
-      <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill" style="width:0%"></div></div>
-      <span class="hero-progress-label" id="heroProgressLabel"></span>
+    <div class="hero-col-meta">
+      <p class="hero-detail" id="monthAvgDetail">—</p>
+      <div class="hero-progress">
+        <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill" style="width:0%"></div></div>
+        <span class="hero-progress-label" id="heroProgressLabel"></span>
+      </div>
     </div>
   </section>
 
