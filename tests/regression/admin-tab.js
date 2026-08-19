@@ -490,7 +490,7 @@ async function boot(browser, server, query){
       "cards are real buttons, reachable from a keyboard", JSON.stringify(s.tags));
     ok(s.named, "each card says whose record it opens", JSON.stringify(s.named));
     ok(s.nextDisabled, "the roster cannot walk into future months", JSON.stringify(s));
-    ok(/people/.test(s.summary) && /on time/.test(s.summary) && /target/.test(s.summary),
+    ok(/people/.test(s.summary) && /target met/.test(s.summary) && /target/.test(s.summary),
       "a team-wide summary sits above the cards", s.summary.slice(0, 120));
     ok(s.statuses.every(x => typeof x === "string" && x.length),
       "every card says what that person is doing today", JSON.stringify(s.statuses));
