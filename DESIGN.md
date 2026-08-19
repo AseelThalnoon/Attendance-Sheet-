@@ -33,6 +33,8 @@ colors:
   input-bg: "#FFFFFF"
   ink-on-gold: "#20180A"
   muted-on-dark: "#C6D6D2"
+  positive-on-dark: "#9FD8A8"
+  negative-on-dark: "#E0A5A5"
 typography:
   display:
     fontFamily: "\"Iowan Old Style\", \"Palatino Linotype\", Palatino, Georgia, \"Times New Roman\", serif"
@@ -115,6 +117,7 @@ Warm and low-saturation at rest — teal and gold both read as aged/antique rath
 - **Line / Line Soft** (`#DDD3BB` / `#EAE3D0`): borders and card-heading rules.
 - **Ink on Gold** (`#20180A`, `--ink-on-gold`): the one text color that sits on `--gradient-gold` — quick-clock's primary button, the clock-in FAB, gold-filled badges. Fixed in both themes, since the gold gradient itself stays roughly as warm in dark mode.
 - **Muted on Dark** (`#C6D6D2`, `--muted-on-dark`): secondary text on the app's dark-teal-surface exceptions (hero stat, header). Also fixed across themes for the same reason.
+- **Positive/Negative on Dark** (`#9FD8A8` / `#E0A5A5`, `--positive-on-dark` / `--negative-on-dark`): the hero stat's trend-up/trend-down text. `--positive`/`--negative` are calibrated for `--card`, not the dark teal hero gradient, so the trend indicator needs its own fixed pair rather than reusing them directly — same rationale as `--muted-on-dark`.
 
 ### Status (semantic, not decorative)
 - **Positive** (`#256B42` on `#E3F1E7`): met/over-target states — badges, calendar dots, team status.

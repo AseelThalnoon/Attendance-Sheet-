@@ -120,6 +120,10 @@ body[data-ui-theme="velocity"] header.ledger-head{
   border-bottom:1px solid rgba(94,227,255,.14);
 }
 body[data-ui-theme="velocity"] header.ledger-head::before{background-image:none;}
+/* Velocity is a fixed dark carbon world with no light variant — it never
+   reads body.dark, so the light/dark toggle would sit there claiming to
+   switch modes while doing nothing. Hide it rather than let it lie. */
+body[data-ui-theme="velocity"] #themeBtn{display:none;}
 body[data-ui-theme="velocity"] .head-title{
   font-family:"JetBrains Mono",ui-monospace,monospace;
   text-transform:uppercase; letter-spacing:.02em; font-weight:700; font-size:20px;
