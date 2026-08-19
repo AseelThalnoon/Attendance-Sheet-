@@ -1769,7 +1769,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("heroMonthLabel").textContent = new Date().toLocaleDateString(undefined, {month:"long", year:"numeric"});
     var targetPerDay = targetMinPerDay() || 1;
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.round((ms.avgMin / targetPerDay) * 100))) : 0;
-    document.getElementById("heroProgressFill").style.transform = "scaleX(" + (progressPct / 100) + ")";
+    var progressFill = document.getElementById("heroProgressFill");
+    progressFill.style.transform = "scaleX(" + (progressPct / 100) + ")";
+    // Unclamped ratio for the Velocity cluster's tachometer, published here
+    // so the gauge reads the figure this function already computed rather
+    // than deriving its own. The bar above stays clamped to 100%; the gauge
+    // deliberately wants the overshoot, because its redline band is exactly
+    // the over-target zone.
+    progressFill.setAttribute("data-ratio",
+      ms.loggedDays ? (ms.avgMin / targetPerDay).toFixed(4) : "0");
     document.getElementById("heroProgressLabel").textContent = ms.loggedDays
       ? progressPct + "% of " + minutesToHoursStr(targetPerDay) + " target"
       : "No regular workdays logged yet this month";
@@ -4862,109 +4870,123 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       hint: "Sections lift and sharpen into focus as you scroll to them. Automatically skipped for anyone whose device asks for reduced motion."
     },
     velocity: {
-      hint: "A full redesign: carbon surfaces, a 3D hero, and depth that tracks your pointer. Ignores the ledger design system by design. Motion is skipped for anyone whose device asks for reduced motion."
+      hint: "A full redesign: the app as a driver's instrument cluster — carbon surfaces, a tachometer that reads this month against your daily target, and seven-segment figures. Ignores the ledger design system by design. Motion is skipped for anyone whose device asks for reduced motion."
     }
   };
   var DEFAULT_UI_THEME = "ledger";
 
-  // Pointer-tracked depth for the Velocity theme. Written as direct inline
-  // transform strings rather than CSS custom properties: a variable set on a
-  // container invalidates every child's style, while a transform on the
-  // element itself stays on the compositor.
+  // The Velocity theme's instrument cluster.
+  //
+  // This replaces the pointer-tracked car of the previous Velocity world,
+  // which ran a global mousemove listener and a requestAnimationFrame loop
+  // for as long as the theme was on — every frame, whether or not anything
+  // had changed. The cluster needs neither: the needle only moves when the
+  // underlying figures move, so the whole theme is now idle at rest.
   var velocityMotion = (function(){
-    var raf = null, running = false;
-    var car = null;
-    var target = {x:0, y:0}, cur = {x:0, y:0};
+    // Sweep geometry, kept here and matching the SVG in index.html: a 250°
+    // sweep whose arc length at r=100 is 436.33 units. The needle is drawn
+    // pointing straight up, so its travel is -125° to +125°.
+    var SWEEP_DEG = 250, ARC_LEN = 436.33, NEEDLE_START = -125;
+    // Full deflection is 130% of target, which puts the 100% mark at 0.769
+    // of the sweep — exactly where the redline band starts. That is what
+    // makes the redline mean "over target" rather than being decoration.
+    var FULL_SCALE = 1.3;
+    var armed = false, t1 = null, t2 = null;
 
-    // Coarse pointers get the authored resting angle instead — there's no
-    // hover to track, and tilting on touch would fight scrolling.
-    function finePointer(){
-      return window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-    }
     function reduced(){
       return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     }
 
-    function onMove(ev){
-      target.x = (ev.clientX / window.innerWidth - 0.5) * 2;
-      target.y = (ev.clientY / window.innerHeight - 0.5) * 2;
-    }
-
-    function tick(){
-      // Ease toward the pointer instead of snapping to it. This is what gives
-      // the weight of a spring without pulling in an animation library — and
-      // it keeps moving for a beat after the pointer stops, which is the part
-      // that reads as physical.
-      cur.x += (target.x - cur.x) * 0.075;
-      cur.y += (target.y - cur.y) * 0.075;
-      if(car){
-        car.style.transform =
-          "rotateX(" + (8 - cur.y * 6).toFixed(2) + "deg) " +
-          "rotateY(" + (-14 + cur.x * 13).toFixed(2) + "deg)";
-      }
-      raf = requestAnimationFrame(tick);
-    }
-
-    function onCardMove(ev){
-      var card = ev.target && ev.target.closest && ev.target.closest(".stat-card, .team-card");
-      if(!card) return;
-      var r = card.getBoundingClientRect();
-      var px = (ev.clientX - r.left) / r.width - 0.5;
-      var py = (ev.clientY - r.top) / r.height - 0.5;
-      // No transition while tracking — a transition would restart every frame
-      // and smear instead of following the pointer.
-      card.style.transition = "none";
-      card.style.transform =
-        "perspective(1000px) rotateX(" + (-py * 8).toFixed(2) + "deg) " +
-        "rotateY(" + (px * 10).toFixed(2) + "deg) translateZ(6px)";
-    }
-    function onCardLeave(ev){
-      var card = ev.target && ev.target.closest && ev.target.closest(".stat-card, .team-card");
-      if(!card) return;
-      // Hand it back to CSS so it eases home on the theme's own curve.
-      card.style.transition = "";
-      card.style.transform = "";
-    }
-
+    // The ignition self-test: the needle drops to zero, swings to full
+    // deflection, then settles on the real figure — what every analogue
+    // cluster does when the ignition is turned on.
+    //
+    // Driven by stepping the same inline transform the value sync writes,
+    // and letting the needle's CSS transition interpolate between steps. A
+    // keyframe animation cannot do this: any fill mode that holds its last
+    // frame outranks an inline style, so the needle would park at the
+    // keyframe's angle rather than at the value it is reporting. One writer
+    // for the angle, always.
     function start(){
-      if(running || reduced() || !finePointer()) return;
-      running = true;
-      car = document.getElementById("vCar");
-      if(car) car.style.transition = "none"; // the lerp is the smoothing now
-      window.addEventListener("mousemove", onMove, {passive:true});
-      document.addEventListener("mousemove", onCardMove, {passive:true});
-      document.addEventListener("mouseout", onCardLeave, {passive:true});
-      raf = requestAnimationFrame(tick);
+      if(armed) return;
+      armed = true;
+      var n = document.getElementById("vNeedle");
+      // Reduced motion still gets a correct needle — it is placed by the
+      // value sync, it simply doesn't perform the sweep on the way there.
+      if(!n || reduced()) return;
+      n.style.transform = "rotate(" + NEEDLE_START + "deg)";
+      t1 = setTimeout(function(){
+        n.style.transform = "rotate(" + (NEEDLE_START + SWEEP_DEG) + "deg)";
+      }, 60);
+      t2 = setTimeout(syncVelocitySpecs, 760);
     }
 
     function stop(){
-      if(!running) return;
-      running = false;
-      window.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mousemove", onCardMove);
-      document.removeEventListener("mouseout", onCardLeave);
-      if(raf){ cancelAnimationFrame(raf); raf = null; }
-      if(car){ car.style.transition = ""; car.style.transform = ""; car = null; }
-      // Clear anything the pointer left behind on the cards.
-      document.querySelectorAll(".stat-card, .team-card").forEach(function(el){
-        el.style.transition = ""; el.style.transform = "";
-      });
-      cur.x = cur.y = target.x = target.y = 0;
+      if(!armed) return;
+      armed = false;
+      // Clear pending steps so a sweep can't land after the theme changed
+      // and leave a needle behind in a theme that no longer shows one.
+      if(t1){ clearTimeout(t1); t1 = null; }
+      if(t2){ clearTimeout(t2); t2 = null; }
     }
 
-    return { start:start, stop:stop };
+    return {
+      start:start, stop:stop,
+      SWEEP_DEG:SWEEP_DEG, ARC_LEN:ARC_LEN,
+      NEEDLE_START:NEEDLE_START, FULL_SCALE:FULL_SCALE
+    };
   })();
 
-  // Mirrors the real stat values into the hero's spec readout. The hero is
-  // aria-hidden, so this is a visual echo of numbers already announced once
-  // from the actual stat cards — never a second source of truth.
+  // Mirrors the real stat values into the cluster. The cluster is
+  // aria-hidden, so everything here is a visual echo of numbers already
+  // announced once from the actual stat cards — never a second source of
+  // truth, and never a figure this function computes for itself.
   function syncVelocitySpecs(){
     if(document.body.getAttribute("data-ui-theme") !== "velocity") return;
-    var pairs = [["vSpecAvg","monthAvg"], ["vSpecStreak","streak"], ["vSpecOt","otBank"]];
+
+    var pairs = [
+      ["vSpecAvg","monthAvg"],   ["vSpecStreak","streak"], ["vSpecOt","otBank"],
+      ["vRoWeek","weekAvg"],     ["vGaugeVal","monthAvg"], ["vSecPeriod","heroMonthLabel"]
+    ];
     pairs.forEach(function(p){
       var dest = document.getElementById(p[0]), src = document.getElementById(p[1]);
       if(dest && src) dest.textContent = src.textContent;
     });
+
+    var tgtEl = document.getElementById("vRoTarget");
+    if(tgtEl) tgtEl.textContent = minutesToHoursStr(targetMinPerDay());
+
+    // Needle, arc and state all derive from the one ratio renderStats()
+    // publishes on the progress bar, so the cluster can never disagree with
+    // the hero it sits above.
+    var fill = document.getElementById("heroProgressFill");
+    var ratio = fill ? parseFloat(fill.getAttribute("data-ratio")) : 0;
+    if(!isFinite(ratio) || ratio < 0) ratio = 0;
+    var f = Math.min(ratio / velocityMotion.FULL_SCALE, 1);
+
+    var needle = document.getElementById("vNeedle");
+    if(needle){
+      needle.style.transform =
+        "rotate(" + (velocityMotion.NEEDLE_START + f * velocityMotion.SWEEP_DEG).toFixed(2) + "deg)";
+    }
+    var arc = document.getElementById("vGaugeArc");
+    if(arc) arc.setAttribute("stroke-dashoffset", (velocityMotion.ARC_LEN * (1 - f)).toFixed(2));
+
+    var metEl = document.getElementById("vSecMet");
+    if(metEl) metEl.textContent = ratio ? Math.round(ratio * 100) + "%" : "—";
+
+    // Over / on / under, from the same ratio. Hidden entirely rather than
+    // showing a state for a month with nothing logged in it yet.
+    var state = document.getElementById("vGaugeState");
+    if(state){
+      if(!ratio){
+        state.hidden = true;
+      }else{
+        state.hidden = false;
+        state.textContent = ratio >= 1 ? "Over Target"
+          : (ratio >= 0.98 ? "On Target" : "Under Target");
+      }
+    }
   }
 
   // Scroll-driven reveal for the Kinetic theme — fallback path only.
@@ -5043,8 +5065,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // depth. Always stop the one that isn't wanted so switching themes at
     // runtime tears down cleanly instead of leaving observers attached.
     if(theme === "kinetic" || theme === "velocity") scrollReveal.start(); else scrollReveal.stop();
-    if(theme === "velocity") velocityMotion.start(); else velocityMotion.stop();
+    // Sync before arming: the sync places the needle at its real value, and
+    // the sweep then deliberately overrides it to run zero -> full -> value.
+    // Arming first would let the sync land on top of the sweep's first step
+    // and the needle would never visit zero.
     syncVelocitySpecs();
+    if(theme === "velocity") velocityMotion.start(); else velocityMotion.stop();
+    // Charts bake their colours in at render time (cssVar() reads --gold,
+    // --positive, --negative and --line when the SVG string is built), so a
+    // theme switch has to redraw them or they keep the previous theme's
+    // palette until something else happens to re-render them. This was
+    // already true of the light/dark toggle, which calls renderCharts() for
+    // the same reason; the org-theme switch was missing it.
+    renderCharts();
     return theme;
   }
 
