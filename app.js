@@ -959,8 +959,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     '</div>';
   }
 
-  function renderPeriodRows(list){
-    var wrap = document.getElementById("periodsList");
+  function renderPeriodRows(list, containerId){
+    var wrap = document.getElementById(containerId || "periodsList");
     if(!list.length){
       wrap.innerHTML = '<p class="periods-empty">No seasonal hours set. Standard hours apply all year.</p>';
       return;
@@ -968,9 +968,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     wrap.innerHTML = list.map(periodRowHtml).join("");
   }
 
-  function readPeriodRows(){
+  function readPeriodRows(containerId){
     var out = [];
-    document.querySelectorAll("#periodsList [data-period]").forEach(function(row){
+    document.querySelectorAll("#"+(containerId || "periodsList")+" [data-period]").forEach(function(row){
       function val(k){
         var el = row.querySelector('[data-p="'+k+'"]');
         return el ? el.value : "";
@@ -987,6 +987,25 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       });
     });
     return out;
+  }
+
+  // Shared between personal Schedule Settings and Admin > Organisation
+  // Defaults — both edit a list of seasonal periods and must reject the same
+  // mistakes before saving rather than let normalizeSettings() silently drop
+  // a bad row later. Returns an error string, or null when everything's valid.
+  function validatePeriods(rawPeriods){
+    for(var i=0;i<rawPeriods.length;i++){
+      var p = rawPeriods[i], where = "Seasonal period " + (i+1) + (p.name ? ' ("'+p.name+'")' : "");
+      if(!p.start || !p.end) return where + " needs both a start and end date.";
+      if(p.start > p.end) return where + " ends before it starts.";
+      if(p.targetMin <= 0) return where + " needs a daily target greater than zero.";
+      if(p.targetMin > 24*60) return where + " has a target over 24 hours.";
+      for(var j=0;j<i;j++){
+        var q = rawPeriods[j];
+        if(p.start <= q.end && q.start <= p.end) return where + " overlaps another period. Date ranges can't overlap.";
+      }
+    }
+    return null;
   }
 
   // Expected Ramadan windows (Umm al-Qura). The actual start depends on the
@@ -1056,6 +1075,74 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(idx !== -1) current.splice(idx, 1);
     renderPeriodRows(current);
   });
+
+  // Admin > Organisation Defaults' own seasonal-periods editor — same
+  // component, same validation, wired to the defaults form's own fields
+  // instead of the viewer's personal `settings` (this edits what a brand new
+  // account starts with, not anyone's live schedule).
+  function currentDefaultsSchedule(){
+    var th = parseInt(document.getElementById("dTargetH").value, 10);
+    var tm = parseInt(document.getElementById("dTargetM").value, 10);
+    return {
+      targetMin: (isNaN(th)?8:th)*60 + (isNaN(tm)?0:tm),
+      standardIn: document.getElementById("dIn").value || DEFAULT_SETTINGS.standardIn,
+      standardOut: document.getElementById("dOut").value || DEFAULT_SETTINGS.standardOut
+    };
+  }
+
+  document.getElementById("addDefaultsRamadanBtn").addEventListener("click", function(){
+    var current = readPeriodRows("defaultsPeriodsList");
+    var today = todayStr();
+    var next = RAMADAN_DATES.find(function(r){
+      if(r.end < today) return false;
+      return !current.some(function(p){ return p.start === r.start; });
+    });
+    if(!next){
+      showToast("Ramadan is already set up for the years available. Use \"+ Add Period\" to add another range manually.", "info");
+      return;
+    }
+    var base = currentDefaultsSchedule();
+    var ramadanMin = 360; // Saudi labour law caps Ramadan at 6 hours a day.
+    var startMin = timeToMinutes(base.standardIn);
+    var endMin = (startMin + ramadanMin) % (24*60);
+    current.push({
+      name: "Ramadan " + next.year,
+      start: next.start,
+      end: next.end,
+      targetMin: ramadanMin,
+      standardIn: base.standardIn,
+      standardOut: pad2(Math.floor(endMin/60)) + ":" + pad2(endMin%60)
+    });
+    renderPeriodRows(current, "defaultsPeriodsList");
+    var rows = document.querySelectorAll("#defaultsPeriodsList [data-period]");
+    if(rows.length) rows[rows.length-1].scrollIntoView({behavior:"smooth", block:"nearest"});
+  });
+
+  document.getElementById("addDefaultsPeriodBtn").addEventListener("click", function(){
+    var wrap = document.getElementById("defaultsPeriodsList");
+    var current = readPeriodRows("defaultsPeriodsList");
+    var base = currentDefaultsSchedule();
+    var year = new Date().getFullYear();
+    current.push({
+      name:"", start:year+"-01-01", end:year+"-01-31",
+      targetMin: Math.round(base.targetMin * 0.75),
+      standardIn: base.standardIn, standardOut: base.standardOut
+    });
+    renderPeriodRows(current, "defaultsPeriodsList");
+    var rows = wrap.querySelectorAll("[data-period]");
+    if(rows.length) rows[rows.length-1].querySelector('[data-p="name"]').focus();
+  });
+
+  document.getElementById("defaultsPeriodsList").addEventListener("click", function(ev){
+    var btn = ev.target.closest("[data-remove-period]");
+    if(!btn) return;
+    var row = btn.closest("[data-period]");
+    var rows = Array.prototype.slice.call(document.querySelectorAll("#defaultsPeriodsList [data-period]"));
+    var idx = rows.indexOf(row);
+    var current = readPeriodRows("defaultsPeriodsList");
+    if(idx !== -1) current.splice(idx, 1);
+    renderPeriodRows(current, "defaultsPeriodsList");
+  });
   document.getElementById("settingsBtn").addEventListener("click", function(){
     var card = document.getElementById("settingsCard");
     var opening = !card.classList.contains("open");
@@ -1120,20 +1207,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     // Validate the seasonal rows before saving so mistakes surface immediately.
     var rawPeriods = readPeriodRows();
-    for(var i=0;i<rawPeriods.length;i++){
-      var p = rawPeriods[i], where = "Seasonal period " + (i+1) + (p.name ? ' ("'+p.name+'")' : "");
-      if(!p.start || !p.end){ showToast(where + " needs both a start and end date.", "error"); return; }
-      if(p.start > p.end){ showToast(where + " ends before it starts.", "error"); return; }
-      if(p.targetMin <= 0){ showToast(where + " needs a daily target greater than zero.", "error"); return; }
-      if(p.targetMin > 24*60){ showToast(where + " has a target over 24 hours.", "error"); return; }
-      for(var j=0;j<i;j++){
-        var q = rawPeriods[j];
-        if(p.start <= q.end && q.start <= p.end){
-          showToast(where + " overlaps another period. Date ranges can't overlap.", "error");
-          return;
-        }
-      }
-    }
+    var periodsErr = validatePeriods(rawPeriods);
+    if(periodsErr){ showToast(periodsErr, "error"); return; }
 
     var updated = Object.assign({}, settings, {
       workDays: days,
@@ -4579,14 +4654,63 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   var AUDIT_LABELS = {
     insert:"Added", update:"Edited", delete:"Deleted",
     role_change:"Role changed", user_created:"User created",
-    user_deactivated:"Deactivated", user_reactivated:"Reactivated", user_deleted:"User deleted"
+    user_deactivated:"Deactivated", user_reactivated:"Reactivated", user_deleted:"User deleted",
+    app_settings_change:"Org settings changed"
   };
   function auditActionClass(action){
     if(action === "insert") return "a-insert";
-    if(action === "update") return "a-update";
+    if(action === "update" || action === "app_settings_change") return "a-update";
     if(action === "delete" || action === "user_deleted") return "a-delete";
     return "a-admin";
   }
+
+  // A real before → after diff for an edited entry, not just its new state —
+  // "Regular · 08:00–17:00" alone can't tell anyone it used to say 16:00.
+  function fieldDiff(label, ov, nv, fmt){
+    ov = ov == null || ov === "" ? null : ov;
+    nv = nv == null || nv === "" ? null : nv;
+    if(ov === nv) return null;
+    var f = fmt || function(v){ return v == null ? "—" : String(v); };
+    return label + ": " + f(ov) + " → " + f(nv);
+  }
+  function entryDiff(oldV, newV){
+    oldV = oldV || {}; newV = newV || {};
+    var bits = [
+      fieldDiff("Type", oldV.type || "regular", newV.type || "regular", typeLabel),
+      fieldDiff("In", oldV.clock_in, newV.clock_in, formatTime12),
+      fieldDiff("Out", oldV.clock_out, newV.clock_out, formatTime12)
+    ].filter(Boolean);
+    // Free text, not a value with two states to arrow between — "changed"
+    // says what happened without implying there's a meaningful "→" to show.
+    if((oldV.note || "") !== (newV.note || "")) bits.push("Note changed");
+    return bits.length ? bits.join(" · ") : "No visible change";
+  }
+
+  var APP_SETTINGS_LABELS = {
+    announcement: "Announcement", announcement_active: "Announcement banner",
+    allow_registration: "Allow registrations", theme: "Theme",
+    default_settings: "Organisation defaults"
+  };
+  function appSettingsDiff(oldV, newV){
+    oldV = oldV || {}; newV = newV || {};
+    var bits = [];
+    Object.keys(APP_SETTINGS_LABELS).forEach(function(key){
+      var label = APP_SETTINGS_LABELS[key];
+      if(key === "default_settings"){
+        // A nested schedule object — a field-by-field diff here would be more
+        // noise than signal, so just flag that the org's starting schedule moved.
+        if(JSON.stringify(oldV[key] || {}) !== JSON.stringify(newV[key] || {})) bits.push(label + " updated");
+        return;
+      }
+      var d = fieldDiff(label, oldV[key], newV[key], function(v){
+        if(typeof v === "boolean") return v ? "on" : "off";
+        return v == null ? "—" : String(v);
+      });
+      if(d) bits.push(d);
+    });
+    return bits.length ? bits.join(" · ") : "Settings saved";
+  }
+
   function auditDetail(row){
     if(row.action === "role_change"){
       var oldRole = row.old_values && row.old_values.role;
@@ -4598,7 +4722,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var n = row.old_values && row.old_values.entries_removed;
       return n != null ? n + " entries removed" : "Account removed";
     }
+    if(row.action === "app_settings_change") return appSettingsDiff(row.old_values, row.new_values);
     if(row.entry_date){
+      if(row.action === "update") return entryDiff(row.old_values, row.new_values);
       var src = row.new_values || row.old_values || {};
       var bits = [];
       if(src.type) bits.push(typeLabel(src.type));
@@ -4629,6 +4755,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var action = document.getElementById("auditFilterAction").value || null;
     var who = document.getElementById("auditFilterUser").value || null;
     var since = document.getElementById("auditFilterSince").value || "";
+    var until = document.getElementById("auditFilterUntil").value || "";
+    var search = (document.getElementById("auditFilterSearch").value || "").trim().toLowerCase();
     var res;
     try{
       res = await supabase.rpc("admin_audit_log",
@@ -4639,11 +4767,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return;
     }
     var fetched = res.data || [];
-    // The RPC has no date parameter, so the window is applied here. The count
-    // below reports what is actually on screen rather than what was fetched.
-    var rows = since
-      ? fetched.filter(function(r){ return (r.created_at || "").slice(0,10) >= since; })
-      : fetched;
+    // The RPC takes no date range or text filter, so both are applied here.
+    // The count below reports what is actually on screen, not what was fetched.
+    var rows = fetched.filter(function(r){
+      var day = (r.created_at || "").slice(0,10);
+      if(since && day < since) return false;
+      if(until && day > until) return false;
+      if(search){
+        var hay = ((r.actor_email||"") + " " + (r.target_email||"") + " " +
+          (AUDIT_LABELS[r.action]||r.action||"") + " " + auditDetail(r)).toLowerCase();
+        if(hay.indexOf(search) === -1) return false;
+      }
+      return true;
+    });
     auditRowsCache = rows;
 
     var body = document.getElementById("auditBody");
@@ -4997,6 +5133,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("dGrace").value = d.graceMin;
     document.getElementById("dRemind").value = d.remindAfterHours;
     document.getElementById("dLeaveDays").value = d.annualLeaveDays;
+    renderPeriodRows(d.periods, "defaultsPeriodsList");
 
     document.getElementById("adminDefaultsState").textContent = defaultsAreSet
       ? "Set — new accounts start here"
@@ -5025,6 +5162,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       showToast("A target of zero would make every worked day look like overtime.", "error");
       return null;
     }
+    var rawPeriods = readPeriodRows("defaultsPeriodsList");
+    var periodsErr = validatePeriods(rawPeriods);
+    if(periodsErr){ showToast(periodsErr, "error"); return null; }
     // Run it through the same normaliser every other schedule goes through, so
     // a value that would be rejected on a personal schedule can't enter the org
     // default by the back door.
@@ -5036,7 +5176,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       graceMin: document.getElementById("dGrace").value,
       remindAfterHours: document.getElementById("dRemind").value,
       annualLeaveDays: document.getElementById("dLeaveDays").value,
-      periods: []
+      periods: rawPeriods
     });
   }
 
@@ -5239,6 +5379,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   document.getElementById("auditFilterAction").addEventListener("change", resetAuditPaging);
   document.getElementById("auditFilterUser").addEventListener("change", resetAuditPaging);
   document.getElementById("auditFilterSince").addEventListener("change", resetAuditPaging);
+  document.getElementById("auditFilterUntil").addEventListener("change", resetAuditPaging);
+  document.getElementById("auditFilterSearch").addEventListener("input", resetAuditPaging);
 
   async function renderAdmin(){
     // Belt and braces. The tab button is hidden for employees and every RPC and

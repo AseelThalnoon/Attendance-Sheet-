@@ -2507,7 +2507,23 @@
           <input type="number" id="dLeaveDays" min="0" max="365" step="1" inputmode="numeric">
         </div>
       </div>
-      <div class="form-actions">
+
+      <div class="periods-section" style="margin-top:18px; padding-top:16px; border-top:1px solid var(--line-soft);">
+        <div class="periods-head">
+          <span>Seasonal Hours</span>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn ghost small" id="addDefaultsRamadanBtn">+ Ramadan</button>
+            <button type="button" class="btn ghost small" id="addDefaultsPeriodBtn">+ Add Period</button>
+          </div>
+        </div>
+        <p class="settings-hint" style="margin:0 0 12px;">
+          Reduced hours for a date range that every new account starts with — Ramadan, summer schedules, and the
+          like. Anyone can still override these on their own Schedule Settings; this only sets the starting point.
+        </p>
+        <div id="defaultsPeriodsList"></div>
+      </div>
+
+      <div class="form-actions" style="margin-top:16px;">
         <button type="button" class="btn" id="saveDefaultsBtn">Save Defaults</button>
         <button type="button" class="btn ghost" id="seedSettingsBtn">Give these to people with no schedule</button>
       </div>
@@ -2620,8 +2636,9 @@
         </button>
         <div class="accordion-body">
       <p class="settings-hint" style="margin:-4px 0 14px;">
-        Every change to attendance data and user roles, with who made it. Append-only — nothing in the app can edit
-        or delete a line of it. Recording started when this feature was installed.
+        Every change to attendance data, user roles, and organisation settings, with who made it and — for edits —
+        exactly what changed. Append-only — nothing in the app can edit or delete a line of it. Recording started
+        when this feature was installed.
       </p>
       <div class="form-grid" id="adminAuditFilters">
         <div>
@@ -2635,6 +2652,7 @@
             <option value="user_deactivated">Deactivations</option>
             <option value="user_reactivated">Reactivations</option>
             <option value="user_deleted">User deletions</option>
+            <option value="app_settings_change">Org settings changed</option>
           </select>
         </div>
         <div>
@@ -2646,6 +2664,14 @@
         <div>
           <label for="auditFilterSince">Since</label>
           <input type="date" id="auditFilterSince">
+        </div>
+        <div>
+          <label for="auditFilterUntil">Until</label>
+          <input type="date" id="auditFilterUntil">
+        </div>
+        <div class="full">
+          <label for="auditFilterSearch">Search details</label>
+          <input type="search" id="auditFilterSearch" maxlength="100" dir="auto" placeholder="e.g. a name, a time, “theme”">
         </div>
       </div>
       <div class="form-actions" style="margin-bottom:14px;">
