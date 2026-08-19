@@ -1679,84 +1679,99 @@
   <div class="v-hero-beam"></div>
 
   <div class="v-hero-inner">
-    <p class="v-eyebrow"><span>R35</span><i class="v-rule"></i><span>Attendance Telemetry</span></p>
-    <h2 class="v-headline">EVERY HOUR<br><em>ACCOUNTED FOR</em></h2>
+    <p class="v-eyebrow"><span>Cluster</span><i class="v-rule"></i><span class="v-eyebrow-sub">Attendance Telemetry</span></p>
 
-    <div class="v-stage" id="vStage">
-      <div class="v-car" id="vCar">
-        <svg viewBox="0 0 1000 340" class="v-car-svg" role="presentation" focusable="false">
+    <!-- The cluster mirrors numbers that the real stat cards below already
+         announce. The whole section is aria-hidden so a screen reader hears
+         each figure once, from the actual data, not twice. -->
+    <div class="v-cluster">
+      <div class="v-cluster-side">
+        <div class="v-readout">
+          <span class="v-readout-k">This Week</span>
+          <span class="v-readout-v" id="vRoWeek">—</span>
+        </div>
+        <div class="v-readout">
+          <span class="v-readout-k">Daily Target</span>
+          <span class="v-readout-v" id="vRoTarget">—</span>
+        </div>
+      </div>
+
+      <!-- Tachometer. The sweep is 250°, opening at the bottom the way an
+           analogue cluster does. Arc lengths below are derived from r=100:
+           circumference 628.32, so a 250° sweep is 436.33 units. The value
+           arc is drawn with the same dasharray and its dashoffset is what
+           JS animates; the redline band is a separate 22% segment sitting
+           underneath, so a value that runs into it paints crimson over
+           crimson instead of clipping. -->
+      <div class="v-gauge" id="vGauge">
+        <!-- Cropped to 226 tall: the arc's lowest point is y=207 plus half
+             the 13px stroke, so everything below 226 was dead space pushing
+             the sector strip away from the dial. -->
+        <svg class="v-gauge-svg" viewBox="0 0 300 226" role="presentation" focusable="false">
           <defs>
-            <linearGradient id="vBody" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#7FE9FF" stop-opacity=".95"/>
-              <stop offset="55%" stop-color="#3FA9D8" stop-opacity=".55"/>
-              <stop offset="100%" stop-color="#FF3B2F" stop-opacity=".65"/>
-            </linearGradient>
-            <linearGradient id="vGlass" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#8FF0FF" stop-opacity=".22"/>
-              <stop offset="100%" stop-color="#8FF0FF" stop-opacity=".04"/>
+            <linearGradient id="vGaugeFill" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0%"   stop-color="#5A6270"/>
+              <stop offset="52%"  stop-color="#D5082A"/>
+              <stop offset="100%" stop-color="#FF2D46"/>
             </linearGradient>
           </defs>
 
-          <!-- body mass, faint, sits under the wireframe for weight -->
-          <path class="v-fill" d="M56 268 L60 226 C68 202 100 188 148 182 C182 178 214 176 252 175
-            L306 172 C338 136 388 106 452 98 C508 92 572 92 616 99 C682 110 746 136 794 162
-            L850 165 C898 172 932 188 946 206 L954 246 L950 268 Z"/>
+          <circle class="v-gauge-track"   cx="150" cy="150" r="100"
+                  stroke-dasharray="436.33 628.32" transform="rotate(145 150 150)"/>
+          <circle class="v-gauge-redline" cx="150" cy="150" r="100"
+                  stroke-dasharray="95.99 628.32" stroke-dashoffset="-340.34"
+                  transform="rotate(145 150 150)"/>
+          <circle class="v-gauge-value" id="vGaugeArc" cx="150" cy="150" r="100"
+                  stroke-dasharray="436.33 628.32" stroke-dashoffset="436.33"
+                  transform="rotate(145 150 150)"/>
 
-          <!-- greenhouse -->
-          <path class="v-glass" d="M334 166 C362 134 402 112 454 106 C512 100 572 101 612 108
-            C668 119 720 140 760 160 Z"/>
-
-          <!-- main outline -->
-          <path class="v-line-main" d="M56 268 L60 226 C68 202 100 188 148 182 C182 178 214 176 252 175
-            L306 172 C338 136 388 106 452 98 C508 92 572 92 616 99 C682 110 746 136 794 162
-            L850 165 C898 172 932 188 946 206 L954 246 L950 268"/>
-
-          <!-- rear haunch: the R35's signature shoulder -->
-          <path class="v-line-soft" d="M688 182 C730 150 800 148 858 174"/>
-          <!-- beltline + pillars -->
-          <path class="v-line-soft" d="M334 166 L760 160"/>
-          <path class="v-line-soft" d="M524 102 L524 163"/>
-          <!-- door cut + rocker -->
-          <path class="v-line-soft" d="M472 166 L472 250"/>
-          <path class="v-line-soft" d="M308 252 L710 252"/>
-          <!-- splitter + diffuser -->
-          <path class="v-line-soft" d="M54 262 L128 266"/>
-          <path class="v-line-soft" d="M898 262 L950 257"/>
-
-          <!-- wheel arches -->
-          <path class="v-line-main" d="M156 236 A76 76 0 0 1 308 236"/>
-          <path class="v-line-main" d="M710 236 A76 76 0 0 1 862 236"/>
-
-          <!-- wheels -->
-          <g class="v-wheel">
-            <circle cx="232" cy="236" r="64"/>
-            <circle cx="232" cy="236" r="44" class="v-rim"/>
-            <circle cx="232" cy="236" r="9" class="v-hub"/>
-          </g>
-          <g class="v-wheel">
-            <circle cx="786" cy="236" r="64"/>
-            <circle cx="786" cy="236" r="44" class="v-rim"/>
-            <circle cx="786" cy="236" r="9" class="v-hub"/>
+          <g class="v-gauge-ticks">
+            <line class="is-major" x1="81.19"  y1="198.18" x2="92.66"  y2="190.15"/>
+            <line               x1="67.28"  y1="164.58" x2="81.06"  y2="162.15"/>
+            <line               x1="68.86"  y1="128.26" x2="82.39"  y2="131.88"/>
+            <line               x1="85.66"  y1="96.01"  x2="96.38"  y2="105.00"/>
+            <line               x1="114.50" y1="73.87"  x2="120.42" y2="86.56"/>
+            <line class="is-major" x1="150.00" y1="66.00"  x2="150.00" y2="80.00"/>
+            <line               x1="185.50" y1="73.87"  x2="179.58" y2="86.56"/>
+            <line               x1="214.34" y1="96.01"  x2="203.62" y2="105.00"/>
+            <line class="is-redline" x1="231.14" y1="128.26" x2="217.61" y2="131.88"/>
+            <line class="is-redline" x1="232.72" y1="164.58" x2="218.94" y2="162.15"/>
+            <line class="is-redline is-major" x1="218.81" y1="198.18" x2="207.34" y2="190.15"/>
           </g>
 
-          <!-- lights -->
-          <path class="v-headlight" d="M74 204 L126 198"/>
-          <path class="v-taillight" d="M906 188 L946 191"/>
+          <!-- Drawn pointing straight up, so JS's rotate() maps cleanly:
+               -125° at zero, 0° at half sweep, +125° at full. -->
+          <line class="v-needle" id="vNeedle" x1="150" y1="150" x2="150" y2="72"
+                style="transform-origin:150px 150px; transform-box:view-box;"/>
+          <circle class="v-needle-hub" cx="150" cy="150" r="7"/>
         </svg>
 
-        <!-- ground reflection: a mirrored, faded copy reads as a lit stage -->
-        <div class="v-reflection" aria-hidden="true"></div>
+        <div class="v-gauge-centre">
+          <span class="v-gauge-value-text" id="vGaugeVal">—</span>
+          <span class="v-gauge-unit">Avg Hrs / Day</span>
+        </div>
+        <!-- In normal flow, so it lands in the dial's own opening at the
+             bottom rather than colliding with the arc from inside the
+             absolutely-centred stack. -->
+        <span class="v-gauge-state" id="vGaugeState" hidden></span>
       </div>
 
-      <div class="v-speedlines" aria-hidden="true">
-        <i></i><i></i><i></i><i></i><i></i>
+      <div class="v-cluster-side is-right">
+        <div class="v-readout is-live">
+          <span class="v-readout-k">Streak</span>
+          <span class="v-readout-v" id="vSpecStreak">—</span>
+        </div>
+        <div class="v-readout">
+          <span class="v-readout-k">Overtime</span>
+          <span class="v-readout-v" id="vSpecOt">—</span>
+        </div>
       </div>
     </div>
 
-    <div class="v-specs">
-      <div class="v-spec"><span class="v-spec-k">Monthly Avg</span><span class="v-spec-v" id="vSpecAvg">—</span></div>
-      <div class="v-spec"><span class="v-spec-k">Streak</span><span class="v-spec-v" id="vSpecStreak">—</span></div>
-      <div class="v-spec"><span class="v-spec-k">Overtime</span><span class="v-spec-v" id="vSpecOt">—</span></div>
+    <div class="v-sectors">
+      <div class="v-sector is-text"><span class="v-sector-k">Period</span><span class="v-sector-v" id="vSecPeriod">—</span></div>
+      <div class="v-sector"><span class="v-sector-k">Target Met</span><span class="v-sector-v" id="vSecMet">—</span></div>
+      <div class="v-sector"><span class="v-sector-k">Monthly Avg</span><span class="v-sector-v" id="vSpecAvg">—</span></div>
     </div>
   </div>
 </section>
@@ -2622,7 +2637,7 @@
             <select id="setTheme">
               <option value="ledger">Ledger — the classic look</option>
               <option value="kinetic">Kinetic — animated on scroll</option>
-              <option value="velocity">Velocity — full 3D redesign</option>
+              <option value="velocity">Velocity — instrument cluster</option>
             </select>
             <p class="settings-hint" style="margin:8px 0 0;" id="setThemeHint"></p>
           </div>
