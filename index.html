@@ -118,6 +118,8 @@
        they were unnamed literals repeated 6-7 times each before this. */
     --ink-on-gold:#20180A;     /* text on var(--gradient-gold) */
     --muted-on-dark:#C6D6D2;   /* secondary text on the dark teal surfaces */
+    --positive-on-dark:#9FD8A8; /* hero-stat trend-up text on the dark teal surface */
+    --negative-on-dark:#E0A5A5; /* hero-stat trend-down text on the dark teal surface */
   }
 
   body.dark{
@@ -336,8 +338,8 @@
     color:#fff; font-variant-numeric:tabular-nums; letter-spacing:-.01em;
   }
   .hero-stat .hero-trend{margin:0; font-size:12.5px;}
-  .hero-stat .hero-trend.trend-up{color:#9FD8A8;}
-  .hero-stat .hero-trend.trend-down{color:#E0A5A5;}
+  .hero-stat .hero-trend.trend-up{color:var(--positive-on-dark);}
+  .hero-stat .hero-trend.trend-down{color:var(--negative-on-dark);}
   .hero-stat .hero-trend.trend-flat{color:var(--muted-on-dark);}
   .hero-detail{font-size:12.5px; color:var(--muted-on-dark); margin:0;}
   .hero-progress{display:flex; align-items:center; gap:12px;}
@@ -1432,17 +1434,19 @@
   }
 
   /* Phone landscape: the bar plus the raised clock button took ~108px out of a
-     ~390px-tall viewport. Shrink the chrome rather than let it eat the page. */
+     ~390px-tall viewport. Shrink the chrome rather than let it eat the page —
+     but min-height still holds the 44px WCAG 2.5.5 touch-target floor; only
+     the visual padding/icon/label shrink. */
   @media (max-width:920px) and (orientation:landscape) and (max-height:500px){
     .bottom-nav{padding:3px 4px calc(3px + env(safe-area-inset-bottom));}
-    .bn-item{min-height:38px; padding:2px;}
+    .bn-item{min-height:44px; padding:2px;}
     .bn-item span{font-size:9px;}
     .bn-item svg{width:17px; height:17px;}
-    .bn-clock{width:40px; height:40px; margin-top:-16px;}
+    .bn-clock{width:44px; height:44px; margin-top:-18px;}
     .bn-clock svg{width:19px; height:19px;}
     .bn-clock-label{display:none;}
-    body{padding-bottom:64px;}
-    html{scroll-padding-bottom:64px;}
+    body{padding-bottom:70px;}
+    html{scroll-padding-bottom:70px;}
     header.ledger-head{padding:11px 14px 10px;}
     .seal{display:none;}
   }
