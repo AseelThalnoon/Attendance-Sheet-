@@ -2300,10 +2300,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     // What share of the period's target hours actually got worked — a
     // continuous read on accomplishment (89%, not just "4 of 5 days"), and
-    // it can run past 100% the same way the overtime bank can.
+    // it can run past 100% the same way the overtime bank can. Floored, not
+    // rounded: 84h58m of a 85h15m target is 99.67%, seventeen minutes short
+    // — rounding that to "100%" would claim the target was fully met when
+    // it wasn't.
     var rateEl = document.getElementById("pMetRate");
     if(s.targetSum){
-      var accomplishedPct = Math.round((s.workedSum / s.targetSum) * 100);
+      var accomplishedPct = Math.floor((s.workedSum / s.targetSum) * 100);
       rateEl.textContent = accomplishedPct + "%";
       rateEl.className = "stat-value " + (accomplishedPct >= 100 ? "positive" : (accomplishedPct < 70 ? "negative" : ""));
       document.getElementById("pMetRateDetail").textContent =
@@ -4203,8 +4206,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       ['<span class="ts-value">'+totals.days+'</span><span class="ts-label">days logged</span>'],
       ['<span class="ts-value">'+minutesToHoursStr(totals.worked)+'</span><span class="ts-label">of '+minutesToHoursStr(totals.target)+' target</span>'],
       // Same accomplishment reading as the Shortfall tab's Target Met Rate:
-      // share of target HOURS worked, not a day-count rate.
-      ['<span class="ts-value">'+(totals.target ? Math.round((totals.worked/totals.target)*100)+"%" : "—")+'</span><span class="ts-label">target met</span>']
+      // share of target HOURS worked, not a day-count rate. Floored, not
+      // rounded — see the note by pMetRate above for why.
+      ['<span class="ts-value">'+(totals.target ? Math.floor((totals.worked/totals.target)*100)+"%" : "—")+'</span><span class="ts-label">target met</span>']
     ].map(function(x){ return '<div class="ts-item">'+x+'</div>'; }).join("");
 
     var shown = teamRowsCache.filter(function(t){
@@ -4236,7 +4240,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var initials = (p.full_name || p.email || "?").trim().split(/\s+/)
         .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
       var name = p.full_name || p.email;
-      var pct = s.targetSum ? Math.min(100, Math.round((s.workedSum / s.targetSum) * 100)) : 0;
+      // Floored, not rounded, so a bar/figure a few minutes short of target
+      // never reads as a full "100%" — see the note by pMetRate for why.
+      var pct = s.targetSum ? Math.min(100, Math.floor((s.workedSum / s.targetSum) * 100)) : 0;
       var barCls = !s.targetSum ? "" : (s.diffSum >= 0 ? " is-met" : (pct >= 90 ? " is-short" : " is-short"));
       var diffCls = s.diffSum > 0 ? " over" : (s.diffSum < 0 ? " short" : "");
       var diffTxt = (s.diffSum > 0 ? "+" : "") + minutesToHoursStr(s.diffSum);
@@ -4272,7 +4278,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           '<div><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
           '<div><div class="label">Target Met</div><div class="value">'+
-            (s.targetSum ? Math.round((s.workedSum/s.targetSum)*100)+"%" : "—")+'</div></div>'+
+            (s.targetSum ? Math.floor((s.workedSum/s.targetSum)*100)+"%" : "—")+'</div></div>'+
         '</div>';
       list.appendChild(card);
     });
