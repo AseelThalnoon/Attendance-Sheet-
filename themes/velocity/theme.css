@@ -1,0 +1,343 @@
+/* ======================================================================
+   VELOCITY THEME
+   A full replacement world, not a variation on the ledger: carbon
+   surfaces, monospace technical voice, real depth. Deliberately does not
+   follow DESIGN.md — that document describes the default 'ledger' theme,
+   which is untouched. Everything here is scoped to the theme attribute so
+   none of it can leak into the other two.
+   ====================================================================== */
+
+/* Three faces for the theme's technical voice. Only the velocity theme's
+   elements reference them, and those are display:none in the other themes,
+   so none of these files are fetched unless this theme is actually on.
+
+   - Big Shoulders Display: the poster-condensed headline face.
+   - JetBrains Mono: the technical/label voice — eyebrows, buttons, card
+     titles — and the fallback for any character DSEG7 can't draw.
+   - DSEG7 Classic: a seven-segment "digital dashboard" face for numeric
+     readouts (spec values, stat values). It only draws digits and a
+     handful of punctuation — see the DSEG7/JetBrains Mono font stacks
+     below, which let JetBrains Mono pick up whatever DSEG7 lacks (%, —,
+     parentheses, …) on a per-character basis.
+
+   All three files live in this theme's own fonts/ folder — url() in a
+   stylesheet resolves relative to the stylesheet, not to index.html, so
+   these paths stay correct no matter where the theme folder is mounted. */
+@font-face{
+  font-family:"Big Shoulders Display";
+  src:url("fonts/BigShouldersDisplay-SemiBold.woff2") format("woff2");
+  font-weight:600; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"Big Shoulders Display";
+  src:url("fonts/BigShouldersDisplay-Bold.woff2") format("woff2");
+  font-weight:700; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"JetBrains Mono";
+  src:url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight:400; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"JetBrains Mono";
+  src:url("fonts/JetBrainsMono-SemiBold.woff2") format("woff2");
+  font-weight:600; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"DSEG7 Classic";
+  src:url("fonts/DSEG7Classic-Regular.woff2") format("woff2");
+  font-weight:400; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"DSEG7 Classic";
+  src:url("fonts/DSEG7Classic-Bold.woff2") format("woff2");
+  font-weight:700; font-style:normal; font-display:swap;
+}
+
+/* Inert everywhere except the velocity theme. */
+.v-hero{display:none;}
+
+body[data-ui-theme="velocity"]{
+  /* The app is built on tokens, so redefining them re-skins every existing
+     component without touching a single component rule. */
+  --paper:#04050A;
+  --card:#0C1017;
+  --ink:#EAEEF5;
+  --muted:#8D97AA;
+  --muted-2:#AAB4C6;
+  --line:#222A38;
+  --line-soft:#1A212C;
+  --input-bg:#080B11;
+  --teal-950:#04050A;
+  --teal-900:#0A0E15;
+  --teal-800:#111826;
+  --teal-700:#16202F;
+  --teal-600:#5EE3FF;
+  --teal-100:#141B27;
+  --teal-50:#0E141E;
+  --gold:#FF3B2F;
+  --gold-deep:#FF6B2C;
+  --gold-light:#FF8A5C;
+  --positive:#4BE39B;
+  --positive-bg:#0C2318;
+  --negative:#FF4D4D;
+  --negative-bg:#2A0F12;
+  --info:#5EE3FF;
+  --info-bg:#0B1E27;
+  --excused:#FFC24B;
+  --excused-bg:#241B08;
+  --warn:#FFC24B;
+  --warn-bg:#221904;
+  --warn-line:#4A3A12;
+  --rule:rgba(94,227,255,.035);
+  --radius:4px; --radius-md:3px; --radius-sm:3px; --radius-xs:2px;
+  --gradient-teal:linear-gradient(135deg,#16202F 0%,#0A0E15 100%);
+  --gradient-gold:linear-gradient(135deg,#FF6B2C 0%,#FF3B2F 60%,#B31C14 100%);
+  --shadow-sm:0 1px 0 rgba(255,255,255,.04);
+  --shadow-md:0 18px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(94,227,255,.06);
+  --shadow-lg:0 40px 80px rgba(0,0,0,.7), 0 0 0 1px rgba(94,227,255,.08);
+  --shadow-glow:0 0 0 1px rgba(94,227,255,.18), 0 20px 60px rgba(94,227,255,.10);
+  background-color:#04050A;
+}
+
+/* Atmosphere: a fixed vignette + faint scanline wash behind everything.
+   Fixed and pointer-events:none so it never enters hit-testing or scrolls. */
+body[data-ui-theme="velocity"]::after{
+  content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+  background:
+    radial-gradient(120% 70% at 50% -10%, rgba(94,227,255,.10), transparent 60%),
+    radial-gradient(90% 60% at 90% 110%, rgba(255,59,47,.10), transparent 60%),
+    repeating-linear-gradient(180deg, rgba(255,255,255,.014) 0 1px, transparent 1px 3px);
+}
+body[data-ui-theme="velocity"] header.ledger-head,
+body[data-ui-theme="velocity"] main,
+body[data-ui-theme="velocity"] .v-hero,
+body[data-ui-theme="velocity"] footer.ledger-foot{position:relative; z-index:1;}
+
+body[data-ui-theme="velocity"] header.ledger-head{
+  background:linear-gradient(180deg,rgba(4,5,10,.92),rgba(4,5,10,.55));
+  -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+  border-bottom:1px solid rgba(94,227,255,.14);
+}
+body[data-ui-theme="velocity"] header.ledger-head::before{background-image:none;}
+body[data-ui-theme="velocity"] .head-title{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  text-transform:uppercase; letter-spacing:.02em; font-weight:700; font-size:20px;
+}
+body[data-ui-theme="velocity"] .head-title-eyebrow,
+body[data-ui-theme="velocity"] .head-sub{font-family:"JetBrains Mono",ui-monospace,monospace;}
+body[data-ui-theme="velocity"] .seal{
+  border-radius:4px; background:linear-gradient(150deg,#111826,#04050A);
+  box-shadow:inset 0 0 0 1px rgba(94,227,255,.22), 0 0 30px rgba(94,227,255,.12);
+  animation:none;
+}
+body[data-ui-theme="velocity"] .seal::before{
+  border-radius:2px; border-style:solid; border-color:rgba(255,59,47,.35);
+}
+
+/* ---------- Hero ---------- */
+body[data-ui-theme="velocity"] .v-hero{
+  display:block; position:relative; overflow:hidden;
+  padding:64px 24px 40px; margin-bottom:8px;
+  border-bottom:1px solid rgba(94,227,255,.12);
+}
+.v-hero-grid{
+  position:absolute; inset:0; pointer-events:none; opacity:.5;
+  background-image:
+    linear-gradient(to right, rgba(94,227,255,.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(94,227,255,.07) 1px, transparent 1px);
+  background-size:64px 64px;
+  /* Lay the grid down in perspective so it reads as a floor, not wallpaper. */
+  transform:perspective(600px) rotateX(62deg) scale(2.2) translateY(28%);
+  transform-origin:50% 100%;
+  -webkit-mask-image:linear-gradient(to top, #000 0%, transparent 72%);
+  mask-image:linear-gradient(to top, #000 0%, transparent 72%);
+}
+.v-hero-beam{
+  position:absolute; left:50%; top:-40%; width:120%; height:120%;
+  transform:translateX(-50%);
+  pointer-events:none;
+  background:radial-gradient(50% 40% at 50% 50%, rgba(94,227,255,.13), transparent 70%);
+}
+.v-hero-inner{position:relative; max-width:1080px; margin:0 auto;}
+
+.v-eyebrow{
+  display:flex; align-items:center; gap:12px; margin:0 0 14px;
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:11px; letter-spacing:.34em; text-transform:uppercase; color:#5EE3FF;
+}
+.v-rule{flex:0 0 56px; height:1px; background:linear-gradient(90deg,#5EE3FF,transparent);}
+.v-headline{
+  font-family:"Big Shoulders Display","JetBrains Mono",ui-monospace,monospace;
+  font-weight:700; text-transform:uppercase;
+  font-size:clamp(34px, 8.5vw, 92px); line-height:.94; letter-spacing:-.02em;
+  margin:0 0 8px; color:#EAEEF5;
+}
+.v-headline em{
+  font-style:normal;
+  background:linear-gradient(90deg,#FF6B2C,#FF3B2F 55%,#5EE3FF);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+
+/* ---------- The car ---------- */
+.v-stage{
+  position:relative; margin:8px 0 4px;
+  perspective:1200px; perspective-origin:50% 60%;
+}
+.v-car{
+  position:relative; transform-style:preserve-3d;
+  /* JS writes the full transform string here (not a CSS variable) so the
+     tilt stays on the compositor and doesn't invalidate child styles. */
+  transform:rotateX(8deg) rotateY(-14deg);
+  transition:transform 220ms cubic-bezier(.23,1,.32,1);
+  will-change:transform;
+}
+.v-car-svg{display:block; width:100%; height:auto; overflow:visible;}
+.v-fill{fill:url(#vBody); opacity:.10;}
+.v-glass{fill:url(#vGlass);}
+.v-line-main{
+  fill:none; stroke:url(#vBody); stroke-width:2.4;
+  stroke-linecap:round; stroke-linejoin:round;
+  filter:drop-shadow(0 0 6px rgba(94,227,255,.5));
+}
+.v-line-soft{
+  fill:none; stroke:rgba(143,240,255,.42); stroke-width:1.3;
+  stroke-linecap:round;
+}
+.v-wheel circle{fill:none; stroke:rgba(143,240,255,.55); stroke-width:2;}
+.v-wheel .v-rim{stroke:rgba(255,59,47,.5); stroke-dasharray:5 9;}
+.v-wheel .v-hub{fill:rgba(94,227,255,.5); stroke:none;}
+.v-headlight{
+  stroke:#DFF9FF; stroke-width:4; stroke-linecap:round;
+  filter:drop-shadow(0 0 10px rgba(180,245,255,.95));
+}
+.v-taillight{
+  stroke:#FF3B2F; stroke-width:5; stroke-linecap:round;
+  filter:drop-shadow(0 0 12px rgba(255,59,47,.95));
+}
+.v-reflection{
+  position:absolute; left:0; right:0; top:100%; height:52%;
+  background:linear-gradient(180deg, rgba(94,227,255,.14), transparent 70%);
+  filter:blur(16px);
+  transform:translateY(-14%) scaleY(-1);
+  pointer-events:none;
+}
+.v-speedlines{position:absolute; inset:0; pointer-events:none; overflow:hidden;}
+.v-speedlines i{
+  position:absolute; right:0; height:1px; width:36%;
+  background:linear-gradient(90deg, transparent, rgba(94,227,255,.55));
+  opacity:0;
+}
+.v-speedlines i:nth-child(1){top:34%;}
+.v-speedlines i:nth-child(2){top:44%;}
+.v-speedlines i:nth-child(3){top:54%;}
+.v-speedlines i:nth-child(4){top:64%;}
+.v-speedlines i:nth-child(5){top:74%;}
+
+.v-specs{
+  display:flex; flex-wrap:wrap; gap:0; margin-top:18px;
+  border-top:1px solid rgba(94,227,255,.16);
+}
+.v-spec{
+  flex:1 1 150px; padding:14px 18px 12px;
+  border-right:1px solid rgba(94,227,255,.10);
+}
+.v-spec:last-child{border-right:none;}
+.v-spec-k{
+  display:block; font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:10px; letter-spacing:.24em; text-transform:uppercase; color:#5EE3FF;
+}
+.v-spec-v{
+  display:block; margin-top:6px;
+  /* DSEG7 draws the digits as a seven-segment readout; it has no glyph for
+     %, —, or punctuation, so JetBrains Mono picks those up per-character. */
+  font-family:"DSEG7 Classic","JetBrains Mono",ui-monospace,monospace; font-weight:700;
+  font-size:clamp(20px,3.4vw,30px); color:#EAEEF5; font-variant-numeric:tabular-nums;
+}
+
+/* ---------- App surfaces in this theme ---------- */
+body[data-ui-theme="velocity"] .card,
+body[data-ui-theme="velocity"] .stat-card,
+body[data-ui-theme="velocity"] .period-card,
+body[data-ui-theme="velocity"] .team-card{
+  background:linear-gradient(180deg, rgba(20,27,39,.72), rgba(8,11,17,.72));
+  -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px);
+  border:1px solid rgba(94,227,255,.10);
+}
+body[data-ui-theme="velocity"] .stat-card::before{background:var(--gradient-gold);}
+body[data-ui-theme="velocity"] .card-title,
+body[data-ui-theme="velocity"] .period-title,
+body[data-ui-theme="velocity"] .display{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  text-transform:uppercase; letter-spacing:.06em; font-weight:700;
+}
+body[data-ui-theme="velocity"] .stat-label,
+body[data-ui-theme="velocity"] .hero-label,
+body[data-ui-theme="velocity"] label,
+body[data-ui-theme="velocity"] .tab-btn,
+body[data-ui-theme="velocity"] .btn{
+  font-family:"JetBrains Mono",ui-monospace,monospace;
+  text-transform:uppercase; letter-spacing:.1em;
+}
+body[data-ui-theme="velocity"] .stat-value,
+body[data-ui-theme="velocity"] .hero-value{
+  font-family:"DSEG7 Classic","JetBrains Mono",ui-monospace,monospace; font-weight:700;
+}
+body[data-ui-theme="velocity"] .hero-stat{
+  background:linear-gradient(135deg,#0A0E15,#04050A);
+  border:1px solid rgba(94,227,255,.14);
+}
+body[data-ui-theme="velocity"] .btn{
+  background:linear-gradient(135deg,#16202F,#0A0E15);
+  border:1px solid rgba(94,227,255,.28); color:#EAEEF5;
+}
+body[data-ui-theme="velocity"] .btn.qc-btn{
+  background:var(--gradient-gold); border-color:rgba(255,107,44,.6); color:#150404;
+}
+
+/* 3D lift on the cards. Tracked to the pointer by JS; the transition here
+   only smooths the return to rest when the pointer leaves. */
+body[data-ui-theme="velocity"] .stats-row,
+body[data-ui-theme="velocity"] .team-grid{perspective:1000px;}
+body[data-ui-theme="velocity"] .stat-card,
+body[data-ui-theme="velocity"] .team-card{
+  transform-style:preserve-3d;
+  transition:transform 320ms cubic-bezier(.23,1,.32,1), box-shadow 320ms cubic-bezier(.23,1,.32,1);
+}
+
+@media (prefers-reduced-motion: no-preference){
+  /* Sections arrive with real depth in this theme — they rotate up out of
+     the floor plane rather than simply fading. */
+  @supports (animation-timeline: view()){
+    body[data-ui-theme="velocity"] :is(.hero-stat, .stats-row .stat-card,
+    main > .card:not(.settings-card), .period-card, .team-card){
+      animation:vArrive linear both;
+      animation-timeline:view();
+      animation-range:entry 0% entry 62%;
+    }
+    body[data-ui-theme="velocity"] main{perspective:1400px;}
+  }
+  .v-speedlines i{animation:vSpeed 2.4s cubic-bezier(.23,1,.32,1) infinite;}
+  .v-speedlines i:nth-child(2){animation-delay:.24s;}
+  .v-speedlines i:nth-child(3){animation-delay:.48s;}
+  .v-speedlines i:nth-child(4){animation-delay:.12s;}
+  .v-speedlines i:nth-child(5){animation-delay:.36s;}
+}
+@keyframes vArrive{
+  from{opacity:0; transform:perspective(1400px) rotateX(14deg) translateY(46px) scale(.96); filter:blur(8px);}
+  to{opacity:1; transform:perspective(1400px) rotateX(0deg) translateY(0) scale(1); filter:blur(0);}
+}
+@keyframes vSpeed{
+  0%{opacity:0; transform:translateX(0) scaleX(.3);}
+  18%{opacity:.9;}
+  100%{opacity:0; transform:translateX(-150%) scaleX(1);}
+}
+
+@media (max-width:760px){
+  body[data-ui-theme="velocity"] .v-hero{padding:34px 16px 26px;}
+  .v-specs{border-top:none;}
+  .v-spec{flex:1 1 100%; border-right:none; border-top:1px solid rgba(94,227,255,.12);}
+  /* The pointer tilt is mouse-only, so on touch the car keeps its authored
+     resting angle rather than sitting flat and lifeless. */
+  .v-car{transform:rotateX(6deg) rotateY(-8deg);}
+}

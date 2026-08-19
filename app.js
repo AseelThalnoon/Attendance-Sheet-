@@ -914,7 +914,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   // Collapsible sections. The open/closed state was conveyed by a rotated
   // chevron alone, so a screen reader had no way to know whether a heading's
-  // content was showing — which matters more now the Admin console is seven of
+  // content was showing — which matters more now the Admin console is eight of
   // these stacked.
   document.querySelectorAll(".accordion-head").forEach(function(head, i){
     var section = head.closest(".accordion-section");
@@ -1583,6 +1583,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // Short figures like "8h" get the big number treatment; longer status
     // words shrink so they never wrap inside the small circle.
     sealValue.classList.toggle("long", sealText.length > 6);
+    syncVelocitySpecs(); // keep the Velocity hero's spec strip in step
 
     renderBnClock(todayEntry);
 
@@ -4496,6 +4497,225 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return '"' + s.replace(/"/g, '""') + '"';
   }
 
+  // ---------- Org-wide UI theme ----------
+  // app_settings.theme: one visual theme an admin picks for the whole
+  // organisation. Deliberately NOT the same thing as applyTheme() further up,
+  // which is each person's own light/dark preference in localStorage. The two
+  // are independent and compose — Kinetic in dark mode is a valid combination.
+  var UI_THEMES = {
+    ledger: {
+      hint: "The classic look, exactly as documented in the design system. No scroll motion."
+    },
+    kinetic: {
+      hint: "Sections lift and sharpen into focus as you scroll to them. Automatically skipped for anyone whose device asks for reduced motion."
+    },
+    velocity: {
+      hint: "A full redesign: carbon surfaces, a 3D hero, and depth that tracks your pointer. Ignores the ledger design system by design. Motion is skipped for anyone whose device asks for reduced motion."
+    }
+  };
+  var DEFAULT_UI_THEME = "ledger";
+
+  // Pointer-tracked depth for the Velocity theme. Written as direct inline
+  // transform strings rather than CSS custom properties: a variable set on a
+  // container invalidates every child's style, while a transform on the
+  // element itself stays on the compositor.
+  var velocityMotion = (function(){
+    var raf = null, running = false;
+    var car = null;
+    var target = {x:0, y:0}, cur = {x:0, y:0};
+
+    // Coarse pointers get the authored resting angle instead — there's no
+    // hover to track, and tilting on touch would fight scrolling.
+    function finePointer(){
+      return window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    }
+    function reduced(){
+      return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+
+    function onMove(ev){
+      target.x = (ev.clientX / window.innerWidth - 0.5) * 2;
+      target.y = (ev.clientY / window.innerHeight - 0.5) * 2;
+    }
+
+    function tick(){
+      // Ease toward the pointer instead of snapping to it. This is what gives
+      // the weight of a spring without pulling in an animation library — and
+      // it keeps moving for a beat after the pointer stops, which is the part
+      // that reads as physical.
+      cur.x += (target.x - cur.x) * 0.075;
+      cur.y += (target.y - cur.y) * 0.075;
+      if(car){
+        car.style.transform =
+          "rotateX(" + (8 - cur.y * 6).toFixed(2) + "deg) " +
+          "rotateY(" + (-14 + cur.x * 13).toFixed(2) + "deg)";
+      }
+      raf = requestAnimationFrame(tick);
+    }
+
+    function onCardMove(ev){
+      var card = ev.target && ev.target.closest && ev.target.closest(".stat-card, .team-card");
+      if(!card) return;
+      var r = card.getBoundingClientRect();
+      var px = (ev.clientX - r.left) / r.width - 0.5;
+      var py = (ev.clientY - r.top) / r.height - 0.5;
+      // No transition while tracking — a transition would restart every frame
+      // and smear instead of following the pointer.
+      card.style.transition = "none";
+      card.style.transform =
+        "perspective(1000px) rotateX(" + (-py * 8).toFixed(2) + "deg) " +
+        "rotateY(" + (px * 10).toFixed(2) + "deg) translateZ(6px)";
+    }
+    function onCardLeave(ev){
+      var card = ev.target && ev.target.closest && ev.target.closest(".stat-card, .team-card");
+      if(!card) return;
+      // Hand it back to CSS so it eases home on the theme's own curve.
+      card.style.transition = "";
+      card.style.transform = "";
+    }
+
+    function start(){
+      if(running || reduced() || !finePointer()) return;
+      running = true;
+      car = document.getElementById("vCar");
+      if(car) car.style.transition = "none"; // the lerp is the smoothing now
+      window.addEventListener("mousemove", onMove, {passive:true});
+      document.addEventListener("mousemove", onCardMove, {passive:true});
+      document.addEventListener("mouseout", onCardLeave, {passive:true});
+      raf = requestAnimationFrame(tick);
+    }
+
+    function stop(){
+      if(!running) return;
+      running = false;
+      window.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mousemove", onCardMove);
+      document.removeEventListener("mouseout", onCardLeave);
+      if(raf){ cancelAnimationFrame(raf); raf = null; }
+      if(car){ car.style.transition = ""; car.style.transform = ""; car = null; }
+      // Clear anything the pointer left behind on the cards.
+      document.querySelectorAll(".stat-card, .team-card").forEach(function(el){
+        el.style.transition = ""; el.style.transform = "";
+      });
+      cur.x = cur.y = target.x = target.y = 0;
+    }
+
+    return { start:start, stop:stop };
+  })();
+
+  // Mirrors the real stat values into the hero's spec readout. The hero is
+  // aria-hidden, so this is a visual echo of numbers already announced once
+  // from the actual stat cards — never a second source of truth.
+  function syncVelocitySpecs(){
+    if(document.body.getAttribute("data-ui-theme") !== "velocity") return;
+    var pairs = [["vSpecAvg","monthAvg"], ["vSpecStreak","streak"], ["vSpecOt","otBank"]];
+    pairs.forEach(function(p){
+      var dest = document.getElementById(p[0]), src = document.getElementById(p[1]);
+      if(dest && src) dest.textContent = src.textContent;
+    });
+  }
+
+  // Scroll-driven reveal for the Kinetic theme — fallback path only.
+  // Engines with CSS scroll-driven timelines (animation-timeline:view()) run
+  // this entirely in CSS, off the main thread; see the matching block in
+  // index.html. This branch covers the ones that don't. It adds the
+  // `reveal-ready` gate class itself, so if the script is blocked or throws
+  // before this runs, the CSS never hides anything and the page renders fully
+  // visible instead of blank.
+  var scrollReveal = (function(){
+    // Keep in sync with the @supports (animation-timeline: view()) selector
+    // list in index.html — both paths must cover the same elements.
+    var REVEAL_SELECTOR = ".hero-stat, .stats-row .stat-card, " +
+      "main > .card:not(.settings-card), .period-card, .team-card";
+    var io = null, mo = null, queued = false;
+
+    // True when the CSS path already handles it, or the browser lacks the
+    // observers this fallback is built on.
+    var cssHandlesIt = !!(window.CSS && CSS.supports && CSS.supports("animation-timeline: view()"));
+    var noObservers = !("IntersectionObserver" in window) || !("MutationObserver" in window);
+
+    function scan(){
+      if(!io) return;
+      document.querySelectorAll(REVEAL_SELECTOR).forEach(function(el){
+        if(el.classList.contains("reveal")) return;
+        el.classList.add("reveal");
+        io.observe(el);
+      });
+    }
+
+    function start(){
+      if(cssHandlesIt || noObservers || io) return;
+      if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      document.body.classList.add("reveal-ready");
+      io = new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){
+          if(!entry.isIntersecting) return;
+          entry.target.classList.add("revealed");
+          io.unobserve(entry.target); // one-shot: never re-hides on scroll back up
+        });
+      }, { rootMargin:"0px 0px -6% 0px", threshold:0.05 });
+      scan();
+      // Trends and Team cards are built after data loads, and the log
+      // re-renders on every filter change, so rescan on DOM changes rather
+      // than reaching into each render function. Coalesced to one pass per
+      // frame so a burst of mutations can't re-run the query dozens of times.
+      mo = new MutationObserver(function(){
+        if(queued) return;
+        queued = true;
+        requestAnimationFrame(function(){ queued = false; scan(); });
+      });
+      mo.observe(document.body, { childList:true, subtree:true });
+    }
+
+    function stop(){
+      if(io){ io.disconnect(); io = null; }
+      if(mo){ mo.disconnect(); mo = null; }
+      document.body.classList.remove("reveal-ready");
+      // Drop per-element state too, so switching back to Kinetic later starts
+      // clean rather than finding everything already marked revealed.
+      document.querySelectorAll(".reveal").forEach(function(el){
+        el.classList.remove("reveal", "revealed");
+      });
+    }
+
+    return { start:start, stop:stop };
+  })();
+
+  // Applies to everyone, admin or not. Returns the theme actually applied.
+  function applyUiTheme(name){
+    // Anything unrecognised falls back rather than leaving the page in a
+    // half-styled state — e.g. an older client meeting a newer stored theme.
+    var theme = Object.prototype.hasOwnProperty.call(UI_THEMES, name) ? name : DEFAULT_UI_THEME;
+    document.body.setAttribute("data-ui-theme", theme);
+    // Kinetic and Velocity both reveal on scroll; only Velocity adds pointer
+    // depth. Always stop the one that isn't wanted so switching themes at
+    // runtime tears down cleanly instead of leaving observers attached.
+    if(theme === "kinetic" || theme === "velocity") scrollReveal.start(); else scrollReveal.stop();
+    if(theme === "velocity") velocityMotion.start(); else velocityMotion.stop();
+    syncVelocitySpecs();
+    return theme;
+  }
+
+  function updateThemeHint(unsaved){
+    var sel = document.getElementById("setTheme");
+    var hint = document.getElementById("setThemeHint");
+    if(!sel || !hint) return;
+    var t = UI_THEMES[sel.value] || UI_THEMES[DEFAULT_UI_THEME];
+    hint.textContent = unsaved
+      ? t.hint + " Previewing for you only — press Save App Settings to apply it for everyone."
+      : t.hint;
+  }
+
+  // Preview the theme the moment it's picked, so an admin can see it before
+  // committing it to the whole organisation. Nothing is persisted until Save.
+  var setThemeEl = document.getElementById("setTheme");
+  if(setThemeEl){
+    setThemeEl.addEventListener("change", function(){
+      applyUiTheme(this.value);
+      updateThemeHint(true);
+    });
+  }
+
   async function loadAppSettings(){
     try{
       var res = await supabase.from("app_settings").select("*").eq("id", 1).maybeSingle();
@@ -4506,6 +4726,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("setAnnouncement").value = s.announcement || "";
       fillDefaultsForm(s.default_settings);
       applyAppSettings(s);
+      // Reflect the theme that actually rendered, not the raw column — if the
+      // stored value is one this client doesn't know, the picker should show
+      // the fallback it's really displaying rather than sitting blank.
+      var themeSel = document.getElementById("setTheme");
+      if(themeSel) themeSel.value = document.body.getAttribute("data-ui-theme");
+      updateThemeHint(false);
     }catch(err){
       // Non-fatal: the app works without org settings. Surfaced rather than
       // swallowed so a misconfigured announcement isn't invisible.
@@ -4524,6 +4750,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
     var regBtn = document.getElementById("showRegisterBtn");
     if(regBtn) regBtn.style.display = (s && s.allow_registration === false) ? "none" : "";
+    applyUiTheme(s && s.theme);
   }
 
   // ---------- Organisation defaults ----------
@@ -4668,12 +4895,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     );
   });
 
-  document.getElementById("saveAppSettingsBtn").addEventListener("click", async function(){
-    var btn = this;
+  // Announcement/sign-up and Theme live in separate Admin accordion sections
+  // now, each with its own Save button, but they're one row of app_settings —
+  // saving from either section commits the whole row, so a value changed in
+  // one section and left unsaved is still picked up when the other is saved.
+  async function saveAppSettings(btn, successMsg){
     var payload = {
       allow_registration: document.getElementById("setAllowRegistration").checked,
       announcement_active: document.getElementById("setAnnouncementActive").checked,
       announcement: document.getElementById("setAnnouncement").value.trim(),
+      theme: document.getElementById("setTheme").value,
       updated_at: new Date().toISOString(),
       updated_by: currentUser.id
     };
@@ -4686,11 +4917,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var res = await supabase.from("app_settings").update(payload).eq("id", 1);
       if(res.error) throw res.error;
       applyAppSettings(payload);
-      showToast("App settings saved.", "success");
+      updateThemeHint(false); // no longer a local preview — it's everyone's now
+      showToast(successMsg, "success");
     }catch(err){
       showToast("Couldn't save app settings: " + friendlyError(err), "error");
     }
     btn.disabled = false;
+  }
+
+  document.getElementById("saveAppSettingsBtn").addEventListener("click", function(){
+    saveAppSettings(this, "App settings saved.");
+  });
+  document.getElementById("saveThemeBtn").addEventListener("click", function(){
+    saveAppSettings(this, "Theme saved.");
   });
 
   // ---------- Data health ----------

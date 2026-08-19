@@ -9,7 +9,8 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "..", "..");
 const PORT = 8951;
-const MIME = {".html":"text/html", ".js":"text/javascript", ".json":"application/json", ".png":"image/png"};
+const MIME = {".html":"text/html", ".js":"text/javascript", ".json":"application/json", ".png":"image/png",
+  ".css":"text/css", ".woff2":"font/woff2"};
 
 // Stubs the vendored Supabase module with one that returns realistic rows, so
 // the app renders a populated dashboard through its own code paths.
