@@ -10,11 +10,18 @@
 // Attendance data itself still requires a connection — this does NOT implement
 // offline data access, which would need a sync/queue layer.
 
-const CACHE_NAME = "attendance-ledger-shell-v4";
+const CACHE_NAME = "attendance-ledger-shell-v5";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
 // for the directory and would never match a cache entry keyed to index.html.
+//
+// The theme stylesheets are <link>ed from index.html (see themes/*/theme.css),
+// not inlined, so they're listed here too — otherwise an offline boot would
+// render Kinetic/Velocity unstyled. Each theme's font files are not precached:
+// they're a progressive enhancement behind font-display:swap, so a missed
+// fetch offline just falls back to the next font in the stack instead of
+// breaking anything, and it's not worth the cache weight to guarantee them.
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -25,7 +32,10 @@ const SHELL_FILES = [
   "./icon-512.png",
   "./favicon-32.png",
   "./favicon-16.png",
-  "./apple-touch-icon.png"
+  "./apple-touch-icon.png",
+  "./themes/ledger/theme.css",
+  "./themes/kinetic/theme.css",
+  "./themes/velocity/theme.css"
 ];
 
 self.addEventListener("install", (event) => {

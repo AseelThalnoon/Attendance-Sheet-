@@ -309,7 +309,6 @@
       radial-gradient(600px 220px at 88% -25%, rgba(227,203,143,.16), transparent 65%),
       linear-gradient(135deg, var(--teal-900), var(--teal-950));
     border-radius:var(--radius); margin-bottom:18px; box-shadow:var(--shadow-md);
-    animation:cardIn .4s var(--ease-soft) both;
     display:grid; grid-template-columns:1fr 1fr; column-gap:24px; align-items:center;
     padding:26px 28px 24px;
   }
@@ -358,14 +357,12 @@
     position:relative; background:var(--card); border:1px solid var(--line-soft);
     border-radius:var(--radius); padding:16px 17px 15px; box-shadow:var(--shadow-sm);
     transition:transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
-    animation:cardIn .45s var(--ease-soft) backwards;
   }
-  .stats-row .stat-card:nth-child(1){animation-delay:.02s;}
-  .stats-row .stat-card:nth-child(2){animation-delay:.07s;}
-  .stats-row .stat-card:nth-child(3){animation-delay:.12s;}
-  .stats-row .stat-card:nth-child(4){animation-delay:.17s;}
-  .stats-row .stat-card:nth-child(5){animation-delay:.22s;}
   @keyframes cardIn{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
+
+  /* Kinetic's scroll-reveal styles live in themes/kinetic/theme.css now,
+     linked in the page head — see the note just above the stylesheet's
+     closing tag, further down this block, for the full explanation. */
   .stat-card::before{
     content:""; position:absolute; top:0; left:14px; right:14px; height:3px;
     background:var(--gradient-gold); border-radius:0 0 3px 3px;
@@ -551,7 +548,7 @@
   .accordion-body{display:none; padding:18px 16px 16px;}
   .accordion-section.open .accordion-body{display:block; animation:fadeIn .2s var(--ease-soft);}
   .accordion-head-right{display:inline-flex; align-items:center; gap:10px; min-width:0;}
-  /* The Admin console is seven sections deep. Collapsed, the whole thing is one
+  /* The Admin console is eight sections deep. Collapsed, the whole thing is one
      screen of headings you can scan; expanded, it was several thousand pixels of
      scrolling to reach the log. The count on each head is what makes a closed
      section still worth reading. */
@@ -1506,9 +1503,26 @@
   .head-action:active{transform:translateY(0) scale(.96);}
   .btn:active{transform:translateY(0) scale(.97);}
 
+  /* Every theme now has its own folder — themes/<name>/theme.css, plus a
+     fonts/ folder if it needs one (velocity's moved to themes/velocity/fonts/)
+     — each linked in <head> below, unconditionally, so switching themes at
+     runtime (see applyUiTheme in app.js) never needs a network round trip.
+     Kinetic and Velocity's rules moved there in full. Ledger has none to
+     move: this file above *is* the ledger design system, unscoped — its
+     theme.css is linked empty, kept only so adding a future ledger-only
+     rule has a home without also having to wire up a new <link> tag. */
+
   </style>
+  <link rel="stylesheet" href="themes/ledger/theme.css">
+  <link rel="stylesheet" href="themes/kinetic/theme.css">
+  <link rel="stylesheet" href="themes/velocity/theme.css">
 </head>
-<body>
+<!-- data-ui-theme is the org-wide visual theme (app_settings.theme), chosen by
+     an admin for everyone. Hardcoded to the default here so the page is never
+     unstyled or mid-animation before settings load — the stored value replaces
+     it once the session resolves. Distinct from the per-user light/dark mode,
+     which is body.dark and lives in localStorage. -->
+<body data-ui-theme="ledger">
 
 <!-- ============ AUTH SCREEN ============ -->
 <div id="authScreen" class="auth-screen">
@@ -1611,6 +1625,106 @@
     </div>
   </div>
 </header>
+
+<!-- ============ VELOCITY THEME HERO ============
+     Rendered only when the org's theme is "velocity" (display:none otherwise),
+     so the other two themes carry no cost from it beyond the markup weight.
+
+     The car is authored SVG, not a photograph: the page's CSP is
+     img-src 'self' data:, so no external image could load anyway, and drawing
+     it as a technical wireframe means there's no third-party asset to license.
+     It also scales to any viewport and can be lit and moved in 3D, which a
+     flat photo could not.
+
+     aria-hidden because it is decorative and its readout duplicates the real
+     stat cards below — a screen reader should hear those numbers once, from
+     the actual data, not twice. -->
+<section class="v-hero" id="vHero" aria-hidden="true">
+  <div class="v-hero-grid"></div>
+  <div class="v-hero-beam"></div>
+
+  <div class="v-hero-inner">
+    <p class="v-eyebrow"><span>R35</span><i class="v-rule"></i><span>Attendance Telemetry</span></p>
+    <h2 class="v-headline">EVERY HOUR<br><em>ACCOUNTED FOR</em></h2>
+
+    <div class="v-stage" id="vStage">
+      <div class="v-car" id="vCar">
+        <svg viewBox="0 0 1000 340" class="v-car-svg" role="presentation" focusable="false">
+          <defs>
+            <linearGradient id="vBody" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#7FE9FF" stop-opacity=".95"/>
+              <stop offset="55%" stop-color="#3FA9D8" stop-opacity=".55"/>
+              <stop offset="100%" stop-color="#FF3B2F" stop-opacity=".65"/>
+            </linearGradient>
+            <linearGradient id="vGlass" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#8FF0FF" stop-opacity=".22"/>
+              <stop offset="100%" stop-color="#8FF0FF" stop-opacity=".04"/>
+            </linearGradient>
+          </defs>
+
+          <!-- body mass, faint, sits under the wireframe for weight -->
+          <path class="v-fill" d="M56 268 L60 226 C68 202 100 188 148 182 C182 178 214 176 252 175
+            L306 172 C338 136 388 106 452 98 C508 92 572 92 616 99 C682 110 746 136 794 162
+            L850 165 C898 172 932 188 946 206 L954 246 L950 268 Z"/>
+
+          <!-- greenhouse -->
+          <path class="v-glass" d="M334 166 C362 134 402 112 454 106 C512 100 572 101 612 108
+            C668 119 720 140 760 160 Z"/>
+
+          <!-- main outline -->
+          <path class="v-line-main" d="M56 268 L60 226 C68 202 100 188 148 182 C182 178 214 176 252 175
+            L306 172 C338 136 388 106 452 98 C508 92 572 92 616 99 C682 110 746 136 794 162
+            L850 165 C898 172 932 188 946 206 L954 246 L950 268"/>
+
+          <!-- rear haunch: the R35's signature shoulder -->
+          <path class="v-line-soft" d="M688 182 C730 150 800 148 858 174"/>
+          <!-- beltline + pillars -->
+          <path class="v-line-soft" d="M334 166 L760 160"/>
+          <path class="v-line-soft" d="M524 102 L524 163"/>
+          <!-- door cut + rocker -->
+          <path class="v-line-soft" d="M472 166 L472 250"/>
+          <path class="v-line-soft" d="M308 252 L710 252"/>
+          <!-- splitter + diffuser -->
+          <path class="v-line-soft" d="M54 262 L128 266"/>
+          <path class="v-line-soft" d="M898 262 L950 257"/>
+
+          <!-- wheel arches -->
+          <path class="v-line-main" d="M156 236 A76 76 0 0 1 308 236"/>
+          <path class="v-line-main" d="M710 236 A76 76 0 0 1 862 236"/>
+
+          <!-- wheels -->
+          <g class="v-wheel">
+            <circle cx="232" cy="236" r="64"/>
+            <circle cx="232" cy="236" r="44" class="v-rim"/>
+            <circle cx="232" cy="236" r="9" class="v-hub"/>
+          </g>
+          <g class="v-wheel">
+            <circle cx="786" cy="236" r="64"/>
+            <circle cx="786" cy="236" r="44" class="v-rim"/>
+            <circle cx="786" cy="236" r="9" class="v-hub"/>
+          </g>
+
+          <!-- lights -->
+          <path class="v-headlight" d="M74 204 L126 198"/>
+          <path class="v-taillight" d="M906 188 L946 191"/>
+        </svg>
+
+        <!-- ground reflection: a mirrored, faded copy reads as a lit stage -->
+        <div class="v-reflection" aria-hidden="true"></div>
+      </div>
+
+      <div class="v-speedlines" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i>
+      </div>
+    </div>
+
+    <div class="v-specs">
+      <div class="v-spec"><span class="v-spec-k">Monthly Avg</span><span class="v-spec-v" id="vSpecAvg">—</span></div>
+      <div class="v-spec"><span class="v-spec-k">Streak</span><span class="v-spec-v" id="vSpecStreak">—</span></div>
+      <div class="v-spec"><span class="v-spec-k">Overtime</span><span class="v-spec-v" id="vSpecOt">—</span></div>
+    </div>
+  </div>
+</section>
 
 <main>
 
@@ -2410,6 +2524,28 @@
 
           <div class="form-actions" style="margin-top:16px;">
             <button type="button" class="btn" id="saveAppSettingsBtn">Save App Settings</button>
+          </div>
+        </div>
+      </div>
+      <!-- ---------- Themes & layouts ---------- -->
+      <div class="accordion-section admin-section" data-section="admin-theme">
+        <button type="button" class="accordion-head">
+          <span>Themes &amp; Layouts</span>
+          <span class="accordion-head-right"><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+        </button>
+        <div class="accordion-body">
+          <div>
+            <label for="setTheme">Theme</label>
+            <select id="setTheme">
+              <option value="ledger">Ledger — the classic look</option>
+              <option value="kinetic">Kinetic — animated on scroll</option>
+              <option value="velocity">Velocity — full 3D redesign</option>
+            </select>
+            <p class="settings-hint" style="margin:8px 0 0;" id="setThemeHint"></p>
+          </div>
+
+          <div class="form-actions" style="margin-top:16px;">
+            <button type="button" class="btn" id="saveThemeBtn">Save Theme</button>
           </div>
         </div>
       </div>

@@ -1,0 +1,11 @@
+/* LEDGER THEME
+   The default. This is the design system documented in DESIGN.md, and it
+   *is* the app's base stylesheet — every color token, component rule, and
+   layout in index.html's main <style> block is written for this theme with
+   no attribute scoping, so there is nothing theme-specific to add here.
+
+   This file exists anyway, empty, so every theme has the same shape: a
+   folder with a theme.css (and a fonts/ folder, if it needs one). A future
+   ledger-only tweak that shouldn't reach the other themes has a home
+   already wired up — add body[data-ui-theme="ledger"] rules here instead of
+   back in the shared stylesheet. */

@@ -15,7 +15,8 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "..", "..");
 const PORT = 8952;
-const MIME = {".html":"text/html", ".js":"text/javascript", ".json":"application/json", ".png":"image/png"};
+const MIME = {".html":"text/html", ".js":"text/javascript", ".json":"application/json", ".png":"image/png",
+  ".css":"text/css", ".woff2":"font/woff2"};
 
 const STUB = `
 const ROLE = new URLSearchParams(location.search).get("role") || "admin";
@@ -318,7 +319,7 @@ async function boot(browser, server, query){
         }),
       };
     });
-    ok(s.count === 7, "the console is split into collapsible sections", JSON.stringify(s.count));
+    ok(s.count === 8, "the console is split into collapsible sections", JSON.stringify(s.count));
     ok(s.open.join(",") === "admin-overview,admin-people",
       "only the two everyday sections start open", JSON.stringify(s.open));
     ok(s.panelHeight < 1800, "the collapsed console fits a scannable page", `${s.panelHeight}px`);
