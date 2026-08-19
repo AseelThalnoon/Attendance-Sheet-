@@ -112,19 +112,45 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 }
 
 // ---------------------------------------------------------------- B-6
-// An in-progress day is held back rather than scored as on time, so the On Time
-// tab cannot report a clean record that flips to "late" after clock-out.
+// An in-progress day is held back rather than scored against target, so the
+// Shortfall tab cannot report a clean record that flips to "short" after
+// clock-out.
 {
   const open = computeEntry(entry({date:"2026-08-10", clockIn:"11:30"}));
-  eq(open.pending, true, "B-6 an open day is marked pending");
+  eq(open.pending, true, "B-6 an open day is marked pending (suppresses Log highlighting)");
 
-  const s = summarize([entry({date:"2026-08-10", clockIn:"11:30"})]);
-  eq([s.ratedDays, s.onTimeDays, s.pendingDays], [0, 0, 1],
-    "B-6 a pending day is excluded from the on-time rate");
+  const savedWorkDays = settings.workDays;
+  settings.workDays = [0,1,2,3,4,5,6]; // guarantee "today" is scheduled, whenever the suite runs
+  const today = todayStr();
+  const s = summarize([entry({date: today, clockIn:"11:30"})]);
+  eq([s.ratedDays, s.metDays, s.pendingDays], [0, 0, 1],
+    "B-6 a day still in progress today is excluded from the target-met rate");
+  settings.workDays = savedWorkDays;
 
   const closed = summarize([entry({date:"2026-08-10", clockIn:"11:30", clockOut:"15:00"})]);
-  eq([closed.ratedDays, closed.lateDays], [1, 1],
-    "B-6 once clocked out short, the day is assessed as late");
+  eq([closed.ratedDays, closed.shortDays], [1, 1],
+    "B-6 once clocked out short, the day is assessed as short");
+}
+
+// ---------------------------------------------------------------- Shortfall tab redo
+// The Shortfall tab measures whether a scheduled day reached its target
+// hours — never when the person clocked in or out. A late arrival made up
+// by staying later is not a shortfall; a punctual arrival that still falls
+// short of the hours is, even though nothing about the clock times looks
+// wrong; and a day nobody logged at all is the clearest shortfall there is,
+// not an invisible one the old arrival-only check could never see.
+{
+  const madeUp = summarize([entry({date:"2026-08-10", clockIn:"10:00", clockOut:"19:00"})]);
+  eq([madeUp.ratedDays, madeUp.shortDays, madeUp.metDays], [1, 0, 1],
+    "a late arrival made up in full is not a shortfall");
+
+  const punctualButShort = summarize([entry({date:"2026-08-10", clockIn:"08:00", clockOut:"15:00"})]);
+  eq([punctualButShort.ratedDays, punctualButShort.shortDays], [1, 1],
+    "a punctual day that still falls short of target is now flagged");
+
+  const blank = summarize([entry({date:"2026-08-10"})]);
+  eq([blank.ratedDays, blank.shortDays, blank.missedDays], [1, 1, 1],
+    "a scheduled day with no entry at all counts as a full shortfall, not an invisible one");
 }
 
 // ---------------------------------------------------------------- H-14
@@ -235,6 +261,32 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
   // the zero target is not a free pass to look closed.
   const openWfh = computeEntry(entry({date:"2026-08-10", clockIn:"09:00", type:"wfh"}));
   eq(openWfh.open, true, "an in-progress WFH day is still flagged open");
+}
+
+// ---------------------------------------------------------------- "other" is excused, same as sick
+// Real usage of "other" is a catch-all excused absence (marriage leave,
+// bereavement, etc.) logged with no clock times — not miscellaneous work. It
+// must behave exactly like Sick Leave: no target owed, no shortfall, whether
+// or not clock times happen to be present.
+{
+  const sick = summarize([entry({date:"2026-08-10", type:"sick"})]);
+  const other = summarize([entry({date:"2026-08-10", type:"other"})]);
+  eq(
+    [other.loggedDays, other.targetSum, other.diffSum, other.incompleteDays],
+    [sick.loggedDays, sick.targetSum, sick.diffSum, sick.incompleteDays],
+    "an 'other' day is excused exactly like a sick day"
+  );
+  eq([other.targetSum, other.diffSum, other.incompleteDays], [0, 0, 0],
+    "an unlogged 'other' day owes nothing and is not booked as a shortfall");
+
+  // Even if someone still fills in clock times on an excused "other" day,
+  // it must not turn into a shortfall the way a Regular day would.
+  const otherWithHours = summarize([entry({date:"2026-08-11", clockIn:"09:00", clockOut:"11:00", type:"other"})]);
+  eq([otherWithHours.targetSum, otherWithHours.diffSum], [0, 0],
+    "an 'other' day with clock times still owes no target");
+
+  eq(computeEntry(entry({date:"2026-08-10", type:"other"})).excused, true,
+    "computeEntry marks 'other' excused, same flag sick gets");
 }
 
 console.log(`  audit-logic  pass ${pass}   fail ${fail}`);

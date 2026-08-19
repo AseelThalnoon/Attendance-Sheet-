@@ -66,7 +66,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     open:"still clocked in", missing:"no entry", off:"day off", future:"upcoming"
   };
 
-  var EXCUSED_TYPES = ["leave","sick","holiday"];
+  // "other" is a catch-all excused absence — real usage is things like
+  // marriage or bereavement leave that don't fit the named categories, always
+  // logged with no clock times. It's excused in exactly the same way Sick
+  // Leave is: no work target owed, and (per the person who owns this ledger)
+  // no annual-leave-balance impact either — see the leave-balance calc below,
+  // which only deducts for "leave"/"halfleave".
+  var EXCUSED_TYPES = ["leave","sick","holiday","other"];
   // Half days expect half the normal target rather than being fully excused.
   var HALF_TYPES = ["halfleave"];
   // Day types whose hours count toward averages, totals and the overtime bank.
@@ -775,7 +781,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function summarize(list){
     var workedSum=0, loggedDays=0, targetSum=0, diffSum=0, openDays=0;
     var incompleteDays=0, pendingDays=0;
-    var lateDays=0, lateSum=0, earlyDays=0, earlySum=0, onTimeDays=0, ratedDays=0;
+    var shortDays=0, shortSum=0, metDays=0, missedDays=0, ratedDays=0;
     list.forEach(function(e){
       var c = computeEntry(e);
       // Every day type that represents actual work rolls up here (see
@@ -814,19 +820,24 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       }
       if(c.open) openDays++;
 
-      // Punctuality only counts days with an arrival on a scheduled, non-excused
-      // day. A day that is still in progress is held back rather than scored as
-      // on time — otherwise an 11:30 arrival reads as a clean record all day and
-      // only flips to "late" after clock-out, so anyone checking mid-shift is
-      // shown the wrong answer.
-      if(c.scheduled && !c.excused && e.clockIn){
-        if(c.pending){
+      // The Shortfall tab cares about one thing: did the day reach its target
+      // hours — not when the person clocked in or out. A day still running
+      // right now can't be judged yet, so it's held out as pending rather
+      // than scored, using the same runningToday rule as the bank above.
+      // Unlike the old late-arrival check this replaced, it doesn't require a
+      // clock-in either: a scheduled day nobody logged at all is the
+      // clearest shortfall there is, not an invisible one.
+      if(c.targetMin > 0){
+        if(runningToday){
           pendingDays++;
         } else {
           ratedDays++;
-          if(c.lateMin > 0){ lateDays++; lateSum += c.lateMin; }
-          else onTimeDays++;
-          if(c.earlyMin > 0){ earlyDays++; earlySum += c.earlyMin; }
+          var worked = c.workedMin !== null ? c.workedMin : 0;
+          var short = c.targetMin - worked;
+          if(short > 0){
+            shortDays++; shortSum += short;
+            if(worked === 0) missedDays++; // nothing logged at all, not just short
+          } else metDays++;
         }
       }
     });
@@ -834,11 +845,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       workedSum:workedSum, loggedDays:loggedDays, targetSum:targetSum,
       diffSum:diffSum, openDays:openDays, incompleteDays:incompleteDays,
       avgMin: loggedDays ? workedSum/loggedDays : 0,
-      lateDays:lateDays, lateSum:lateSum, earlyDays:earlyDays, earlySum:earlySum,
-      onTimeDays:onTimeDays, ratedDays:ratedDays, pendingDays:pendingDays,
-      onTimeRate: ratedDays ? (onTimeDays/ratedDays)*100 : null,
-      avgLateMin: lateDays ? lateSum/lateDays : 0,
-      avgEarlyMin: earlyDays ? earlySum/earlyDays : 0
+      shortDays:shortDays, shortSum:shortSum, metDays:metDays, missedDays:missedDays,
+      ratedDays:ratedDays, pendingDays:pendingDays,
+      metRate: ratedDays ? (metDays/ratedDays)*100 : null,
+      avgShortMin: shortDays ? shortSum/shortDays : 0
     };
   }
   function groupBy(list, keyFn){
@@ -2071,60 +2081,47 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // ---------- Punctuality ----------
   function renderPunctuality(){
     var scope = punctEntries();
-    document.getElementById("punctRule").textContent = (settings.lateOnlyIfShort
-      ? "Counting a day late only when you arrived more than " + settings.graceMin +
-        " min after your start time and finished short of your target hours. Days where you made the hours up aren't flagged."
-      : "Counting a day late whenever you arrived more than " + settings.graceMin +
-        " min after your start time, regardless of hours worked.") +
-      " Showing " + punctScopeLabel() + ".";
+    document.getElementById("punctRule").textContent =
+      "Every scheduled day that finished short of its target hours, regardless of when you clocked in or out — " +
+      "arrive late or leave early and still make the hours up, and the day isn't flagged. Showing " + punctScopeLabel() + ".";
     var s = summarize(scope);
 
     document.getElementById("punctCount").textContent =
       (s.ratedDays ? s.ratedDays + " day" + (s.ratedDays===1?"":"s") + " assessed" : "") +
       (s.pendingDays ? (s.ratedDays ? " · " : "") + s.pendingDays + " still in progress" : "");
 
-    var rateEl = document.getElementById("pOnTime");
+    var rateEl = document.getElementById("pMetRate");
     if(s.ratedDays){
-      rateEl.textContent = Math.round(s.onTimeRate) + "%";
-      rateEl.className = "stat-value " + (s.onTimeRate >= 90 ? "positive" : (s.onTimeRate < 70 ? "negative" : ""));
-      document.getElementById("pOnTimeDetail").textContent =
-        s.onTimeDays + " on time of " + s.ratedDays + " days";
+      rateEl.textContent = Math.round(s.metRate) + "%";
+      rateEl.className = "stat-value " + (s.metRate >= 90 ? "positive" : (s.metRate < 70 ? "negative" : ""));
+      document.getElementById("pMetRateDetail").textContent =
+        s.metDays + " of " + s.ratedDays + " days met target";
     } else {
       rateEl.textContent = "—";
       rateEl.className = "stat-value";
-      document.getElementById("pOnTimeDetail").textContent = "No arrivals recorded";
+      document.getElementById("pMetRateDetail").textContent = "No scheduled days yet";
     }
 
-    document.getElementById("pLate").textContent = s.lateDays;
-    document.getElementById("pLateDetail").textContent =
-      s.lateDays ? "Avg " + minutesOnlyStr(s.avgLateMin) + " late" : "Nothing flagged";
+    document.getElementById("pShortDays").textContent = s.shortDays;
+    document.getElementById("pShortDaysDetail").textContent = s.shortDays
+      ? (s.missedDays
+          ? s.missedDays + " with nothing logged at all"
+          : "All partial — some hours were logged")
+      : "Nothing flagged";
 
-    document.getElementById("pEarly").textContent = s.earlyDays;
-    document.getElementById("pEarlyDetail").textContent =
-      s.earlyDays ? "Avg " + minutesOnlyStr(s.avgEarlyMin) + " early" : "Nothing flagged";
+    document.getElementById("pShortTotal").textContent = s.shortDays ? minutesToHoursStr(s.shortSum) : "—";
+    document.getElementById("pShortTotalDetail").textContent = s.shortDays
+      ? "Across " + s.shortDays + " day" + (s.shortDays===1?"":"s")
+      : "Nothing owed this period";
 
-    // Mean arrival clock time across days that have an arrival.
-    var arrivals = [];
-    scope.forEach(function(e){
-      var c = computeEntry(e);
-      if(c.scheduled && !c.excused && e.clockIn) arrivals.push(timeToMinutes(e.clockIn));
-    });
-    var avgEl = document.getElementById("pAvgArrival");
-    if(arrivals.length){
-      var mean = Math.round(arrivals.reduce(function(a,b){ return a+b; }, 0) / arrivals.length);
-      avgEl.textContent = formatTime12(pad2(Math.floor(mean/60)) + ":" + pad2(mean%60));
-      var expected = timeToMinutes(scheduleFor(todayStr()).standardIn);
-      var delta = mean - expected;
-      document.getElementById("pAvgArrivalDetail").textContent =
-        Math.abs(delta) < 1 ? "Right on schedule"
-          : (delta > 0 ? minutesToHoursStr(delta) + " after start" : minutesToHoursStr(-delta) + " before start");
-    } else {
-      avgEl.textContent = "—";
-      document.getElementById("pAvgArrivalDetail").textContent = "No arrivals recorded";
-    }
+    document.getElementById("pAvgShort").textContent = s.shortDays ? minutesToHoursStr(s.avgShortMin) : "—";
+    document.getElementById("pAvgShortDetail").textContent = s.shortDays
+      ? "Per day that fell short"
+      : "Nothing flagged";
 
-    // Average lateness per month. Follows the year filter but ignores the month
-    // one, so the chart still gives context around the month being inspected.
+    // Average shortfall per short day, by month. Follows the year filter but
+    // ignores the month one, so the chart still gives context around the
+    // month being inspected.
     var chartYear = document.getElementById("punctYearSelect").value;
     var chartSource = chartYear === "all"
       ? entries
@@ -2137,46 +2134,42 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         label: chartYear === "all"
           ? monthShortLabel(k)
           : new Date(+k.split("-")[0], +k.split("-")[1]-1, 1).toLocaleDateString(undefined,{month:"short"}),
-        value: ms.avgLateMin,
+        value: ms.avgShortMin,
         targetMin: 0,
-        hasEntry: ms.lateDays > 0
+        hasEntry: ms.shortDays > 0
       };
-    }), {height:140, targetMin:0, formatter:minutesOnlyStr, name:"Average minutes late per month"});
+    }), {height:140, targetMin:0, formatter:minutesOnlyStr, name:"Average shortfall per short day, by month"});
 
-    // Table of every flagged day, most recent first.
+    // Table of every day that fell short, most recent first. A day still
+    // running today is excluded — it hasn't ended, so there's nothing to
+    // judge yet — same rule summarize() uses for the stats above.
     var flagged = scope.filter(function(e){
       var c = computeEntry(e);
-      return c.lateMin > 0 || c.earlyMin > 0;
+      if(!c.targetMin) return false;
+      if(c.open && e.date === todayStr()) return false;
+      var worked = c.workedMin !== null ? c.workedMin : 0;
+      return (c.targetMin - worked) > 0;
     }).sort(function(a,b){ return b.date.localeCompare(a.date); });
 
     var body = document.getElementById("punctBody");
     body.innerHTML = "";
     var empty = document.getElementById("punctEmpty");
     empty.textContent = s.ratedDays
-      ? "No late arrivals or early departures in this period. Nicely done."
+      ? "No shortfalls in this period. Every scheduled day met its target."
       : "No attendance recorded for this period yet.";
     empty.style.display = flagged.length ? "none" : "block";
 
     flagged.forEach(function(e){
       var c = computeEntry(e);
-      // How far short of target the day finished — the reason it was flagged.
-      var shortMin = (c.workedMin !== null && c.targetMin) ? c.targetMin - c.workedMin : null;
-      var shortCell = (shortMin !== null && shortMin > 0)
-        ? "<span class='late-cell'>"+minutesToHoursStr(shortMin)+"</span>"
-        : "—";
+      var worked = c.workedMin !== null ? c.workedMin : 0;
+      var shortMin = c.targetMin - worked;
       var tr = document.createElement("tr");
       tr.innerHTML =
         "<td data-label='Date'><span class=\"cell-label\">Date</span>"+fmtDate(e.date)+"</td>"+
         "<td data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
-        "<td data-label='Expected In'><span class=\"cell-label\">Expected In</span>"+formatTime12(c.sched.standardIn)+"</td>"+
-        "<td data-label='Actual In'"+(c.lateMin>0?" class='late-cell'":"")+"><span class=\"cell-label\">Actual In</span>"+(e.clockIn?formatTime12(e.clockIn):"—")+"</td>"+
-        "<td class='num' data-label='Late By'><span class=\"cell-label\">Late By</span>"+(c.lateMin>0?minutesOnlyStr(c.lateMin):"—")+"</td>"+
-        "<td data-label='Expected Out'><span class=\"cell-label\">Expected Out</span>"+formatTime12(c.sched.standardOut)+"</td>"+
-        "<td data-label='Actual Out'"+(c.earlyMin>0?" class='late-cell'":"")+"><span class=\"cell-label\">Actual Out</span>"+(e.clockOut?formatTime12(e.clockOut):"—")+"</td>"+
-        "<td class='num' data-label='Left Early By'><span class=\"cell-label\">Left Early By</span>"+(c.earlyMin>0?minutesOnlyStr(c.earlyMin):"—")+"</td>"+
         "<td class='num' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
-        "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+(c.targetMin?minutesToHoursStr(c.targetMin):"—")+"</td>"+
-        "<td class='num' data-label='Short By'><span class=\"cell-label\">Short By</span>"+shortCell+"</td>"+
+        "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(c.targetMin)+"</td>"+
+        "<td class='num' data-label='Short By'><span class=\"cell-label\">Short By</span><span class='late-cell'>"+minutesToHoursStr(shortMin)+"</span></td>"+
         "<td class='note-cell' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>";
       body.appendChild(tr);
     });
@@ -3984,10 +3977,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       a.worked += t.summary.workedSum;
       a.target += t.summary.targetSum;
       a.days   += t.summary.loggedDays;
-      if(t.summary.ratedDays){ a.onTime += t.summary.onTimeDays; a.rated += t.summary.ratedDays; }
+      if(t.summary.ratedDays){ a.met += t.summary.metDays; a.rated += t.summary.ratedDays; }
       if(t.status.cls === "in") a.inNow++;
       return a;
-    }, {worked:0, target:0, days:0, onTime:0, rated:0, inNow:0});
+    }, {worked:0, target:0, days:0, met:0, rated:0, inNow:0});
 
     summaryEl.hidden = false;
     summaryEl.innerHTML = [
@@ -3995,7 +3988,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       ['<span class="ts-value">'+totals.inNow+'</span><span class="ts-label">clocked in now</span>'],
       ['<span class="ts-value">'+totals.days+'</span><span class="ts-label">days logged</span>'],
       ['<span class="ts-value">'+minutesToHoursStr(totals.worked)+'</span><span class="ts-label">of '+minutesToHoursStr(totals.target)+' target</span>'],
-      ['<span class="ts-value">'+(totals.rated ? Math.round((totals.onTime/totals.rated)*100)+"%" : "—")+'</span><span class="ts-label">on time</span>']
+      ['<span class="ts-value">'+(totals.rated ? Math.round((totals.met/totals.rated)*100)+"%" : "—")+'</span><span class="ts-label">target met</span>']
     ].map(function(x){ return '<div class="ts-item">'+x+'</div>'; }).join("");
 
     var shown = teamRowsCache.filter(function(t){
@@ -4007,7 +4000,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(sort === "worked") return b.summary.workedSum - a.summary.workedSum;
       if(sort === "short")  return a.summary.diffSum - b.summary.diffSum;
       if(sort === "ontime"){
-        var ar = a.summary.onTimeRate, br = b.summary.onTimeRate;
+        var ar = a.summary.metRate, br = b.summary.metRate;
         if(ar === null && br === null) return 0;
         if(ar === null) return 1;          // never rated sorts last, not best
         if(br === null) return -1;
@@ -4061,8 +4054,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           '<div><div class="label">Days</div><div class="value">'+s.loggedDays+'</div></div>'+
           '<div><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
-          '<div><div class="label">On Time</div><div class="value">'+
-            (s.onTimeRate === null ? "—" : Math.round(s.onTimeRate)+"%")+'</div></div>'+
+          '<div><div class="label">Target Met</div><div class="value">'+
+            (s.metRate === null ? "—" : Math.round(s.metRate)+"%")+'</div></div>'+
         '</div>';
       list.appendChild(card);
     });

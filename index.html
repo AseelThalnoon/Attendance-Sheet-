@@ -1898,15 +1898,20 @@
 
     <div class="accordion-section" data-section="punctuality">
       <button type="button" class="accordion-head">
-        <span>Punctuality Rule</span>
+        <span>Log Highlighting</span>
         <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="accordion-body">
+        <p class="settings-hint" style="margin:0 0 12px;">
+          Only affects the Log tab, which marks a clock time red when it's outside your standard hours by more
+          than the grace period. The Shortfall tab ignores clock times entirely — it only cares whether the
+          hours got made up.
+        </p>
         <label class="check-row" for="sLateOnlyShort" style="margin-top:0;">
           <input type="checkbox" id="sLateOnlyShort">
           <span>
-            <strong>Only count me late if I didn't complete my target hours</strong>
-            <em>A late start that you make up by staying later won't be flagged. Turn this off to flag every late arrival regardless of hours worked.</em>
+            <strong>Only mark a late arrival red if I didn't complete my target hours</strong>
+            <em>A late start you make up by staying later won't be highlighted in the Log. Turn this off to always mark late arrivals and early departures, regardless of hours worked.</em>
           </span>
         </label>
       </div>
@@ -2020,7 +2025,7 @@
         <button class="tab-btn active" data-tab="log" role="tab" id="tabbtn-log" aria-selected="true" aria-controls="tab-log">Log</button>
         <button class="tab-btn" data-tab="trends" role="tab" id="tabbtn-trends" aria-selected="false" aria-controls="tab-trends">Trends</button>
         <button class="tab-btn" data-tab="calendar" role="tab" id="tabbtn-calendar" aria-selected="false" aria-controls="tab-calendar">Calendar</button>
-        <button class="tab-btn" data-tab="punctuality" role="tab" id="tabbtn-punctuality" aria-selected="false" aria-controls="tab-punctuality">On Time</button>
+        <button class="tab-btn" data-tab="punctuality" role="tab" id="tabbtn-punctuality" aria-selected="false" aria-controls="tab-punctuality">Shortfall</button>
         <button class="tab-btn" data-tab="team" id="teamTabBtn" role="tab" aria-selected="false" aria-controls="tab-team" style="display:none;">Team</button>
       </div>
     </div>
@@ -2238,31 +2243,31 @@
       <p class="punct-rule" id="punctRule"></p>
       <div class="stats-row punct-stats">
         <div class="stat-card">
-          <p class="stat-label">On-Time Rate</p>
-          <p class="stat-value" id="pOnTime">—</p>
-          <p class="stat-detail" id="pOnTimeDetail">—</p>
+          <p class="stat-label">Target Met Rate</p>
+          <p class="stat-value" id="pMetRate">—</p>
+          <p class="stat-detail" id="pMetRateDetail">—</p>
         </div>
         <div class="stat-card">
-          <p class="stat-label">Late Arrivals</p>
-          <p class="stat-value" id="pLate">0</p>
-          <p class="stat-detail" id="pLateDetail">—</p>
+          <p class="stat-label">Days Short</p>
+          <p class="stat-value" id="pShortDays">0</p>
+          <p class="stat-detail" id="pShortDaysDetail">—</p>
         </div>
         <div class="stat-card">
-          <p class="stat-label">Early Departures</p>
-          <p class="stat-value" id="pEarly">0</p>
-          <p class="stat-detail" id="pEarlyDetail">—</p>
+          <p class="stat-label">Total Shortfall</p>
+          <p class="stat-value" id="pShortTotal">—</p>
+          <p class="stat-detail" id="pShortTotalDetail">—</p>
         </div>
         <div class="stat-card">
-          <p class="stat-label">Avg Arrival Time</p>
-          <p class="stat-value" id="pAvgArrival">—</p>
-          <p class="stat-detail" id="pAvgArrivalDetail">—</p>
+          <p class="stat-label">Avg Shortfall</p>
+          <p class="stat-value" id="pAvgShort">—</p>
+          <p class="stat-detail" id="pAvgShortDetail">—</p>
         </div>
       </div>
 
       <div class="period-card">
         <div class="period-card-head">
-          <span class="period-title display">Minutes Late by Month</span>
-          <span class="period-meta">Average per late day</span>
+          <span class="period-title display">Shortfall by Month</span>
+          <span class="period-meta">Average per short day</span>
         </div>
         <div class="chart-holder" id="punctChart"></div>
       </div>
@@ -2271,9 +2276,7 @@
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Day</th><th>Expected In</th><th>Actual In</th>
-              <th class="num">Late By</th><th>Expected Out</th><th>Actual Out</th>
-              <th class="num">Left Early By</th>
+              <th>Date</th><th>Day</th>
               <th class="num">Worked</th><th class="num">Target</th><th class="num">Short By</th>
               <th>Note</th>
             </tr>
@@ -2307,7 +2310,7 @@
             <option value="name">Sort: Name</option>
             <option value="worked">Sort: Hours worked</option>
             <option value="short">Sort: Furthest behind</option>
-            <option value="ontime">Sort: Punctuality</option>
+            <option value="ontime">Sort: Target Met %</option>
           </select>
         </div>
       </div>
@@ -2690,8 +2693,8 @@
       <span>Calendar</span>
     </button>
     <button type="button" class="bn-item" data-bn-tab="punctuality">
-      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
-      <span>On Time</span>
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M23 18l-9.5-9.5-5 5L1 6"/><path d="M17 18h6v-6"/></svg>
+      <span>Shortfall</span>
     </button>
     <button type="button" class="bn-item" data-bn-tab="team" id="bnTeamBtn">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
