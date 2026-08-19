@@ -31,6 +31,8 @@ colors:
   warn-bg: "#FBF1DC"
   warn-line: "#E4CB92"
   input-bg: "#FFFFFF"
+  ink-on-gold: "#20180A"
+  muted-on-dark: "#C6D6D2"
 typography:
   display:
     fontFamily: "\"Iowan Old Style\", \"Palatino Linotype\", Palatino, Georgia, \"Times New Roman\", serif"
@@ -111,6 +113,8 @@ Warm and low-saturation at rest — teal and gold both read as aged/antique rath
 - **Muted** (`#68766F` light / `#9DACA6` dark, `--muted`): secondary/label text, meets 4.5:1 against both `--card` and `--paper`.
 - **Muted Deep** (`#5F6B65` light / `#A9B7B1` dark, `--muted-2`): a second secondary-text step for content that carries real meaning ("0 of 21 days used") rather than pure decoration — deliberately darkened past a first pass that measured under the 4.5:1 WCAG AA floor.
 - **Line / Line Soft** (`#DDD3BB` / `#EAE3D0`): borders and card-heading rules.
+- **Ink on Gold** (`#20180A`, `--ink-on-gold`): the one text color that sits on `--gradient-gold` — quick-clock's primary button, the clock-in FAB, gold-filled badges. Fixed in both themes, since the gold gradient itself stays roughly as warm in dark mode.
+- **Muted on Dark** (`#C6D6D2`, `--muted-on-dark`): secondary text on the app's dark-teal-surface exceptions (hero stat, header). Also fixed across themes for the same reason.
 
 ### Status (semantic, not decorative)
 - **Positive** (`#256B42` on `#E3F1E7`): met/over-target states — badges, calendar dots, team status.
@@ -168,7 +172,7 @@ A deliberate four-step radius scale — `--radius-xs` (6px), `--radius-sm` (8px)
 ## Components
 
 ### Buttons
-- **Shape:** `--radius-sm` (8px), min-height 42px (36px for `.small`).
+- **Shape:** `--radius-sm` (8px), min-height 44px (36px for `.small`, an intentionally compact variant for dense toolbars).
 - **Primary:** teal gradient fill (`--gradient-teal`), white text, a diagonal light-sweep highlight that travels across on hover (`::before` translate), 1px lift plus `shadow-md` on hover.
 - **Secondary:** card-surface background, ink text, line border — a quieter twin of primary for the second action in a pair (e.g. "Fill Standard Hours" beside "Add Entry").
 - **Ghost:** transparent, muted text, line border; turns teal on hover (border, text, and a wash background) with no lift or shadow — the default for dense toolbars (filters, calendar nav, print/export).
@@ -189,7 +193,7 @@ A deliberate four-step radius scale — `--radius-xs` (6px), `--radius-sm` (8px)
 - **States:** `over`/`under`/`onit`/`excused`/`open`, one per status color; team-status pills reuse the same shape with their own state set (`in`/`done`/`off`/`excused`/`missing`).
 
 ### Inputs / Fields
-- **Style:** `--radius-sm` border, `--line` border, `--input-bg` background, min-height 42px (never a fixed height, so native iOS date/time controls aren't clipped).
+- **Style:** `--radius-sm` border, `--line` border, `--input-bg` background, min-height 44px (never a fixed height, so native iOS date/time controls aren't clipped).
 - **Focus:** border shifts to `--teal-600` with a soft 3px teal focus ring.
 - **Error:** border and focus ring switch to the negative color (`.field-invalid`).
 - **Label:** uppercase, 10px, `.08em` tracking, muted color, always above the field.
@@ -200,6 +204,15 @@ A deliberate four-step radius scale — `--radius-xs` (6px), `--radius-sm` (8px)
 
 ### The Seal (signature component)
 A circular wax-seal badge (82px, 58–70px on mobile) used for the day's status: dark teal fill with a soft radial highlight, a dashed gold ring just inside the edge, and a slow ambient glow pulse (disabled under `prefers-reduced-motion`). Its ring recolors to positive/negative tints for over/under status without losing the seal shape. It is the system's one piece of true ornament — every other surface stays flat-with-ambient-shadow; the seal is allowed to look stamped.
+
+## Alternate Themes
+
+Everything above documents **Ledger**, the default. An admin can switch the whole organization to one of two other org-wide themes in the Admin console's "Themes & Layouts" section (`app_settings.theme`, enforced by a database `CHECK` constraint — the client can never persist a theme the server hasn't agreed to). Each one lives in its own folder under `themes/<name>/` — `theme.css` plus a `fonts/` folder if it needs one — linked unconditionally from `index.html` and namespaced entirely under `body[data-ui-theme="<name>"]`, so none of it can leak into Ledger.
+
+- **Kinetic** (`themes/kinetic/theme.css`): Ledger's own tokens and components, unchanged — the only addition is a scroll-driven reveal (sections lift and sharpen into focus as they enter the viewport). Off by default; behind `prefers-reduced-motion`.
+- **Velocity** (`themes/velocity/theme.css` + `themes/velocity/fonts/`): a full replacement world, deliberately *not* built from this document — carbon surfaces, a pointer-tracked 3D hero, and three purpose-built faces (Big Shoulders Display for the headline, JetBrains Mono for the technical voice, DSEG7 Classic for numeric readouts). Ledger's color/radius/shadow tokens are redefined wholesale inside its `body[data-ui-theme="velocity"]` scope rather than extended, and its own file header comment says so explicitly. Treat any `design-system-*` finding reported against Velocity's files as intentional divergence, not drift — Ledger's palette and type system were never meant to constrain it.
+
+A future theme follows the same shape: a new `themes/<name>/` folder, a `<link>` in `index.html`, a `<select>` option in the Admin console, and (if it's a Ledger variation like Kinetic rather than a replacement world like Velocity) no new entry needed here since it just extends the system above.
 
 ## Do's and Don'ts
 

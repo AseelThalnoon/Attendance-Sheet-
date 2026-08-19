@@ -111,6 +111,13 @@
     --shadow-glow:0 0 0 1px rgba(173,131,50,.14), 0 8px 28px rgba(173,131,50,.16);
     --gradient-gold:linear-gradient(135deg, #C7A155 0%, var(--gold) 55%, var(--gold-deep) 100%);
     --gradient-teal:linear-gradient(135deg, var(--teal-700) 0%, var(--teal-900) 100%);
+    /* Two fixed text colors for the app's dark-surface exceptions (hero stat,
+       header, quick-clock — see DESIGN.md's Elevation & Depth section). Both
+       surfaces keep roughly the same warmth in light and dark mode, so unlike
+       every other text token above, these don't need a body.dark override —
+       they were unnamed literals repeated 6-7 times each before this. */
+    --ink-on-gold:#20180A;     /* text on var(--gradient-gold) */
+    --muted-on-dark:#C6D6D2;   /* secondary text on the dark teal surfaces */
   }
 
   body.dark{
@@ -210,7 +217,7 @@
   }
   .head-title-eyebrow::before{content:""; width:16px; height:1px; background:var(--gold-light); display:inline-block;}
   .head-title{font-size:26px; margin:0; font-weight:400; text-shadow:0 2px 12px rgba(0,0,0,.15);}
-  .head-sub{margin:5px 0 0; font-size:12.5px; color:#C6D6D2;}
+  .head-sub{margin:5px 0 0; font-size:12.5px; color:var(--muted-on-dark);}
   .head-right{display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
 
   .icon-btn{
@@ -240,7 +247,7 @@
   /* The Admin panel is not a tab, so the button itself has to show that it is
      the thing currently open. */
   .head-action[aria-current="page"]{
-    background:var(--gradient-gold); border-color:transparent; color:#20180A;
+    background:var(--gradient-gold); border-color:transparent; color:var(--ink-on-gold);
     box-shadow:0 2px 10px rgba(0,0,0,.25);
   }
   @media (max-width:480px){
@@ -322,7 +329,7 @@
     display:inline-flex; align-items:center; gap:7px;
     font-size:10px; text-transform:uppercase; letter-spacing:.09em; color:var(--gold-light);
   }
-  .hero-period{font-size:12px; color:#C6D6D2;}
+  .hero-period{font-size:12px; color:var(--muted-on-dark);}
   .hero-value-row{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-top:8px;}
   .hero-value{
     font-family:var(--font-num); font-weight:700; font-size:52px; line-height:1;
@@ -331,17 +338,18 @@
   .hero-stat .hero-trend{margin:0; font-size:12.5px;}
   .hero-stat .hero-trend.trend-up{color:#9FD8A8;}
   .hero-stat .hero-trend.trend-down{color:#E0A5A5;}
-  .hero-stat .hero-trend.trend-flat{color:#C6D6D2;}
-  .hero-detail{font-size:12.5px; color:#C6D6D2; margin:0;}
+  .hero-stat .hero-trend.trend-flat{color:var(--muted-on-dark);}
+  .hero-detail{font-size:12.5px; color:var(--muted-on-dark); margin:0;}
   .hero-progress{display:flex; align-items:center; gap:12px;}
   .hero-progress-track{
     flex:1; height:8px; border-radius:99px; background:rgba(255,255,255,.12); overflow:hidden;
   }
   .hero-progress-fill{
-    height:100%; border-radius:99px; background:var(--gradient-gold);
-    transition:width var(--dur-slower) var(--ease-soft);
+    width:100%; height:100%; border-radius:99px; background:var(--gradient-gold);
+    transform:scaleX(0); transform-origin:left;
+    transition:transform var(--dur-slower) var(--ease-soft);
   }
-  .hero-progress-label{font-size:11px; color:#C6D6D2; white-space:nowrap; font-variant-numeric:tabular-nums;}
+  .hero-progress-label{font-size:11px; color:var(--muted-on-dark); white-space:nowrap; font-variant-numeric:tabular-nums;}
   @media (max-width:640px){
     .hero-stat{display:flex; flex-direction:column; padding:22px 22px 20px;}
     .hero-col-meta{
@@ -426,10 +434,10 @@
   .quick-clock-time{display:flex; flex-direction:column; gap:2px; position:relative;}
   .qc-label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--gold-light);}
   .qc-time{font-family:var(--font-num); font-weight:600; font-size:27px; color:#fff; font-variant-numeric:tabular-nums; letter-spacing:.01em;}
-  .qc-date{font-size:11.5px; color:#C6D6D2; margin-top:1px;}
+  .qc-date{font-size:11.5px; color:var(--muted-on-dark); margin-top:1px;}
   .quick-clock-actions{display:flex; gap:10px; flex-wrap:wrap; position:relative;}
   .qc-btn{display:inline-flex; align-items:center; gap:7px;}
-  .quick-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:#20180A;}
+  .quick-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:var(--ink-on-gold);}
   .quick-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.07); border-color:rgba(227,203,143,.4); color:#F5F1E6;}
   .qc-note{font-size:12px; color:var(--muted); margin:10px 2px 18px; min-height:16px;}
   .qc-note.success{color:var(--positive);}
@@ -460,12 +468,14 @@
   input[type="email"], input[type="password"], input[type="search"], select{
     /* min-height, never a fixed height: a native date/time control has its
        own intrinsic height that varies by engine, and pinning the box to
-       42px leaves only 20px of content area — enough in Chromium, not on
+       44px leaves only 22px of content area — enough in Chromium, not on
        iOS, where the control then paints outside its box and collides with
        whatever sits next to it. Row-level evenness is handled by stretching
        the grid cells instead (see .form-grid below), which equalises heights
-       without ever constraining a control below what it needs. */
-    width:100%; padding:10px 12px; min-height:42px; border:1px solid var(--line); border-radius:var(--radius-sm);
+       without ever constraining a control below what it needs. 44px meets
+       the WCAG 2.5.5 touch-target guideline; being a floor, not a fixed
+       height, raising it can only ever give a control more room, never less. */
+    width:100%; padding:10px 12px; min-height:44px; border:1px solid var(--line); border-radius:var(--radius-sm);
     font-size:14px; color:var(--ink); background:var(--input-bg); font-family:inherit;
     transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
@@ -498,7 +508,7 @@
   .btn{
     position:relative; overflow:hidden;
     display:inline-flex; align-items:center; justify-content:center; gap:6px;
-    padding:11px 20px; min-height:42px; border-radius:var(--radius-sm); border:1px solid var(--teal-900);
+    padding:11px 20px; min-height:44px; border-radius:var(--radius-sm); border:1px solid var(--teal-900);
     background:var(--gradient-teal); color:#fff; font-size:13px; font-weight:600;
     cursor:pointer; box-shadow:var(--shadow-sm);
   }
@@ -611,7 +621,7 @@
   .filter-badge{
     display:inline-flex; align-items:center; justify-content:center;
     min-width:16px; height:16px; padding:0 4px; border-radius:99px;
-    background:var(--gradient-gold); color:#20180A; font-size:10px; font-weight:700;
+    background:var(--gradient-gold); color:var(--ink-on-gold); font-size:10px; font-weight:700;
   }
   .advanced-filters{
     background:var(--teal-50); border:1px solid var(--line-soft); border-radius:var(--radius-md);
@@ -651,6 +661,8 @@
       clip:auto; white-space:normal;
     }
   }
+  .muted-inline{color:var(--muted); font-weight:400; font-size:11px;}
+  .spark-holder{display:inline-block; line-height:0;}
 
   .backup-reminder{border-left-color:var(--teal-600);}
   .backup-reminder svg{color:var(--teal-600);}
@@ -896,7 +908,7 @@
     background:var(--gradient-gold); border-radius:2px;
   }
   .period-card-head{display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
-  .period-title{font-family:var(--font-display); font-size:17px; color:var(--ink);}
+  .period-title{font-family:var(--font-display); font-size:17px; color:var(--ink); margin:0; font-weight:400;}
   .period-meta{font-size:11.5px; color:var(--muted);}
   .period-figures{display:flex; gap:26px; flex-wrap:wrap; margin-bottom:14px;}
   .period-figure .label{font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
@@ -924,6 +936,25 @@
   .chart-legend span{display:inline-flex; align-items:center; gap:6px;}
   .swatch{width:10px; height:10px; border-radius:2px; display:inline-block;}
   .swatch.target{width:14px; height:0; border-top:2px dashed var(--gold);}
+  .swatch.line{width:14px; height:2px; border-radius:2px; background:var(--teal-600);}
+
+  /* ---------- Trend chart (line/area) ---------- */
+  /* Drawn in with pathLength="1" set in markup, so stroke-dasharray/offset
+     work as a 0-1 fraction of the line regardless of its actual rendered
+     length — the usual trick for animating an SVG path draw without knowing
+     its length up front. */
+  .trend-line{
+    stroke-dasharray:1; stroke-dashoffset:1;
+    animation:trendDraw .7s var(--ease-soft) both;
+  }
+  @keyframes trendDraw{to{stroke-dashoffset:0;}}
+  .trend-area{animation:fadeIn .6s var(--ease-soft) .15s both;}
+  .trend-dot{transform-box:fill-box; transform-origin:center; animation:trendDotIn .35s var(--ease-soft) both;}
+  @keyframes trendDotIn{from{opacity:0; transform:scale(0);} to{opacity:1; transform:scale(1);}}
+
+  /* ---------- Sparkline (compact per-week trend) ---------- */
+  .sparkline{vertical-align:middle;}
+  .spark-rect{transform-box:fill-box; transform-origin:bottom; animation:barGrow .4s var(--ease-soft) both;}
 
   footer.ledger-foot{
     max-width:1080px; margin:8px auto 0; padding:20px 24px 24px;
@@ -1074,7 +1105,7 @@
      track whatever surface the browser actually paints. */
   .viewer-switch select option{color:CanvasText; background:Canvas;}
   .user-chip{
-    font-size:11.5px; color:#C6D6D2; padding:6px 10px;
+    font-size:11.5px; color:var(--muted-on-dark); padding:6px 10px;
     border:1px solid rgba(227,203,143,.25); border-radius:99px;
     white-space:nowrap; max-width:160px; overflow:hidden; text-overflow:ellipsis;
   }
@@ -1101,7 +1132,7 @@
     font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:700;
     padding:2px 7px; border-radius:99px; white-space:nowrap;
   }
-  .admin-badge.role-admin{background:var(--gradient-gold); color:#20180A;}
+  .admin-badge.role-admin{background:var(--gradient-gold); color:var(--ink-on-gold);}
   .admin-badge.role-you{background:var(--info-bg); color:var(--info);}
   .admin-badge.deactivated{background:var(--negative-bg); color:var(--negative);}
   .audit-action{
@@ -1321,7 +1352,7 @@
   }
   .sticky-clock-actions{display:flex; gap:8px;}
   .sticky-clock .btn{padding:8px 14px; min-height:36px;}
-  .sticky-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:#20180A;}
+  .sticky-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:var(--ink-on-gold);}
   .sticky-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.1); border-color:rgba(227,203,143,.4); color:#fff;}
 
   /* ---------- Bottom navigation (mobile) ---------- */
@@ -1375,7 +1406,7 @@
   .bn-clock{
     width:52px; height:52px; border-radius:50%; margin-top:-24px;
     background:var(--gradient-gold); border:3px solid var(--card);
-    color:#20180A; display:flex; align-items:center; justify-content:center;
+    color:var(--ink-on-gold); display:flex; align-items:center; justify-content:center;
     box-shadow:0 4px 14px rgba(173,131,50,.4); cursor:pointer;
     transition:transform var(--dur-fast) var(--ease-snap), background var(--dur-fast) var(--ease-snap);
   }
@@ -1789,7 +1820,7 @@
     <div class="hero-col-meta">
       <p class="hero-detail" id="monthAvgDetail">—</p>
       <div class="hero-progress">
-        <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill" style="width:0%"></div></div>
+        <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill"></div></div>
         <span class="hero-progress-label" id="heroProgressLabel"></span>
       </div>
     </div>
@@ -2147,19 +2178,43 @@
 
     <div class="tab-panel" id="tab-trends" role="tabpanel" aria-labelledby="tabbtn-trends" tabindex="0">
       <div class="sub-tab-panel active" id="subtab-weekly">
-        <div id="weeklyList"></div>
+        <div class="period-card">
+          <div class="period-card-head">
+            <h3 class="period-title display">Average Hours / Day by Week</h3>
+            <span class="period-meta" id="weeklyChartMeta"></span>
+          </div>
+          <div class="chart-holder" id="weeklyChart"></div>
+          <div class="chart-legend">
+            <span><i class="swatch line"></i>Avg / day</span>
+            <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
+            <span><i class="swatch" style="background:var(--negative)"></i>Below target</span>
+            <span><i class="swatch target"></i>Daily target</span>
+          </div>
+        </div>
+        <div class="table-wrap responsive-cards">
+          <table>
+            <thead>
+              <tr>
+                <th>Week</th><th class="num">Days</th><th class="num">Total</th>
+                <th class="num">Avg / Day</th><th class="num">Diff</th><th>Days worked</th>
+              </tr>
+            </thead>
+            <tbody id="weeklyBody"></tbody>
+          </table>
+        </div>
         <div class="empty-state" id="weeklyEmpty" style="display:none;"></div>
       </div>
 
       <div class="sub-tab-panel" id="subtab-monthly">
         <div class="period-card">
           <div class="period-card-head">
-            <span class="period-title display">Average Hours / Day by Month</span>
+            <h3 class="period-title display">Average Hours / Day by Month</h3>
             <span class="period-meta" id="monthlyChartMeta"></span>
           </div>
           <div class="chart-holder" id="monthlyChart"></div>
           <div class="chart-legend">
-            <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
+            <span><i class="swatch line"></i>Avg / day</span>
+            <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
             <span><i class="swatch" style="background:var(--negative)"></i>Below target</span>
             <span><i class="swatch target"></i>Daily target</span>
           </div>
@@ -2181,22 +2236,23 @@
       <div class="sub-tab-panel" id="subtab-yearly">
         <div class="period-card">
           <div class="period-card-head">
-            <span class="period-title display" id="yearTitle">—</span>
+            <h3 class="period-title display" id="yearTitle">—</h3>
             <span class="period-meta" id="yearMeta"></span>
           </div>
           <div class="period-figures" id="yearFigures"></div>
           <div class="chart-holder" id="yearChart"></div>
           <div class="chart-legend">
-            <span><i class="swatch" style="background:var(--positive)"></i>At or above target</span>
+            <span><i class="swatch line"></i>Avg / day</span>
+            <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
             <span><i class="swatch" style="background:var(--negative)"></i>Below target</span>
             <span><i class="swatch" style="background:var(--line)"></i>No entries</span>
             <span><i class="swatch target"></i>Daily target</span>
           </div>
         </div>
 
-        <div class="period-card">
+        <div class="period-card" id="yoyCard">
           <div class="period-card-head">
-            <span class="period-title display">Year over Year</span>
+            <h3 class="period-title display">Year over Year</h3>
             <span class="period-meta">Average hours / day</span>
           </div>
           <div class="chart-holder" id="yoyChart"></div>
@@ -2266,10 +2322,14 @@
 
       <div class="period-card">
         <div class="period-card-head">
-          <span class="period-title display">Shortfall by Month</span>
+          <h3 class="period-title display">Shortfall by Month</h3>
           <span class="period-meta">Average per short day</span>
         </div>
         <div class="chart-holder" id="punctChart"></div>
+        <div class="chart-legend">
+          <span><i class="swatch" style="background:var(--negative)"></i>Avg shortfall</span>
+          <span><i class="swatch" style="background:var(--line)"></i>No shortfall that month</span>
+        </div>
       </div>
 
       <div class="table-wrap responsive-cards">

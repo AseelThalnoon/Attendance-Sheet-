@@ -1459,6 +1459,193 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     container.innerHTML = svg;
   }
 
+  // A gently-smoothed line through a series of points: each segment is a cubic
+  // Bezier whose control points sit at the segment's horizontal midpoint, at
+  // the same height as their own endpoint. That keeps the curve monotonic
+  // between points (no vertical overshoot) without the complexity of a real
+  // spline — plenty smooth for a handful of weekly/monthly values.
+  function smoothPathD(pts){
+    if(!pts.length) return "";
+    var d = "M" + pts[0].x.toFixed(1) + "," + pts[0].y.toFixed(1);
+    for(var i=0;i<pts.length-1;i++){
+      var p0 = pts[i], p1 = pts[i+1];
+      var dx = (p1.x - p0.x) / 2;
+      d += " C" + (p0.x+dx).toFixed(1) + "," + p0.y.toFixed(1) + " " +
+                   (p1.x-dx).toFixed(1) + "," + p1.y.toFixed(1) + " " +
+                   p1.x.toFixed(1) + "," + p1.y.toFixed(1);
+    }
+    return d;
+  }
+
+  // ---------- Trend chart ----------
+  // A line/area chart for anything read as a trajectory over many points
+  // (hours per day, by week/month) rather than a handful of categories to
+  // compare — a bar repeated 12-30 times reads as noise, where a line reads
+  // as a shape. Categorical comparisons (Year over Year) still use
+  // renderBarChart above. data: [{label, value (minutes), targetMin,
+  // hasEntry, met}]. `met` (value >= that point's target) colors the point's
+  // dot; set hasEntry:false for a gap the line breaks around instead of
+  // drawing through, so a future or unlogged period never looks like a real
+  // zero. opts.accent overrides the line/area color (default --teal-600) —
+  // the Shortfall tab's chart passes --negative, since every point there is
+  // already a bad-news number and green dots would say the opposite.
+  function renderTrendChart(container, data, opts){
+    if(!container) return;
+    opts = opts || {};
+    var h = opts.height || 150;
+    if(!data.length){ container.innerHTML = '<div class="empty-state">Nothing to chart yet.</div>'; return; }
+
+    var w = Math.max(container.clientWidth || 0, 260);
+    var padL = 12, padR = 12, padTop = 22;
+    var slot = (w - padL - padR) / Math.max(data.length - 1, 1);
+
+    var axisFont  = slot >= 42 ? 10 : (slot >= 32 ? 9.5 : (slot >= 24 ? 8.5 : (slot >= 18 ? 7.5 : 6.5)));
+    var valueFont = slot >= 46 ? 10.5 : (slot >= 36 ? 9.5 : (slot >= 28 ? 8.5 : (slot >= 20 ? 7 : 6)));
+    // A single point has no slot to derive spacing from, so the line/dot
+    // still needs somewhere to sit — center it.
+    if(data.length === 1) slot = w - padL - padR;
+
+    var longest = data.reduce(function(m, d){ return Math.max(m, String(d.label).length); }, 0);
+    var estWidth = longest * axisFont * 0.55;
+    var rotate = data.length > 1 && estWidth > slot - 2;
+    var padBottom = rotate ? Math.min(estWidth * 0.72, 46) + 8 : 22;
+
+    var targetMin = opts.targetMin != null ? opts.targetMin : targetMinPerDay();
+    var maxVal = Math.max(targetMin, 1);
+    data.forEach(function(d){ if(d.value) maxVal = Math.max(maxVal, d.value); });
+    maxVal = maxVal * 1.15;
+    var scale = (h - padTop - padBottom) / maxVal;
+    function yOf(val){ return h - padBottom - Math.max(val, 0) * scale; }
+    function xOf(i){ return data.length === 1 ? padL + slot/2 : padL + slot*i; }
+
+    var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
+        cLine = cssVar("--line"), cGold = cssVar("--gold"),
+        cAccent = opts.accent || cssVar("--teal-600");
+
+    function valueText(mins){ return (opts.formatter || minutesToHoursStr)(mins); }
+
+    var chartName = opts.name || "Trend chart";
+    var described = data.map(function(d){ return d.label + " " + (d.hasEntry === false ? "no data" : valueText(d.value || 0)); }).join(", ");
+    var titleId = "cht" + Math.random().toString(36).slice(2,8);
+    var gradId  = "chg" + Math.random().toString(36).slice(2,8);
+
+    var svg = '<svg class="chart-wrap trend-chart" viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" ' +
+      'role="img" aria-labelledby="'+titleId+'">' +
+      '<title id="'+titleId+'">'+escapeHtml(chartName)+'</title>' +
+      '<desc>'+escapeHtml(described)+'</desc>' +
+      '<defs><linearGradient id="'+gradId+'" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="'+cAccent+'" stop-opacity=".22"/>' +
+        '<stop offset="100%" stop-color="'+cAccent+'" stop-opacity="0"/>' +
+      '</linearGradient></defs>';
+
+    if(targetMin > 0){
+      var ty = yOf(targetMin);
+      svg += '<line x1="'+padL+'" y1="'+ty.toFixed(1)+'" x2="'+(w-padR)+'" y2="'+ty.toFixed(1)+'" stroke="'+cGold+'" stroke-width="1.2" stroke-dasharray="4 3"/>';
+    }
+
+    // Break the line/area into runs of consecutive hasEntry points, so a gap
+    // (a future month, a week nobody logged) opens the line rather than
+    // dipping to a misleading zero.
+    var runs = [], current = [];
+    data.forEach(function(d, i){
+      if(d.hasEntry === false){ if(current.length){ runs.push(current); current = []; } return; }
+      current.push({x: xOf(i), y: yOf(d.value || 0)});
+    });
+    if(current.length) runs.push(current);
+
+    runs.forEach(function(pts){
+      if(pts.length > 1){
+        var areaD = smoothPathD(pts) +
+          " L" + pts[pts.length-1].x.toFixed(1) + "," + (h-padBottom).toFixed(1) +
+          " L" + pts[0].x.toFixed(1) + "," + (h-padBottom).toFixed(1) + " Z";
+        svg += '<path d="'+areaD+'" fill="url(#'+gradId+')" class="trend-area"/>';
+        svg += '<path d="'+smoothPathD(pts)+'" fill="none" stroke="'+cAccent+'" stroke-width="2.25" ' +
+               'pathLength="1" stroke-linecap="round" stroke-linejoin="round" class="trend-line"/>';
+      } else if(pts.length === 1 && data.length === 1){
+        // One point, nothing to connect: still show the accent as a short
+        // baseline tick so the chart doesn't read as broken.
+        svg += '<line x1="'+padL+'" y1="'+pts[0].y.toFixed(1)+'" x2="'+(w-padR)+'" y2="'+pts[0].y.toFixed(1)+'" ' +
+               'stroke="'+cAccent+'" stroke-width="1.5" stroke-dasharray="1 5" stroke-linecap="round" opacity=".5"/>';
+      }
+    });
+
+    data.forEach(function(d, i){
+      var cx = xOf(i), val = d.value || 0;
+      var delay = Math.min(i, 10) * 32;
+      var delayStyle = "animation-delay:" + delay + "ms;";
+      var hasEntry = d.hasEntry !== false;
+      var met = d.met != null ? d.met : (val >= (d.targetMin != null ? d.targetMin : targetMin));
+      // A label centered on the first or last point overhangs the SVG's own
+      // edge by half its width and gets clipped. Anchoring it to grow inward
+      // instead — start at the first point, end at the last — keeps every
+      // label fully inside the viewBox without needing extra side padding.
+      var edgeAnchor = i === 0 ? "start" : (i === data.length-1 ? "end" : "middle");
+
+      if(hasEntry){
+        var cy = yOf(val);
+        var dotColor = met ? cPos : cUnder;
+        svg += '<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="4" fill="'+dotColor+'" stroke="var(--card)" stroke-width="1.5" class="trend-dot" style="'+delayStyle+'">'+
+               '<title>'+escapeHtml(d.label)+': '+valueText(val)+'</title></circle>';
+        var above = cy - 8 >= padTop;
+        var ty2 = above ? cy - 8 : cy + valueFont + 8;
+        svg += '<text x="'+cx.toFixed(1)+'" y="'+ty2.toFixed(1)+'" text-anchor="'+edgeAnchor+'" class="bar-value" '+
+               'style="font-size:'+valueFont+'px;'+delayStyle+'">'+valueText(val)+'</text>';
+      } else {
+        svg += '<circle cx="'+cx.toFixed(1)+'" cy="'+(h-padBottom).toFixed(1)+'" r="3" fill="none" stroke="'+cLine+'" stroke-width="1.5" class="trend-dot" style="'+delayStyle+'">'+
+               '<title>'+escapeHtml(d.label)+': no data</title></circle>';
+      }
+
+      if(rotate){
+        var lx = cx.toFixed(1), ly = (h - padBottom + 12).toFixed(1);
+        svg += '<text x="'+lx+'" y="'+ly+'" text-anchor="end" class="bar-label" '+
+               'transform="rotate(-45 '+lx+' '+ly+')" style="font-size:'+axisFont+'px;'+delayStyle+'">'+escapeHtml(d.label)+'</text>';
+      } else {
+        svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-7)+'" text-anchor="'+edgeAnchor+'" class="bar-label" '+
+               'style="font-size:'+axisFont+'px;'+delayStyle+'">'+escapeHtml(d.label)+'</text>';
+      }
+    });
+
+    svg += '</svg>';
+    container.innerHTML = svg;
+  }
+
+  // A tiny inline sparkline for one week's seven days — small bars rather
+  // than a line, since a handful of discrete days reads better as bars at
+  // this size than as a wobble too thin to follow. Deliberately minimal: no
+  // axis, no value labels, just shape and status color, with the real
+  // numbers carried in the accessible name for anyone who can't see it.
+  function renderSparkline(container, days, opts){
+    if(!container) return;
+    opts = opts || {};
+    var w = opts.width || 76, h = opts.height || 28;
+    if(!days.length){ container.innerHTML = ""; return; }
+
+    var padX = 2, padTop = 2, padBottom = 2;
+    var slot = (w - padX*2) / days.length;
+    var barW = Math.max(3, Math.min(12, slot * 0.6));
+    var maxVal = Math.max.apply(null, days.map(function(d){ return d.value || 0; }).concat([1]));
+    var scale = (h - padTop - padBottom) / (maxVal * 1.1);
+
+    var cPos = cssVar("--positive"), cUnder = cssVar("--negative"), cLine = cssVar("--line");
+    var titleId = "spk" + Math.random().toString(36).slice(2,8);
+    var described = days.map(function(d){ return d.label + " " + (d.hasEntry ? minutesToHoursStr(d.value||0) : "no entry"); }).join(", ");
+
+    var svg = '<svg class="chart-wrap sparkline" viewBox="0 0 '+w+' '+h+'" width="'+w+'" height="'+h+'" ' +
+      'role="img" aria-labelledby="'+titleId+'"><title id="'+titleId+'">'+escapeHtml(opts.name || "Days worked")+'</title>' +
+      '<desc>'+escapeHtml(described)+'</desc>';
+    days.forEach(function(d, i){
+      var cx = padX + slot*i + slot/2;
+      var val = d.value || 0;
+      var barH = d.hasEntry ? Math.max(val*scale, val > 0 ? 1.5 : 1) : 1;
+      var y = h - padBottom - barH;
+      var color = !d.hasEntry ? cLine : (d.met ? cPos : cUnder);
+      svg += '<rect x="'+(cx-barW/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+barH.toFixed(1)+'" fill="'+color+'" rx="1" class="spark-rect">'+
+             '<title>'+escapeHtml(d.label)+': '+(d.hasEntry ? minutesToHoursStr(val) : "no entry")+'</title></rect>';
+    });
+    svg += '</svg>';
+    container.innerHTML = svg;
+  }
+
   // ---------- Stats ----------
   // Renders a neutral up/down/flat trend indicator into a stat card.
   // current/previous are in minutes; pass null when there's no prior period to compare.
@@ -1507,7 +1694,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("heroMonthLabel").textContent = new Date().toLocaleDateString(undefined, {month:"long", year:"numeric"});
     var targetPerDay = targetMinPerDay() || 1;
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.round((ms.avgMin / targetPerDay) * 100))) : 0;
-    document.getElementById("heroProgressFill").style.width = progressPct + "%";
+    document.getElementById("heroProgressFill").style.transform = "scaleX(" + (progressPct / 100) + ")";
     document.getElementById("heroProgressLabel").textContent = ms.loggedDays
       ? progressPct + "% of " + minutesToHoursStr(targetPerDay) + " target"
       : "No regular workdays logged yet this month";
@@ -1807,63 +1994,77 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // ---------- Weekly ----------
+  // One overview trend chart (avg hours/day, by week) plus a dense table —
+  // the same two-piece shape Monthly and Yearly already use. Used to be a
+  // full-height bar chart repeated once per week, which meant a handful of
+  // bars and a lot of empty chart padding, over and over, down the page.
+  // Each week keeps its own day-by-day shape as an inline sparkline instead.
   function renderWeekly(){
-    var list = document.getElementById("weeklyList");
     var groups = groupBy(filteredEntries(), weekKey);
     // Only weeks with at least one Regular-type day are shown — a week that's
-    // entirely WFH/leave/trip/etc. has nothing feeding the average, so a card
+    // entirely WFH/leave/trip/etc. has nothing feeding the average, so a row
     // full of "0h" figures would just be confusing rather than informative.
-    var keys = Object.keys(groups).sort().reverse()
+    var keys = Object.keys(groups).sort()
       .filter(function(k){ return summarize(groups[k]).loggedDays > 0; });
 
     var empty = document.getElementById("weeklyEmpty");
     empty.textContent = (getMonthFilter() === "all" && getLogYearFilter() === "all")
       ? "No entries yet." : "No regular workdays logged for this period.";
     empty.style.display = keys.length ? "none" : "block";
-    list.innerHTML = "";
 
-    keys.forEach(function(k){
+    var weeks = keys.map(function(k){
       var s = summarize(groups[k]);
       var ws = dateFromStr(k), we = new Date(ws); we.setDate(we.getDate()+6);
       var byDate = {};
       groups[k].forEach(function(e){ byDate[e.date] = computeEntry(e); });
 
-      var card = document.createElement("div");
-      card.className = "period-card";
-      var range = ws.toLocaleDateString(undefined,{month:"short", day:"numeric"}) + " – " +
-                  we.toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
-      card.innerHTML =
-        '<div class="period-card-head"><span class="period-title display">Week of '+range+'</span>'+
-        '<span class="period-meta">'+s.loggedDays+' of '+Math.max(settings.workDays.length, s.loggedDays)+' workdays logged'+
-        (s.incompleteDays ? ' · '+s.incompleteDays+' incomplete' : '')+'</span></div>'+
-        '<div class="period-figures">'+
-          '<div class="period-figure"><div class="label">Total</div><div class="value">'+minutesToHoursStr(s.workedSum)+'</div></div>'+
-          '<div class="period-figure"><div class="label">Avg / Day</div><div class="value">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</div></div>'+
-          '<div class="period-figure"><div class="label">Target</div><div class="value">'+minutesToHoursStr(s.targetSum)+'</div></div>'+
-          '<div class="period-figure"><div class="label">Overtime / Under</div><div class="value" data-diff="'+s.diffSum+'">'+signed(s.diffSum)+'</div></div>'+
-        '</div><div class="chart-holder"></div>';
-      list.appendChild(card);
-
-      var diffEl = card.querySelector('[data-diff]');
-      diffEl.style.color = s.diffSum > 0 ? cssVar("--positive") : (s.diffSum < 0 ? cssVar("--negative") : "");
-
-      // Chart the working days only. An off-day still appears if it was worked,
-      // so overtime on a weekend never silently disappears from the chart.
-      var chartData = [];
+      // Working days only. An off-day still appears if it was worked, so
+      // overtime on a weekend never silently disappears from the sparkline.
+      var days = [];
       for(var i=0;i<7;i++){
         var d = new Date(ws); d.setDate(d.getDate()+i);
         var dStr = dateToStr(d);
         var c = byDate[dStr];
         var isWorkDay = settings.workDays.indexOf(d.getDay()) !== -1;
         if(!isWorkDay && !(c && c.workedMin)) continue;
-        chartData.push({
+        var val = c ? (c.workedMin || 0) : 0;
+        var dayTarget = isWorkDay ? targetMinPerDay() : 0;
+        days.push({
           label: DAY_NAMES[d.getDay()],
-          value: c ? (c.workedMin || 0) : 0,
-          targetMin: isWorkDay ? targetMinPerDay() : 0,
-          hasEntry: !!c
+          value: val, hasEntry: !!c,
+          met: dayTarget ? val >= dayTarget : true
         });
       }
-      renderBarChart(card.querySelector(".chart-holder"), chartData, {name:"Hours worked each day, week of "+range});
+
+      return {
+        key: k, s: s, days: days,
+        range: ws.toLocaleDateString(undefined,{month:"short", day:"numeric"}) + " – " +
+               we.toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"})
+      };
+    });
+
+    document.getElementById("weeklyChartMeta").textContent =
+      weeks.length ? weeks.length + " week" + (weeks.length===1?"":"s") + " tracked" : "";
+
+    renderTrendChart(document.getElementById("weeklyChart"), weeks.map(function(wk){
+      return {label:"Wk of "+wk.range.split(" – ")[0], value:wk.s.avgMin, hasEntry:wk.s.loggedDays > 0};
+    }), {name:"Average hours per day, by week"});
+
+    var body = document.getElementById("weeklyBody");
+    body.innerHTML = "";
+    weeks.slice().reverse().forEach(function(wk){
+      var s = wk.s;
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td data-label='Week'><span class=\"cell-label\">Week</span>Week of "+wk.range+"</td>"+
+        "<td class='num' data-label='Days'><span class=\"cell-label\">Days</span>"+s.loggedDays+
+          (s.incompleteDays ? " <span class='muted-inline'>("+s.incompleteDays+" incomplete)</span>" : "")+"</td>"+
+        "<td class='num' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(s.workedSum)+"</td>"+
+        "<td class='num' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+"</td>"+
+        "<td class='num' data-label='Diff' style='color:"+(s.diffSum>0?cssVar("--positive"):s.diffSum<0?cssVar("--negative"):"inherit")+"'><span class=\"cell-label\">Diff</span>"+signed(s.diffSum)+"</td>"+
+        "<td data-label='Days worked'><span class=\"cell-label\">Days worked</span><span class='spark-holder'></span></td>";
+      body.appendChild(tr);
+      renderSparkline(tr.querySelector(".spark-holder"), wk.days, {name:"Hours worked each day, week of "+wk.range});
     });
   }
 
@@ -1896,7 +2097,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("monthlyCount").textContent =
       yf === "all" ? "" : "Showing " + yf + " only";
 
-    renderBarChart(document.getElementById("monthlyChart"), stats.map(function(m){
+    renderTrendChart(document.getElementById("monthlyChart"), stats.map(function(m){
       return {label:m.shortLabel, value:m.avgMin, hasEntry:m.loggedDays > 0};
     }), {name:"Average hours per day, by month"});
 
@@ -1963,11 +2164,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         hasEntry: !!(s && s.loggedDays)
       });
     }
-    renderBarChart(document.getElementById("yearChart"), monthData, {height:160, name:"Average hours per day in "+yr+", by month"});
+    renderTrendChart(document.getElementById("yearChart"), monthData, {height:160, name:"Average hours per day in "+yr+", by month"});
 
-    renderBarChart(document.getElementById("yoyChart"), stats.map(function(y){
-      return {label:y.key, value:y.avgMin, hasEntry:y.loggedDays > 0};
-    }), {height:140, name:"Average hours per day, year over year"});
+    // A single year has nothing to compare against — a lone bar reads as a
+    // broken chart, not a comparison — so the whole card sits out until
+    // there's a second year to set it against.
+    var yoyCard = document.getElementById("yoyCard");
+    yoyCard.style.display = stats.length > 1 ? "" : "none";
+    if(stats.length > 1){
+      renderBarChart(document.getElementById("yoyChart"), stats.map(function(y){
+        return {label:y.key, value:y.avgMin, hasEntry:y.loggedDays > 0};
+      }), {height:140, name:"Average hours per day, year over year"});
+    }
 
     var body = document.getElementById("yearlyBody");
     body.innerHTML = "";
@@ -2090,12 +2298,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       (s.ratedDays ? s.ratedDays + " day" + (s.ratedDays===1?"":"s") + " assessed" : "") +
       (s.pendingDays ? (s.ratedDays ? " · " : "") + s.pendingDays + " still in progress" : "");
 
+    // What share of the period's target hours actually got worked — a
+    // continuous read on accomplishment (89%, not just "4 of 5 days"), and
+    // it can run past 100% the same way the overtime bank can.
     var rateEl = document.getElementById("pMetRate");
-    if(s.ratedDays){
-      rateEl.textContent = Math.round(s.metRate) + "%";
-      rateEl.className = "stat-value " + (s.metRate >= 90 ? "positive" : (s.metRate < 70 ? "negative" : ""));
+    if(s.targetSum){
+      var accomplishedPct = Math.round((s.workedSum / s.targetSum) * 100);
+      rateEl.textContent = accomplishedPct + "%";
+      rateEl.className = "stat-value " + (accomplishedPct >= 100 ? "positive" : (accomplishedPct < 70 ? "negative" : ""));
       document.getElementById("pMetRateDetail").textContent =
-        s.metDays + " of " + s.ratedDays + " days met target";
+        minutesToHoursStr(s.workedSum) + " of " + minutesToHoursStr(s.targetSum) + " target";
     } else {
       rateEl.textContent = "—";
       rateEl.className = "stat-value";
@@ -2128,17 +2340,20 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       : entries.filter(function(e){ return yearKey(e.date) === chartYear; });
     var byMonth = groupBy(chartSource, monthKey);
     var mKeys = Object.keys(byMonth).sort();
-    renderBarChart(document.getElementById("punctChart"), mKeys.map(function(k){
+    renderTrendChart(document.getElementById("punctChart"), mKeys.map(function(k){
       var ms = summarize(byMonth[k]);
       return {
         label: chartYear === "all"
           ? monthShortLabel(k)
           : new Date(+k.split("-")[0], +k.split("-")[1]-1, 1).toLocaleDateString(undefined,{month:"short"}),
         value: ms.avgShortMin,
-        targetMin: 0,
+        // Every plotted point here is already a bad number — there's no
+        // "met target" reading of a shortfall, so force the red dot rather
+        // than let the default value>=0 comparison paint it green.
+        met: false,
         hasEntry: ms.shortDays > 0
       };
-    }), {height:140, targetMin:0, formatter:minutesOnlyStr, name:"Average shortfall per short day, by month"});
+    }), {height:140, targetMin:0, formatter:minutesOnlyStr, accent:cssVar("--negative"), name:"Average shortfall per short day, by month"});
 
     // Table of every day that fell short, most recent first. A day still
     // running today is excluded — it hasn't ended, so there's nothing to
@@ -3977,10 +4192,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       a.worked += t.summary.workedSum;
       a.target += t.summary.targetSum;
       a.days   += t.summary.loggedDays;
-      if(t.summary.ratedDays){ a.met += t.summary.metDays; a.rated += t.summary.ratedDays; }
       if(t.status.cls === "in") a.inNow++;
       return a;
-    }, {worked:0, target:0, days:0, met:0, rated:0, inNow:0});
+    }, {worked:0, target:0, days:0, inNow:0});
 
     summaryEl.hidden = false;
     summaryEl.innerHTML = [
@@ -3988,7 +4202,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       ['<span class="ts-value">'+totals.inNow+'</span><span class="ts-label">clocked in now</span>'],
       ['<span class="ts-value">'+totals.days+'</span><span class="ts-label">days logged</span>'],
       ['<span class="ts-value">'+minutesToHoursStr(totals.worked)+'</span><span class="ts-label">of '+minutesToHoursStr(totals.target)+' target</span>'],
-      ['<span class="ts-value">'+(totals.rated ? Math.round((totals.met/totals.rated)*100)+"%" : "—")+'</span><span class="ts-label">target met</span>']
+      // Same accomplishment reading as the Shortfall tab's Target Met Rate:
+      // share of target HOURS worked, not a day-count rate.
+      ['<span class="ts-value">'+(totals.target ? Math.round((totals.worked/totals.target)*100)+"%" : "—")+'</span><span class="ts-label">target met</span>']
     ].map(function(x){ return '<div class="ts-item">'+x+'</div>'; }).join("");
 
     var shown = teamRowsCache.filter(function(t){
@@ -4000,9 +4216,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(sort === "worked") return b.summary.workedSum - a.summary.workedSum;
       if(sort === "short")  return a.summary.diffSum - b.summary.diffSum;
       if(sort === "ontime"){
-        var ar = a.summary.metRate, br = b.summary.metRate;
+        var ar = a.summary.targetSum ? (a.summary.workedSum/a.summary.targetSum)*100 : null;
+        var br = b.summary.targetSum ? (b.summary.workedSum/b.summary.targetSum)*100 : null;
         if(ar === null && br === null) return 0;
-        if(ar === null) return 1;          // never rated sorts last, not best
+        if(ar === null) return 1;          // no target to measure against sorts last, not best
         if(br === null) return -1;
         return ar - br;
       }
@@ -4055,7 +4272,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           '<div><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
           '<div><div class="label">Target Met</div><div class="value">'+
-            (s.metRate === null ? "—" : Math.round(s.metRate)+"%")+'</div></div>'+
+            (s.targetSum ? Math.round((s.workedSum/s.targetSum)*100)+"%" : "—")+'</div></div>'+
         '</div>';
       list.appendChild(card);
     });
