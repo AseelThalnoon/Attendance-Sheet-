@@ -48,6 +48,38 @@ export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
   updateUser:async()=>({data:{user:{id:UID,email:"tester@example.com"}},error:null}),
   getSession:async()=>({data:{session:null},error:null})}};}`;
 
+// A single day two minutes short of an 8h target — 478/480 = 99.58%. Rounded
+// that reads as "100%", falsely claiming the target was fully met; floored
+// it correctly reads "99%". workDays covers all seven days so the entry
+// counts regardless of which weekday the suite happens to run on.
+const STUB_NEAR_TARGET = `
+const UID="22222222-2222-2222-2222-222222222222";
+const D=new Date();
+const TODAY=D.getFullYear()+"-"+String(D.getMonth()+1).padStart(2,"0")+"-"+String(D.getDate()).padStart(2,"0");
+const ENTRIES=[{id:"e1",user_id:UID,date:TODAY,clock_in:"08:00",clock_out:"15:58",type:"regular",note:""}];
+const PROFILE={id:UID,email:"near@example.com",full_name:"Near Target",role:"admin"};
+function result(t,k){
+  if(t==="entries") return {data:ENTRIES,error:null};
+  if(t==="profiles") return k==="single"?{data:PROFILE,error:null}:{data:[PROFILE],error:null};
+  if(t==="user_settings") return {data:{settings:{workDays:[0,1,2,3,4,5,6],targetMin:480}},error:null};
+  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:false,announcement:""},error:null};
+  return {data:[],error:null};}
+function builder(t){let k="list";
+  const proxy=new Proxy(function(){},{get(_,p){
+    if(p==="then") return (r,j)=>Promise.resolve(result(t,k)).then(r,j);
+    if(p==="catch") return f=>Promise.resolve(result(t,k)).catch(f);
+    if(p==="finally") return f=>Promise.resolve(result(t,k)).finally(f);
+    if(p==="single"||p==="maybeSingle") return ()=>{k="single";return proxy;};
+    return ()=>proxy;}});
+  return proxy;}
+export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
+  auth:{onAuthStateChange:(cb)=>{setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"near@example.com"}}),0);
+    return{data:{subscription:{unsubscribe(){}}}};},
+  signInWithPassword:async()=>({data:{},error:null}),signUp:async()=>({data:{},error:null}),
+  signOut:async()=>({error:null}),resetPasswordForEmail:async()=>({data:{},error:null}),
+  updateUser:async()=>({data:{user:{id:UID,email:"near@example.com"}},error:null}),
+  getSession:async()=>({data:{session:null},error:null})}};}`;
+
 function contrast(a, b){
   const lum = c => { const s = c.map(v => { v/=255; return v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); });
     return 0.2126*s[0] + 0.7152*s[1] + 0.0722*s[2]; };
@@ -137,6 +169,25 @@ function ok(cond, name, detail){
     await page.waitForTimeout(400);
     const after = await page.evaluate(() => getComputedStyle(document.getElementById("appShell")).display);
     ok(after !== "none", "submitting the new password signs the visitor straight into the app", after);
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- floored percentages
+  // 478 of 480 target minutes is 99.58% — rounding that reads as "100%",
+  // falsely claiming the day's target was fully met.
+  {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.route("**/vendor/supabase-js.min.js",
+      r => r.fulfill({status: 200, contentType: "text/javascript", body: STUB_NEAR_TARGET}));
+    await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+    await page.waitForTimeout(1000);
+    const s = await page.evaluate(() => ({
+      heroLabel: document.getElementById("heroProgressLabel").textContent,
+    }));
+    ok(!/100%/.test(s.heroLabel), "the hero progress label does not round 99.58% up to 100%",
+      JSON.stringify(s));
+    ok(/99%/.test(s.heroLabel), "the hero progress label floors 99.58% to 99%", JSON.stringify(s));
     await ctx.close();
   }
 
