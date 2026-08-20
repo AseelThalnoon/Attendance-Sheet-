@@ -820,19 +820,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       // contribute nothing, which is correct — they aren't shortfalls.
       //
       // The three figures below are printed side by side on the same card, so
-      // they must reconcile: workedSum - targetSum === diffSum, always. The old
-      // version added targetMin unconditionally but only added to workedSum and
-      // diffSum when hours existed, so a day that was clocked-in-but-never-out,
-      // or a blank row from an import, inflated Target while leaving Diff
-      // untouched — a card could read Total 16h / Target 32h / Diff 0h, and a
-      // completely missed workday moved the overtime bank by exactly zero.
+      // they must reconcile: workedSum - targetSum === diffSum, always.
       //
-      // A shift that's still running right now is the one exception: the day
-      // isn't over, so there's no shortfall to book yet. It's held out of the
-      // bank entirely until it closes — same as `pending` already holds an
-      // open day out of the on-time rate below. A clock-in left open from a
-      // PAST day is a different story: that day has ended, so it still counts
-      // as the shortfall it is.
+      // Incomplete data — a clock-in with no clock-out (whether it's still
+      // running today or was left open on a past day), or a row with no clock
+      // times at all — carries no real information about what was worked, so
+      // it must not move the bank either way: it's surfaced via
+      // incompleteDays so it stays visible, but contributes nothing to
+      // workedSum, targetSum or diffSum, the same as a day with no entry at
+      // all (which never even reaches this function).
       var runningToday = c.open && e.date === todayStr();
       // An off-day (weekend, or any day outside the configured work days)
       // must not move the average, the bank or the target-accomplished rate
@@ -845,12 +841,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           targetSum += c.targetMin;
           diffSum   += (c.diffMin !== null ? c.diffMin : 0);
         } else if(!runningToday){
-          // A scheduled day with no usable hours is a real shortfall, not a
-          // rounding-free zero. Count it as such, and surface the count so the
-          // figure is never silently flattering.
           incompleteDays++;
-          targetSum += c.targetMin;
-          diffSum   -= c.targetMin;
         }
       }
       if(c.open) openDays++;
