@@ -1613,6 +1613,20 @@
         <button type="button" class="link-btn" id="showSignInBtn">Already have an account? Sign in</button>
       </div>
     </form>
+
+    <form id="resetPasswordForm" class="auth-form" style="display:none;">
+      <p style="margin:0;">Choose a new password for your account.</p>
+      <div>
+        <label for="newPassword">New Password</label>
+        <input type="password" id="newPassword" autocomplete="new-password" required minlength="10">
+      </div>
+      <div>
+        <label for="newPassword2">Confirm New Password</label>
+        <input type="password" id="newPassword2" autocomplete="new-password" required minlength="10">
+      </div>
+      <p class="auth-error" id="resetPasswordError"></p>
+      <button type="submit" class="btn" id="resetPasswordBtn" style="width:100%;">Set New Password</button>
+    </form>
   </div>
   <p class="copyright" id="copyrightLineAuth"></p>
 </div>

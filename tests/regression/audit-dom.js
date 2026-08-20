@@ -41,10 +41,11 @@ function builder(t){let k="list";
     return ()=>proxy;}});
   return proxy;}
 export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
-  auth:{onAuthStateChange:(cb)=>{setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"tester@example.com"}}),0);
+  auth:{onAuthStateChange:(cb)=>{window.__authCb=cb; setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"tester@example.com"}}),0);
     return{data:{subscription:{unsubscribe(){}}}};},
   signInWithPassword:async()=>({data:{},error:null}),signUp:async()=>({data:{},error:null}),
   signOut:async()=>({error:null}),resetPasswordForEmail:async()=>({data:{},error:null}),
+  updateUser:async()=>({data:{user:{id:UID,email:"tester@example.com"}},error:null}),
   getSession:async()=>({data:{session:null},error:null})}};}`;
 
 function contrast(a, b){
@@ -102,6 +103,40 @@ function ok(cond, name, detail){
     }));
     ok(s.warn !== "none" && s.disabled === true,
       "C-2 an unreachable dependency is reported, not silent", JSON.stringify(s));
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- reset password
+  // The "Forgot password?" email link signs the browser into a short-lived
+  // PASSWORD_RECOVERY session. The app used to have no handling for that
+  // event at all — it fell into the same path as a normal sign-in and
+  // silently dropped the visitor into the dashboard on their old password,
+  // with no form anywhere to actually set a new one.
+  {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.route("**/vendor/supabase-js.min.js",
+      r => r.fulfill({status: 200, contentType: "text/javascript", body: STUB}));
+    await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+    await page.waitForTimeout(300); // let the stub's auto SIGNED_IN settle first
+
+    await page.evaluate(() => window.__authCb("PASSWORD_RECOVERY",
+      {user: {id: "11111111-1111-1111-1111-111111111111", email: "tester@example.com"}}));
+    await page.waitForTimeout(200);
+    const shown = await page.evaluate(() => ({
+      reset: getComputedStyle(document.getElementById("resetPasswordForm")).display,
+      signIn: getComputedStyle(document.getElementById("signInForm")).display,
+      app: getComputedStyle(document.getElementById("appShell")).display,
+    }));
+    ok(shown.reset !== "none" && shown.signIn === "none" && shown.app === "none",
+      "a PASSWORD_RECOVERY event shows the new-password form, not the dashboard", JSON.stringify(shown));
+
+    await page.fill("#newPassword", "brandNewPassword1");
+    await page.fill("#newPassword2", "brandNewPassword1");
+    await page.click("#resetPasswordBtn");
+    await page.waitForTimeout(400);
+    const after = await page.evaluate(() => getComputedStyle(document.getElementById("appShell")).display);
+    ok(after !== "none", "submitting the new password signs the visitor straight into the app", after);
     await ctx.close();
   }
 
