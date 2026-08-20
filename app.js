@@ -3822,6 +3822,21 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(el) el.textContent = msg || "";
   }
 
+  // The email link Supabase sends signs the browser into a short-lived
+  // "recovery" session and fires PASSWORD_RECOVERY (see the auth listener
+  // below) rather than a normal SIGNED_IN. That session's user is stashed
+  // here so the reset form can hand it straight to handleSignedIn() once the
+  // new password is set, instead of making them log in a second time.
+  var recoverySessionUser = null;
+  function showResetPasswordScreen(){
+    document.getElementById("authScreen").style.display = "flex";
+    document.getElementById("appShell").style.display = "none";
+    document.getElementById("signInForm").style.display = "none";
+    document.getElementById("registerForm").style.display = "none";
+    document.getElementById("resetPasswordForm").style.display = "flex";
+    setAuthMsg("resetPasswordError", "");
+  }
+
   if(!supabaseConfigured){
     document.getElementById("authConfigWarning").style.display = "block";
   }
@@ -3862,12 +3877,41 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!email){ setAuthMsg("signInError", "Enter your email above, then tap this again."); return; }
     if(!supabaseConfigured){ setAuthMsg("signInError", "Backend isn't configured yet."); return; }
     try{
-      var res = await supabase.auth.resetPasswordForEmail(email);
+      // Without an explicit redirectTo, Supabase falls back to the project's
+      // configured Site URL, which may point somewhere other than this exact
+      // page — the emailed link then lands the user off the app entirely,
+      // with no way back to the reset form. Pinning it to the current page
+      // matches the admin-triggered reset a few hundred lines down.
+      var res = await supabase.auth.resetPasswordForEmail(email, {redirectTo: window.location.href});
       if(res.error) throw res.error;
       setAuthMsg("signInError", "");
       showToast("If an account exists for " + email + ", a reset link has been sent.", "success");
     }catch(err){
       setAuthMsg("signInError", err.message || "Couldn't send reset email.");
+    }
+  });
+
+  document.getElementById("resetPasswordForm").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    setAuthMsg("resetPasswordError", "");
+    var pw = document.getElementById("newPassword").value;
+    var pw2 = document.getElementById("newPassword2").value;
+    if(pw !== pw2){ setAuthMsg("resetPasswordError", "Passwords don't match."); return; }
+    if(pw.length < 10){ setAuthMsg("resetPasswordError", "Password must be at least 10 characters."); return; }
+
+    var btn = document.getElementById("resetPasswordBtn");
+    btn.disabled = true; btn.textContent = "Updating…";
+    try{
+      var res = await supabase.auth.updateUser({password: pw});
+      if(res.error) throw res.error;
+      showToast("Password updated.", "success");
+      var u = recoverySessionUser || (res.data && res.data.user);
+      recoverySessionUser = null;
+      if(u) handleSignedIn(u); else showAuthScreen();
+    }catch(err){
+      setAuthMsg("resetPasswordError", err.message || "Couldn't update password.");
+    }finally{
+      btn.disabled = false; btn.textContent = "Set New Password";
     }
   });
 
@@ -5621,6 +5665,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     showAuthScreen();
   } else {
     supabase.auth.onAuthStateChange(function(event, session){
+      // The reset-password email link lands here as PASSWORD_RECOVERY, not a
+      // normal SIGNED_IN — it must show the "choose a new password" form
+      // instead of falling through to handleSignedIn() below, which would
+      // otherwise silently drop the visitor straight into the dashboard on
+      // their old password without ever prompting them to set a new one.
+      if(event === "PASSWORD_RECOVERY"){
+        recoverySessionUser = session && session.user;
+        showResetPasswordScreen();
+        return;
+      }
       // handleSignedIn() is a full cold start: it re-fetches the profile, resets
       // the theme, resets the entry form to today, and — most damagingly — resets
       // viewedUserId back to the signed-in user. Firing it for every event meant a
