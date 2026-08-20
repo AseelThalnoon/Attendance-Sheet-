@@ -29,19 +29,42 @@
   default-src 'self';
   script-src 'self';
   style-src 'self' 'unsafe-inline';
-  img-src 'self' data:;
+  img-src 'self' data: blob: https://lxnfiszrlgddpcbwavfw.supabase.co;
   font-src 'self';
   connect-src 'self' https://lxnfiszrlgddpcbwavfw.supabase.co wss://lxnfiszrlgddpcbwavfw.supabase.co;
   form-action 'none';
   base-uri 'none';
   object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<meta name="theme-color" content="#0A3634">
+<meta name="theme-color" content="#111110">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Attendance">
 
 <style>
+  /* Switzer — one geometric grotesk for the whole interface. Self-hosted to
+     satisfy `font-src 'self'`, and because the numeral columns depend on it:
+     Switzer ships no `tnum` feature, but its digits are natively uniform-width
+     (576/1000 em at every weight), so figures align in a column without one.
+     `font-variant-numeric:tabular-nums` stays on .num cells anyway — it is a
+     no-op here and a real fix if the stack ever falls back to a system face. */
+  @font-face{
+    font-family:"Switzer"; src:url("fonts/Switzer-Regular.woff2") format("woff2");
+    font-weight:400; font-style:normal; font-display:swap;
+  }
+  @font-face{
+    font-family:"Switzer"; src:url("fonts/Switzer-Medium.woff2") format("woff2");
+    font-weight:500; font-style:normal; font-display:swap;
+  }
+  @font-face{
+    font-family:"Switzer"; src:url("fonts/Switzer-Bold.woff2") format("woff2");
+    font-weight:700; font-style:normal; font-display:swap;
+  }
+  @font-face{
+    font-family:"Switzer"; src:url("fonts/Switzer-Black.woff2") format("woff2");
+    font-weight:900; font-style:normal; font-display:swap;
+  }
+
   :root{
     /* Motion system: buttons and hover feedback get short, decisive
        transitions so the interface feels responsive to touch. Panels,
@@ -54,123 +77,101 @@
     --dur-slow:320ms;
     --dur-slower:450ms;
 
-    --teal-950:#062825;
-    --teal-900:#0A3634;
-    --teal-800:#0E4A46;
-    --teal-700:#145C57;
-    --teal-600:#1B726B;
-    --teal-100:#E6EFEC;
-    --teal-50:#F2F7F5;
-    --paper:#F6F2E8;
-    --card:#FFFFFE;
-    --gold:#AD8332;
-    --gold-deep:#75581D;
-    --gold-light:#E3CB8F;
-    --ink:#1B2422;
-    --muted:#68766F;
-    /* Secondary text colour. Was #8B968F, which measured 3.06:1 against the card
-       and 2.74:1 against the paper background — well under the 4.5:1 WCAG AA
-       floor for text this size, and it carries real meaning ("0 of 21 days used",
-       "Showing 12 of 340", every form hint). Darkened to clear 4.5:1 while
-       staying visibly secondary to --ink. */
-    --muted-2:#5F6B65;
-    --line:#DDD3BB;
-    --line-soft:#EAE3D0;
-    /* Badge/pill foregrounds measured 4.07–4.36:1 on their own tinted
-       backgrounds at 10–11px bold — under the 4.5:1 floor, and too small to
-       qualify for the 3:1 large-text allowance. Darkened a step. */
-    --positive:#256B42;
-    --positive-bg:#E3F1E7;
-    /* Teal chip/badge pair. Its own tokens rather than raw --teal-100 +
-       --teal-700, because those two invert independently between themes:
-       --teal-100 flips to a dark surface for dark mode while --teal-700 stays
-       a dark shade (it doubles as a surface elsewhere), which collapsed the
-       two into near-identical colours. Same shape as --positive/-bg. */
-    --info:#145C57;
-    --info-bg:#E6EFEC;
-    --negative:#AE3B3B;
-    --negative-bg:#F7E9E7;
-    --excused:#755B14;
-    --excused-bg:#F2E9D2;
-    --warn:#8A5F12;
-    --warn-bg:#FBF1DC;
+    /* ATRIUM — a bright, warm office floor: a near-black rail down one side,
+       a greige canvas holding white and cream cards, and three pastel accents
+       that are only ever FILLS (chart arcs, progress, dots, the active-nav
+       glow). Text stays near-black; that is how the pastels stay accessible.
+       Every text/surface pair below was measured against WCAG AA 4.5:1 rather
+       than eyeballed — see The Measured Floor rule in DESIGN.md. */
+
+    /* The neutral ramp. Named --teal-* for continuity with the component CSS
+       that already references these steps; there is no teal in Atrium, this is
+       the ink ramp from near-black down to the two page washes. */
+    --teal-950:#0A0A09;
+    --teal-900:#111110;  /* the rail, and primary ink */
+    --teal-800:#1C1C1A;
+    --teal-700:#2A2A27;
+    --teal-600:#3D3D38;  /* focus borders, active outlines */
+    --teal-100:#E4E2DC;  /* wash: sub-tab tray, active tab */
+    --teal-50:#EFEDE8;   /* lighter wash: table header, zebra rows */
+
+    --rail:#111110;
+    --paper:#E9E7E2;     /* the canvas the cards sit on */
+    --card:#FFFFFF;
+    --surface-cream:#F0EADA;
+    --surface-gray:#DFDDD9;
+
+    /* Accents. Fills only — never text, never a text colour on a light ground.
+       --gold* keeps its name because ~40 component rules reference it as "the
+       accent"; in Atrium that accent is lime. */
+    --gold:#D6E85C;        /* lime: active nav, progress fill, chart arc */
+    --gold-deep:#5C6B12;   /* the one lime dark enough to set text in */
+    --gold-light:#E4F27A;
+    --mint:#A9DCC6;
+    --blush:#F0B9C9;
+
+    --ink:#111110;
+    /* Two secondary-text steps. --muted is darkened past a first pass that
+       measured 3.87–4.49:1 on the canvas, cream and gray surfaces: it only
+       cleared the floor on white. Both steps now clear 4.5:1 on all six
+       surfaces the app actually paints text on. */
+    --muted:#61605A;
+    --muted-2:#57554F;
+    --line:#D5D2CB;
+    --line-soft:#E2DFD8;
+
+    /* Status pairs. Each foreground clears 4.5:1 on its own tint AND on the
+       plain card/canvas/wash surfaces, since these colours land on both. */
+    --positive:#1B6C4D;
+    --positive-bg:#DCF0E6;
+    --info:#3A3A36;
+    --info-bg:#E4E2DC;
+    --negative:#A83A55;
+    --negative-bg:#FBE4EA;
+    --excused:#6B6410;
+    --excused-bg:#F2EFD2;
+    --warn:#7A5510;
+    --warn-bg:#F7EFDA;
     --warn-line:#E4CB92;
     --input-bg:#FFFFFF;
-    --rule:rgba(173,131,50,.05);
-    /* Border-radius scale: consolidates what used to be 7/9/10/11/12/14/16px
-       scattered with no clear system into four deliberate steps. */
-    --radius-xs:6px;
-    --radius-sm:8px;
-    --radius-md:10px;
-    --radius:14px;
-    --font-num:Calibri, "Segoe UI", Candara, Optima, "Trebuchet MS", sans-serif;
-    --font-display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
-    --shadow-sm:0 1px 2px rgba(10,54,52,.06), 0 1px 1px rgba(10,54,52,.04);
-    --shadow-md:0 6px 20px rgba(10,54,52,.08), 0 2px 6px rgba(10,54,52,.05);
-    --shadow-lg:0 16px 40px rgba(10,54,52,.14), 0 4px 12px rgba(10,54,52,.08);
-    --shadow-glow:0 0 0 1px rgba(173,131,50,.14), 0 8px 28px rgba(173,131,50,.16);
-    --gradient-gold:linear-gradient(135deg, #C7A155 0%, var(--gold) 55%, var(--gold-deep) 100%);
-    --gradient-teal:linear-gradient(135deg, var(--teal-700) 0%, var(--teal-900) 100%);
-    /* Two fixed text colors for the app's dark-surface exceptions (hero stat,
-       header, quick-clock — see DESIGN.md's Elevation & Depth section). Both
-       surfaces keep roughly the same warmth in light and dark mode, so unlike
-       every other text token above, these don't need a body.dark override —
-       they were unnamed literals repeated 6-7 times each before this. */
-    --ink-on-gold:#20180A;     /* text on var(--gradient-gold) */
-    --muted-on-dark:#C6D6D2;   /* secondary text on the dark teal surfaces */
-    --positive-on-dark:#9FD8A8; /* hero-stat trend-up text on the dark teal surface */
-    --negative-on-dark:#E0A5A5; /* hero-stat trend-down text on the dark teal surface */
-    /* --negative/--negative-on-dark are tuned as text colors (for status pills,
-       trend indicators), not as a fill — using either as a solid button
-       background would either be too muted (light mode) or too pale for white
-       text (dark mode's on-dark variant). danger-solid needs its own fixed
-       fill pair instead, the same way gold's fill context gets its own tokens. */
-    --negative-solid:#C24A4A; /* danger-solid button fill, fixed across themes */
-    --negative-deep:#9C3434;  /* danger-solid gradient's darker stop / border */
-  }
+    --rule:rgba(17,17,16,.05);
 
-  body.dark{
-    --teal-950:#04201E;
-    --teal-900:#0B2E2C;
-    --teal-800:#124440;
-    --teal-700:#1A5B55;
-    --teal-600:#2A8079;
-    --teal-100:#1A423D;
-    --teal-50:#163831;
-    --paper:#0B1917;
-    --card:#152C29;
-    --gold:#C79E4C;
-    --gold-deep:#A8823A;
-    --gold-light:#E7D3A0;
-    --ink:#E8EDEA;
-    --muted:#9DACA6;
-    /* Dark-mode counterpart: #7D8D87 measured 4.14:1 on --card, also short of
-       the 4.5:1 floor. Lightened to match. */
-    --muted-2:#A9B7B1;
-    --line:#35564F;
-    --line-soft:#2A4A44;
-    --positive:#6BC08D;
-    --positive-bg:#183A28;
-    --info:#7FD0C6;
-    --info-bg:#1A423D;
-    --negative:#E08585;
-    --negative-bg:#3C1F1F;
-    --excused:#D9BC72;
-    --excused-bg:#38301A;
-    --warn:#E0BE73;
-    --warn-bg:#33290F;
-    --warn-line:#5C4A20;
-    --input-bg:#0E201E;
-    --rule:rgba(199,158,76,.05);
-    /* Dark-mode shadows lean on a soft gold-tinted glow rather than pure
-       black — a black shadow barely reads against an already-dark page, so
-       elevation needs a different cue here than it does in light mode. */
-    --shadow-sm:0 1px 2px rgba(0,0,0,.45), 0 0 0 1px rgba(199,158,76,.04);
-    --shadow-md:0 6px 20px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4), 0 0 0 1px rgba(199,158,76,.05);
-    --shadow-lg:0 18px 44px rgba(0,0,0,.6), 0 6px 16px rgba(0,0,0,.45), 0 0 0 1px rgba(199,158,76,.06);
-    --shadow-glow:0 0 0 1px rgba(199,158,76,.28), 0 8px 30px rgba(199,158,76,.18);
-    --gradient-gold:linear-gradient(135deg, #DDBB72 0%, var(--gold) 55%, var(--gold-deep) 100%);
-    --gradient-teal:linear-gradient(135deg, var(--teal-700) 0%, var(--teal-950) 100%);
+    /* Radius scale. Atrium is a soft-cornered system — the card step is the
+       signature, so it is the largest of the four by a wide margin. */
+    --radius-xs:8px;
+    --radius-sm:12px;
+    --radius-md:16px;
+    --radius:22px;
+
+    /* One family, three jobs. The tokens stay separate so a future change can
+       split them again, but Atrium deliberately sets headings, body and
+       figures in the same grotesk — there is no serif anywhere in this system. */
+    --font-ui:"Switzer",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --font-num:var(--font-ui);
+    --font-display:var(--font-ui);
+
+    /* Ambient, neutral, and soft — cards rest flush and lift on interaction. */
+    --shadow-sm:0 1px 2px rgba(17,17,16,.04), 0 1px 3px rgba(17,17,16,.03);
+    --shadow-md:0 8px 24px rgba(17,17,16,.07), 0 2px 8px rgba(17,17,16,.04);
+    --shadow-lg:0 20px 48px rgba(17,17,16,.13), 0 6px 16px rgba(17,17,16,.08);
+    --shadow-glow:0 0 0 1px rgba(214,232,92,.55), 0 8px 28px rgba(214,232,92,.22);
+
+    --gradient-gold:linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 55%, #B9CF3E 100%);
+    --gradient-teal:linear-gradient(135deg, var(--teal-700) 0%, var(--teal-900) 100%);
+    /* The iridescent tile — Atrium's one decorative gradient, reserved for a
+       single "highlight" stat so it stays an event rather than a texture. */
+    --gradient-iris:linear-gradient(135deg, #E8DCC8 0%, #DCD9E8 38%, #CFE4DC 68%, #EFDCE2 100%);
+
+    /* Fixed text colours for the dark-surface exceptions (the rail, the hero
+       panel, the quick-clock). These do not vary — there is only one theme. */
+    --ink-on-gold:#1A1E05;      /* text on var(--gradient-gold) */
+    --muted-on-dark:#A8A69E;    /* secondary text on the rail / dark panels */
+    --positive-on-dark:#A9DCC6; /* trend-up text on a dark surface */
+    --negative-on-dark:#F0B9C9; /* trend-down text on a dark surface */
+    /* --negative is tuned as a text colour, not a fill; a solid danger button
+       needs its own darker pair so white text clears the floor on it. */
+    --negative-solid:#C0405E;
+    --negative-deep:#8E2A42;
   }
 
   *{box-sizing:border-box;}
@@ -489,8 +490,7 @@
     transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   input:focus, select:focus{border-color:var(--teal-600); box-shadow:0 0 0 3px rgba(27,114,107,.16);}
-  .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(174,59,59,.16);}
-  body.dark input[type="date"], body.dark input[type="time"]{color-scheme:dark;}
+  .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(168,58,85,.18);}
 
   /* iOS Safari lays a native date/time control out from its own shadow DOM and
      ignores box-sizing on it, so width:100% resolved to 100% PLUS the 24px of
@@ -526,7 +526,6 @@
     background:linear-gradient(115deg, transparent 30%, rgba(255,255,255,.16) 45%, transparent 60%);
     transform:translateX(-120%); transition:transform var(--dur-slower) var(--ease-soft);
   }
-  body.dark .btn{border-color:var(--teal-600);}
   .btn.secondary{background:var(--card); color:var(--ink); border-color:var(--line);}
   .btn.secondary::before{display:none;}
   .btn.ghost{background:transparent; border-color:var(--line); color:var(--muted); font-weight:500; box-shadow:none;}
@@ -1412,7 +1411,6 @@
     max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .bn-item.active{color:var(--teal-700);}
-  body.dark .bn-item.active{color:var(--gold-light);}
   .bn-item:active{background:var(--teal-50);}
   /* At the narrowest phones (down to 320px, the floor this app targets),
      six equal slots for an admin leaves very little room per label —
@@ -1559,26 +1557,13 @@
   .head-action:active{transform:translateY(0) scale(.96);}
   .btn:active{transform:translateY(0) scale(.97);}
 
-  /* Every theme now has its own folder — themes/<name>/theme.css, plus a
-     fonts/ folder if it needs one (velocity's moved to themes/velocity/fonts/)
-     — each linked in <head> below, unconditionally, so switching themes at
-     runtime (see applyUiTheme in app.js) never needs a network round trip.
-     Kinetic and Velocity's rules moved there in full. Ledger has none to
-     move: this file above *is* the ledger design system, unscoped — its
-     theme.css is linked empty, kept only so adding a future ledger-only
-     rule has a home without also having to wire up a new <link> tag. */
-
   </style>
-  <link rel="stylesheet" href="themes/ledger/theme.css">
-  <link rel="stylesheet" href="themes/kinetic/theme.css">
-  <link rel="stylesheet" href="themes/velocity/theme.css">
 </head>
-<!-- data-ui-theme is the org-wide visual theme (app_settings.theme), chosen by
-     an admin for everyone. Hardcoded to the default here so the page is never
-     unstyled or mid-animation before settings load — the stored value replaces
-     it once the session resolves. Distinct from the per-user light/dark mode,
-     which is body.dark and lives in localStorage. -->
-<body data-ui-theme="ledger">
+<!-- Atrium is the only visual system now. The org-wide theme picker (ledger /
+     kinetic / velocity) and the per-user light/dark toggle were both retired:
+     one committed look, no switch to keep in sync across a database column, a
+     select, three stylesheets and a body attribute. -->
+<body>
 
 <a href="#main" class="skip-link">Skip to main content</a>
 
@@ -1680,9 +1665,6 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
           <span>Admin</span>
         </button>
-        <button type="button" class="icon-btn" id="themeBtn" title="Dark mode" aria-label="Switch to dark mode">
-          <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A8.5 8.5 0 0 1 11.2 3a8.5 8.5 0 1 0 9.8 9.8z"/></svg>
-        </button>
         <button type="button" class="icon-btn" id="settingsBtn" title="Schedule settings" aria-label="Schedule settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21v-7M5 10V3M12 21v-11M12 6V3M19 21v-3M19 14V3"/><path d="M2.5 14h5M9.5 6h5M16.5 18h5"/></svg>
         </button>
@@ -1697,121 +1679,6 @@
     </div>
   </div>
 </header>
-
-<!-- ============ VELOCITY THEME HERO ============
-     Rendered only when the org's theme is "velocity" (display:none otherwise),
-     so the other two themes carry no cost from it beyond the markup weight.
-
-     The car is authored SVG, not a photograph: the page's CSP is
-     img-src 'self' data:, so no external image could load anyway, and drawing
-     it as a technical wireframe means there's no third-party asset to license.
-     It also scales to any viewport and can be lit and moved in 3D, which a
-     flat photo could not.
-
-     aria-hidden because it is decorative and its readout duplicates the real
-     stat cards below — a screen reader should hear those numbers once, from
-     the actual data, not twice. -->
-<section class="v-hero" id="vHero" aria-hidden="true">
-  <div class="v-hero-grid"></div>
-  <div class="v-hero-beam"></div>
-
-  <div class="v-hero-inner">
-    <p class="v-eyebrow"><span>Cluster</span><i class="v-rule"></i><span class="v-eyebrow-sub">Attendance Telemetry</span></p>
-
-    <!-- The cluster mirrors numbers that the real stat cards below already
-         announce. The whole section is aria-hidden so a screen reader hears
-         each figure once, from the actual data, not twice. -->
-    <div class="v-cluster">
-      <div class="v-cluster-side">
-        <div class="v-readout">
-          <span class="v-readout-k">This Week</span>
-          <span class="v-readout-v" id="vRoWeek">—</span>
-        </div>
-        <div class="v-readout">
-          <span class="v-readout-k">Daily Target</span>
-          <span class="v-readout-v" id="vRoTarget">—</span>
-        </div>
-      </div>
-
-      <!-- Tachometer. The sweep is 250°, opening at the bottom the way an
-           analogue cluster does. Arc lengths below are derived from r=100:
-           circumference 628.32, so a 250° sweep is 436.33 units. The value
-           arc is drawn with the same dasharray and its dashoffset is what
-           JS animates; the redline band is a separate 22% segment sitting
-           underneath, so a value that runs into it paints crimson over
-           crimson instead of clipping. -->
-      <div class="v-gauge" id="vGauge">
-        <!-- Cropped to 226 tall: the arc's lowest point is y=207 plus half
-             the 13px stroke, so everything below 226 was dead space pushing
-             the sector strip away from the dial. -->
-        <svg class="v-gauge-svg" viewBox="0 0 300 226" role="presentation" focusable="false">
-          <defs>
-            <linearGradient id="vGaugeFill" x1="0" y1="1" x2="1" y2="0">
-              <stop offset="0%"   stop-color="#5A6270"/>
-              <stop offset="52%"  stop-color="#D5082A"/>
-              <stop offset="100%" stop-color="#FF2D46"/>
-            </linearGradient>
-          </defs>
-
-          <circle class="v-gauge-track"   cx="150" cy="150" r="100"
-                  stroke-dasharray="436.33 628.32" transform="rotate(145 150 150)"/>
-          <circle class="v-gauge-redline" cx="150" cy="150" r="100"
-                  stroke-dasharray="95.99 628.32" stroke-dashoffset="-340.34"
-                  transform="rotate(145 150 150)"/>
-          <circle class="v-gauge-value" id="vGaugeArc" cx="150" cy="150" r="100"
-                  stroke-dasharray="436.33 628.32" stroke-dashoffset="436.33"
-                  transform="rotate(145 150 150)"/>
-
-          <g class="v-gauge-ticks">
-            <line class="is-major" x1="81.19"  y1="198.18" x2="92.66"  y2="190.15"/>
-            <line               x1="67.28"  y1="164.58" x2="81.06"  y2="162.15"/>
-            <line               x1="68.86"  y1="128.26" x2="82.39"  y2="131.88"/>
-            <line               x1="85.66"  y1="96.01"  x2="96.38"  y2="105.00"/>
-            <line               x1="114.50" y1="73.87"  x2="120.42" y2="86.56"/>
-            <line class="is-major" x1="150.00" y1="66.00"  x2="150.00" y2="80.00"/>
-            <line               x1="185.50" y1="73.87"  x2="179.58" y2="86.56"/>
-            <line               x1="214.34" y1="96.01"  x2="203.62" y2="105.00"/>
-            <line class="is-redline" x1="231.14" y1="128.26" x2="217.61" y2="131.88"/>
-            <line class="is-redline" x1="232.72" y1="164.58" x2="218.94" y2="162.15"/>
-            <line class="is-redline is-major" x1="218.81" y1="198.18" x2="207.34" y2="190.15"/>
-          </g>
-
-          <!-- Drawn pointing straight up, so JS's rotate() maps cleanly:
-               -125° at zero, 0° at half sweep, +125° at full. -->
-          <line class="v-needle" id="vNeedle" x1="150" y1="150" x2="150" y2="72"
-                style="transform-origin:150px 150px; transform-box:view-box;"/>
-          <circle class="v-needle-hub" cx="150" cy="150" r="7"/>
-        </svg>
-
-        <div class="v-gauge-centre">
-          <span class="v-gauge-value-text" id="vGaugeVal">—</span>
-          <span class="v-gauge-unit">Avg Hrs / Day</span>
-        </div>
-        <!-- In normal flow, so it lands in the dial's own opening at the
-             bottom rather than colliding with the arc from inside the
-             absolutely-centred stack. -->
-        <span class="v-gauge-state" id="vGaugeState" hidden></span>
-      </div>
-
-      <div class="v-cluster-side is-right">
-        <div class="v-readout is-live">
-          <span class="v-readout-k">Streak</span>
-          <span class="v-readout-v" id="vSpecStreak">—</span>
-        </div>
-        <div class="v-readout">
-          <span class="v-readout-k">Overtime</span>
-          <span class="v-readout-v" id="vSpecOt">—</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="v-sectors">
-      <div class="v-sector is-text"><span class="v-sector-k">Period</span><span class="v-sector-v" id="vSecPeriod">—</span></div>
-      <div class="v-sector"><span class="v-sector-k">Target Met</span><span class="v-sector-v" id="vSecMet">—</span></div>
-      <div class="v-sector"><span class="v-sector-k">Monthly Avg</span><span class="v-sector-v" id="vSpecAvg">—</span></div>
-    </div>
-  </div>
-</section>
 
 <main id="main" tabindex="-1">
 
@@ -2659,28 +2526,6 @@
 
           <div class="form-actions" style="margin-top:16px;">
             <button type="button" class="btn" id="saveAppSettingsBtn">Save App Settings</button>
-          </div>
-        </div>
-      </div>
-      <!-- ---------- Themes & layouts ---------- -->
-      <div class="accordion-section admin-section" data-section="admin-theme">
-        <button type="button" class="accordion-head">
-          <span>Themes &amp; Layouts</span>
-          <span class="accordion-head-right"><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-        </button>
-        <div class="accordion-body">
-          <div>
-            <label for="setTheme">Theme</label>
-            <select id="setTheme">
-              <option value="ledger">Ledger — the classic look</option>
-              <option value="kinetic">Kinetic — animated on scroll</option>
-              <option value="velocity">Velocity — instrument cluster</option>
-            </select>
-            <p class="settings-hint" style="margin:8px 0 0;" id="setThemeHint"></p>
-          </div>
-
-          <div class="form-actions" style="margin-top:16px;">
-            <button type="button" class="btn" id="saveThemeBtn">Save Theme</button>
           </div>
         </div>
       </div>

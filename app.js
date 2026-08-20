@@ -90,7 +90,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // for, whatever gets logged and whether or not clock times are recorded.
   var NO_TARGET_TYPES = ["wfh","trip","training"];
 
-  var THEME_KEY    = "attendance_ledger_theme_v1";
   var DISMISS_KEY  = "attendance_ledger_dismissed_v1";
   var SNOOZE_KEY   = "attendance_ledger_backup_snooze_v1";
   var BACKUP_KEY   = "attendance_ledger_lastbackup_v1";
@@ -886,26 +885,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
     return out;
   }
-
-  // ---------- Theme ----------
-  var SUN_ICON = '<path d="M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4"/><circle cx="12" cy="12" r="4"/>';
-  var MOON_ICON = '<path d="M21 12.8A8.5 8.5 0 0 1 11.2 3a8.5 8.5 0 1 0 9.8 9.8z"/>';
-  function applyTheme(mode){
-    var dark = mode === "dark";
-    document.body.classList.toggle("dark", dark);
-    document.getElementById("themeIcon").innerHTML = dark ? SUN_ICON : MOON_ICON;
-    // The button is icon-only now, so the accessible name has to carry what the
-    // menu label used to say — and it must describe the action, not the state.
-    var themeBtn = document.getElementById("themeBtn");
-    themeBtn.title = dark ? "Light mode" : "Dark mode";
-    themeBtn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
-    safeSet(THEME_KEY, mode);
-  }
-  document.getElementById("themeBtn").addEventListener("click", function(){
-    var next = document.body.classList.contains("dark") ? "light" : "dark";
-    applyTheme(next);
-    renderCharts();
-  });
 
   // ---------- Header Admin button ----------
   // Not a tab: the tab strip is views of attendance, and this manages the
@@ -1930,7 +1909,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // Short figures like "8h" get the big number treatment; longer status
     // words shrink so they never wrap inside the small circle.
     sealValue.classList.toggle("long", sealText.length > 6);
-    syncVelocitySpecs(); // keep the Velocity hero's spec strip in step
 
     renderBnClock(todayEntry);
 
@@ -4901,9 +4879,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return bits.length ? bits.join(" · ") : "No visible change";
   }
 
+  // `theme` is no longer a setting — the org-wide theme picker was retired with
+  // the move to Atrium. The label stays because audit_log is append-only: rows
+  // written while the picker existed still carry a theme diff, and without the
+  // label those historical entries would render as a bare key or vanish.
   var APP_SETTINGS_LABELS = {
     announcement: "Announcement", announcement_active: "Announcement banner",
-    allow_registration: "Allow registrations", theme: "Theme",
+    allow_registration: "Allow registrations", theme: "Theme (retired)",
     default_settings: "Organisation defaults"
   };
   function appSettingsDiff(oldV, newV){
@@ -5064,260 +5046,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return '"' + s.replace(/"/g, '""') + '"';
   }
 
-  // ---------- Org-wide UI theme ----------
-  // app_settings.theme: one visual theme an admin picks for the whole
-  // organisation. Deliberately NOT the same thing as applyTheme() further up,
-  // which is each person's own light/dark preference in localStorage. The two
-  // are independent and compose — Kinetic in dark mode is a valid combination.
-  var UI_THEMES = {
-    ledger: {
-      hint: "The classic look, exactly as documented in the design system. No scroll motion."
-    },
-    kinetic: {
-      hint: "Sections lift and sharpen into focus as you scroll to them. Automatically skipped for anyone whose device asks for reduced motion."
-    },
-    velocity: {
-      hint: "A full redesign: the app as a driver's instrument cluster — carbon surfaces, a tachometer that reads this month against your daily target, and seven-segment figures. Ignores the ledger design system by design. Motion is skipped for anyone whose device asks for reduced motion."
-    }
-  };
-  var DEFAULT_UI_THEME = "ledger";
-
-  // The Velocity theme's instrument cluster.
-  //
-  // This replaces the pointer-tracked car of the previous Velocity world,
-  // which ran a global mousemove listener and a requestAnimationFrame loop
-  // for as long as the theme was on — every frame, whether or not anything
-  // had changed. The cluster needs neither: the needle only moves when the
-  // underlying figures move, so the whole theme is now idle at rest.
-  var velocityMotion = (function(){
-    // Sweep geometry, kept here and matching the SVG in index.html: a 250°
-    // sweep whose arc length at r=100 is 436.33 units. The needle is drawn
-    // pointing straight up, so its travel is -125° to +125°.
-    var SWEEP_DEG = 250, ARC_LEN = 436.33, NEEDLE_START = -125;
-    // Full deflection is 130% of target, which puts the 100% mark at 0.769
-    // of the sweep — exactly where the redline band starts. That is what
-    // makes the redline mean "over target" rather than being decoration.
-    var FULL_SCALE = 1.3;
-    var armed = false, t1 = null, t2 = null;
-
-    function reduced(){
-      return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    }
-
-    // The ignition self-test: the needle drops to zero, swings to full
-    // deflection, then settles on the real figure — what every analogue
-    // cluster does when the ignition is turned on.
-    //
-    // Driven by stepping the same inline transform the value sync writes,
-    // and letting the needle's CSS transition interpolate between steps. A
-    // keyframe animation cannot do this: any fill mode that holds its last
-    // frame outranks an inline style, so the needle would park at the
-    // keyframe's angle rather than at the value it is reporting. One writer
-    // for the angle, always.
-    function start(){
-      if(armed) return;
-      armed = true;
-      var n = document.getElementById("vNeedle");
-      // Reduced motion still gets a correct needle — it is placed by the
-      // value sync, it simply doesn't perform the sweep on the way there.
-      if(!n || reduced()) return;
-      n.style.transform = "rotate(" + NEEDLE_START + "deg)";
-      t1 = setTimeout(function(){
-        n.style.transform = "rotate(" + (NEEDLE_START + SWEEP_DEG) + "deg)";
-      }, 60);
-      t2 = setTimeout(syncVelocitySpecs, 760);
-    }
-
-    function stop(){
-      if(!armed) return;
-      armed = false;
-      // Clear pending steps so a sweep can't land after the theme changed
-      // and leave a needle behind in a theme that no longer shows one.
-      if(t1){ clearTimeout(t1); t1 = null; }
-      if(t2){ clearTimeout(t2); t2 = null; }
-    }
-
-    return {
-      start:start, stop:stop,
-      SWEEP_DEG:SWEEP_DEG, ARC_LEN:ARC_LEN,
-      NEEDLE_START:NEEDLE_START, FULL_SCALE:FULL_SCALE
-    };
-  })();
-
-  // Mirrors the real stat values into the cluster. The cluster is
-  // aria-hidden, so everything here is a visual echo of numbers already
-  // announced once from the actual stat cards — never a second source of
-  // truth, and never a figure this function computes for itself.
-  function syncVelocitySpecs(){
-    if(document.body.getAttribute("data-ui-theme") !== "velocity") return;
-
-    var pairs = [
-      ["vSpecAvg","monthAvg"],   ["vSpecStreak","streak"], ["vSpecOt","otBank"],
-      ["vRoWeek","weekAvg"],     ["vGaugeVal","monthAvg"], ["vSecPeriod","heroMonthLabel"]
-    ];
-    pairs.forEach(function(p){
-      var dest = document.getElementById(p[0]), src = document.getElementById(p[1]);
-      if(dest && src) dest.textContent = src.textContent;
-    });
-
-    // Mirrors the same weighted target renderStats() published on the
-    // progress bar (data-target-min) rather than recomputing it from a flat
-    // constant, which would show 8h during a 5h seasonal period.
-    var tgtEl = document.getElementById("vRoTarget");
-    if(tgtEl){
-      var fillForTarget = document.getElementById("heroProgressFill");
-      var tgtMin = fillForTarget ? parseFloat(fillForTarget.getAttribute("data-target-min")) : NaN;
-      tgtEl.textContent = minutesToHoursStr(isFinite(tgtMin) ? tgtMin : targetMinPerDay());
-    }
-
-    // Needle, arc and state all derive from the one ratio renderStats()
-    // publishes on the progress bar, so the cluster can never disagree with
-    // the hero it sits above.
-    var fill = document.getElementById("heroProgressFill");
-    var ratio = fill ? parseFloat(fill.getAttribute("data-ratio")) : 0;
-    if(!isFinite(ratio) || ratio < 0) ratio = 0;
-    var f = Math.min(ratio / velocityMotion.FULL_SCALE, 1);
-
-    var needle = document.getElementById("vNeedle");
-    if(needle){
-      needle.style.transform =
-        "rotate(" + (velocityMotion.NEEDLE_START + f * velocityMotion.SWEEP_DEG).toFixed(2) + "deg)";
-    }
-    var arc = document.getElementById("vGaugeArc");
-    if(arc) arc.setAttribute("stroke-dashoffset", (velocityMotion.ARC_LEN * (1 - f)).toFixed(2));
-
-    // Floored, not rounded — same reason as pMetRate/progressPct: 99.6%
-    // rounding up to "100%" would claim the target was fully met when it's
-    // still short.
-    var metEl = document.getElementById("vSecMet");
-    if(metEl) metEl.textContent = ratio ? Math.floor(ratio * 100) + "%" : "—";
-
-    // Over / on / under, from the same ratio. Hidden entirely rather than
-    // showing a state for a month with nothing logged in it yet.
-    var state = document.getElementById("vGaugeState");
-    if(state){
-      if(!ratio){
-        state.hidden = true;
-      }else{
-        state.hidden = false;
-        state.textContent = ratio >= 1 ? "Over Target"
-          : (ratio >= 0.98 ? "On Target" : "Under Target");
-      }
-    }
-  }
-
-  // Scroll-driven reveal for the Kinetic theme — fallback path only.
-  // Engines with CSS scroll-driven timelines (animation-timeline:view()) run
-  // this entirely in CSS, off the main thread; see the matching block in
-  // index.html. This branch covers the ones that don't. It adds the
-  // `reveal-ready` gate class itself, so if the script is blocked or throws
-  // before this runs, the CSS never hides anything and the page renders fully
-  // visible instead of blank.
-  var scrollReveal = (function(){
-    // Keep in sync with the @supports (animation-timeline: view()) selector
-    // list in index.html — both paths must cover the same elements.
-    var REVEAL_SELECTOR = ".hero-stat, .stats-row .stat-card, " +
-      "main > .card:not(.settings-card), .period-card, .team-card";
-    var io = null, mo = null, queued = false;
-
-    // True when the CSS path already handles it, or the browser lacks the
-    // observers this fallback is built on.
-    var cssHandlesIt = !!(window.CSS && CSS.supports && CSS.supports("animation-timeline: view()"));
-    var noObservers = !("IntersectionObserver" in window) || !("MutationObserver" in window);
-
-    function scan(){
-      if(!io) return;
-      document.querySelectorAll(REVEAL_SELECTOR).forEach(function(el){
-        if(el.classList.contains("reveal")) return;
-        el.classList.add("reveal");
-        io.observe(el);
-      });
-    }
-
-    function start(){
-      if(cssHandlesIt || noObservers || io) return;
-      if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      document.body.classList.add("reveal-ready");
-      io = new IntersectionObserver(function(entries){
-        entries.forEach(function(entry){
-          if(!entry.isIntersecting) return;
-          entry.target.classList.add("revealed");
-          io.unobserve(entry.target); // one-shot: never re-hides on scroll back up
-        });
-      }, { rootMargin:"0px 0px -6% 0px", threshold:0.05 });
-      scan();
-      // Trends and Team cards are built after data loads, and the log
-      // re-renders on every filter change, so rescan on DOM changes rather
-      // than reaching into each render function. Coalesced to one pass per
-      // frame so a burst of mutations can't re-run the query dozens of times.
-      mo = new MutationObserver(function(){
-        if(queued) return;
-        queued = true;
-        requestAnimationFrame(function(){ queued = false; scan(); });
-      });
-      mo.observe(document.body, { childList:true, subtree:true });
-    }
-
-    function stop(){
-      if(io){ io.disconnect(); io = null; }
-      if(mo){ mo.disconnect(); mo = null; }
-      document.body.classList.remove("reveal-ready");
-      // Drop per-element state too, so switching back to Kinetic later starts
-      // clean rather than finding everything already marked revealed.
-      document.querySelectorAll(".reveal").forEach(function(el){
-        el.classList.remove("reveal", "revealed");
-      });
-    }
-
-    return { start:start, stop:stop };
-  })();
-
-  // Applies to everyone, admin or not. Returns the theme actually applied.
-  function applyUiTheme(name){
-    // Anything unrecognised falls back rather than leaving the page in a
-    // half-styled state — e.g. an older client meeting a newer stored theme.
-    var theme = Object.prototype.hasOwnProperty.call(UI_THEMES, name) ? name : DEFAULT_UI_THEME;
-    document.body.setAttribute("data-ui-theme", theme);
-    // Kinetic and Velocity both reveal on scroll; only Velocity adds pointer
-    // depth. Always stop the one that isn't wanted so switching themes at
-    // runtime tears down cleanly instead of leaving observers attached.
-    if(theme === "kinetic" || theme === "velocity") scrollReveal.start(); else scrollReveal.stop();
-    // Sync before arming: the sync places the needle at its real value, and
-    // the sweep then deliberately overrides it to run zero -> full -> value.
-    // Arming first would let the sync land on top of the sweep's first step
-    // and the needle would never visit zero.
-    syncVelocitySpecs();
-    if(theme === "velocity") velocityMotion.start(); else velocityMotion.stop();
-    // Charts bake their colours in at render time (cssVar() reads --gold,
-    // --positive, --negative and --line when the SVG string is built), so a
-    // theme switch has to redraw them or they keep the previous theme's
-    // palette until something else happens to re-render them. This was
-    // already true of the light/dark toggle, which calls renderCharts() for
-    // the same reason; the org-theme switch was missing it.
-    renderCharts();
-    return theme;
-  }
-
-  function updateThemeHint(unsaved){
-    var sel = document.getElementById("setTheme");
-    var hint = document.getElementById("setThemeHint");
-    if(!sel || !hint) return;
-    var t = UI_THEMES[sel.value] || UI_THEMES[DEFAULT_UI_THEME];
-    hint.textContent = unsaved
-      ? t.hint + " Previewing for you only — press Save App Settings to apply it for everyone."
-      : t.hint;
-  }
-
-  // Preview the theme the moment it's picked, so an admin can see it before
-  // committing it to the whole organisation. Nothing is persisted until Save.
-  var setThemeEl = document.getElementById("setTheme");
-  if(setThemeEl){
-    setThemeEl.addEventListener("change", function(){
-      applyUiTheme(this.value);
-      updateThemeHint(true);
-    });
-  }
-
   async function loadAppSettings(){
     try{
       var res = await supabase.from("app_settings").select("*").eq("id", 1).maybeSingle();
@@ -5328,12 +5056,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("setAnnouncement").value = s.announcement || "";
       fillDefaultsForm(s.default_settings);
       applyAppSettings(s);
-      // Reflect the theme that actually rendered, not the raw column — if the
-      // stored value is one this client doesn't know, the picker should show
-      // the fallback it's really displaying rather than sitting blank.
-      var themeSel = document.getElementById("setTheme");
-      if(themeSel) themeSel.value = document.body.getAttribute("data-ui-theme");
-      updateThemeHint(false);
     }catch(err){
       // Non-fatal: the app works without org settings. Surfaced rather than
       // swallowed so a misconfigured announcement isn't invisible.
@@ -5352,7 +5074,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
     var regBtn = document.getElementById("showRegisterBtn");
     if(regBtn) regBtn.style.display = (s && s.allow_registration === false) ? "none" : "";
-    applyUiTheme(s && s.theme);
   }
 
   // ---------- Organisation defaults ----------
@@ -5510,7 +5231,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       allow_registration: document.getElementById("setAllowRegistration").checked,
       announcement_active: document.getElementById("setAnnouncementActive").checked,
       announcement: document.getElementById("setAnnouncement").value.trim(),
-      theme: document.getElementById("setTheme").value,
       updated_at: new Date().toISOString(),
       updated_by: currentUser.id
     };
@@ -5523,7 +5243,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var res = await supabase.from("app_settings").update(payload).eq("id", 1);
       if(res.error) throw res.error;
       applyAppSettings(payload);
-      updateThemeHint(false); // no longer a local preview — it's everyone's now
       showToast(successMsg, "success");
     }catch(err){
       showToast("Couldn't save app settings: " + friendlyError(err), "error");
@@ -5533,9 +5252,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   document.getElementById("saveAppSettingsBtn").addEventListener("click", function(){
     saveAppSettings(this, "App settings saved.");
-  });
-  document.getElementById("saveThemeBtn").addEventListener("click", function(){
-    saveAppSettings(this, "Theme saved.");
   });
 
   // ---------- Data health ----------
@@ -5705,7 +5421,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // Built before loadAppSettings() below, which fills it from
     // app_settings.default_settings.
     buildDefaultsDayPicker();
-    applyTheme(safeGet(THEME_KEY) === "dark" ? "dark" : "light");
     document.getElementById("fDate").value = todayStr();
     document.getElementById("fToDate").value = todayStr();
     updateLiveClock();
@@ -5768,7 +5483,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
-  applyTheme(safeGet(THEME_KEY) === "dark" ? "dark" : "light");
   updateLiveClock();
 
   var resizeTimer;
