@@ -213,7 +213,7 @@ async function boot(browser, server, query){
     const s = await page.evaluate(() => ({
       menu: !!document.getElementById("headMenu"),
       menuBtn: !!document.getElementById("headMenuBtn"),
-      onBar: ["themeBtn","settingsBtn","logoutBtn","adminBtn"].map(id => {
+      onBar: ["settingsBtn","logoutBtn","adminBtn"].map(id => {
         const el = document.getElementById(id);
         if(!el) return `${id}: MISSING`;
         const r = el.getBoundingClientRect();
@@ -257,19 +257,18 @@ async function boot(browser, server, query){
     ok(s.stripSelected === 0, "no tab claims selection while Admin is open", JSON.stringify(s));
   }
   {
-    // Icon-only: the accessible name must describe the action and follow it.
-    const s = await page.evaluate(() => {
-      const b = document.getElementById("themeBtn");
-      const before = b.getAttribute("aria-label");
-      b.click();
-      const mid = {label: b.getAttribute("aria-label"), dark: document.body.classList.contains("dark")};
-      b.click();
-      return {before, mid, after: b.getAttribute("aria-label"),
-        light: !document.body.classList.contains("dark")};
-    });
-    ok(/dark/i.test(s.before) && s.mid.dark && /light/i.test(s.mid.label),
-      "the theme button toggles and renames itself to the next action", JSON.stringify(s));
-    ok(s.light && /dark/i.test(s.after), "toggling back restores light mode", JSON.stringify(s));
+    // The per-user light/dark toggle and the org-wide theme picker were both
+    // retired with the move to the Atrium design system: one committed look,
+    // no switch to keep in sync. Assert they stay gone rather than dropping
+    // the coverage — a reintroduced toggle is a regression, not a feature.
+    const s = await page.evaluate(() => ({
+      themeBtn: !!document.getElementById("themeBtn"),
+      themePicker: !!document.getElementById("setTheme"),
+      darkClass: document.body.classList.contains("dark"),
+      uiThemeAttr: document.body.getAttribute("data-ui-theme"),
+    }));
+    ok(!s.themeBtn && !s.themePicker, "the theme toggle and org theme picker are gone", JSON.stringify(s));
+    ok(!s.darkClass && s.uiThemeAttr === null, "no dark-mode class or theme attribute remains", JSON.stringify(s));
   }
   {
     // At phone width the Admin label is hidden to save the bar, so the button
@@ -319,7 +318,8 @@ async function boot(browser, server, query){
         }),
       };
     });
-    ok(s.count === 8, "the console is split into collapsible sections", JSON.stringify(s.count));
+    // 7 since "Themes & Layouts" was removed with the theme picker.
+    ok(s.count === 7, "the console is split into collapsible sections", JSON.stringify(s.count));
     ok(s.open.join(",") === "admin-overview,admin-people",
       "only the two everyday sections start open", JSON.stringify(s.open));
     ok(s.panelHeight < 1800, "the collapsed console fits a scannable page", `${s.panelHeight}px`);

@@ -8,7 +8,7 @@ const vm = require("vm");
 const { slice } = require("../extract");
 
 const code = [
-  slice('var DAY_NAMES = ["Sun"', "var THEME_KEY"),
+  slice('var DAY_NAMES = ["Sun"', "var DEFAULT_SETTINGS = {"),
   slice("var DEFAULT_SETTINGS = {", "// ---------- Auth"),
   "var settings = Object.assign({}, DEFAULT_SETTINGS);",
   "var entries = [];",

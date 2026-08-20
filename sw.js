@@ -10,18 +10,22 @@
 // Attendance data itself still requires a connection — this does NOT implement
 // offline data access, which would need a sync/queue layer.
 
-const CACHE_NAME = "attendance-ledger-shell-v5";
+const CACHE_NAME = "attendance-ledger-shell-v6";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
 // for the directory and would never match a cache entry keyed to index.html.
 //
-// The theme stylesheets are <link>ed from index.html (see themes/*/theme.css),
-// not inlined, so they're listed here too — otherwise an offline boot would
-// render Kinetic/Velocity unstyled. Each theme's font files are not precached:
-// they're a progressive enhancement behind font-display:swap, so a missed
-// fetch offline just falls back to the next font in the stack instead of
-// breaking anything, and it's not worth the cache weight to guarantee them.
+// The theme stylesheets that used to be listed here are gone: the app ships one
+// design system (Atrium) and its CSS is inline in index.html. Leaving the three
+// dead paths in place was worse than it looked — cache.addAll rejects if ANY
+// entry 404s, and the .catch() below swallows that, so three missing files
+// meant nothing at all got precached and offline boot failed silently.
+//
+// Switzer is precached, unlike the old themes' fonts. It is behind
+// font-display:swap so a miss is survivable, but it is now the entire
+// typographic identity rather than one theme's flourish, and 72KB is cheap
+// insurance against an offline boot rendering in Arial.
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -33,9 +37,10 @@ const SHELL_FILES = [
   "./favicon-32.png",
   "./favicon-16.png",
   "./apple-touch-icon.png",
-  "./themes/ledger/theme.css",
-  "./themes/kinetic/theme.css",
-  "./themes/velocity/theme.css"
+  "./fonts/Switzer-Regular.woff2",
+  "./fonts/Switzer-Medium.woff2",
+  "./fonts/Switzer-Bold.woff2",
+  "./fonts/Switzer-Black.woff2"
 ];
 
 self.addEventListener("install", (event) => {
