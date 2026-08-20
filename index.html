@@ -375,7 +375,7 @@
      on — the month figure, who you are, who is in, and the clock — are all on
      screen at once. So the panel is a fixed grid rather than a stack, and the
      pieces inside it are tightened up to earn the space. */
-  .overview-panel{margin-bottom:24px;}
+  .overview-panel{margin-bottom:14px;}
   .overview-panel > .hero-stat{margin-bottom:14px;}
   .overview-panel > .person-row{margin-bottom:14px;}
   .overview-panel > .stats-row{margin-bottom:14px;}
@@ -389,31 +389,136 @@
   /* On a short laptop the roster is the one part that can grow without bound,
      so it scrolls inside its own card instead of pushing the page down. */
   .overview-panel .today-team-list{max-height:190px; overflow-y:auto;}
+  /* The reference's grid: a person card and a donut side by side, a tall
+     roster card down the right spanning both, the week timeline underneath
+     them, and a row of stat tiles across the foot. */
   @media (min-width:1100px){
     /* .tab-panel.active sets display:block at two classes; a media query adds
        no specificity, so this needs three to win regardless of source order. */
     .tab-panel.overview-panel.active{
-      display:grid; align-content:start; gap:14px;
-      grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);
-      grid-template-areas:"hero side" "stats side" "entry side";
+      display:grid; gap:14px;
+      grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.05fr);
+      grid-template-areas:
+        "person donut roster"
+        "week   week  roster"
+        "tiles  tiles tiles";
+      /* The whole point of this tab is that it does not scroll, so it is sized
+         to the viewport and the rows share what is left after the header,
+         the page padding and the footer. Without this the week strip and the
+         roster grow to their content and push the tiles off the bottom. */
+      height:calc(100vh - 250px);
+      min-height:520px;
+      grid-template-rows:minmax(0,0.92fr) minmax(0,1fr) auto;
     }
-    .overview-panel > .hero-stat{grid-area:hero; margin:0;}
-    .overview-panel > .stats-row{grid-area:stats; margin:0;}
-    .overview-panel > .card{grid-area:entry; margin:0;}
-    /* The person card and the roster stack down the side column, so
-       .person-row's own two-up grid is replaced here. */
-    .overview-panel > .person-row{
-      grid-area:side; margin:0; display:flex; flex-direction:column; gap:14px;
+    /* Grid children default to min-height:auto, which refuses to shrink below
+       their content — the rows above can only do their job if these may. */
+    .overview-panel > .person-card,
+    .overview-panel > .donut-card,
+    .overview-panel > .today-team,
+    .overview-panel > .ov-week{min-height:0; overflow:hidden;}
+    .overview-panel .today-team-list{overflow-y:auto;}
+    .overview-panel .ov-week .weekline{overflow:hidden; min-height:0;}
+    .overview-panel .ov-week .wl-col{min-height:0;}
+    .overview-panel .person-card{overflow-y:auto;}
+    .overview-panel > .person-card{grid-area:person; margin:0;}
+    .overview-panel > .donut-card{grid-area:donut; margin:0;}
+    .overview-panel > .ov-week{grid-area:week; margin:0;}
+    .overview-panel > .stats-row{grid-area:tiles; margin:0;}
+    .overview-panel > .today-team{
+      grid-area:roster; margin:0; align-self:stretch;
+      display:flex; flex-direction:column;
     }
-    .overview-panel > .person-row.solo{display:flex;}
-    /* auto-fit reflowed to 2x2 in the narrower left column, costing ~150px of
-       height the fold cannot spare. Four across is explicit here. */
-    .overview-panel .stats-row{grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px;}
-    .overview-panel .stat-card{padding:14px 14px 12px;}
+    .overview-panel .today-team-list{flex:1; max-height:none;}
+    /* Five tiles across the foot, as the reference has. */
+    .overview-panel .stats-row{grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px;}
+    .overview-panel .stat-card{padding:12px 14px 11px;}
+    .overview-panel .stat-detail{display:none;}
+    .overview-panel .person-card,
+    .overview-panel .donut-card,
+    .overview-panel .today-team,
+    .overview-panel .ov-week{padding:16px 18px 14px;}
     .overview-panel .stat-value{font-size:26px;}
-    .overview-panel > .card{padding:18px 20px 18px;}
-    .overview-panel .today-team-list{max-height:none;}
+    /* The hero reads as one of the five tiles: a label, a figure, its bar. */
+    .overview-panel .hero-stat{
+      display:flex; flex-direction:column; justify-content:center; gap:6px;
+      padding:14px 16px 13px; margin:0; border-radius:var(--radius);
+    }
+    .overview-panel .hero-col-meta{border:none; padding:0; margin:0;}
+    .overview-panel .hero-detail{display:none;}
+    .overview-panel .hero-value{font-size:26px;}
+    .overview-panel .hero-stat-top{flex-direction:column; align-items:flex-start; gap:2px;}
+    .overview-panel .hero-period{font-size:10px;}
+    .overview-panel .hero-progress{gap:8px;}
   }
+
+  /* Person card: clock readout and actions. */
+  .person-clock{display:flex; align-items:baseline; gap:10px; margin-top:16px; flex-wrap:wrap;}
+  .person-clock .qc-time{font-family:var(--font-num); font-weight:900; font-size:24px; letter-spacing:-.03em;}
+  .person-clock .qc-date{font-size:11.5px; color:var(--muted-2);}
+  .person-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
+  .person-actions .btn{min-height:38px; padding:9px 14px; font-size:12px;}
+  .person-card .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:var(--ink-on-gold);}
+  .person-card .btn.secondary.qc-btn{background:var(--card); border-color:var(--line); color:var(--ink);}
+
+  /* Donut: the day-type split, the reference's "Working format" card. */
+  .donut-card{display:flex; flex-direction:column;}
+  .donut-wrap{
+    flex:1; display:flex; align-items:center; justify-content:center;
+    min-height:0; padding:4px 0 10px;
+  }
+  .donut-wrap svg{width:100%; height:auto; max-height:190px;}
+  .donut-centre-value{
+    font-family:var(--font-num); font-weight:900; font-size:26px; letter-spacing:-.03em; fill:var(--ink);
+  }
+  .donut-centre-label{
+    font-size:9px; letter-spacing:.12em; text-transform:uppercase; fill:var(--muted);
+  }
+  .donut-legend{display:flex; gap:14px; flex-wrap:wrap;}
+  .donut-legend .dl{display:flex; align-items:center; gap:6px; font-size:10px;}
+  .donut-legend .dl i{width:8px; height:8px; border-radius:50%; flex-shrink:0;}
+  .donut-legend .dl b{font-weight:700; font-size:11.5px;}
+  .donut-legend .dl span{
+    color:var(--muted); text-transform:uppercase; letter-spacing:.06em; font-weight:600;
+  }
+
+  /* Roster header + progress, matching the reference's percentage bar. */
+  .tt-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
+  .tt-head h2{margin:0;}
+  .tt-pct{font-family:var(--font-num); font-weight:900; font-size:30px; letter-spacing:-.04em;}
+  .tt-progress{
+    height:6px; border-radius:99px; background:var(--line-soft); overflow:hidden; margin:10px 0 4px;
+  }
+  .tt-progress-fill{
+    height:100%; width:0; border-radius:99px;
+    background:linear-gradient(90deg, var(--gold) 0%, var(--mint) 100%);
+    transition:width var(--dur-slower) var(--ease-soft);
+  }
+  .tt-scale{
+    display:flex; justify-content:space-between; font-size:9px; color:var(--muted);
+    letter-spacing:.06em; margin-bottom:8px;
+  }
+
+  /* Overview's own week strip. */
+  .ov-week{display:flex; flex-direction:column;}
+  .ov-week-head{display:flex; align-items:center; gap:10px; margin-bottom:12px;}
+  .ov-week-label{
+    font-family:var(--font-display); font-weight:700; font-size:15px;
+    letter-spacing:-.02em; flex:1; text-align:center;
+  }
+  .ov-week .weekline{border:none; background:none; padding:0; flex:1;}
+  .ov-week .wl-col{min-height:112px;}
+
+  /* ---------- Entry modal ---------- */
+  .entry-modal{position:fixed; inset:0; z-index:320; display:flex; align-items:center; justify-content:center; padding:20px;}
+  .entry-modal[hidden]{display:none;}
+  .entry-modal-backdrop{position:absolute; inset:0; background:rgba(17,17,16,.45);}
+  .entry-modal-card{
+    position:relative; background:var(--card); border-radius:var(--radius);
+    box-shadow:var(--shadow-lg); width:min(720px, 100%);
+    max-height:88vh; overflow-y:auto; padding:22px 24px 24px;
+  }
+  .entry-modal-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px;}
+  .entry-modal-head h2{margin:0; font-size:21px; font-weight:700; letter-spacing:-.025em;}
 
   /* ---------- Person card + today's team ----------
      Two panels side by side; the team panel is admin-only and carries [hidden]
@@ -594,14 +699,14 @@
     border-radius:var(--radius); padding:18px 22px; margin-bottom:8px; box-shadow:var(--shadow-md);
   }
   .quick-clock-time{display:flex; flex-direction:column; gap:2px; position:relative;}
-  .qc-label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--gold-light);}
-  .qc-time{font-family:var(--font-num); font-weight:600; font-size:27px; color:#fff; font-variant-numeric:tabular-nums; letter-spacing:.01em;}
-  .qc-date{font-size:11.5px; color:var(--muted-on-dark); margin-top:1px;}
+  .qc-label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted);}
+  .qc-time{font-family:var(--font-num); font-weight:900; font-size:24px; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.03em;}
+  .qc-date{font-size:11.5px; color:var(--muted-2); margin-top:1px;}
   .quick-clock-actions{display:flex; gap:10px; flex-wrap:wrap; position:relative;}
   .qc-btn{display:inline-flex; align-items:center; gap:7px;}
   .quick-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:var(--ink-on-gold);}
   .quick-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.22); color:#fff;}
-  .qc-note{font-size:12px; color:var(--muted); margin:10px 2px 18px; min-height:16px;}
+  .qc-note{font-size:12px; color:var(--muted); margin:10px 2px 0; min-height:0;}
   .qc-note.success{color:var(--positive);}
   .qc-note.pulse{animation:fadeIn .3s var(--ease-soft);}
 
@@ -688,8 +793,9 @@
   .form-actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
 
   /* ---------- Settings ---------- */
-  .settings-card{display:none;}
-  .settings-card.open{display:block; animation:fadeIn .25s var(--ease-soft);}
+  /* The card fills its tab; visibility is the tab panel's job now, so the
+     old .open toggle only has to not hide it. */
+  .settings-card{display:block;}
   .daypicker{display:flex; gap:6px; flex-wrap:wrap;}
   .daypicker input{position:absolute; opacity:0; width:0; height:0;}
   .daypicker label{
@@ -1197,12 +1303,12 @@
   .spark-rect{transform-box:fill-box; transform-origin:bottom; animation:barGrow .4s var(--ease-soft) both;}
 
   footer.ledger-foot{
-    max-width:1280px; margin:0 auto; padding:14px 32px 18px;
+    max-width:1280px; margin:0 auto; padding:10px 32px 14px;
   }
   .foot-row{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
   .foot-note{font-size:11px; color:var(--muted-2); max-width:340px;}
   /* No opacity: stacking .75 on an already-secondary colour took this to 2.06:1. */
-  .copyright{font-size:11px; color:var(--muted-2); text-align:center; margin:10px 0 0;}
+  .copyright{font-size:11px; color:var(--muted-2); text-align:center; margin:8px 0 0;}
   /* Available to assistive technology, not painted. Used for the loading live
      region and the mobile table column labels above the card breakpoint. */
   .visually-hidden{
@@ -2016,163 +2122,14 @@
     </div>
   </div>
 
-  <section class="card settings-card" id="settingsCard">
-    <h2>Schedule Settings</h2>
-    <p class="settings-hint" id="settingsForLabel" style="margin:-10px 0 18px;"></p>
-
-    <!-- Your photo. Stored in this browser only — see the profile-photo block
-         in app.js for why, and what that costs. The hint text says so plainly
-         rather than letting someone assume their team can see it. -->
-    <div class="photo-row" id="photoRow">
-      <div class="avatar lg" id="settingsAvatar"></div>
-      <div class="photo-row-text">
-        <p class="photo-row-title">Your photo</p>
-        <p class="settings-hint" style="margin:2px 0 0;">
-          Saved on this device only — it isn't uploaded, so your team won't see it
-          and it won't follow you to another browser.
-        </p>
-        <div class="photo-row-actions">
-          <button type="button" class="btn ghost small" id="photoChooseBtn">Choose photo</button>
-          <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
-          <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
-        </div>
-      </div>
-    </div>
-
-    <label class="check-row" for="sApplyAll" style="margin:-8px 0 18px;">
-      <input type="checkbox" id="sApplyAll">
-      <span>
-        <strong>Apply to everyone</strong>
-        <em>Save these schedule settings for every team member at once, instead of just the person you're currently viewing.</em>
-      </span>
-    </label>
-
-    <div class="accordion-section open" data-section="hours">
-      <button type="button" class="accordion-head">
-        <span>Working Hours &amp; Schedule</span>
-        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="accordion-body">
-        <div style="margin-bottom:18px;">
-          <label>Working Days</label>
-          <div class="daypicker" id="dayPicker"></div>
-        </div>
-        <div class="form-grid">
-          <div>
-            <label for="sTargetH">Target Hours</label>
-            <input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric">
-          </div>
-          <div>
-            <label for="sTargetM">Target Minutes</label>
-            <input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric">
-          </div>
-          <div>
-            <label for="sIn">Standard Start</label>
-            <input type="time" id="sIn">
-          </div>
-          <div>
-            <label for="sOut">Standard End</label>
-            <input type="time" id="sOut">
-          </div>
-          <div>
-            <label for="sRemind">Remind After (hours)</label>
-            <input type="number" id="sRemind" min="1" max="24" step="0.5">
-          </div>
-          <div>
-            <label for="sGrace">Grace Period (minutes)</label>
-            <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
-          </div>
-          <div>
-            <label for="sLeaveDays">Annual Leave Days / Year</label>
-            <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
-          </div>
-        </div>
-        <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival. "Annual Leave Days" is the yearly entitlement used to calculate the Leave Balance card.</p>
-      </div>
-    </div>
-
-    <div class="accordion-section" data-section="punctuality">
-      <button type="button" class="accordion-head">
-        <span>Log Highlighting</span>
-        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="accordion-body">
-        <p class="settings-hint" style="margin:0 0 12px;">
-          Only affects the Log tab, which marks a clock time red when it's outside your standard hours by more
-          than the grace period. The Shortfall tab ignores clock times entirely — it only cares whether the
-          hours got made up.
-        </p>
-        <label class="check-row" for="sLateOnlyShort" style="margin-top:0;">
-          <input type="checkbox" id="sLateOnlyShort">
-          <span>
-            <strong>Only mark a late arrival red if I didn't complete my target hours</strong>
-            <em>A late start you make up by staying later won't be highlighted in the Log. Turn this off to always mark late arrivals and early departures, regardless of hours worked.</em>
-          </span>
-        </label>
-      </div>
-    </div>
-
-    <div class="accordion-section" data-section="seasonal">
-      <button type="button" class="accordion-head">
-        <span>Seasonal Hours</span>
-        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="accordion-body">
-        <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
-          <div class="periods-head">
-            <span></span>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
-              <button type="button" class="btn ghost small" id="addPeriodBtn">+ Add Period</button>
-            </div>
-          </div>
-          <p class="settings-hint" style="margin:0 0 12px;">Reduced hours for a date range, such as Ramadan or summer schedules. These override the standard hours above for the dates they cover. The Ramadan button fills in the expected dates and a 6-hour day — confirm them once the moon sighting is announced, since the start can shift by a day.</p>
-          <div id="periodsList"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="form-actions">
-      <button type="button" class="btn" id="saveSettingsBtn">Save Settings</button>
-      <button type="button" class="btn ghost" id="closeSettingsBtn">Close</button>
-    </div>
-  </section>
 
   <!-- Overview. Everything that used to sit stacked above the tab strip is a
        tab of its own now, so switching views replaces the screen instead of
        scrolling past the same four cards every time. -->
-  <div class="tab-panel overview-panel active" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview" tabindex="0">
-  <section class="hero-stat" id="heroStat">
-    <div class="skeleton-overlay">
-      <span class="skeleton-dark" style="width:150px; height:10px; border-radius:4px;"></span>
-      <span class="skeleton-dark" style="width:190px; height:42px; margin-top:6px;"></span>
-      <span class="skeleton-dark" style="width:220px; height:10px; margin-top:4px; border-radius:4px;"></span>
-      <span class="skeleton-dark" style="width:100%; height:8px; border-radius:99px; margin-top:12px;"></span>
-    </div>
-    <div class="hero-col-value">
-      <div class="hero-stat-top">
-        <span class="hero-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month's Average</span>
-        <span class="hero-period" id="heroMonthLabel">—</span>
-      </div>
-      <div class="hero-value-row">
-        <span class="hero-value" id="monthAvg">0h</span>
-        <span class="hero-trend" id="monthTrend"></span>
-      </div>
-    </div>
-    <div class="hero-col-meta">
-      <p class="hero-detail" id="monthAvgDetail">—</p>
-      <div class="hero-progress">
-        <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill"></div></div>
-        <span class="hero-progress-label" id="heroProgressLabel"></span>
-      </div>
-    </div>
-  </section>
+  <div class="tab-panel standalone overview-panel active" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview" tabindex="0">
 
-  <!-- Whose record is on screen, and who is in today. The reference pairs a
-       person card with a checklist; these are this product's version of both.
-       The team panel is admin-only and removes itself for everyone else, at
-       which point the person card takes the full width. -->
-  <section class="person-row solo" id="personRow">
+  <!-- Whose record is on screen, the day-type split, and who is in today.
+       Direct children of the overview grid so each takes its own area. -->
     <div class="card person-card" id="personCard">
       <div class="person-head">
         <div class="avatar lg" id="personAvatar"></div>
@@ -2183,15 +2140,83 @@
         <span class="team-status" id="personStatus" hidden></span>
       </div>
       <div class="person-figures" id="personFigures"></div>
+      <div class="person-clock">
+        <span class="kicker">Right now</span>
+        <span class="qc-time" id="liveClock">—</span>
+        <span class="qc-date" id="liveDate">—</span>
+      </div>
+      <div class="person-actions">
+        <button type="button" class="btn qc-btn" id="clockInBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+          Clock In
+        </button>
+        <button type="button" class="btn secondary qc-btn" id="clockOutBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H8M11 5l-7 7 7 7"/></svg>
+          Clock Out
+        </button>
+        <button type="button" class="btn ghost" id="openEntryBtn">Add or edit a day</button>
+      </div>
+      <p class="qc-note" id="qcStatusNote"></p>
+    </div>
+
+    <div class="card donut-card" id="donutCard">
+      <h2>Working format</h2>
+      <div class="donut-wrap" id="dayTypeDonut"></div>
+      <div class="donut-legend" id="dayTypeLegend"></div>
     </div>
 
     <div class="card today-team" id="todayTeamCard" hidden>
-      <h2>In today</h2>
+      <div class="tt-head">
+        <h2>In today</h2>
+        <span class="tt-pct" id="todayTeamPct">—</span>
+      </div>
+      <div class="tt-progress"><div class="tt-progress-fill" id="todayTeamFill"></div></div>
+      <div class="tt-scale"><span>0%</span><span>50%</span><span>100%</span></div>
       <div class="today-team-list" id="todayTeamList"></div>
     </div>
-  </section>
+
+    <!-- The same week timeline the Calendar tab draws, rendered into its own
+         container here so the dashboard shows when the week was actually
+         worked, as the reference does. -->
+    <div class="card ov-week" id="ovWeekCard">
+      <div class="ov-week-head">
+        <button type="button" class="btn ghost small" id="ovWeekPrev" aria-label="Previous week">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <span class="ov-week-label" id="ovWeekLabel">—</span>
+        <button type="button" class="btn ghost small" id="ovWeekNext" aria-label="Next week">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      </div>
+      <div class="weekline" id="weekLineOverview"></div>
+    </div>
 
   <section class="stats-row" id="statsRow">
+    <section class="hero-stat" id="heroStat">
+      <div class="skeleton-overlay">
+        <span class="skeleton-dark" style="width:150px; height:10px; border-radius:4px;"></span>
+        <span class="skeleton-dark" style="width:190px; height:42px; margin-top:6px;"></span>
+        <span class="skeleton-dark" style="width:220px; height:10px; margin-top:4px; border-radius:4px;"></span>
+        <span class="skeleton-dark" style="width:100%; height:8px; border-radius:99px; margin-top:12px;"></span>
+      </div>
+      <div class="hero-col-value">
+        <div class="hero-stat-top">
+          <span class="hero-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month's Average</span>
+          <span class="hero-period" id="heroMonthLabel">—</span>
+        </div>
+        <div class="hero-value-row">
+          <span class="hero-value" id="monthAvg">0h</span>
+          <span class="hero-trend" id="monthTrend"></span>
+        </div>
+      </div>
+      <div class="hero-col-meta">
+        <p class="hero-detail" id="monthAvgDetail">—</p>
+        <div class="hero-progress">
+          <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill"></div></div>
+          <span class="hero-progress-label" id="heroProgressLabel"></span>
+        </div>
+      </div>
+    </section>
     <div class="stat-card">
       <div class="skeleton-overlay">
         <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
@@ -2236,83 +2261,134 @@
     </div>
   </section>
 
-  <section class="card">
-    <h2>New Entry</h2>
-
-    <div class="quick-clock">
-      <div class="quick-clock-time">
-        <span class="qc-label">Right now</span>
-        <span class="qc-time" id="liveClock">—</span>
-        <span class="qc-date" id="liveDate">—</span>
-      </div>
-      <div class="quick-clock-actions">
-        <button type="button" class="btn qc-btn" id="clockInBtn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
-          Clock In Now
-        </button>
-        <button type="button" class="btn secondary qc-btn" id="clockOutBtn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H8M11 5l-7 7 7 7"/></svg>
-          Clock Out Now
-        </button>
-      </div>
-    </div>
-    <p class="qc-note" id="qcStatusNote"></p>
-
-    <div class="accordion-section" id="entryFormSection" data-section="manual-entry">
-      <button type="button" class="accordion-head">
-        <span>Add or Edit a Specific Day</span>
-        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="accordion-body">
-    <form id="entryForm" novalidate>
-      <div class="form-grid">
-        <div>
-          <label for="fDate" id="fDateLabel">From</label>
-          <input type="date" id="fDate" required>
-        </div>
-        <div id="fToDateWrap">
-          <label for="fToDate">To</label>
-          <input type="date" id="fToDate">
-        </div>
-        <div>
-          <label for="fIn">Clock In</label>
-          <input type="time" id="fIn">
-        </div>
-        <div>
-          <label for="fOut">Clock Out</label>
-          <input type="time" id="fOut">
-        </div>
-        <div>
-          <label for="fType">Day Type</label>
-          <select id="fType">
-            <option value="regular">Regular</option>
-            <option value="wfh">Work From Home</option>
-            <option value="halfleave">Half Day Leave</option>
-            <option value="leave">Annual Leave</option>
-            <option value="sick">Sick Leave</option>
-            <option value="trip">Business Trip</option>
-            <option value="training">Training</option>
-            <option value="holiday">Public Holiday</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        <div class="full">
-          <label for="fNote">Note (optional)</label>
-          <input type="text" id="fNote" maxlength="500" dir="auto" placeholder="e.g. Left early for appointment">
-        </div>
-      </div>
-      <p class="settings-hint" id="fRangeHint" style="margin:8px 0 0;">Set different From/To dates to apply this entry across every scheduled workday in between — handy for a week of planned leave.</p>
-      <div class="form-actions">
-        <button type="submit" class="btn" id="submitBtn">Add Entry</button>
-        <button type="button" class="btn secondary" id="fillStandardBtn">Fill Standard Hours</button>
-        <button type="button" class="btn ghost" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
-      </div>
-    </form>
-      </div>
-    </div>
-  </section>
   </div><!-- /#tab-overview -->
 
+
+  <!-- Settings is a destination like any other now, rather than a card that
+       expanded in place above the dashboard and pushed it down. -->
+  <div class="tab-panel standalone" id="tab-settings" role="tabpanel" aria-labelledby="tabbtn-settings" tabindex="0">
+    <section class="card settings-card" id="settingsCard">
+      <h2>Schedule Settings</h2>
+      <p class="settings-hint" id="settingsForLabel" style="margin:-10px 0 18px;"></p>
+
+      <!-- Your photo. Stored in this browser only — see the profile-photo block
+           in app.js for why, and what that costs. The hint text says so plainly
+           rather than letting someone assume their team can see it. -->
+      <div class="photo-row" id="photoRow">
+        <div class="avatar lg" id="settingsAvatar"></div>
+        <div class="photo-row-text">
+          <p class="photo-row-title">Your photo</p>
+          <p class="settings-hint" style="margin:2px 0 0;">
+            Saved on this device only — it isn't uploaded, so your team won't see it
+            and it won't follow you to another browser.
+          </p>
+          <div class="photo-row-actions">
+            <button type="button" class="btn ghost small" id="photoChooseBtn">Choose photo</button>
+            <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
+            <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
+          </div>
+        </div>
+      </div>
+
+      <label class="check-row" for="sApplyAll" style="margin:-8px 0 18px;">
+        <input type="checkbox" id="sApplyAll">
+        <span>
+          <strong>Apply to everyone</strong>
+          <em>Save these schedule settings for every team member at once, instead of just the person you're currently viewing.</em>
+        </span>
+      </label>
+
+      <div class="accordion-section open" data-section="hours">
+        <button type="button" class="accordion-head">
+          <span>Working Hours &amp; Schedule</span>
+          <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="accordion-body">
+          <div style="margin-bottom:18px;">
+            <label>Working Days</label>
+            <div class="daypicker" id="dayPicker"></div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label for="sTargetH">Target Hours</label>
+              <input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric">
+            </div>
+            <div>
+              <label for="sTargetM">Target Minutes</label>
+              <input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric">
+            </div>
+            <div>
+              <label for="sIn">Standard Start</label>
+              <input type="time" id="sIn">
+            </div>
+            <div>
+              <label for="sOut">Standard End</label>
+              <input type="time" id="sOut">
+            </div>
+            <div>
+              <label for="sRemind">Remind After (hours)</label>
+              <input type="number" id="sRemind" min="1" max="24" step="0.5">
+            </div>
+            <div>
+              <label for="sGrace">Grace Period (minutes)</label>
+              <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
+            </div>
+            <div>
+              <label for="sLeaveDays">Annual Leave Days / Year</label>
+              <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
+            </div>
+          </div>
+          <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival. "Annual Leave Days" is the yearly entitlement used to calculate the Leave Balance card.</p>
+        </div>
+      </div>
+
+      <div class="accordion-section" data-section="punctuality">
+        <button type="button" class="accordion-head">
+          <span>Log Highlighting</span>
+          <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="accordion-body">
+          <p class="settings-hint" style="margin:0 0 12px;">
+            Only affects the Log tab, which marks a clock time red when it's outside your standard hours by more
+            than the grace period. The Shortfall tab ignores clock times entirely — it only cares whether the
+            hours got made up.
+          </p>
+          <label class="check-row" for="sLateOnlyShort" style="margin-top:0;">
+            <input type="checkbox" id="sLateOnlyShort">
+            <span>
+              <strong>Only mark a late arrival red if I didn't complete my target hours</strong>
+              <em>A late start you make up by staying later won't be highlighted in the Log. Turn this off to always mark late arrivals and early departures, regardless of hours worked.</em>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="accordion-section" data-section="seasonal">
+        <button type="button" class="accordion-head">
+          <span>Seasonal Hours</span>
+          <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="accordion-body">
+          <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
+            <div class="periods-head">
+              <span></span>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
+                <button type="button" class="btn ghost small" id="addPeriodBtn">+ Add Period</button>
+              </div>
+            </div>
+            <p class="settings-hint" style="margin:0 0 12px;">Reduced hours for a date range, such as Ramadan or summer schedules. These override the standard hours above for the dates they cover. The Ramadan button fills in the expected dates and a 6-hour day — confirm them once the moon sighting is announced, since the start can shift by a day.</p>
+            <div id="periodsList"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn" id="saveSettingsBtn">Save Settings</button>
+        <button type="button" class="btn ghost" id="closeSettingsBtn">Close</button>
+      </div>
+    </section>
+  </div><!-- /#tab-settings -->
 
   <section class="card" id="tabContentCard" hidden>
     <div class="tabs-wrap">
@@ -2323,6 +2399,7 @@
         <button class="tab-btn" data-tab="calendar" role="tab" id="tabbtn-calendar" aria-selected="false" aria-controls="tab-calendar">Calendar</button>
         <button class="tab-btn" data-tab="punctuality" role="tab" id="tabbtn-punctuality" aria-selected="false" aria-controls="tab-punctuality">Shortfall</button>
         <button class="tab-btn" data-tab="team" id="teamTabBtn" role="tab" aria-selected="false" aria-controls="tab-team" style="display:none;">Team</button>
+        <button class="tab-btn" data-tab="settings" role="tab" id="tabbtn-settings" aria-selected="false" aria-controls="tab-settings">Settings</button>
       </div>
     </div>
 
@@ -2987,6 +3064,68 @@
   <p class="copyright" id="copyrightLine"></p>
 </footer>
 </div><!-- /.shell -->
+
+
+  <!-- The manual-entry form. It used to sit in a card under the clock, which
+       is most of what made the dashboard scroll. It is a dialog now, opened
+       from the person card or by pressing "n", so the grid stays one screen. -->
+  <div class="entry-modal" id="entryModal" hidden>
+    <div class="entry-modal-backdrop" id="entryModalBackdrop"></div>
+    <div class="entry-modal-card" role="dialog" aria-modal="true" aria-labelledby="entryModalTitle">
+      <div class="entry-modal-head">
+        <h2 id="entryModalTitle">Add or edit a day</h2>
+        <button type="button" class="icon-btn" id="entryModalClose" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="entry-modal-body" id="entryFormSection">
+    <form id="entryForm" novalidate>
+      <div class="form-grid">
+        <div>
+          <label for="fDate" id="fDateLabel">From</label>
+          <input type="date" id="fDate" required>
+        </div>
+        <div id="fToDateWrap">
+          <label for="fToDate">To</label>
+          <input type="date" id="fToDate">
+        </div>
+        <div>
+          <label for="fIn">Clock In</label>
+          <input type="time" id="fIn">
+        </div>
+        <div>
+          <label for="fOut">Clock Out</label>
+          <input type="time" id="fOut">
+        </div>
+        <div>
+          <label for="fType">Day Type</label>
+          <select id="fType">
+            <option value="regular">Regular</option>
+            <option value="wfh">Work From Home</option>
+            <option value="halfleave">Half Day Leave</option>
+            <option value="leave">Annual Leave</option>
+            <option value="sick">Sick Leave</option>
+            <option value="trip">Business Trip</option>
+            <option value="training">Training</option>
+            <option value="holiday">Public Holiday</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="fNote">Note (optional)</label>
+          <input type="text" id="fNote" maxlength="500" dir="auto" placeholder="e.g. Left early for appointment">
+        </div>
+      </div>
+      <p class="settings-hint" id="fRangeHint" style="margin:8px 0 0;">Set different From/To dates to apply this entry across every scheduled workday in between — handy for a week of planned leave.</p>
+      <div class="form-actions">
+        <button type="submit" class="btn" id="submitBtn">Add Entry</button>
+        <button type="button" class="btn secondary" id="fillStandardBtn">Fill Standard Hours</button>
+        <button type="button" class="btn ghost" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
+      </div>
+    </form>
+      </div><!-- /.entry-modal-body -->
+    </div><!-- /.entry-modal-card -->
+  </div><!-- /#entryModal -->
 
 <div id="printArea"></div>
 <div id="loadingLive" class="visually-hidden" role="status" aria-live="polite"></div>

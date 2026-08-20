@@ -1148,10 +1148,22 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(idx !== -1) current.splice(idx, 1);
     renderPeriodRows(current, "defaultsPeriodsList");
   });
+  // Settings is a tab; "closing" it means navigating away rather than
+  // collapsing a card that is the whole panel's content.
+  function leaveSettings(){
+    var active = document.querySelector(".tab-btn.active");
+    if(active && active.getAttribute("data-tab") === "settings"){
+      activateTab("overview");
+    }
+  }
+
   document.getElementById("settingsBtn").addEventListener("click", function(){
     var card = document.getElementById("settingsCard");
-    var opening = !card.classList.contains("open");
-    card.classList.toggle("open", opening);
+    // The card lives in its own tab now, so the button navigates rather than
+    // toggling a panel open in place: it is always expanded once you are there.
+    var opening = true;
+    card.classList.add("open");
+    activateTab("settings");
     if(opening){
       document.getElementById("settingsForLabel").textContent = isOwnData
         ? "Editing your own schedule."
@@ -1166,7 +1178,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     updateStickyClockVisibility();
   });
   document.getElementById("closeSettingsBtn").addEventListener("click", function(){
-    document.getElementById("settingsCard").classList.remove("open");
+    leaveSettings();
     updateStickyClockVisibility();
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
@@ -1253,7 +1265,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       btn.textContent = "Save Settings";
 
       if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = updated;
-      document.getElementById("settingsCard").classList.remove("open");
+      leaveSettings();
       updateStickyClockVisibility();
       renderAll();
       showToast(
@@ -1267,7 +1279,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     try{
       await sbSaveSettings(viewedUserId, updated);
       settings = updated;
-      document.getElementById("settingsCard").classList.remove("open");
+      leaveSettings();
       updateStickyClockVisibility();
       renderAll();
     }catch(err){
@@ -2421,10 +2433,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return out;
   }
 
-  function renderWeekLine(){
-    var host = document.getElementById("weekLine");
+  function renderWeekLine(hostId, baseDate){
+    var host = document.getElementById(hostId || "weekLine");
     if(!host) return;
-    var start = startOfWeek(calendarViewDate);
+    var start = startOfWeek(baseDate || calendarViewDate);
 
     var days = [];
     for(var i=0;i<7;i++){
@@ -2516,7 +2528,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(calMode === "week"){
       grid.hidden = true; grid.style.display = "none";
       week.hidden = false;
-      renderWeekLine();
+      renderWeekLine("weekLine");
       var s = startOfWeek(calendarViewDate);
       var e = new Date(s.getFullYear(), s.getMonth(), s.getDate()+6);
       var sameMonth = s.getMonth() === e.getMonth();
@@ -2560,15 +2572,41 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderCalendarView();
   });
 
+  var entryModalReturn = null;   // focus returns here on close
+
+  function openEntryModal(){
+    var m = document.getElementById("entryModal");
+    if(!m || !m.hidden) return;
+    entryModalReturn = document.activeElement;
+    m.hidden = false;
+    document.body.style.overflow = "hidden";
+    setTimeout(function(){ document.getElementById("fDate").focus(); }, 30);
+  }
+
+  function closeEntryModal(){
+    var m = document.getElementById("entryModal");
+    if(!m || m.hidden) return;
+    m.hidden = true;
+    document.body.style.overflow = "";
+    if(entryModalReturn && entryModalReturn.focus) entryModalReturn.focus();
+    entryModalReturn = null;
+  }
+
   function openNewEntryForm(dateStr){
     resetForm();
     if(dateStr){
       document.getElementById("fDate").value = dateStr;
       document.getElementById("fToDate").value = dateStr;
     }
-    document.getElementById("entryFormSection").classList.add("open");
-    form.scrollIntoView({behavior:"smooth", block:"center"});
+    openEntryModal();
   }
+
+  document.getElementById("openEntryBtn").addEventListener("click", function(){ openNewEntryForm(); });
+  document.getElementById("entryModalClose").addEventListener("click", closeEntryModal);
+  document.getElementById("entryModalBackdrop").addEventListener("click", closeEntryModal);
+  document.addEventListener("keydown", function(ev){
+    if(ev.key === "Escape") closeEntryModal();
+  });
 
   document.getElementById("calendarGrid").addEventListener("click", function(ev){
     var cell = ev.target.closest(".cal-cell[data-date]");
@@ -2738,6 +2776,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderLog();
     renderCharts();
     renderPersonCard();
+    renderDayTypeDonut();
+    renderOverviewWeek();
     // Fire-and-forget: it is one row-per-person query for today only, and a
     // failure inside it must not stop the rest of the repaint. Non-admins
     // return immediately without touching the network.
@@ -2947,9 +2987,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("fToDateWrap").style.display = "none";
     document.getElementById("fRangeHint").style.display = "none";
     document.getElementById("fDateLabel").textContent = "Date";
-    document.getElementById("entryFormSection").classList.add("open");
-    form.scrollIntoView({behavior:"smooth", block:"center"});
-    document.getElementById("fOut").focus();
+    openEntryModal();
+    setTimeout(function(){ document.getElementById("fOut").focus(); }, 30);
   }
 
   document.getElementById("fDate").addEventListener("change", function(){
@@ -3016,6 +3055,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       delete dismissedReminders[date];
       persistDismissals();
       resetForm();
+      closeEntryModal();
       await loadDataForViewedUser();
     }catch(err){
       showToast("Couldn't save that entry: " + friendlyError(err), "error");
@@ -3081,6 +3121,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     endBulkOperation();
     btn.disabled = false;
     resetForm();
+    closeEntryModal();
     await loadDataForViewedUser();
     if(bulkErr) showToast("Couldn't add those entries: " + friendlyError(bulkErr), "error");
     else showToast("Added " + applied + " entries.", "success");
@@ -3106,7 +3147,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     );
   }
 
-  document.getElementById("cancelEditBtn").addEventListener("click", resetForm);
+  document.getElementById("cancelEditBtn").addEventListener("click", function(){
+    resetForm();
+    closeEntryModal();
+  });
 
   document.getElementById("logBody").addEventListener("click", async function(ev){
     var btn = ev.target.closest("button");
@@ -3342,23 +3386,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     punchClock(this.getAttribute("data-bn-action") || "in");
   });
 
-  // The sticky bar only appears once the main punch card has scrolled out of
-  // view. It also steps aside whenever Settings is open, since clocking in
-  // isn't the point of that screen and the bar would just compete for the
-  // same bottom-of-screen space as the panel's own buttons.
+  // The clock buttons live on the person card, which is only on Overview, so
+  // the sticky bar's rule is now simply "is the clock reachable on this
+  // screen" rather than an intersection test against a card that scrolled.
+  // It also steps aside on Settings, where clocking in is not the point and
+  // the bar would compete with that panel's own buttons.
   var stickyClockEl = document.getElementById("stickyClock");
-  var mainQuickClockEl = document.querySelector(".quick-clock");
-  var mainClockCurrentlyVisible = true;
   function updateStickyClockVisibility(){
-    var settingsOpen = document.getElementById("settingsCard").classList.contains("open");
-    stickyClockEl.classList.toggle("show", !mainClockCurrentlyVisible && isOwnData && !settingsOpen);
-  }
-  if(stickyClockEl && mainQuickClockEl && "IntersectionObserver" in window){
-    var stickyObserver = new IntersectionObserver(function(entriesList){
-      mainClockCurrentlyVisible = entriesList[0].isIntersecting;
-      updateStickyClockVisibility();
-    }, {threshold: 0});
-    stickyObserver.observe(mainQuickClockEl);
+    if(!stickyClockEl) return;
+    var active = document.querySelector(".tab-btn.active");
+    var tab = active ? active.getAttribute("data-tab") : "overview";
+    var clockOnScreen = tab === "overview";
+    stickyClockEl.classList.toggle("show", !clockOnScreen && isOwnData && tab !== "settings");
   }
 
   // ---------- Tabs & filters ----------
@@ -3494,18 +3533,22 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var adminBtn = document.getElementById("adminBtn");
     if(adminBtn) adminBtn.setAttribute("aria-current", tab === "admin" ? "page" : "false");
 
-    // Overview lives outside #tabContentCard so its own cards sit on the
-    // canvas rather than nesting inside one big card. That means the card
-    // wrapper has to be hidden when Overview is the active tab, or an empty
-    // white panel is left standing under it.
+    // Overview and Settings live outside #tabContentCard so their own cards sit
+    // on the canvas rather than nesting inside one big card. Any such panel is
+    // marked .standalone, and the card wrapper hides behind it — otherwise an
+    // empty white panel is left standing underneath.
     var tabCard = document.getElementById("tabContentCard");
-    if(tabCard) tabCard.hidden = (tab === "overview");
+    if(tabCard) tabCard.hidden = panel.classList.contains("standalone");
 
     applyFilterBarVisibility(tab, activeSubtab());
+
+    updateStickyClockVisibility();
 
     if(tab === "overview"){
       renderStats();
       renderPersonCard();
+      renderDayTypeDonut();
+      renderOverviewWeek();
       renderTodayTeam().catch(function(){});
     }
     if(tab === "trends") renderSubtab(activeSubtab());
@@ -4246,6 +4289,29 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // Whose record is on screen. For your own data that is you; when an admin
   // switches to someone else it becomes them, which makes the target of every
   // edit concrete rather than leaving it to the banner alone.
+  var ovWeekDate = new Date();
+
+  function renderOverviewWeek(){
+    if(!document.getElementById("weekLineOverview")) return;
+    renderWeekLine("weekLineOverview", ovWeekDate);
+    var s = startOfWeek(ovWeekDate);
+    var e = new Date(s.getFullYear(), s.getMonth(), s.getDate()+6);
+    var sameMonth = s.getMonth() === e.getMonth();
+    var left = s.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+    var right = sameMonth ? String(e.getDate())
+                          : e.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+    document.getElementById("ovWeekLabel").textContent = left + " – " + right + ", " + e.getFullYear();
+  }
+
+  document.getElementById("ovWeekPrev").addEventListener("click", function(){
+    ovWeekDate.setDate(ovWeekDate.getDate() - 7);
+    renderOverviewWeek();
+  });
+  document.getElementById("ovWeekNext").addEventListener("click", function(){
+    ovWeekDate.setDate(ovWeekDate.getDate() + 7);
+    renderOverviewWeek();
+  });
+
   function renderPersonCard(){
     var who = (!isOwnData && viewedProfile) ? viewedProfile : currentProfile;
     if(!who) return;
@@ -4277,6 +4343,68 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     ].map(function(f){
       return '<div class="person-figure"><span class="v'+f[2]+'">'+escapeHtml(f[1])+
              '</span><span class="kicker">'+escapeHtml(f[0])+'</span></div>';
+    }).join("");
+  }
+
+  // ---------- Day-type donut ----------
+  // The reference's "Working format" ring, carrying this product's equivalent
+  // split: how this month's logged days divide across day types. Hand-built
+  // SVG like every other chart here, so it inherits the token palette and
+  // needs no library.
+  var DONUT_COLORS = ["--gold", "--mint", "--blush", "--teal-600", "--excused", "--warn"];
+
+  function renderDayTypeDonut(){
+    var host = document.getElementById("dayTypeDonut");
+    var legend = document.getElementById("dayTypeLegend");
+    if(!host || !legend) return;
+
+    var mk = monthKey(todayStr());
+    var counts = {};
+    entries.filter(function(e){ return monthKey(e.date) === mk; })
+           .forEach(function(e){
+             var k = e.type || "regular";
+             counts[k] = (counts[k] || 0) + 1;
+           });
+    var rows = Object.keys(counts)
+      .map(function(k){ return {type:k, label:typeLabel(k), n:counts[k]}; })
+      .sort(function(a,b){ return b.n - a.n; });
+    var total = rows.reduce(function(a,r){ return a + r.n; }, 0);
+
+    if(!total){
+      host.innerHTML = '<p class="tt-empty" style="text-align:center;">Nothing logged this month yet.</p>';
+      legend.innerHTML = "";
+      return;
+    }
+
+    // Concentric arcs read as one ring: a single track with each slice drawn
+    // as a dash segment, which keeps the geometry to one circle element per
+    // slice instead of arc-path maths.
+    var R = 54, C = 2 * Math.PI * R, gap = total > 1 ? 3 : 0;
+    var offset = 0, arcs = "";
+    rows.forEach(function(r, i){
+      var len = (r.n / total) * C;
+      var draw = Math.max(0, len - gap);
+      r.color = cssVar(DONUT_COLORS[i % DONUT_COLORS.length]);
+      arcs += '<circle cx="70" cy="70" r="'+R+'" fill="none" stroke="'+r.color+'" stroke-width="16" '+
+              'stroke-dasharray="'+draw.toFixed(2)+' '+(C - draw).toFixed(2)+'" '+
+              'stroke-dashoffset="'+(-offset).toFixed(2)+'" stroke-linecap="round" '+
+              'transform="rotate(-90 70 70)"></circle>';
+      offset += len;
+    });
+
+    var name = "Day types this month: " + rows.map(function(r){ return r.label + " " + r.n; }).join(", ");
+    host.innerHTML =
+      '<svg viewBox="0 0 140 140" role="img" aria-label="'+escapeAttr(name)+'">'+
+        '<circle cx="70" cy="70" r="'+R+'" fill="none" stroke="'+cssVar("--line-soft")+'" stroke-width="16"></circle>'+
+        arcs +
+        '<text class="donut-centre-value" x="70" y="70" text-anchor="middle">'+total+'</text>'+
+        '<text class="donut-centre-label" x="70" y="86" text-anchor="middle">DAYS</text>'+
+      '</svg>';
+
+    legend.innerHTML = rows.slice(0, 4).map(function(r){
+      var pct = Math.round((r.n / total) * 100);
+      return '<span class="dl"><i style="background:'+r.color+'"></i>'+
+             '<b>'+pct+'%</b> <span>'+escapeHtml(r.label)+'</span></span>';
     }).join("");
   }
 
@@ -4329,6 +4457,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       list.innerHTML = '<p class="tt-empty">No other users have registered yet.</p>';
       return;
     }
+    var settled = rows.filter(function(r){ return r.st.cls !== "missing"; }).length;
+    var pct = rows.length ? Math.floor((settled / rows.length) * 100) : 0;
+    var pctEl = document.getElementById("todayTeamPct");
+    var fillEl = document.getElementById("todayTeamFill");
+    if(pctEl) pctEl.textContent = pct + "%";
+    if(fillEl) fillEl.style.width = pct + "%";
+
     list.innerHTML = rows.map(function(r){
       var name = r.p.full_name || r.p.email;
       var url = (currentUser && r.p.id === currentUser.id) ? localAvatar(r.p.id) : null;
@@ -4397,7 +4532,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     viewedUserId = newId;
     viewedProfile = allProfiles.find(function(p){ return p.id === newId; }) || null;
     resetForm();
-    document.getElementById("settingsCard").classList.remove("open");
+    leaveSettings();
     await loadDataForViewedUser();
   });
 
@@ -4793,7 +4928,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("teamTabBtn").style.display = "none";
       document.getElementById("adminBtn").style.display = "none";
       layoutBottomNav();
-      document.getElementById("settingsCard").classList.remove("open");
+      leaveSettings();
       if(viewedUserId !== currentUser.id){
         viewedUserId = currentUser.id;
         viewedProfile = currentProfile;
