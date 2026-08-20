@@ -1865,6 +1865,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     // Streak: consecutive scheduled workdays with worked time logged.
     //
+    // Any scheduled day without worked minutes breaks the streak, including
+    // leave, sick and holiday days — this counts actual days worked in a row,
+    // not "days not disqualified." A vacation is a real break in the streak.
+    //
     // Today is deliberately skipped while it is still in progress. Starting the
     // scan at today meant that every working morning — before the first punch,
     // and all day while clocked in but not yet out — the scan hit a day with no
@@ -1882,7 +1886,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         if(!rec) break;
         var c = computeEntry(rec);
         if(c.workedMin && c.workedMin > 0) streak++;
-        else if(!c.excused) break;
+        else break;
       }
       cursor.setDate(cursor.getDate()-1);
     }
