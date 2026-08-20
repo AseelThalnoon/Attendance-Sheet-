@@ -75,14 +75,14 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
   });
 }
 
-// A whole missed workday must move the overtime bank.
+// A blank row (no clock times at all) is incomplete data, not a confirmed
+// shortfall — it must not move the overtime bank, only be surfaced as a count.
 {
   const a = summarize([entry({date:"2026-08-10", clockIn:"08:00", clockOut:"16:00"})]);
   const b = summarize([entry({date:"2026-08-10", clockIn:"08:00", clockOut:"16:00"}),
                        entry({date:"2026-08-11"})]);
-  ok(b.diffSum < a.diffSum, "C-4 an unlogged workday reduces the overtime bank",
-    `with=${b.diffSum} without=${a.diffSum}`);
-  eq(b.incompleteDays, 1, "C-4 the incomplete day is counted and surfaced");
+  eq(b.diffSum, a.diffSum, "C-4 a blank row does not move the overtime bank");
+  eq(b.incompleteDays, 1, "C-4 the incomplete day is still counted and surfaced");
 }
 
 // WFH / trip / training are neutral: logged hours on these days must not
@@ -98,8 +98,9 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 }
 
 // ---------------------------------------------------------------- B-11
-// A trip or training day with no clock times is credited, not booked as a
-// full-day shortfall — but a genuinely unlogged Regular day still is.
+// A trip or training day with no clock times is excused, not booked as a
+// full-day shortfall — and neither is a blank Regular row: incomplete data
+// never moves the bank, only the incompleteDays count.
 {
   const week = ["2026-08-09","2026-08-10","2026-08-11","2026-08-12","2026-08-13"];
   const training = summarize(week.map(d => entry({date:d, type:"training"})));
@@ -107,9 +108,8 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
   eq(training.incompleteDays, 0, "B-11 credited days are not flagged incomplete");
 
   const missed = summarize(week.map(d => entry({date:d})));
-  ok(missed.diffSum < 0, "B-11 a genuinely unlogged week is still a shortfall",
-    `diffSum=${missed.diffSum}`);
-  eq(missed.incompleteDays, 5, "B-11 all five are flagged incomplete");
+  eq(missed.diffSum, 0, "B-11 a week of blank rows does not move the bank");
+  eq(missed.incompleteDays, 5, "B-11 all five are still flagged incomplete");
 }
 
 // ---------------------------------------------------------------- B-6
@@ -217,9 +217,10 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 
 // ---------------------------------------------------------------- overtime bank: open day in progress
 // A shift still running right now hasn't failed to meet anything yet — the
-// day isn't over. It must not already read as a missed day in the bank. A
-// clock-in left open from a PAST day is different: that day has ended, so it
-// still counts as the shortfall it is.
+// day isn't over, so it must not already read as a missed day in the bank.
+// A clock-in left open from a PAST day is incomplete data too — there's no
+// way to know what was actually worked — so it must not move the bank
+// either; it's still surfaced via incompleteDays so it stays visible.
 {
   const savedWorkDays = settings.workDays;
   settings.workDays = [0,1,2,3,4,5,6]; // guarantee "today" is scheduled, whenever the suite runs
@@ -230,9 +231,8 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
     "an in-progress shift today is held out of the bank, not booked as a miss");
 
   const forgottenPast = summarize([entry({date:"2026-08-10", clockIn:"09:00"})]);
-  ok(forgottenPast.diffSum < 0 && forgottenPast.incompleteDays === 1,
-    "a stale open day from a past date still counts as a shortfall",
-    JSON.stringify(forgottenPast));
+  eq([forgottenPast.diffSum, forgottenPast.incompleteDays], [0, 1],
+    "a stale open day from a past date does not move the bank either, but is still flagged incomplete");
 
   settings.workDays = savedWorkDays;
 }
