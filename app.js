@@ -2408,17 +2408,156 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("calendarGrid").innerHTML = html;
   }
 
-  document.getElementById("calPrevBtn").addEventListener("click", function(){
-    calendarViewDate.setMonth(calendarViewDate.getMonth() - 1);
-    renderCalendar();
+  // ---------- Week timeline ----------
+  // Month view answers "which days went well". This answers "when did I
+  // actually work", which a grid of coloured day cells cannot show: each entry
+  // is a bar spanning its real clock-in to clock-out.
+  var calMode = "month";               // "month" | "week"
+  var WL_DEFAULT_START = 6, WL_DEFAULT_END = 22;
+
+  function startOfWeek(d){
+    var out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    out.setDate(out.getDate() - out.getDay()); // Sunday-first, matching DAY_NAMES
+    return out;
+  }
+
+  function renderWeekLine(){
+    var host = document.getElementById("weekLine");
+    if(!host) return;
+    var start = startOfWeek(calendarViewDate);
+
+    var days = [];
+    for(var i=0;i<7;i++){
+      days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate()+i));
+    }
+    function dstr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
+
+    // The window adapts to the week's own data. A fixed 6am-10pm frame is right
+    // for office hours, but this app explicitly supports overnight shifts
+    // (computeEntry adds 24h to a negative span), and those would otherwise
+    // collapse into an unreadable sliver clamped against the bottom edge.
+    var WL_START_HOUR = WL_DEFAULT_START, WL_END_HOUR = WL_DEFAULT_END;
+    days.forEach(function(d){
+      var e = entries.find(function(x){ return x.date === dstr(d); });
+      if(!e || !e.clockIn) return;
+      var from = timeToMinutes(e.clockIn);
+      var to = e.clockOut ? timeToMinutes(e.clockOut) : from;
+      if(to < from) to += 24*60; // overnight
+      WL_START_HOUR = Math.min(WL_START_HOUR, Math.floor(from/60));
+      WL_END_HOUR   = Math.max(WL_END_HOUR, Math.ceil(to/60));
+    });
+    if(WL_END_HOUR - WL_START_HOUR > 24){ WL_START_HOUR = 0; WL_END_HOUR = 24; }
+    var span = (WL_END_HOUR - WL_START_HOUR) * 60;
+
+    var html = '<div class="wl-dayhead"></div>';
+    days.forEach(function(d){
+      var isToday = dstr(d) === todayStr();
+      html += '<div class="wl-dayhead'+(isToday?' is-today':'')+'">'+
+        DAY_NAMES[d.getDay()]+'<b>'+d.getDate()+'</b></div>';
+    });
+
+    // Hour axis. Labelled every two hours so the column does not become a
+    // stack of touching numerals on a phone.
+    var axis = '<div class="wl-axis" style="grid-row:2;">';
+    var tickStep = (WL_END_HOUR - WL_START_HOUR) > 18 ? 3 : 2;
+    for(var h=WL_START_HOUR; h<=WL_END_HOUR; h+=tickStep){
+      var pct = ((h - WL_START_HOUR) * 60 / span) * 100;
+      axis += '<span style="top:'+pct.toFixed(2)+'%">'+formatTime12(pad2(h)+":00")+'</span>';
+    }
+    html += axis + '</div>';
+
+    var any = false;
+    days.forEach(function(d){
+      var ds = dstr(d);
+      var isToday = ds === todayStr();
+      var cell = '<div class="wl-col'+(isToday?' is-today':'')+'" style="grid-row:2;">';
+      var entry = entries.find(function(e){ return e.date === ds; });
+      if(entry){
+        any = true;
+        var c = computeEntry(entry);
+        if(entry.clockIn){
+          var from = timeToMinutes(entry.clockIn);
+          // An open shift is still running: draw it to now, so the bar grows
+          // through the day instead of showing nothing until you clock out.
+          var toRaw = entry.clockOut ? timeToMinutes(entry.clockOut)
+                    : (isToday ? (new Date().getHours()*60 + new Date().getMinutes()) : from + 30);
+          // Overnight: match computeEntry's rule (a negative span means the
+          // shift crossed midnight) so the bar length equals the hours the
+          // rest of the app credits for that day.
+          if(toRaw < from) toRaw += 24*60;
+          var top = Math.max(0, Math.min(100, ((from - WL_START_HOUR*60) / span) * 100));
+          var bot = Math.max(0, Math.min(100, ((toRaw - WL_START_HOUR*60) / span) * 100));
+          var height = Math.max(2.2, bot - top);
+          var cls = c.open ? "is-open" : (c.diffMin !== null && c.diffMin >= 0 ? "is-met" : "is-under");
+          var label = formatTime12(entry.clockIn) + (entry.clockOut ? "–" + formatTime12(entry.clockOut) : "");
+          cell += '<div class="wl-bar '+cls+'" style="top:'+top.toFixed(2)+'%; height:'+height.toFixed(2)+'%" '+
+            'title="'+escapeAttr(typeLabel(entry.type)+" · "+label)+'">'+escapeHtml(label)+'</div>';
+        } else {
+          cell += '<div class="wl-chip" title="'+escapeAttr(typeLabel(entry.type))+'">'+
+            escapeHtml(typeLabel(entry.type))+'</div>';
+        }
+      }
+      cell += '</div>';
+      html += cell;
+    });
+
+    if(!any){
+      html += '<p class="wl-empty" style="grid-row:3;">Nothing logged this week yet.</p>';
+    }
+    host.innerHTML = html;
+  }
+
+  // One entry point so every caller (nav, Today, tab activation, data reload)
+  // paints whichever view is currently selected.
+  function renderCalendarView(){
+    var grid = document.getElementById("calendarGrid");
+    var week = document.getElementById("weekLine");
+    var label = document.getElementById("calMonthLabel");
+    if(calMode === "week"){
+      grid.hidden = true; grid.style.display = "none";
+      week.hidden = false;
+      renderWeekLine();
+      var s = startOfWeek(calendarViewDate);
+      var e = new Date(s.getFullYear(), s.getMonth(), s.getDate()+6);
+      var sameMonth = s.getMonth() === e.getMonth();
+      // Composed by hand: asking toLocaleDateString for {day, year} alone lets
+      // the runtime render "2026 (day: 22)", which is not a date range.
+      var left = s.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+      var right = sameMonth
+        ? String(e.getDate())
+        : e.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+      label.textContent = left + " – " + right + ", " + e.getFullYear();
+    } else {
+      week.hidden = true;
+      grid.hidden = false; grid.style.display = "";
+      renderCalendar();
+    }
+  }
+
+  document.querySelectorAll("[data-cal-mode]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      calMode = btn.getAttribute("data-cal-mode");
+      document.querySelectorAll("[data-cal-mode]").forEach(function(b){
+        var on = b === btn;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      renderCalendarView();
+    });
   });
-  document.getElementById("calNextBtn").addEventListener("click", function(){
-    calendarViewDate.setMonth(calendarViewDate.getMonth() + 1);
-    renderCalendar();
-  });
+
+  // Nav steps by whichever unit is on screen: a month at a time in month view,
+  // a week at a time in week view.
+  function stepCalendar(dir){
+    if(calMode === "week") calendarViewDate.setDate(calendarViewDate.getDate() + dir*7);
+    else calendarViewDate.setMonth(calendarViewDate.getMonth() + dir);
+    renderCalendarView();
+  }
+  document.getElementById("calPrevBtn").addEventListener("click", function(){ stepCalendar(-1); });
+  document.getElementById("calNextBtn").addEventListener("click", function(){ stepCalendar(1); });
   document.getElementById("calTodayBtn").addEventListener("click", function(){
     calendarViewDate = new Date();
-    renderCalendar();
+    renderCalendarView();
   });
 
   function openNewEntryForm(dateStr){
@@ -2598,6 +2737,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderBackupReminder();
     renderLog();
     renderCharts();
+    // Repaint the calendar only when it is the visible tab: it is not part of
+    // the default view, and rendering a hidden panel on every data change is
+    // work nobody sees.
+    if(document.querySelector('.tab-btn[data-tab="calendar"].active')) renderCalendarView();
   }
 
   // ---------- Backup reminder ----------
@@ -3343,7 +3486,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     applyFilterBarVisibility(tab, activeSubtab());
 
     if(tab === "trends") renderSubtab(activeSubtab());
-    if(tab === "calendar") renderCalendar();
+    if(tab === "calendar") renderCalendarView();
     if(tab === "punctuality") renderPunctuality();
     if(tab === "team") renderTeam();
     if(tab === "admin") renderAdmin();

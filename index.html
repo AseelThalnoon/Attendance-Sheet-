@@ -776,6 +776,19 @@
     white-space:nowrap; transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   .sub-tab-btn.active{background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm);}
+  /* The calendar's month/week switch. Looks like the sub-tab segmented control
+     but has its own class on purpose: .sub-tab-btn carries the Trends handler,
+     which reads data-subtab and would throw on a button that has none. */
+  .cal-mode{
+    display:flex; gap:6px; padding:3px;
+    background:var(--teal-50); border-radius:var(--radius-md); width:fit-content;
+  }
+  .cal-mode-btn{
+    background:none; border:none; cursor:pointer; padding:6px 14px; min-height:32px;
+    border-radius:var(--radius-sm); font-size:12px; font-weight:600; color:var(--muted);
+    white-space:nowrap; font-family:inherit;
+  }
+  .cal-mode-btn.active{background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm);}
   .sub-tab-panel{display:none;}
   .sub-tab-panel.active{display:block; animation:fadeIn .2s var(--ease-soft);}
   @keyframes fadeIn{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
@@ -813,6 +826,63 @@
   }
   .calendar-nav .btn.ghost.small{padding:7px 10px; min-height:32px; flex-shrink:0;}
   .calendar-month-label{font-size:16px; color:var(--ink); min-width:140px; text-align:center;}
+
+  /* ---------- Week timeline ----------
+     A time axis down the left, one column per day, and each entry drawn as an
+     ink bar positioned and sized by its real clock times. The month grid
+     answers "which days went well"; this answers "when did I actually work". */
+  .weekline{
+    display:grid; grid-template-columns:56px repeat(7, 1fr);
+    background:var(--teal-50); border-radius:var(--radius-md); padding:14px 14px 10px;
+    border:1px solid var(--line-soft); overflow-x:auto;
+  }
+  .wl-dayhead{
+    grid-row:1; text-align:center; padding-bottom:10px;
+    font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--muted); white-space:nowrap;
+  }
+  .wl-dayhead.is-today{color:var(--ink);}
+  .wl-dayhead b{display:block; font-size:14px; font-weight:700; letter-spacing:-.01em; margin-top:2px;}
+  .wl-axis{
+    grid-column:1; position:relative; font-size:9.5px; color:var(--muted);
+    font-variant-numeric:tabular-nums;
+  }
+  .wl-axis span{position:absolute; right:10px; transform:translateY(-50%); white-space:nowrap;}
+  .wl-col{
+    position:relative; border-left:1px dashed var(--line);
+    min-height:220px; min-width:44px;
+  }
+  .wl-col.is-today{background:rgba(214,232,92,.16);}
+  .wl-bar{
+    position:absolute; left:4px; right:4px; border-radius:99px;
+    background:var(--ink); color:#fff; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    font-size:9.5px; font-weight:600; min-height:18px;
+    padding:0 6px; text-align:center;
+  }
+  /* Status is a ring on the bar, which keeps the accents as fills and keeps
+     the label on ink where it stays legible. */
+  .wl-bar.is-met{box-shadow:inset 0 0 0 2px var(--mint);}
+  .wl-bar.is-under{box-shadow:inset 0 0 0 2px var(--blush);}
+  .wl-bar.is-open{background:repeating-linear-gradient(135deg, var(--teal-700) 0 6px, var(--teal-800) 6px 12px);}
+  /* An all-day entry with no clock times (leave, holiday) has no span to draw,
+     so it becomes a chip pinned to the top of the column rather than a bar
+     floating at an arbitrary hour. */
+  .wl-chip{
+    position:absolute; top:4px; left:4px; right:4px; border-radius:99px;
+    padding:3px 6px; font-size:9px; font-weight:600; text-align:center;
+    background:var(--excused-bg); color:var(--excused);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .wl-empty{
+    grid-column:2 / -1; align-self:center; text-align:center; color:var(--muted);
+    font-size:12.5px; padding:26px 0 18px;
+  }
+  @media (max-width:760px){
+    .weekline{grid-template-columns:44px repeat(7, minmax(40px,1fr)); padding:10px 8px 8px;}
+    .wl-bar{font-size:0; padding:0;} /* keep the span visible, drop the label */
+  }
+
   .calendar-grid{
     display:grid; grid-template-columns:repeat(7, 1fr); gap:5px;
     border:1px solid var(--line-soft); border-radius:var(--radius-md); padding:10px;
@@ -2348,9 +2418,19 @@
         <button type="button" class="btn ghost small" id="calNextBtn" aria-label="Next month">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
         </button>
-        <button type="button" class="btn ghost small" id="calTodayBtn" style="margin-left:auto;">Today</button>
+        <div class="cal-mode" role="group" aria-label="Calendar view" style="margin-left:auto;">
+          <button type="button" class="cal-mode-btn active" data-cal-mode="month" aria-pressed="true">Month</button>
+          <button type="button" class="cal-mode-btn" data-cal-mode="week" aria-pressed="false">Week</button>
+        </div>
+        <button type="button" class="btn ghost small" id="calTodayBtn">Today</button>
       </div>
       <div class="calendar-grid" id="calendarGrid"></div>
+
+      <!-- Week timeline. The month grid answers "which days went well"; this
+           answers "when did I actually work", which the grid cannot show at
+           all — each entry is drawn as a bar spanning its real clock-in to
+           clock-out. -->
+      <div class="weekline" id="weekLine" hidden></div>
       <div class="chart-legend" style="margin-top:14px;">
         <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
         <span><i class="swatch" style="background:var(--negative)"></i>Under target</span>
