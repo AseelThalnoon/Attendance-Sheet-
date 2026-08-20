@@ -1798,7 +1798,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // own targets (ms.targetSum) keeps this in step with the Diff/bank figure,
     // which is summed the same way.
     var targetPerDay = ms.loggedDays ? (ms.targetSum / ms.loggedDays) : (targetMinPerDay() || 1);
-    var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.round((ms.avgMin / targetPerDay) * 100))) : 0;
+    // Floored, not rounded — see the note by pMetRate: 99.6% rounding up to
+    // "100%" would claim the target was fully met when it's still short.
+    var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.floor((ms.avgMin / targetPerDay) * 100))) : 0;
     var progressFill = document.getElementById("heroProgressFill");
     progressFill.style.transform = "scaleX(" + (progressPct / 100) + ")";
     // Unclamped ratio for the Velocity cluster's tachometer, published here
@@ -5073,8 +5075,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var arc = document.getElementById("vGaugeArc");
     if(arc) arc.setAttribute("stroke-dashoffset", (velocityMotion.ARC_LEN * (1 - f)).toFixed(2));
 
+    // Floored, not rounded — same reason as pMetRate/progressPct: 99.6%
+    // rounding up to "100%" would claim the target was fully met when it's
+    // still short.
     var metEl = document.getElementById("vSecMet");
-    if(metEl) metEl.textContent = ratio ? Math.round(ratio * 100) + "%" : "—";
+    if(metEl) metEl.textContent = ratio ? Math.floor(ratio * 100) + "%" : "—";
 
     // Over / on / under, from the same ratio. Hidden entirely rather than
     // showing a state for a month with nothing logged in it yet.
