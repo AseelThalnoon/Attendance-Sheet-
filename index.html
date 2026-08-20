@@ -29,7 +29,7 @@
   default-src 'self';
   script-src 'self';
   style-src 'self' 'unsafe-inline';
-  img-src 'self' data: blob: https://lxnfiszrlgddpcbwavfw.supabase.co;
+  img-src 'self' data:;
   font-src 'self';
   connect-src 'self' https://lxnfiszrlgddpcbwavfw.supabase.co wss://lxnfiszrlgddpcbwavfw.supabase.co;
   form-action 'none';
@@ -1319,6 +1319,14 @@
     text-decoration:none; transition:top var(--dur-fast) var(--ease-snap);
   }
   .skip-link:focus{top:12px;}
+  .photo-row{
+    display:flex; align-items:flex-start; gap:16px; margin:0 0 20px;
+    padding:16px; border-radius:var(--radius-md); background:var(--teal-50);
+  }
+  .photo-row-text{min-width:0; flex:1;}
+  .photo-row-title{margin:0; font-size:13px; font-weight:700;}
+  .photo-row-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
+
   /* ---------- Avatar ----------
      One component for every place a person appears: the rail, the team roster,
      the admin people list, the person hero. It is a photo when there is one and
@@ -1913,6 +1921,25 @@
   <section class="card settings-card" id="settingsCard">
     <h2>Schedule Settings</h2>
     <p class="settings-hint" id="settingsForLabel" style="margin:-10px 0 18px;"></p>
+
+    <!-- Your photo. Stored in this browser only — see the profile-photo block
+         in app.js for why, and what that costs. The hint text says so plainly
+         rather than letting someone assume their team can see it. -->
+    <div class="photo-row" id="photoRow">
+      <div class="avatar lg" id="settingsAvatar"></div>
+      <div class="photo-row-text">
+        <p class="photo-row-title">Your photo</p>
+        <p class="settings-hint" style="margin:2px 0 0;">
+          Saved on this device only — it isn't uploaded, so your team won't see it
+          and it won't follow you to another browser.
+        </p>
+        <div class="photo-row-actions">
+          <button type="button" class="btn ghost small" id="photoChooseBtn">Choose photo</button>
+          <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
+          <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
+        </div>
+      </div>
+    </div>
 
     <label class="check-row" for="sApplyAll" style="margin:-8px 0 18px;">
       <input type="checkbox" id="sApplyAll">

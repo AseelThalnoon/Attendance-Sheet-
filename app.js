@@ -1483,7 +1483,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var scale = (h - padTop - padBottom) / maxVal;
 
     var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
-        cLine = cssVar("--line"), cGold = cssVar("--gold");
+        cLine = cssVar("--line"),
+        // The target reference line is meaningful graphics, not decoration, so
+        // it takes the dark step of the accent: --gold is lime and measures
+        // 1.35:1 on a white card, which WCAG 1.4.11 (3:1) fails and the eye
+        // simply loses. --gold-deep is the same hue family at 5.89:1.
+        cGold = cssVar("--gold-deep");
 
     function valueText(mins){
       // Same "8h 2m" style used everywhere else on the page, so a chart label
@@ -1618,7 +1623,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     function xOf(i){ return data.length === 1 ? padL + slot/2 : padL + slot*i; }
 
     var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
-        cLine = cssVar("--line"), cGold = cssVar("--gold"),
+        cLine = cssVar("--line"),
+        cGold = cssVar("--gold-deep"), // see the note in renderBarChart
         cAccent = opts.accent || cssVar("--teal-600");
 
     function valueText(mins){ return (opts.formatter || minutesToHoursStr)(mins); }
@@ -4096,12 +4102,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   async function loadAllProfilesForSwitcher(){
     try{
-      // select("*") rather than a column list so this keeps working whether or
-      // not the avatar_url migration has been applied yet: naming the column
-      // explicitly makes the whole query fail with "column does not exist" on a
-      // database that has not migrated, taking the viewer switcher and the Team
-      // tab down with it. The avatar simply falls back to initials until then.
-      var res = await supabase.from("profiles").select("*").order("email");
+      var res = await supabase.from("profiles").select("id,email,full_name,role").order("email");
       if(res.error) throw res.error;
       allProfiles = res.data || [];
     }catch(err){
@@ -4315,6 +4316,130 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
+  // ---------- Profile photo (device-local) ----------
+  // Deliberately NOT stored in Supabase: the photo lives in this browser only,
+  // so it costs no storage quota. The trade-offs were chosen knowingly and are
+  // worth stating, because they are surprising:
+  //
+  //   * Nobody else ever sees it. Teammates render as initials in the Team
+  //     roster and the admin People list, because their photos live in THEIR
+  //     browsers and are not transmitted anywhere.
+  //   * It does not follow you to another device or browser, and clearing site
+  //     data removes it.
+  //   * An admin cannot set someone else's photo.
+  //
+  // Keyed by user id so two people signing into the same browser (a shared
+  // office machine is exactly the scene this app is used in) never inherit
+  // each other's picture.
+  var AVATAR_PREFIX = "attendance_avatar_v1_";
+  var AVATAR_PX = 256;          // stored square edge
+  var AVATAR_MAX_BYTES = 8 * 1024 * 1024; // reject before decoding
+
+  function avatarKey(userId){ return AVATAR_PREFIX + userId; }
+
+  function localAvatar(userId){
+    if(!userId) return null;
+    return safeGet(avatarKey(userId));
+  }
+
+  // Downscales to a square data URL before storing. localStorage holds ~5MB per
+  // origin and throws once full, so an untouched 4MB phone photo would both
+  // blow the quota and be 16x larger than anything the UI renders.
+  function fileToAvatarDataUrl(file){
+    return new Promise(function(resolve, reject){
+      if(!/^image\/(jpeg|png|webp)$/.test(file.type)){
+        reject(new Error("Choose a JPEG, PNG or WebP image."));
+        return;
+      }
+      if(file.size > AVATAR_MAX_BYTES){
+        reject(new Error("That image is larger than 8MB. Choose a smaller one."));
+        return;
+      }
+      // FileReader rather than URL.createObjectURL: an object URL is a blob:
+      // URL, and this page's CSP is `img-src 'self' data:`, so the <img> below
+      // would be blocked and every upload would fail as "not a readable image".
+      // Reading to a data: URL keeps the policy tight instead of widening it
+      // to blob: just to load a picture the user just picked.
+      var reader = new FileReader();
+      reader.onerror = function(){ reject(new Error("That file couldn't be read.")); };
+      reader.onload = function(){
+        var img = new Image();
+        img.onload = function(){
+          try{
+            // Cover-crop to a centred square so portraits and landscapes both
+            // fill the circle instead of being squashed to fit it.
+            var side = Math.min(img.width, img.height);
+            var sx = (img.width - side) / 2;
+            var sy = (img.height - side) / 2;
+            var canvas = document.createElement("canvas");
+            canvas.width = canvas.height = AVATAR_PX;
+            var ctx = canvas.getContext("2d");
+            ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
+            resolve(canvas.toDataURL("image/jpeg", 0.82));
+          }catch(err){
+            reject(new Error("That image couldn't be processed."));
+          }
+        };
+        img.onerror = function(){ reject(new Error("That file isn't a readable image.")); };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Repaints every surface that shows your face after the photo changes.
+  function refreshAvatars(){
+    renderIdentityChrome();
+    var settingsAvatar = document.getElementById("settingsAvatar");
+    if(settingsAvatar && currentProfile){
+      var url = localAvatar(currentProfile.id);
+      settingsAvatar.innerHTML = url
+        ? '<img src="'+escapeAttr(url)+'" alt="">'
+        : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+      var removeBtn = document.getElementById("photoRemoveBtn");
+      if(removeBtn) removeBtn.style.display = url ? "" : "none";
+    }
+    // The Team roster draws your own card from the same store.
+    if(document.querySelector('.tab-btn[data-tab="team"].active')) renderTeamCards();
+  }
+
+  document.getElementById("photoChooseBtn").addEventListener("click", function(){
+    document.getElementById("photoInput").click();
+  });
+
+  document.getElementById("photoInput").addEventListener("change", async function(){
+    var file = this.files && this.files[0];
+    // Reset immediately so re-picking the same file still fires a change event.
+    this.value = "";
+    if(!file || !currentProfile) return;
+    try{
+      var dataUrl = await fileToAvatarDataUrl(file);
+      // safeSet reports its own failure; localStorage throws when the origin's
+      // quota is full, which a photo is far more likely to trigger than a
+      // settings blob, so a failed write must not look like a success.
+      if(!safeSet(avatarKey(currentProfile.id), dataUrl)){
+        showToast("Couldn't save the photo — this browser's storage is full or blocked.", "error");
+        return;
+      }
+      refreshAvatars();
+      showToast("Photo saved on this device.", "success");
+    }catch(err){
+      showToast(err.message || "That image couldn't be used.", "error");
+    }
+  });
+
+  document.getElementById("photoRemoveBtn").addEventListener("click", async function(){
+    if(!currentProfile) return;
+    var ok = await showConfirm(
+      "Remove your photo from this device? You'll go back to showing your initials.",
+      {title:"Remove photo?", confirmText:"Remove", danger:true}
+    );
+    if(!ok) return;
+    try{ localStorage.removeItem(avatarKey(currentProfile.id)); }catch(err){}
+    refreshAvatars();
+    showToast("Photo removed.", "success");
+  });
+
   // ---------- Identity chrome ----------
   // Everything that shows who is signed in: the header greeting, the rail's
   // user block, and the two rail destinations only an admin may see. Called
@@ -4331,10 +4456,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // lines up.
   function avatarHtml(profile, extraClass){
     var name = (profile && (profile.full_name || profile.email)) || "?";
-    var url  = profile && profile.avatar_url;
     var cls  = "avatar" + (extraClass ? " " + extraClass : "");
+    // Only the signed-in user can have a picture here: photos are device-local,
+    // so there is nothing to show for anyone else.
+    var url = profile && currentUser && profile.id === currentUser.id
+      ? localAvatar(profile.id) : null;
     if(url){
-      return '<div class="'+cls+'"><img src="'+escapeAttr(url)+'" alt="" loading="lazy"></div>';
+      return '<div class="'+cls+'"><img src="'+escapeAttr(url)+'" alt=""></div>';
     }
     return '<div class="'+cls+'">'+escapeHtml(initialsOf(name))+'</div>';
   }
@@ -4351,7 +4479,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     var railAvatar = document.getElementById("railUserAvatar");
     if(railAvatar){
-      var url = currentProfile.avatar_url;
+      var url = localAvatar(currentProfile.id);
       railAvatar.innerHTML = url
         ? '<img src="'+escapeAttr(url)+'" alt="">'
         : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
@@ -4380,7 +4508,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var chip = document.getElementById("userChip");
     chip.textContent = currentProfile.full_name || currentProfile.email;
     chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
-    renderIdentityChrome();
+    refreshAvatars();
 
     if(isAdmin){
       document.getElementById("viewerSwitchWrap").style.display = "flex";
@@ -4603,8 +4731,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       card.setAttribute("aria-label", "Open " + name + "'s attendance for " + monthLabel(teamMonth));
       card.innerHTML =
         '<div class="team-card-head">'+
-          (p.avatar_url
-            ? '<div class="team-avatar"><img src="'+escapeAttr(p.avatar_url)+'" alt="" loading="lazy"></div>'
+          // Initials always: a teammate's photo lives in THEIR browser and is
+          // never transmitted, so there is nothing to render here but initials.
+          // Your own card is the one exception.
+          ((currentUser && p.id === currentUser.id && localAvatar(p.id))
+            ? '<div class="team-avatar"><img src="'+escapeAttr(localAvatar(p.id))+'" alt=""></div>'
             : '<div class="team-avatar">'+escapeHtml(initials)+'</div>')+
           '<div class="team-info">'+
             '<div class="team-name" dir="auto">'+escapeHtml(name)+
@@ -5495,7 +5626,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var chip = document.getElementById("userChip");
     chip.textContent = currentProfile.full_name || currentProfile.email;
     chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
-    renderIdentityChrome();
+    refreshAvatars();
 
     if(isAdmin){
       await loadAllProfilesForSwitcher();
