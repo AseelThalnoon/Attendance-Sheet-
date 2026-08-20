@@ -80,6 +80,42 @@ export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
   updateUser:async()=>({data:{user:{id:UID,email:"near@example.com"}},error:null}),
   getSession:async()=>({data:{session:null},error:null})}};}`;
 
+// Two entries in the same year, one inside a 5h seasonal period (January),
+// one at the base 8h target (June) — so the Yearly chart's dashed target
+// reference has to actually change height across the year, not draw one
+// flat number for every month.
+const STUB_MIXED_TARGET = `
+const UID="44444444-4444-4444-4444-444444444444";
+const YR=new Date().getFullYear();
+const ENTRIES=[
+  {id:"e1",user_id:UID,date:YR+"-01-08",clock_in:"08:00",clock_out:"13:00",type:"regular",note:""},
+  {id:"e2",user_id:UID,date:YR+"-06-08",clock_in:"08:00",clock_out:"16:00",type:"regular",note:""}
+];
+const PROFILE={id:UID,email:"mixed@example.com",full_name:"Mixed Target",role:"admin"};
+const SETTINGS={workDays:[0,1,2,3,4,5,6],targetMin:480,
+  periods:[{start:YR+"-01-01",end:YR+"-01-31",targetMin:300,name:"Short hours"}]};
+function result(t,k){
+  if(t==="entries") return {data:ENTRIES,error:null};
+  if(t==="profiles") return k==="single"?{data:PROFILE,error:null}:{data:[PROFILE],error:null};
+  if(t==="user_settings") return {data:{settings:SETTINGS},error:null};
+  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:false,announcement:""},error:null};
+  return {data:[],error:null};}
+function builder(t){let k="list";
+  const proxy=new Proxy(function(){},{get(_,p){
+    if(p==="then") return (r,j)=>Promise.resolve(result(t,k)).then(r,j);
+    if(p==="catch") return f=>Promise.resolve(result(t,k)).catch(f);
+    if(p==="finally") return f=>Promise.resolve(result(t,k)).finally(f);
+    if(p==="single"||p==="maybeSingle") return ()=>{k="single";return proxy;};
+    return ()=>proxy;}});
+  return proxy;}
+export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
+  auth:{onAuthStateChange:(cb)=>{setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"mixed@example.com"}}),0);
+    return{data:{subscription:{unsubscribe(){}}}};},
+  signInWithPassword:async()=>({data:{},error:null}),signUp:async()=>({data:{},error:null}),
+  signOut:async()=>({error:null}),resetPasswordForEmail:async()=>({data:{},error:null}),
+  updateUser:async()=>({data:{user:{id:UID,email:"mixed@example.com"}},error:null}),
+  getSession:async()=>({data:{session:null},error:null})}};}`;
+
 function contrast(a, b){
   const lum = c => { const s = c.map(v => { v/=255; return v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); });
     return 0.2126*s[0] + 0.7152*s[1] + 0.0722*s[2]; };
@@ -188,6 +224,29 @@ function ok(cond, name, detail){
     ok(!/100%/.test(s.heroLabel), "the hero progress label does not round 99.58% up to 100%",
       JSON.stringify(s));
     ok(/99%/.test(s.heroLabel), "the hero progress label floors 99.58% to 99%", JSON.stringify(s));
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- chart target steps
+  // A January logged against a 5h seasonal period and a June logged against
+  // the base 8h target must draw two different heights for the dashed target
+  // reference on the Yearly chart, not one flat line for the whole year.
+  {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.route("**/vendor/supabase-js.min.js",
+      r => r.fulfill({status: 200, contentType: "text/javascript", body: STUB_MIXED_TARGET}));
+    await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+    await page.waitForTimeout(1000);
+    const ys = await page.evaluate(() => {
+      document.querySelector('.tab-btn[data-tab="trends"]').click();
+      const svg = document.getElementById("yearChart").querySelector("svg");
+      return [...svg.querySelectorAll('line[stroke-dasharray]')].map(l => l.getAttribute("y1"));
+    });
+    const distinct = new Set(ys);
+    ok(ys.length >= 2 && distinct.size >= 2,
+      "the Yearly chart's target reference steps between the 5h period and the 8h base",
+      JSON.stringify(ys));
     await ctx.close();
   }
 

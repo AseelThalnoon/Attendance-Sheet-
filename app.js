@@ -1491,9 +1491,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var rotate = estWidth > slot - 2;
     var padBottom = rotate ? Math.min(estWidth * 0.72, 46) + 8 : 22;
 
+    // Fallback only — for a bucket without its own d.targetMin (e.g. seasonal
+    // periods weren't averaged in for it). Each bar's real reference is drawn
+    // as its own segment below, not this one flat number for the whole chart.
     var targetMin = opts.targetMin != null ? opts.targetMin : targetMinPerDay();
     var maxVal = Math.max(targetMin, 1);
-    data.forEach(function(d){ if(d.value) maxVal = Math.max(maxVal, d.value); });
+    data.forEach(function(d){
+      if(d.value) maxVal = Math.max(maxVal, d.value);
+      if(d.targetMin) maxVal = Math.max(maxVal, d.targetMin);
+    });
     maxVal = maxVal * 1.12;
     var scale = (h - padTop - padBottom) / maxVal;
 
@@ -1517,10 +1523,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       'role="img" aria-labelledby="'+titleId+'">' +
       '<title id="'+titleId+'">'+escapeHtml(chartName)+'</title>' +
       '<desc>'+escapeHtml(described)+'</desc>';
-    if(targetMin > 0){
-      var ty = h - padBottom - targetMin*scale;
-      svg += '<line x1="'+padL+'" y1="'+ty.toFixed(1)+'" x2="'+(w-padR)+'" y2="'+ty.toFixed(1)+'" stroke="'+cGold+'" stroke-width="1.2" stroke-dasharray="4 3"/>';
-    }
+    // A step, not one flat line: each bar's own target (a seasonal period can
+    // put a 5h day right next to an 8h one) gets its own dashed segment,
+    // instead of implying a single constant target across the whole chart.
+    data.forEach(function(d, i){
+      var t = d.targetMin != null ? d.targetMin : targetMin;
+      if(t > 0){
+        var segL = padL + slot*i, segR = padL + slot*(i+1);
+        var ty = h - padBottom - t*scale;
+        svg += '<line x1="'+segL.toFixed(1)+'" y1="'+ty.toFixed(1)+'" x2="'+segR.toFixed(1)+'" y2="'+ty.toFixed(1)+'" stroke="'+cGold+'" stroke-width="1.2" stroke-dasharray="4 3"/>';
+      }
+    });
     data.forEach(function(d, i){
       var cx = padL + slot*i + slot/2;
       var val = d.value || 0;
@@ -1611,9 +1624,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var rotate = data.length > 1 && estWidth > slot - 2;
     var padBottom = rotate ? Math.min(estWidth * 0.72, 46) + 8 : 22;
 
+    // Fallback only — for a point without its own d.targetMin. Each point's
+    // real reference is drawn as its own segment below, not this one flat
+    // number for the whole chart.
     var targetMin = opts.targetMin != null ? opts.targetMin : targetMinPerDay();
     var maxVal = Math.max(targetMin, 1);
-    data.forEach(function(d){ if(d.value) maxVal = Math.max(maxVal, d.value); });
+    data.forEach(function(d){
+      if(d.value) maxVal = Math.max(maxVal, d.value);
+      if(d.targetMin) maxVal = Math.max(maxVal, d.targetMin);
+    });
     maxVal = maxVal * 1.15;
     var scale = (h - padTop - padBottom) / maxVal;
     function yOf(val){ return h - padBottom - Math.max(val, 0) * scale; }
@@ -1639,10 +1658,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         '<stop offset="100%" stop-color="'+cAccent+'" stop-opacity="0"/>' +
       '</linearGradient></defs>';
 
-    if(targetMin > 0){
-      var ty = yOf(targetMin);
-      svg += '<line x1="'+padL+'" y1="'+ty.toFixed(1)+'" x2="'+(w-padR)+'" y2="'+ty.toFixed(1)+'" stroke="'+cGold+'" stroke-width="1.2" stroke-dasharray="4 3"/>';
-    }
+    // A step, not one flat line: each point's own target (a seasonal period
+    // can put a 5h week/month right next to an 8h one) gets its own dashed
+    // segment, spanning the midpoints to its neighbors, instead of implying a
+    // single constant target across the whole chart.
+    data.forEach(function(d, i){
+      var t = d.targetMin != null ? d.targetMin : targetMin;
+      if(t > 0){
+        var segL = i === 0 ? padL : (xOf(i-1) + xOf(i)) / 2;
+        var segR = i === data.length-1 ? (w - padR) : (xOf(i) + xOf(i+1)) / 2;
+        var ty = yOf(t);
+        svg += '<line x1="'+segL.toFixed(1)+'" y1="'+ty.toFixed(1)+'" x2="'+segR.toFixed(1)+'" y2="'+ty.toFixed(1)+'" stroke="'+cGold+'" stroke-width="1.2" stroke-dasharray="4 3"/>';
+      }
+    });
 
     // Break the line/area into runs of consecutive hasEntry points, so a gap
     // (a future month, a week nobody logged) opens the line rather than
