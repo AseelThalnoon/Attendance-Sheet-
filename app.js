@@ -3345,11 +3345,44 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.querySelectorAll(".bn-item").forEach(function(b){
       b.classList.toggle("active", b.getAttribute("data-bn-tab") === tab);
     });
+    // The rail mirrors the same active state. Admin is not a tab, so it is
+    // matched on its action attribute rather than data-rail-tab. aria-current
+    // carries the state to assistive tech: the rail is a plain <nav>, not a
+    // tablist, and the real tab strip it delegates to is display:none, so the
+    // active class alone would be invisible to a screen reader.
+    document.querySelectorAll(".rail-item").forEach(function(b){
+      var isTab = b.getAttribute("data-rail-tab") === tab;
+      var isAdmin = b.getAttribute("data-rail-action") === "admin" && tab === "admin";
+      var on = isTab || isAdmin;
+      b.classList.toggle("active", on);
+      if(on) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
+    });
   }
 
   document.querySelectorAll(".tab-btn").forEach(function(btn){
     btn.addEventListener("click", function(){
       activateTab(btn.getAttribute("data-tab"));
+    });
+  });
+
+  // The rail is the same thin layer over the real controls that the bottom nav
+  // is: a tab item clicks its .tab-btn, and the two destinations that are not
+  // tabs (Admin, Settings) click their own existing header buttons, so their
+  // admin guards and scroll behaviour are not duplicated here.
+  document.querySelectorAll(".rail-item").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var action = btn.getAttribute("data-rail-action");
+      if(action === "admin"){
+        document.getElementById("adminBtn").click();
+        return;
+      }
+      if(action === "settings"){
+        document.getElementById("settingsBtn").click();
+        return;
+      }
+      var realTab = document.querySelector('.tab-btn[data-tab="'+btn.getAttribute("data-rail-tab")+'"]');
+      if(realTab) realTab.click();
     });
   });
 
@@ -4063,7 +4096,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   async function loadAllProfilesForSwitcher(){
     try{
-      var res = await supabase.from("profiles").select("id,email,full_name,role").order("email");
+      var res = await supabase.from("profiles").select("id,email,full_name,role,avatar_url").order("email");
       if(res.error) throw res.error;
       allProfiles = res.data || [];
     }catch(err){
@@ -4277,6 +4310,58 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
+  // ---------- Identity chrome ----------
+  // Everything that shows who is signed in: the header greeting, the rail's
+  // user block, and the two rail destinations only an admin may see. Called
+  // from both the cold-start path and the role-refresh path so the two can
+  // never drift apart.
+  function firstNameOf(profile){
+    var name = (profile && profile.full_name || "").trim();
+    if(!name) return (profile && profile.email || "").split("@")[0];
+    return name.split(/\s+/)[0];
+  }
+
+  // Photo when there is one, initials when there is not — see .avatar in the
+  // stylesheet. Both branches render the same box so a mixed roster still
+  // lines up.
+  function avatarHtml(profile, extraClass){
+    var name = (profile && (profile.full_name || profile.email)) || "?";
+    var url  = profile && profile.avatar_url;
+    var cls  = "avatar" + (extraClass ? " " + extraClass : "");
+    if(url){
+      return '<div class="'+cls+'"><img src="'+escapeAttr(url)+'" alt="" loading="lazy"></div>';
+    }
+    return '<div class="'+cls+'">'+escapeHtml(initialsOf(name))+'</div>';
+  }
+
+  function initialsOf(name){
+    return String(name || "?").trim().split(/\s+/)
+      .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
+  }
+
+  function renderIdentityChrome(){
+    if(!currentProfile) return;
+    var greeting = document.getElementById("headGreeting");
+    if(greeting) greeting.textContent = "Hello " + firstNameOf(currentProfile);
+
+    var railAvatar = document.getElementById("railUserAvatar");
+    if(railAvatar){
+      var url = currentProfile.avatar_url;
+      railAvatar.innerHTML = url
+        ? '<img src="'+escapeAttr(url)+'" alt="">'
+        : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+    }
+    var railName = document.getElementById("railUserName");
+    if(railName) railName.textContent = currentProfile.full_name || currentProfile.email;
+    var railRole = document.getElementById("railUserRole");
+    if(railRole) railRole.textContent = isAdmin ? "Admin" : "Employee";
+
+    var railTeam = document.getElementById("railTeamBtn");
+    if(railTeam) railTeam.style.display = isAdmin ? "" : "none";
+    var railAdmin = document.getElementById("railAdminBtn");
+    if(railAdmin) railAdmin.style.display = isAdmin ? "" : "none";
+  }
+
   // Re-syncs UI after the signed-in user's own role changes (e.g. self-demotion),
   // without requiring a full sign-out/sign-in.
   async function refreshCurrentProfile(){
@@ -4290,6 +4375,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var chip = document.getElementById("userChip");
     chip.textContent = currentProfile.full_name || currentProfile.email;
     chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
+    renderIdentityChrome();
 
     if(isAdmin){
       document.getElementById("viewerSwitchWrap").style.display = "flex";
@@ -4512,7 +4598,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       card.setAttribute("aria-label", "Open " + name + "'s attendance for " + monthLabel(teamMonth));
       card.innerHTML =
         '<div class="team-card-head">'+
-          '<div class="team-avatar">'+escapeHtml(initials)+'</div>'+
+          (p.avatar_url
+            ? '<div class="team-avatar"><img src="'+escapeAttr(p.avatar_url)+'" alt="" loading="lazy"></div>'
+            : '<div class="team-avatar">'+escapeHtml(initials)+'</div>')+
           '<div class="team-info">'+
             '<div class="team-name" dir="auto">'+escapeHtml(name)+
               (p.role === "admin" ? ' <span class="admin-badge">Admin</span>' : '')+
@@ -5402,6 +5490,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var chip = document.getElementById("userChip");
     chip.textContent = currentProfile.full_name || currentProfile.email;
     chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
+    renderIdentityChrome();
 
     if(isAdmin){
       await loadAllProfilesForSwitcher();
