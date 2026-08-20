@@ -6,13 +6,17 @@
 const vm = require("vm");
 const { slice } = require("../extract");
 
-const code = slice("// Real days in a given month", "// Maps a label like");
+const code = [
+  slice("var TYPE_LABELS = {", "function typeLabel(t)"),
+  slice("// Real days in a given month", "// Maps a label like"),
+  slice("// Maps a label like", "// Finds a column index"),
+].join("\n");
 const sandbox = { pad2: n => String(n).padStart(2, "0") };
 vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
-const { daysInMonth, parseDateCell, isAmbiguousDate, parseTimeCell } = sandbox;
+const { daysInMonth, parseDateCell, isAmbiguousDate, parseTimeCell, parseTypeCell } = sandbox;
 
-for(const [name, fn] of Object.entries({ daysInMonth, parseDateCell, isAmbiguousDate, parseTimeCell })){
+for(const [name, fn] of Object.entries({ daysInMonth, parseDateCell, isAmbiguousDate, parseTimeCell, parseTypeCell })){
   if(typeof fn !== "function") throw new Error(`extraction failed: ${name} is not a function`);
 }
 
@@ -125,6 +129,25 @@ T("0:00 AM", "");                        // nor is 0
 T("8:99 AM", "");
 T("abc", "");
 T("8:00 XM", "");
+
+// ---------- parseTypeCell: full words, labels, and short codes ----------
+const Y = (input, expected) => eq(parseTypeCell(input), expected, `parseTypeCell(${JSON.stringify(input)})`);
+Y("", "regular");
+Y("regular", "regular");
+Y("Sick Leave", "sick");   // exact label match
+Y("WFH", "wfh");
+Y("home office", "wfh");   // substring guess
+Y("half day", "halfleave"); // substring guess
+Y("annual", "leave");       // substring guess
+// Short codes: exact match only, case-insensitive.
+Y("s", "sick");
+Y("S", "sick");
+Y("h", "holiday");
+Y("hd", "halfleave");
+Y("l", "leave");
+// A short code must not fire off a substring somewhere it doesn't belong.
+Y("ha", "regular");
+Y("hl", "regular");
 
 console.log(`  parsers   pass ${pass}   fail ${fail}`);
 if(failures.length){

@@ -2752,7 +2752,7 @@
 
 <footer class="ledger-foot">
   <div class="foot-row">
-    <p class="foot-note" id="storageNote">Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names.</p>
+    <p class="foot-note" id="storageNote">Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names. Type accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave.</p>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <button class="btn ghost small" id="exportJsonBtn">Export JSON</button>
       <button class="btn ghost small" id="exportCsvBtn">Export CSV</button>
@@ -2760,6 +2760,7 @@
       <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
       <button class="btn ghost small" id="importCsvBtn">Import CSV</button>
       <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
+      <button class="btn ghost small" id="csvTemplateBtn">Download CSV Template</button>
       <button class="btn danger-ghost small" id="clearAllBtn">Clear All</button>
     </div>
   </div>
