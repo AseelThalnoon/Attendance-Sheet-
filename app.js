@@ -3455,6 +3455,29 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     markBackedUp();
   });
 
+  // A blank starter file with only the columns importCsvText() actually
+  // reads (Date, Clock In, Clock Out, Type, Note) — Export CSV's own file
+  // carries several read-only computed columns (Worked, Target, Diff…) that
+  // would just confuse someone building a file to import. The example rows
+  // double as documentation for the Type column's short codes, since a
+  // spreadsheet opens straight into them.
+  document.getElementById("csvTemplateBtn").addEventListener("click", function(){
+    var base = dateFromStr(todayStr());
+    function day(offset){ var d = new Date(base); d.setDate(d.getDate()+offset); return dateToStr(d); }
+    var rows = [
+      ["Date","Clock In","Clock Out","Type","Note"],
+      [day(1), "08:00", "16:00", "Regular", ""],
+      [day(2), "", "", "s", "Type code 's' = Sick Leave"],
+      [day(3), "", "", "h", "Type code 'h' = Public Holiday"],
+      [day(4), "08:00", "12:00", "hd", "Type code 'hd' = Half Day Leave"],
+      [day(5), "", "", "l", "Type code 'l' = Annual Leave"],
+      [day(8), "08:00", "16:00", "WFH", "Full words work too, e.g. WFH"]
+    ];
+    var csv = rows.map(function(r){ return r.map(csvCell).join(","); }).join("\r\n");
+    download("attendance-import-template.csv", csv, "text/csv;charset=utf-8");
+    showToast("Template downloaded. Type accepts a full word or short code: s/h/hd/l.", "success");
+  });
+
   // ---------- CSV import ----------
   // Splits CSV text into rows of cells, honouring quoted fields, escaped
   // double-quotes, embedded newlines, and CRLF line endings.
@@ -3574,6 +3597,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // Maps a label like "Annual Leave", "WFH", "sick" back to its internal key.
+  // Single/two-letter shorthand a spreadsheet or another system's export
+  // might use instead of a full word. Checked as an exact match only — "s"
+  // and "h" are too short to safely guess from a substring the way "sick" or
+  // "holiday" can below.
+  var TYPE_SHORTHAND = {s:"sick", h:"holiday", hd:"halfleave", l:"leave"};
   function parseTypeCell(v){
     v = String(v || "").trim().toLowerCase();
     if(!v) return "regular";
@@ -3582,6 +3610,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return TYPE_LABELS[k].toLowerCase() === v;
     });
     if(found) return found;
+    if(TYPE_SHORTHAND[v]) return TYPE_SHORTHAND[v];
     if(v.indexOf("home") !== -1 || v === "wfh") return "wfh";
     if(v.indexOf("half") !== -1) return "halfleave";
     if(v.indexOf("annual") !== -1 || v === "leave" || v.indexOf("vacation") !== -1) return "leave";
