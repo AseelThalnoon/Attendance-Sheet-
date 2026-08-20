@@ -4096,7 +4096,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   async function loadAllProfilesForSwitcher(){
     try{
-      var res = await supabase.from("profiles").select("id,email,full_name,role,avatar_url").order("email");
+      // select("*") rather than a column list so this keeps working whether or
+      // not the avatar_url migration has been applied yet: naming the column
+      // explicitly makes the whole query fail with "column does not exist" on a
+      // database that has not migrated, taking the viewer switcher and the Team
+      // tab down with it. The avatar simply falls back to initials until then.
+      var res = await supabase.from("profiles").select("*").order("email");
       if(res.error) throw res.error;
       allProfiles = res.data || [];
     }catch(err){
