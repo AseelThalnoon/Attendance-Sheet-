@@ -76,19 +76,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // Half days expect half the normal target rather than being fully excused.
   var HALF_TYPES = ["halfleave"];
   // Day types whose hours count toward averages, totals and the overtime bank.
-  // Previously only "regular" did, so a fully-worked month of remote days,
-  // client visits or training reported an average of 0h while each row still
-  // showed its hours — the card and the row disagreed. Working from home, a
-  // business trip and training are all work, so they roll up like any other day.
-  var WORKED_TYPES = ["regular","wfh","trip","training","halfleave"];
+  // WFH, business trip and training carry no fixed target (see NO_TARGET_TYPES
+  // below) and are meant to be neutral: logging 10 hours or 0 on one of these
+  // days must not move the average, the bank or the target-accomplished rate
+  // either way, so they're excluded here the same as leave/sick/holiday.
+  var WORKED_TYPES = ["regular","halfleave"];
   function countsAsWorked(type){ return WORKED_TYPES.indexOf(type || "regular") !== -1; }
 
-  // These are work, but not work against a fixed daily target — a day working
-  // from home, at a client site or in training doesn't carry the same 9-to-5
-  // expectation a Regular day does. The hours still roll into the total (see
-  // WORKED_TYPES above), but the target for the day is zero, so there is
-  // nothing to fall short of: whatever gets logged is credit toward the bank,
-  // never a shortfall, whether or not clock times are recorded at all.
+  // These are excused from a fixed daily target — a day working from home, at
+  // a client site or in training doesn't carry the same 9-to-5 expectation a
+  // Regular day does, and (per WORKED_TYPES above) doesn't roll into the
+  // totals/bank at all, so there is nothing to fall short of or gain credit
+  // for, whatever gets logged and whether or not clock times are recorded.
   var NO_TARGET_TYPES = ["wfh","trip","training"];
 
   var THEME_KEY    = "attendance_ledger_theme_v1";
@@ -394,7 +393,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function isScheduled(dateStr){
     return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
   }
-  function targetMinPerDay(){ return settings.targetMin; }
+  // A generic single-day fallback for charts/labels that need *some* target
+  // before any entries exist to average from. Resolves today's seasonal
+  // period (Ramadan, summer hours) rather than the flat org default, so it
+  // doesn't quietly show 8h while a 5h period is actually in force.
+  function targetMinPerDay(){ return scheduleFor(todayStr()).targetMin; }
 
   // Resolves the schedule in force on a given date. Seasonal periods (Ramadan,
   // summer hours) override the base schedule for the dates they cover.
@@ -486,10 +489,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(em > grace) earlyMin = em;
     }
 
+    // An off-day (weekend, or any day outside the configured work days) is
+    // neutral the same way an excused/no-target day is: whatever gets logged
+    // — 20 hours or nothing — must not read as credit or a shortfall.
+    var neutral = noTarget || !scheduled;
+
     if(workedMin !== null && !(noTarget && !e.clockIn)){
       return {
         workedMin:workedMin, targetMin:targetMin,
-        diffMin: excused ? 0 : workedMin - targetMin,
+        diffMin: neutral ? 0 : workedMin - targetMin,
         excused:excused, half:half, scheduled:scheduled, open:false,
         lateMin:lateMin, earlyMin:earlyMin, sched:sched, pending:false
       };
@@ -826,7 +834,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       // PAST day is a different story: that day has ended, so it still counts
       // as the shortfall it is.
       var runningToday = c.open && e.date === todayStr();
-      if(countsAsWorked(e.type)){
+      // An off-day (weekend, or any day outside the configured work days)
+      // must not move the average, the bank or the target-accomplished rate
+      // either way — logging 20 hours on a Saturday or nothing must have the
+      // same effect on these totals: none.
+      if(countsAsWorked(e.type) && isScheduled(e.date)){
         if(c.workedMin !== null){
           workedSum += c.workedMin;
           loggedDays++;
@@ -1790,7 +1802,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       (ms.incompleteDays ? " · " + ms.incompleteDays + " incomplete" : "");
 
     document.getElementById("heroMonthLabel").textContent = new Date().toLocaleDateString(undefined, {month:"long", year:"numeric"});
-    var targetPerDay = targetMinPerDay() || 1;
+    // A flat single-day target would misrepresent a month that mixes, say,
+    // Ramadan's 5h days with regular 8h ones — averaging the logged days'
+    // own targets (ms.targetSum) keeps this in step with the Diff/bank figure,
+    // which is summed the same way.
+    var targetPerDay = ms.loggedDays ? (ms.targetSum / ms.loggedDays) : (targetMinPerDay() || 1);
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.round((ms.avgMin / targetPerDay) * 100))) : 0;
     var progressFill = document.getElementById("heroProgressFill");
     progressFill.style.transform = "scaleX(" + (progressPct / 100) + ")";
@@ -1801,6 +1817,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // the over-target zone.
     progressFill.setAttribute("data-ratio",
       ms.loggedDays ? (ms.avgMin / targetPerDay).toFixed(4) : "0");
+    // Published for the Velocity cluster's target readout to mirror, so it
+    // can't drift onto its own flat-constant computation of the same figure.
+    progressFill.setAttribute("data-target-min", targetPerDay);
     document.getElementById("heroProgressLabel").textContent = ms.loggedDays
       ? progressPct + "% of " + minutesToHoursStr(targetPerDay) + " target"
       : "No regular workdays logged yet this month";
@@ -2134,7 +2153,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         var isWorkDay = settings.workDays.indexOf(d.getDay()) !== -1;
         if(!isWorkDay && !(c && c.workedMin)) continue;
         var val = c ? (c.workedMin || 0) : 0;
-        var dayTarget = isWorkDay ? targetMinPerDay() : 0;
+        // Reuse the entry's own computed target when there is one — it already
+        // accounts for the seasonal period and half-day rules in force on that
+        // exact date, which a flat per-day constant can't. Only fall back to
+        // resolving the schedule directly for a scheduled day with no entry.
+        var dayTarget = c ? c.targetMin : (isWorkDay ? scheduleFor(dStr).targetMin : 0);
         days.push({
           label: DAY_NAMES[d.getDay()],
           value: val, hasEntry: !!c,
@@ -2153,7 +2176,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       weeks.length ? weeks.length + " week" + (weeks.length===1?"":"s") + " tracked" : "";
 
     renderTrendChart(document.getElementById("weeklyChart"), weeks.map(function(wk){
-      return {label:"Wk of "+wk.range.split(" – ")[0], value:wk.s.avgMin, hasEntry:wk.s.loggedDays > 0};
+      // Each week's own average target, not a flat constant — a week that
+      // mixes 5h seasonal days with regular 8h ones would otherwise be judged
+      // "under" or "over" against the wrong number.
+      return {
+        label:"Wk of "+wk.range.split(" – ")[0], value:wk.s.avgMin, hasEntry:wk.s.loggedDays > 0,
+        targetMin: wk.s.loggedDays ? (wk.s.targetSum / wk.s.loggedDays) : null
+      };
     }), {name:"Average hours per day, by week"});
 
     var body = document.getElementById("weeklyBody");
@@ -2204,7 +2233,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       yf === "all" ? "" : "Showing " + yf + " only";
 
     renderTrendChart(document.getElementById("monthlyChart"), stats.map(function(m){
-      return {label:m.shortLabel, value:m.avgMin, hasEntry:m.loggedDays > 0};
+      return {
+        label:m.shortLabel, value:m.avgMin, hasEntry:m.loggedDays > 0,
+        targetMin: m.loggedDays ? (m.targetSum / m.loggedDays) : null
+      };
     }), {name:"Average hours per day, by month"});
 
     var body = document.getElementById("monthlyBody");
@@ -2267,7 +2299,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       monthData.push({
         label: new Date(+yr, m, 1).toLocaleDateString(undefined,{month:"short"}),
         value: s ? s.avgMin : 0,
-        hasEntry: !!(s && s.loggedDays)
+        hasEntry: !!(s && s.loggedDays),
+        targetMin: (s && s.loggedDays) ? (s.targetSum / s.loggedDays) : null
       });
     }
     renderTrendChart(document.getElementById("yearChart"), monthData, {height:160, name:"Average hours per day in "+yr+", by month"});
@@ -2279,7 +2312,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     yoyCard.style.display = stats.length > 1 ? "" : "none";
     if(stats.length > 1){
       renderBarChart(document.getElementById("yoyChart"), stats.map(function(y){
-        return {label:y.key, value:y.avgMin, hasEntry:y.loggedDays > 0};
+        return {
+          label:y.key, value:y.avgMin, hasEntry:y.loggedDays > 0,
+          targetMin: y.loggedDays ? (y.targetSum / y.loggedDays) : null
+        };
       }), {height:140, name:"Average hours per day, year over year"});
     }
 
@@ -4976,8 +5012,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(dest && src) dest.textContent = src.textContent;
     });
 
+    // Mirrors the same weighted target renderStats() published on the
+    // progress bar (data-target-min) rather than recomputing it from a flat
+    // constant, which would show 8h during a 5h seasonal period.
     var tgtEl = document.getElementById("vRoTarget");
-    if(tgtEl) tgtEl.textContent = minutesToHoursStr(targetMinPerDay());
+    if(tgtEl){
+      var fillForTarget = document.getElementById("heroProgressFill");
+      var tgtMin = fillForTarget ? parseFloat(fillForTarget.getAttribute("data-target-min")) : NaN;
+      tgtEl.textContent = minutesToHoursStr(isFinite(tgtMin) ? tgtMin : targetMinPerDay());
+    }
 
     // Needle, arc and state all derive from the one ratio renderStats()
     // publishes on the progress bar, so the cluster can never disagree with

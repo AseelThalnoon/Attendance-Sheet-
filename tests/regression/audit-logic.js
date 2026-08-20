@@ -32,8 +32,8 @@ const sandbox = { Date, Math, JSON, String, Number, isFinite, isNaN, parseFloat,
 vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
 
-const { computeEntry, summarize, minutesToHoursStr, isScheduled,
-        dateToStr, todayStr, confirmLongShift, weekStartDow, settings } = sandbox;
+const { computeEntry, summarize, minutesToHoursStr, isScheduled, scheduleFor,
+        targetMinPerDay, dateToStr, todayStr, confirmLongShift, weekStartDow, settings } = sandbox;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -85,15 +85,16 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
   eq(b.incompleteDays, 1, "C-4 the incomplete day is counted and surfaced");
 }
 
-// Work done away from the desk still counts as work.
+// WFH / trip / training are neutral: logged hours on these days must not
+// move the average or the monthly total either way.
 {
   const s = summarize([
     entry({date:"2026-08-10", clockIn:"08:00", clockOut:"17:00", type:"wfh"}),
     entry({date:"2026-08-11", clockIn:"08:00", clockOut:"17:00", type:"trip"}),
     entry({date:"2026-08-12", clockIn:"08:00", clockOut:"17:00", type:"training"}),
   ]);
-  eq(s.loggedDays, 3, "C-4 WFH / trip / training count toward the average");
-  eq(s.workedSum, 27 * 60, "C-4 their hours reach the monthly total");
+  eq(s.loggedDays, 0, "C-4 WFH / trip / training do not count toward the average");
+  eq(s.workedSum, 0, "C-4 their hours do not reach the monthly total");
 }
 
 // ---------------------------------------------------------------- B-11
@@ -237,21 +238,21 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 }
 
 // ---------------------------------------------------------------- overtime bank: WFH/trip/training have no fixed target
-// These are work, but not work against a fixed daily target. Whatever gets
-// logged is credit, never a shortfall — unlike a Regular day held to the same
-// hours.
+// These are excused from a fixed daily target, and (unlike the old
+// "credited" behavior) don't roll into the bank at all — 10 hours logged or
+// zero, neither moves the target-accomplished rate, the average or the bank.
 {
   const wfhShort = summarize([entry({date:"2026-08-10", clockIn:"09:00", clockOut:"11:00", type:"wfh"})]);
-  eq([wfhShort.targetSum, wfhShort.diffSum], [0, 120],
-    "a short WFH day is credited in full, not booked against a target");
+  eq([wfhShort.targetSum, wfhShort.diffSum], [0, 0],
+    "a WFH day never affects the target sum or the bank, however many hours are logged");
 
   const tripShort = summarize([entry({date:"2026-08-11", clockIn:"09:00", clockOut:"10:00", type:"trip"})]);
-  eq([tripShort.targetSum, tripShort.diffSum], [0, 60],
-    "a short business-trip day is credited in full too");
+  eq([tripShort.targetSum, tripShort.diffSum], [0, 0],
+    "a business-trip day never affects the target sum or the bank either");
 
   const trainingShort = summarize([entry({date:"2026-08-12", clockIn:"09:00", clockOut:"09:30", type:"training"})]);
-  eq([trainingShort.targetSum, trainingShort.diffSum], [0, 30],
-    "a short training day is credited in full too");
+  eq([trainingShort.targetSum, trainingShort.diffSum], [0, 0],
+    "a training day never affects the target sum or the bank either");
 
   const regularShort = summarize([entry({date:"2026-08-13", clockIn:"09:00", clockOut:"11:00"})]);
   ok(regularShort.diffSum < 0,
@@ -287,6 +288,74 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 
   eq(computeEntry(entry({date:"2026-08-10", type:"other"})).excused, true,
     "computeEntry marks 'other' excused, same flag sick gets");
+}
+
+// ---------------------------------------------------------------- mixed seasonal targets
+// A month/week that mixes a reduced seasonal target (e.g. Ramadan's 5h) with
+// the regular 8h target must be judged against each day's own target, not a
+// single flat constant — someone who exactly met a reduced-hours day every
+// day of the period must read as 100%, not as short.
+{
+  const savedPeriods = settings.periods, savedTarget = settings.targetMin;
+  settings.targetMin = 480; // 8h base
+  settings.periods = [{start:"2026-08-10", end:"2026-08-11", targetMin:300, name:"Short hours"}]; // 5h
+
+  eq(scheduleFor("2026-08-10").targetMin, 300, "a date inside the seasonal period uses its target");
+  eq(scheduleFor("2026-08-12").targetMin, 480, "a date outside the period falls back to the base target");
+
+  const s = summarize([
+    entry({date:"2026-08-10", clockIn:"08:00", clockOut:"13:00"}), // 5h worked on a 5h day
+    entry({date:"2026-08-11", clockIn:"08:00", clockOut:"13:00"}), // 5h worked on a 5h day
+    entry({date:"2026-08-12", clockIn:"08:00", clockOut:"16:00"}), // 8h worked on an 8h day
+  ]);
+  eq(s.diffSum, 0, "every day exactly met its own (mixed) target, so the bank is untouched");
+
+  // This is the formula renderStats()/renderWeekly()/renderTrendChart() use
+  // for their per-bucket target (targetSum averaged over logged days) —
+  // it must land on 100%, not the ~75% a flat 8h constant would have produced
+  // against a 6h true average target ((300+300+480)/3).
+  const weightedTargetPerDay = s.targetSum / s.loggedDays;
+  eq(weightedTargetPerDay, 360, "the weighted average target reflects the 5h/5h/8h mix, not a flat 8h");
+  const accomplishedPct = Math.round((s.avgMin / weightedTargetPerDay) * 100);
+  eq(accomplishedPct, 100, "three days each meeting their own target reads as 100% accomplished");
+
+  const flatConstantPct = Math.round((s.avgMin / settings.targetMin) * 100);
+  ok(flatConstantPct < 100, "a flat 8h constant would have wrongly read this as short",
+    `flatConstantPct=${flatConstantPct}`);
+
+  settings.periods = savedPeriods;
+  settings.targetMin = savedTarget;
+}
+
+// ---------------------------------------------------------------- off-days (weekends) are neutral
+// A day outside the configured work days must not move the average, the bank
+// or the target-accomplished rate either way — 20 hours logged on a Friday or
+// nothing logged at all must have the exact same (zero) effect.
+{
+  const savedWorkDays = settings.workDays;
+  settings.workDays = [0,1,2,3,4]; // Fri/Sat off, the org default
+
+  let friday = null;
+  for(let i=0;i<14;i++){
+    const d = new Date(2026,7,1+i);
+    if(d.getDay() === 5){ friday = dateToStr(d); break; }
+  }
+
+  const baseline = summarize([]);
+  const workedHard = summarize([entry({date:friday, clockIn:"06:00", clockOut:"23:00"})]); // 17h logged
+  const blank = summarize([entry({date:friday})]);
+
+  eq([workedHard.workedSum, workedHard.diffSum, workedHard.loggedDays],
+     [baseline.workedSum, baseline.diffSum, baseline.loggedDays],
+     "hours logged on an off-day do not move the totals, bank or average");
+  eq([blank.workedSum, blank.diffSum, blank.loggedDays, blank.incompleteDays],
+     [baseline.workedSum, baseline.diffSum, baseline.loggedDays, baseline.incompleteDays],
+     "a blank off-day entry does not register as a shortfall either");
+
+  eq(computeEntry(entry({date:friday, clockIn:"06:00", clockOut:"23:00"})).diffMin, 0,
+     "an individual off-day row shows no credit or shortfall diff either");
+
+  settings.workDays = savedWorkDays;
 }
 
 console.log(`  audit-logic  pass ${pass}   fail ${fail}`);

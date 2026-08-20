@@ -500,8 +500,9 @@ async function boot(browser, server, query){
   {
     // Kim is Mon–Fri 7h with one Friday (8h worked) and one Sunday (4h) logged.
     // Under her OWN schedule the Friday is a working day and the Sunday is not:
-    // target 7h, worked 12h, diff +5h. Under the viewer's Sun–Thu 8h schedule it
-    // would read target 8h and diff +4h — which is what the old roster showed.
+    // target 7h, worked 8h, diff +1h. The off-day Sunday is neutral — 4 hours
+    // logged on a day outside her schedule must not move the diff or the day
+    // count, the same as logging nothing at all would not.
     const s = await page.evaluate(() => {
       const card = [...document.querySelectorAll("#teamList .team-card")]
         .find(c => /Kim/.test(c.textContent));
@@ -513,8 +514,8 @@ async function boot(browser, server, query){
     });
     ok(/of 7h target/.test(s.note),
       "a card is measured against that person's own schedule, not the viewer's", JSON.stringify(s));
-    ok(s.fig.Diff === "+5h", "the difference follows from their own target", JSON.stringify(s.fig));
-    ok(s.fig.Days === "2", "both logged days count", JSON.stringify(s.fig));
+    ok(s.fig.Diff === "+1h", "the off-day hours do not inflate the difference", JSON.stringify(s.fig));
+    ok(s.fig.Days === "1", "only the day inside her own schedule counts", JSON.stringify(s.fig));
   }
   {
     const s = await page.evaluate(async () => {
