@@ -368,6 +368,59 @@
   /* ---------- Stat cards ---------- */
   .stats-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px; margin-bottom:28px;}
 
+  /* ---------- Person card + today's team ----------
+     Two panels side by side; the team panel is admin-only and carries [hidden]
+     otherwise, so the person card takes the whole row on its own for everyone
+     else rather than leaving a gap where a card used to be. */
+  .person-row{
+    display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);
+    gap:14px; margin-bottom:18px; align-items:start;
+  }
+  /* Set by renderTodayTeam rather than :has(), which is unsupported on older
+     mobile Safari/Firefox — and its failure mode here is a dangling empty
+     column next to the person card, not a graceful one. */
+  .person-row.solo{grid-template-columns:1fr;}
+  @media (max-width:900px){ .person-row{grid-template-columns:1fr;} }
+
+  .person-head{display:flex; align-items:center; gap:14px;}
+  .person-id{min-width:0; flex:1;}
+  .person-name{
+    margin:0; font-size:19px; font-weight:700; letter-spacing:-.02em;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .person-figures{
+    display:flex; gap:28px; flex-wrap:wrap; margin-top:18px;
+    padding-top:16px; border-top:1px solid rgba(17,17,16,.1);
+  }
+  .person-figure .v{
+    font-family:var(--font-num); font-weight:900; font-size:22px;
+    letter-spacing:-.03em; display:block; font-variant-numeric:tabular-nums;
+  }
+  .person-figure .v.over{color:var(--positive);}
+  .person-figure .v.short{color:var(--negative);}
+
+  .today-team-list{display:flex; flex-direction:column; gap:2px;}
+  .tt-row{
+    display:flex; align-items:center; gap:11px; padding:7px 0;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .tt-row:last-child{border-bottom:none;}
+  .tt-row .avatar{width:32px; height:32px; font-size:11px;}
+  .tt-name{
+    flex:1; min-width:0; font-size:12.5px; font-weight:600;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  /* The reference's check circle: filled ink when the day is settled, an open
+     ring while it is still outstanding. */
+  .tt-check{
+    width:22px; height:22px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    border:1.5px solid var(--line); color:transparent;
+  }
+  .tt-check.is-done{background:var(--ink); border-color:var(--ink); color:#fff;}
+  .tt-check.is-in{background:var(--gold); border-color:var(--gold); color:var(--ink-on-gold);}
+  .tt-empty{font-size:12.5px; color:var(--muted); padding:8px 0;}
+
   /* ---------- Hero stat: Monthly Avg ---------- */
   /* Two-column split (headline figure | context) — chosen via impeccable
      live-mode from three variants; see git history for the alternatives. */
@@ -469,10 +522,14 @@
 
   /* ---------- Cards ---------- */
   .card{
-    background:var(--card); border:1px solid var(--line-soft); border-radius:var(--radius);
+    background:var(--card); border:1px solid transparent; border-radius:var(--radius);
     padding:22px 22px 24px; margin-bottom:24px; box-shadow:var(--shadow-sm);
     transition:box-shadow var(--dur-fast) var(--ease-snap);
   }
+  /* Declared after .card so it actually wins: an earlier rule at equal
+     specificity was silently losing to .card's own background. */
+  .person-row > .card{margin-bottom:0;}
+  .person-card{background:var(--surface-cream);}
   .card h2{
     display:flex; align-items:center; gap:10px;
     font-family:var(--font-display); font-weight:700; font-size:21px; letter-spacing:-.025em;
@@ -1044,7 +1101,7 @@
     background:var(--gradient-gold); border-radius:2px;
   }
   .period-card-head{display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
-  .period-title{font-family:var(--font-display); font-size:17px; color:var(--ink); margin:0; font-weight:400;}
+  .period-title{font-family:var(--font-display); font-size:17px; color:var(--ink); margin:0; font-weight:700; letter-spacing:-.02em;}
   .period-meta{font-size:11.5px; color:var(--muted);}
   .period-figures{display:flex; gap:26px; flex-wrap:wrap; margin-bottom:14px;}
   .period-figure .label{font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
@@ -1194,11 +1251,7 @@
     padding:34px 28px 28px; box-shadow:var(--shadow-lg);
     animation:cardIn .5s var(--ease-soft) backwards;
   }
-  .auth-card::before{
-    content:""; position:absolute; top:0; left:20px; right:20px; height:3px;
-    background:var(--gradient-gold); border-radius:0 0 3px 3px;
-  }
-  .auth-title{font-size:27px; color:var(--ink); margin:0 0 22px; font-weight:400;}
+  .auth-title{font-size:30px; color:var(--ink); margin:0 0 22px; font-weight:700; letter-spacing:-.03em;}
   .auth-form{display:flex; flex-direction:column; gap:14px;}
   .auth-form label{margin-bottom:6px;}
   .auth-switch{
@@ -1629,12 +1682,8 @@
     transform:translateY(8px) scale(.98); transition:transform var(--dur-slow) var(--ease-soft);
   }
   .modal-overlay.show .modal-card{transform:translateY(0) scale(1);}
-  .modal-card::before{
-    content:""; position:absolute; top:0; left:20px; right:20px; height:3px;
-    background:var(--gradient-gold); border-radius:0 0 3px 3px;
-  }
   .modal-title{
-    font-family:var(--font-display); font-weight:400; font-size:17px;
+    font-family:var(--font-display); font-weight:700; font-size:18px; letter-spacing:-.02em;
     margin:2px 0 8px; color:var(--ink);
   }
   .modal-msg{font-size:13.5px; line-height:1.55; color:var(--muted); margin:0; white-space:pre-line;}
@@ -1940,6 +1989,29 @@
         <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill"></div></div>
         <span class="hero-progress-label" id="heroProgressLabel"></span>
       </div>
+    </div>
+  </section>
+
+  <!-- Whose record is on screen, and who is in today. The reference pairs a
+       person card with a checklist; these are this product's version of both.
+       The team panel is admin-only and removes itself for everyone else, at
+       which point the person card takes the full width. -->
+  <section class="person-row solo" id="personRow">
+    <div class="card person-card" id="personCard">
+      <div class="person-head">
+        <div class="avatar lg" id="personAvatar"></div>
+        <div class="person-id">
+          <p class="person-name" id="personName" dir="auto">—</p>
+          <p class="kicker" id="personRole">—</p>
+        </div>
+        <span class="team-status" id="personStatus" hidden></span>
+      </div>
+      <div class="person-figures" id="personFigures"></div>
+    </div>
+
+    <div class="card today-team" id="todayTeamCard" hidden>
+      <h2>In today</h2>
+      <div class="today-team-list" id="todayTeamList"></div>
     </div>
   </section>
 

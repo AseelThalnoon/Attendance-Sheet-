@@ -2737,6 +2737,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderBackupReminder();
     renderLog();
     renderCharts();
+    renderPersonCard();
+    // Fire-and-forget: it is one row-per-person query for today only, and a
+    // failure inside it must not stop the rest of the repaint. Non-admins
+    // return immediately without touching the network.
+    renderTodayTeam().catch(function(){});
     // Repaint the calendar only when it is the visible tab: it is not part of
     // the default view, and rendering a hidden panel on every data change is
     // work nobody sees.
@@ -4218,6 +4223,112 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   });
 
   // ---------- Admin: viewer switcher + Team tab ----------
+  // ---------- Person card ----------
+  // Whose record is on screen. For your own data that is you; when an admin
+  // switches to someone else it becomes them, which makes the target of every
+  // edit concrete rather than leaving it to the banner alone.
+  function renderPersonCard(){
+    var who = (!isOwnData && viewedProfile) ? viewedProfile : currentProfile;
+    if(!who) return;
+    var nameEl = document.getElementById("personName");
+    if(!nameEl) return;
+
+    nameEl.textContent = who.full_name || who.email;
+    document.getElementById("personRole").textContent =
+      (who.role === "admin" ? "Admin" : "Employee") + (isOwnData ? "" : " · viewing");
+
+    var av = document.getElementById("personAvatar");
+    // Photos are device-local, so only your own can ever be shown here.
+    var url = (currentUser && who.id === currentUser.id) ? localAvatar(who.id) : null;
+    av.innerHTML = url ? '<img src="'+escapeAttr(url)+'" alt="">'
+                       : escapeHtml(initialsOf(who.full_name || who.email));
+
+    var st = teamStatus(entries, settings);
+    var pill = document.getElementById("personStatus");
+    pill.hidden = false;
+    pill.className = "team-status " + st.cls;
+    pill.textContent = st.label;
+
+    var ms = summarize(entries.filter(function(e){ return monthKey(e.date) === monthKey(todayStr()); }));
+    var diffCls = ms.diffSum > 0 ? " over" : (ms.diffSum < 0 ? " short" : "");
+    document.getElementById("personFigures").innerHTML = [
+      ['Logged this month', String(ms.loggedDays) + 'd', ''],
+      ['Hours worked', minutesToHoursStr(ms.workedSum), ''],
+      ['vs target', (ms.diffSum > 0 ? "+" : "") + minutesToHoursStr(ms.diffSum), diffCls]
+    ].map(function(f){
+      return '<div class="person-figure"><span class="v'+f[2]+'">'+escapeHtml(f[1])+
+             '</span><span class="kicker">'+escapeHtml(f[0])+'</span></div>';
+    }).join("");
+  }
+
+  // ---------- Today's team ----------
+  // Admin-only "who is in today". Deliberately its own one-day query rather
+  // than reusing the Team tab's cache: that cache is built by renderTeam(),
+  // which pulls a whole month for every user, and this panel is on the default
+  // screen where that would be the heaviest thing on the page.
+  async function renderTodayTeam(){
+    var card = document.getElementById("todayTeamCard");
+    var row = document.getElementById("personRow");
+    if(!card) return;
+    if(!isAdmin){
+      card.hidden = true;
+      if(row) row.classList.add("solo");
+      return;
+    }
+    card.hidden = false;
+    if(row) row.classList.remove("solo");
+
+    var list = document.getElementById("todayTeamList");
+    var today = todayStr();
+    var byUser = {};
+    try{
+      var res = await supabase.from("entries")
+        .select("user_id,date,clock_in,clock_out,type")
+        .eq("date", today);
+      if(res.error) throw res.error;
+      (res.data || []).forEach(function(row){
+        (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
+      });
+    }catch(err){
+      list.innerHTML = '<p class="tt-empty">Couldn\'t load today: '+escapeHtml(friendlyError(err))+'</p>';
+      return;
+    }
+
+    var settingsByUser = await loadTeamSettings();
+    var rows = allProfiles.map(function(p){
+      var own = settingsByUser[p.id] || normalizeSettings({});
+      return {p: p, st: teamStatus(byUser[p.id] || [], own)};
+    });
+    // Anyone still outstanding first — the panel exists to surface those.
+    var order = {missing:0, in:1, excused:2, done:3, off:4};
+    rows.sort(function(a,b){
+      var d = (order[a.st.cls] || 9) - (order[b.st.cls] || 9);
+      return d || (a.p.full_name || a.p.email).localeCompare(b.p.full_name || b.p.email);
+    });
+
+    if(!rows.length){
+      list.innerHTML = '<p class="tt-empty">No other users have registered yet.</p>';
+      return;
+    }
+    list.innerHTML = rows.map(function(r){
+      var name = r.p.full_name || r.p.email;
+      var url = (currentUser && r.p.id === currentUser.id) ? localAvatar(r.p.id) : null;
+      // Filled for a settled day, lime while a shift is running, an open ring
+      // for anything still outstanding.
+      var checkCls = r.st.cls === "in" ? " is-in"
+                   : (r.st.cls === "done" || r.st.cls === "excused" || r.st.cls === "off") ? " is-done" : "";
+      return '<div class="tt-row">'+
+        (url ? '<div class="avatar"><img src="'+escapeAttr(url)+'" alt=""></div>'
+             : '<div class="avatar">'+escapeHtml(initialsOf(name))+'</div>')+
+        '<span class="tt-name" dir="auto">'+escapeHtml(name)+'</span>'+
+        '<span class="team-status '+r.st.cls+'">'+escapeHtml(r.st.label)+'</span>'+
+        '<span class="tt-check'+checkCls+'" aria-hidden="true">'+
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'+
+        '</span>'+
+      '</div>';
+    }).join("");
+  }
+
   function updateViewingBanner(){
     var banner = document.getElementById("viewingOtherBanner");
     var qc = document.querySelector(".quick-clock");
