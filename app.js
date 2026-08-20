@@ -740,8 +740,31 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         // The back button already consumed the pushed entry itself; closing
         // any other way (Escape, Cancel, Confirm, overlay click) still has to
         // consume it so a second back press doesn't just reopen this dialog.
-        if(!fromPopState) history.back();
-        resolve(result);
+        if(fromPopState){
+          resolve(result);
+        } else {
+          // history.back() is asynchronous — its popstate fires on a later
+          // task, not immediately. If we resolved right away, an awaiting
+          // caller could open a second showConfirm (as CSV import does:
+          // date-order prompt then an import-confirm prompt) and push a new
+          // history entry before this back() actually lands. That leaves the
+          // stray popstate to land on the NEW dialog instead of this one,
+          // silently closing it as "cancelled" before the user ever sees it.
+          // Waiting for our own popstate before resolving keeps the two in
+          // sync. The fallback timer guards against back() never firing.
+          var settled = false;
+          function settle(){
+            if(settled) return;
+            settled = true;
+            window.removeEventListener("popstate", onOwnBack);
+            clearTimeout(fallback);
+            resolve(result);
+          }
+          function onOwnBack(){ settle(); }
+          window.addEventListener("popstate", onOwnBack);
+          var fallback = setTimeout(settle, 1000);
+          history.back();
+        }
       }
       function onKey(ev){
         if(ev.key === "Escape"){ close(false); return; }
