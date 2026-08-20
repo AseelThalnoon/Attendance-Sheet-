@@ -35,6 +35,10 @@ colors:
   muted-on-dark: "#C6D6D2"
   positive-on-dark: "#9FD8A8"
   negative-on-dark: "#E0A5A5"
+  negative-solid: "#C24A4A"
+  negative-deep: "#9C3434"
+  gold-gradient-highlight-light: "#C7A155"
+  gold-gradient-highlight-dark: "#DDBB72"
 typography:
   display:
     fontFamily: "\"Iowan Old Style\", \"Palatino Linotype\", Palatino, Georgia, \"Times New Roman\", serif"
@@ -118,6 +122,8 @@ Warm and low-saturation at rest — teal and gold both read as aged/antique rath
 - **Ink on Gold** (`#20180A`, `--ink-on-gold`): the one text color that sits on `--gradient-gold` — quick-clock's primary button, the clock-in FAB, gold-filled badges. Fixed in both themes, since the gold gradient itself stays roughly as warm in dark mode.
 - **Muted on Dark** (`#C6D6D2`, `--muted-on-dark`): secondary text on the app's dark-teal-surface exceptions (hero stat, header). Also fixed across themes for the same reason.
 - **Positive/Negative on Dark** (`#9FD8A8` / `#E0A5A5`, `--positive-on-dark` / `--negative-on-dark`): the hero stat's trend-up/trend-down text. `--positive`/`--negative` are calibrated for `--card`, not the dark teal hero gradient, so the trend indicator needs its own fixed pair rather than reusing them directly — same rationale as `--muted-on-dark`.
+- **Negative Solid / Negative Deep** (`#C24A4A` / `#9C3434`, `--negative-solid` / `--negative-deep`): the danger-solid button's fill gradient (the highest-stakes destructive confirm, e.g. "Delete Permanently"). `--negative`/`--negative-on-dark` are tuned as text colors for pills and trend indicators, not as a solid fill — using either as a button background would read too muted in light mode or too pale for white text in dark mode. Fixed across themes, same rationale as `--ink-on-gold`.
+- **Gold Gradient Highlight** (`#C7A155` light / `#DDBB72` dark, unnamed literals inside `--gradient-gold`): the gradient's lead-in stop before it moves through `--gold` to `--gold-deep`, tuned separately per theme so the highlight reads consistently warm against both a light and a dark surface. Not a new surface color — a hand-tuned midpoint of an existing gradient, documented here so it doesn't get flagged as undocumented drift.
 
 ### Status (semantic, not decorative)
 - **Positive** (`#256B42` on `#E3F1E7`): met/over-target states — badges, calendar dots, team status.

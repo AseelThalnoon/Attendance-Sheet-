@@ -120,6 +120,13 @@
     --muted-on-dark:#C6D6D2;   /* secondary text on the dark teal surfaces */
     --positive-on-dark:#9FD8A8; /* hero-stat trend-up text on the dark teal surface */
     --negative-on-dark:#E0A5A5; /* hero-stat trend-down text on the dark teal surface */
+    /* --negative/--negative-on-dark are tuned as text colors (for status pills,
+       trend indicators), not as a fill — using either as a solid button
+       background would either be too muted (light mode) or too pale for white
+       text (dark mode's on-dark variant). danger-solid needs its own fixed
+       fill pair instead, the same way gold's fill context gets its own tokens. */
+    --negative-solid:#C24A4A; /* danger-solid button fill, fixed across themes */
+    --negative-deep:#9C3434;  /* danger-solid gradient's darker stop / border */
   }
 
   body.dark{
@@ -640,7 +647,7 @@
   .bulk-select-all{display:flex; align-items:center; gap:9px; cursor:pointer; font-size:13px; font-weight:600;}
   .bulk-select-all input{width:16px; height:16px; accent-color:var(--gold);}
   .bulk-actions{display:flex; gap:8px;}
-  .bulk-toolbar .btn.danger-ghost{background:rgba(255,255,255,.06); border-color:rgba(224,133,133,.5); color:#F0AFAF;}
+  .bulk-toolbar .btn.danger-ghost{background:rgba(255,255,255,.06); border-color:rgba(224,133,133,.5); color:var(--negative-on-dark);}
   .bulk-toolbar .btn.ghost{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.25); color:#fff;}
   th.select-col{width:34px;}
   td.select-col{width:1%;}
@@ -699,6 +706,11 @@
     white-space:nowrap; flex-shrink:0; transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
   .tab-btn.active{color:var(--ink); border-bottom-color:var(--gold); font-weight:600; background:var(--teal-50);}
+  /* Team is oversight of the whole roster, not a view of your own attendance
+     like the four tabs before it — a hairline divider marks that boundary
+     instead of leaving five equal-weight destinations in an undifferentiated
+     row. */
+  .tab-btn[data-tab="team"]{margin-left:10px; padding-left:16px; border-left:1px solid var(--line-soft);}
   .tab-panel{display:none;}
   .tab-panel.active{display:block; animation:fadeIn .25s var(--ease-soft);}
 
@@ -817,7 +829,7 @@
   table{width:100%; border-collapse:collapse; font-size:13px;}
   thead th{
     text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.07em;
-    color:var(--muted); padding:10px 12px; background:var(--teal-50);
+    color:var(--muted-2); padding:10px 12px; background:var(--teal-50);
     border-bottom:1px solid var(--line); white-space:nowrap;
   }
   tbody td{padding:10px 12px; border-bottom:1px solid var(--line-soft); white-space:nowrap;}
@@ -831,7 +843,7 @@
   tbody tr.row-over{background:var(--positive-bg); border-left:3px solid var(--positive);}
   td.num, th.num{text-align:right; font-variant-numeric:tabular-nums;}
   td.num{font-family:var(--font-num); font-size:13.5px;}
-  td.note-cell{white-space:normal; max-width:220px; color:var(--muted);}
+  td.note-cell{white-space:normal; max-width:220px; color:var(--muted-2);}
 
   .pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px 3px 8px; border-radius:99px; font-size:11px; font-weight:600; letter-spacing:.01em;}
   .pill::before{content:""; width:5px; height:5px; border-radius:50%; background:currentColor; flex-shrink:0; box-shadow:0 0 4px currentColor;}
@@ -1155,7 +1167,7 @@
     background:var(--card); box-shadow:var(--shadow-sm);
     padding:13px 16px; margin-bottom:6px;
   }
-  .admin-attention h4{
+  .admin-attention h3{
     margin:0 0 4px; font-size:10.5px; font-weight:700;
     text-transform:uppercase; letter-spacing:.07em; color:var(--muted);
   }
@@ -1246,6 +1258,15 @@
     position:absolute; width:1px; height:1px; padding:0; margin:-1px;
     overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
   }
+  /* Off-screen until focused, so a keyboard/screen-reader user doesn't have to
+     re-tab through the full header's 5+ interactive elements on every page. */
+  .skip-link{
+    position:absolute; left:12px; top:-48px; z-index:400;
+    background:var(--teal-900); color:#fff; padding:10px 16px;
+    border-radius:var(--radius-sm); font-size:13px; font-weight:600;
+    text-decoration:none; transition:top var(--dur-fast) var(--ease-snap);
+  }
+  .skip-link:focus{top:12px;}
   .team-avatar{
     width:36px; height:36px; border-radius:50%; flex-shrink:0;
     background:var(--gradient-teal); color:#F5F1E6;
@@ -1477,7 +1498,7 @@
   .modal-msg{font-size:13.5px; line-height:1.55; color:var(--muted); margin:0; white-space:pre-line;}
   .modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px;}
   .btn.danger-solid{
-    background:linear-gradient(135deg, #C24A4A, #9C3434); border-color:#9C3434; color:#fff;
+    background:linear-gradient(135deg, var(--negative-solid), var(--negative-deep)); border-color:var(--negative-deep); color:#fff;
   }
   .btn.danger-solid::before{display:none;}
   @media (max-width:480px){
@@ -1558,6 +1579,8 @@
      it once the session resolves. Distinct from the per-user light/dark mode,
      which is body.dark and lives in localStorage. -->
 <body data-ui-theme="ledger">
+
+<a href="#main" class="skip-link">Skip to main content</a>
 
 <!-- ============ AUTH SCREEN ============ -->
 <div id="authScreen" class="auth-screen">
@@ -1790,7 +1813,7 @@
   </div>
 </section>
 
-<main>
+<main id="main" tabindex="-1">
 
   <!-- Visibility is controlled by the .show class alone. These used to also
        carry an inline style="display:none", which outranks any class selector —
@@ -2452,7 +2475,7 @@
       <!-- Data health. Every item here is a real query, not a guess, and each
            one names the people or days involved so it can actually be acted on. -->
       <div class="admin-attention" id="adminAttention">
-        <h4 id="adminAttentionHead">Data health</h4>
+        <h3 id="adminAttentionHead">Data health</h3>
         <div id="adminAttentionList" role="list" aria-labelledby="adminAttentionHead">
           <p class="settings-hint" style="margin:0;">Checking…</p>
         </div>
@@ -2758,7 +2781,7 @@
       <button class="btn ghost small" id="exportCsvBtn">Export CSV</button>
       <button class="btn ghost small" id="importBtn">Import JSON</button>
       <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
-      <button class="btn ghost small" id="importCsvBtn">Import CSV</button>
+      <button class="btn ghost small" id="importCsvBtn" title="Type column accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave">Import CSV</button>
       <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
       <button class="btn ghost small" id="csvTemplateBtn">Download CSV Template</button>
       <button class="btn danger-ghost small" id="clearAllBtn">Clear All</button>

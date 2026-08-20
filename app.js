@@ -2437,6 +2437,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderCalendar();
   });
 
+  function openNewEntryForm(dateStr){
+    resetForm();
+    if(dateStr){
+      document.getElementById("fDate").value = dateStr;
+      document.getElementById("fToDate").value = dateStr;
+    }
+    document.getElementById("entryFormSection").classList.add("open");
+    form.scrollIntoView({behavior:"smooth", block:"center"});
+  }
+
   document.getElementById("calendarGrid").addEventListener("click", function(ev){
     var cell = ev.target.closest(".cal-cell[data-date]");
     if(!cell) return;
@@ -2445,12 +2455,42 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(entry){
       loadEntryIntoForm(entry.id);
     } else {
-      resetForm();
-      document.getElementById("fDate").value = dStr;
-      document.getElementById("fToDate").value = dStr;
-      document.getElementById("entryFormSection").classList.add("open");
-      form.scrollIntoView({behavior:"smooth", block:"center"});
+      openNewEntryForm(dStr);
     }
+  });
+
+  // Keyboard accelerators. Before this, only modals trapped Tab/Escape/Enter —
+  // the two most repeated actions (paging through a month, opening the manual-
+  // entry form) had no accelerator at all.
+  function isEditableTarget(t){
+    var tag = t && t.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable);
+  }
+  document.getElementById("tab-calendar").addEventListener("keydown", function(ev){
+    if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    if(isEditableTarget(ev.target)) return;
+    ev.preventDefault();
+    document.getElementById(ev.key === "ArrowLeft" ? "calPrevBtn" : "calNextBtn").click();
+  });
+  document.getElementById("tab-team").addEventListener("keydown", function(ev){
+    if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    if(isEditableTarget(ev.target)) return;
+    ev.preventDefault();
+    var btn = document.getElementById(ev.key === "ArrowLeft" ? "teamPrevMonth" : "teamNextMonth");
+    if(btn && !btn.disabled) btn.click();
+  });
+  // "n" jumps straight to the manual-entry form from anywhere in the app —
+  // the same destination a fresh calendar-day tap opens, just without
+  // needing to first navigate to Calendar and find an empty day.
+  document.addEventListener("keydown", function(ev){
+    if(ev.key !== "n" && ev.key !== "N") return;
+    if(ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if(isEditableTarget(ev.target)) return;
+    if(document.querySelector(".modal-overlay")) return;
+    ev.preventDefault();
+    document.querySelector('.tab-btn[data-tab="log"]').click();
+    openNewEntryForm();
+    document.getElementById("fDate").focus();
   });
 
   // ---------- Punctuality ----------
@@ -4792,10 +4832,20 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
 
     if(deleteId){
-      var okDelete = await showConfirm(
+      // Two-step, same as Clear All: delete-user is the only other fully
+      // irreversible action in the app, so it gets the same safety net —
+      // including a nudge toward Deactivate, which keeps records intact and
+      // can be undone, right before the point of no return.
+      var deleteStep1 = await showConfirm(
         "Permanently delete " + user.email + " and all " + Number(user.entry_count).toLocaleString() +
-        " of their attendance entries? This cannot be undone.",
-        {title:"Delete this user?", confirmText:"Delete Permanently", danger:true}
+        " of their attendance entries? If you just need to remove their access, Deactivate keeps their records intact and can be undone — Delete cannot.",
+        {title:"Delete this user?", confirmText:"Continue", danger:true}
+      );
+      if(!deleteStep1) return;
+      var okDelete = await showConfirm(
+        "Delete " + user.email + " and all " + Number(user.entry_count).toLocaleString() +
+        " entries? This can't be undone.",
+        {title:"Last check", confirmText:"Delete Permanently", danger:true}
       );
       if(!okDelete) return;
       btn.disabled = true;
