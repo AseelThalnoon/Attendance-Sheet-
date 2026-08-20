@@ -181,7 +181,9 @@
     color:var(--ink);
     font-family:var(--font-ui);
     line-height:1.45;
-    padding-bottom:64px;
+    /* Clearance for the fixed bottom nav, which only exists below 760px —
+       above that this was 64px of dead space at the foot of every screen. */
+    padding-bottom:0;
     background-color:var(--paper);
     -webkit-font-smoothing:antialiased;
   }
@@ -367,6 +369,51 @@
 
   /* ---------- Stat cards ---------- */
   .stats-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px; margin-bottom:28px;}
+
+  /* ---------- Overview ----------
+     The point of this tab is that it does not scroll: the four things you land
+     on — the month figure, who you are, who is in, and the clock — are all on
+     screen at once. So the panel is a fixed grid rather than a stack, and the
+     pieces inside it are tightened up to earn the space. */
+  .overview-panel{margin-bottom:24px;}
+  .overview-panel > .hero-stat{margin-bottom:14px;}
+  .overview-panel > .person-row{margin-bottom:14px;}
+  .overview-panel > .stats-row{margin-bottom:14px;}
+  .overview-panel > .card{margin-bottom:0;}
+  .overview-panel .hero-stat{padding:20px 24px 18px;}
+  .overview-panel .hero-value{font-size:44px;}
+  .overview-panel .person-card,
+  .overview-panel .today-team{padding:18px 20px 16px;}
+  .overview-panel .today-team h2{margin-bottom:10px; font-size:17px;}
+  .overview-panel .person-figures{margin-top:14px; padding-top:12px;}
+  /* On a short laptop the roster is the one part that can grow without bound,
+     so it scrolls inside its own card instead of pushing the page down. */
+  .overview-panel .today-team-list{max-height:190px; overflow-y:auto;}
+  @media (min-width:1100px){
+    /* .tab-panel.active sets display:block at two classes; a media query adds
+       no specificity, so this needs three to win regardless of source order. */
+    .tab-panel.overview-panel.active{
+      display:grid; align-content:start; gap:14px;
+      grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);
+      grid-template-areas:"hero side" "stats side" "entry side";
+    }
+    .overview-panel > .hero-stat{grid-area:hero; margin:0;}
+    .overview-panel > .stats-row{grid-area:stats; margin:0;}
+    .overview-panel > .card{grid-area:entry; margin:0;}
+    /* The person card and the roster stack down the side column, so
+       .person-row's own two-up grid is replaced here. */
+    .overview-panel > .person-row{
+      grid-area:side; margin:0; display:flex; flex-direction:column; gap:14px;
+    }
+    .overview-panel > .person-row.solo{display:flex;}
+    /* auto-fit reflowed to 2x2 in the narrower left column, costing ~150px of
+       height the fold cannot spare. Four across is explicit here. */
+    .overview-panel .stats-row{grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px;}
+    .overview-panel .stat-card{padding:14px 14px 12px;}
+    .overview-panel .stat-value{font-size:26px;}
+    .overview-panel > .card{padding:18px 20px 18px;}
+    .overview-panel .today-team-list{max-height:none;}
+  }
 
   /* ---------- Person card + today's team ----------
      Two panels side by side; the team panel is admin-only and carries [hidden]
@@ -1150,13 +1197,12 @@
   .spark-rect{transform-box:fill-box; transform-origin:bottom; animation:barGrow .4s var(--ease-soft) both;}
 
   footer.ledger-foot{
-    max-width:1080px; margin:8px auto 0; padding:20px 24px 24px;
-    border-top:1px solid var(--line-soft);
+    max-width:1280px; margin:0 auto; padding:14px 32px 18px;
   }
   .foot-row{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
-  .foot-note{font-size:11.5px; color:var(--muted-2); max-width:420px;}
+  .foot-note{font-size:11px; color:var(--muted-2); max-width:340px;}
   /* No opacity: stacking .75 on an already-secondary colour took this to 2.06:1. */
-  .copyright{font-size:11px; color:var(--muted-2); text-align:center; margin:18px 0 0;}
+  .copyright{font-size:11px; color:var(--muted-2); text-align:center; margin:10px 0 0;}
   /* Available to assistive technology, not painted. Used for the loading live
      region and the mobile table column labels above the card breakpoint. */
   .visually-hidden{
@@ -1843,7 +1889,11 @@
 <aside class="rail" id="rail">
   <p class="rail-brand">Attendance<span>.</span></p>
   <nav class="rail-nav" id="railNav" aria-label="Primary">
-    <button type="button" class="rail-item active" data-rail-tab="log">
+    <button type="button" class="rail-item active" data-rail-tab="overview">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>
+      <span>Overview</span>
+    </button>
+    <button type="button" class="rail-item" data-rail-tab="log">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6a1 1 0 0 1 1 1V5h.5A1.5 1.5 0 0 1 18 6.5v13A1.5 1.5 0 0 1 16.5 21h-9A1.5 1.5 0 0 1 6 19.5v-13A1.5 1.5 0 0 1 7.5 5H8v-.5a1 1 0 0 1 1-1z"/><path d="M9 10h6M9 13.5h6M9 17h3.5"/></svg>
       <span>Log</span>
     </button>
@@ -1965,100 +2015,6 @@
       </div>
     </div>
   </div>
-
-  <section class="hero-stat" id="heroStat">
-    <div class="skeleton-overlay">
-      <span class="skeleton-dark" style="width:150px; height:10px; border-radius:4px;"></span>
-      <span class="skeleton-dark" style="width:190px; height:42px; margin-top:6px;"></span>
-      <span class="skeleton-dark" style="width:220px; height:10px; margin-top:4px; border-radius:4px;"></span>
-      <span class="skeleton-dark" style="width:100%; height:8px; border-radius:99px; margin-top:12px;"></span>
-    </div>
-    <div class="hero-col-value">
-      <div class="hero-stat-top">
-        <span class="hero-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month's Average</span>
-        <span class="hero-period" id="heroMonthLabel">—</span>
-      </div>
-      <div class="hero-value-row">
-        <span class="hero-value" id="monthAvg">0h</span>
-        <span class="hero-trend" id="monthTrend"></span>
-      </div>
-    </div>
-    <div class="hero-col-meta">
-      <p class="hero-detail" id="monthAvgDetail">—</p>
-      <div class="hero-progress">
-        <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill"></div></div>
-        <span class="hero-progress-label" id="heroProgressLabel"></span>
-      </div>
-    </div>
-  </section>
-
-  <!-- Whose record is on screen, and who is in today. The reference pairs a
-       person card with a checklist; these are this product's version of both.
-       The team panel is admin-only and removes itself for everyone else, at
-       which point the person card takes the full width. -->
-  <section class="person-row solo" id="personRow">
-    <div class="card person-card" id="personCard">
-      <div class="person-head">
-        <div class="avatar lg" id="personAvatar"></div>
-        <div class="person-id">
-          <p class="person-name" id="personName" dir="auto">—</p>
-          <p class="kicker" id="personRole">—</p>
-        </div>
-        <span class="team-status" id="personStatus" hidden></span>
-      </div>
-      <div class="person-figures" id="personFigures"></div>
-    </div>
-
-    <div class="card today-team" id="todayTeamCard" hidden>
-      <h2>In today</h2>
-      <div class="today-team-list" id="todayTeamList"></div>
-    </div>
-  </section>
-
-  <section class="stats-row" id="statsRow">
-    <div class="stat-card">
-      <div class="skeleton-overlay">
-        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
-        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
-        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
-      </div>
-      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>This Week Avg / Day</p>
-      <p class="stat-value" id="weekAvg">0h</p>
-      <p class="stat-detail" id="weekAvgDetail">—</p>
-      <p class="stat-trend" id="weekTrend"></p>
-    </div>
-    <div class="stat-card">
-      <div class="skeleton-overlay">
-        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
-        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
-        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
-      </div>
-      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/></svg>Overtime Bank</p>
-      <p class="stat-value" id="otBank">0h</p>
-      <p class="stat-detail" id="otBankDetail">This month vs. target</p>
-      <p class="stat-trend" id="otBankTrend"></p>
-    </div>
-    <div class="stat-card">
-      <div class="skeleton-overlay">
-        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
-        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
-        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
-      </div>
-      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3-2 4-2 7a4 4 0 0 0 8 0c0-1.5-1-2.5-1-2.5s.5 2-1 3c.5-3-2-4-2-7z"/><path d="M8.5 14a3.5 5 0 1 0 7 0c0-1-.5-2-1.5-3"/></svg>Current Streak</p>
-      <p class="stat-value" id="streak">0</p>
-      <p class="stat-detail">Consecutive workdays logged</p>
-    </div>
-    <div class="stat-card">
-      <div class="skeleton-overlay">
-        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
-        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
-        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
-      </div>
-      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M8 3v3M16 3v3M3.5 9.5h17"/><path d="M9 14l2 2 4-4"/></svg>Leave Balance</p>
-      <p class="stat-value" id="leaveBalance">0d</p>
-      <p class="stat-detail" id="leaveBalanceDetail">0 of 21 days used</p>
-    </div>
-  </section>
 
   <section class="card settings-card" id="settingsCard">
     <h2>Schedule Settings</h2>
@@ -2182,6 +2138,104 @@
     </div>
   </section>
 
+  <!-- Overview. Everything that used to sit stacked above the tab strip is a
+       tab of its own now, so switching views replaces the screen instead of
+       scrolling past the same four cards every time. -->
+  <div class="tab-panel overview-panel active" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview" tabindex="0">
+  <section class="hero-stat" id="heroStat">
+    <div class="skeleton-overlay">
+      <span class="skeleton-dark" style="width:150px; height:10px; border-radius:4px;"></span>
+      <span class="skeleton-dark" style="width:190px; height:42px; margin-top:6px;"></span>
+      <span class="skeleton-dark" style="width:220px; height:10px; margin-top:4px; border-radius:4px;"></span>
+      <span class="skeleton-dark" style="width:100%; height:8px; border-radius:99px; margin-top:12px;"></span>
+    </div>
+    <div class="hero-col-value">
+      <div class="hero-stat-top">
+        <span class="hero-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>This Month's Average</span>
+        <span class="hero-period" id="heroMonthLabel">—</span>
+      </div>
+      <div class="hero-value-row">
+        <span class="hero-value" id="monthAvg">0h</span>
+        <span class="hero-trend" id="monthTrend"></span>
+      </div>
+    </div>
+    <div class="hero-col-meta">
+      <p class="hero-detail" id="monthAvgDetail">—</p>
+      <div class="hero-progress">
+        <div class="hero-progress-track"><div class="hero-progress-fill" id="heroProgressFill"></div></div>
+        <span class="hero-progress-label" id="heroProgressLabel"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Whose record is on screen, and who is in today. The reference pairs a
+       person card with a checklist; these are this product's version of both.
+       The team panel is admin-only and removes itself for everyone else, at
+       which point the person card takes the full width. -->
+  <section class="person-row solo" id="personRow">
+    <div class="card person-card" id="personCard">
+      <div class="person-head">
+        <div class="avatar lg" id="personAvatar"></div>
+        <div class="person-id">
+          <p class="person-name" id="personName" dir="auto">—</p>
+          <p class="kicker" id="personRole">—</p>
+        </div>
+        <span class="team-status" id="personStatus" hidden></span>
+      </div>
+      <div class="person-figures" id="personFigures"></div>
+    </div>
+
+    <div class="card today-team" id="todayTeamCard" hidden>
+      <h2>In today</h2>
+      <div class="today-team-list" id="todayTeamList"></div>
+    </div>
+  </section>
+
+  <section class="stats-row" id="statsRow">
+    <div class="stat-card">
+      <div class="skeleton-overlay">
+        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
+        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+      </div>
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>This Week Avg / Day</p>
+      <p class="stat-value" id="weekAvg">0h</p>
+      <p class="stat-detail" id="weekAvgDetail">—</p>
+      <p class="stat-trend" id="weekTrend"></p>
+    </div>
+    <div class="stat-card">
+      <div class="skeleton-overlay">
+        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
+        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+      </div>
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/></svg>Overtime Bank</p>
+      <p class="stat-value" id="otBank">0h</p>
+      <p class="stat-detail" id="otBankDetail">This month vs. target</p>
+      <p class="stat-trend" id="otBankTrend"></p>
+    </div>
+    <div class="stat-card">
+      <div class="skeleton-overlay">
+        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
+        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+      </div>
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3-2 4-2 7a4 4 0 0 0 8 0c0-1.5-1-2.5-1-2.5s.5 2-1 3c.5-3-2-4-2-7z"/><path d="M8.5 14a3.5 5 0 1 0 7 0c0-1-.5-2-1.5-3"/></svg>Current Streak</p>
+      <p class="stat-value" id="streak">0</p>
+      <p class="stat-detail">Consecutive workdays logged</p>
+    </div>
+    <div class="stat-card">
+      <div class="skeleton-overlay">
+        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
+        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+      </div>
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M8 3v3M16 3v3M3.5 9.5h17"/><path d="M9 14l2 2 4-4"/></svg>Leave Balance</p>
+      <p class="stat-value" id="leaveBalance">0d</p>
+      <p class="stat-detail" id="leaveBalanceDetail">0 of 21 days used</p>
+    </div>
+  </section>
+
   <section class="card">
     <h2>New Entry</h2>
 
@@ -2257,11 +2311,14 @@
       </div>
     </div>
   </section>
+  </div><!-- /#tab-overview -->
 
-  <section class="card" id="tabContentCard">
+
+  <section class="card" id="tabContentCard" hidden>
     <div class="tabs-wrap">
       <div class="tabs" id="tabsBar" role="tablist" aria-label="Attendance views">
-        <button class="tab-btn active" data-tab="log" role="tab" id="tabbtn-log" aria-selected="true" aria-controls="tab-log">Log</button>
+        <button class="tab-btn" data-tab="overview" role="tab" id="tabbtn-overview" aria-selected="true" aria-controls="tab-overview">Overview</button>
+        <button class="tab-btn" data-tab="log" role="tab" id="tabbtn-log" aria-selected="false" aria-controls="tab-log">Log</button>
         <button class="tab-btn" data-tab="trends" role="tab" id="tabbtn-trends" aria-selected="false" aria-controls="tab-trends">Trends</button>
         <button class="tab-btn" data-tab="calendar" role="tab" id="tabbtn-calendar" aria-selected="false" aria-controls="tab-calendar">Calendar</button>
         <button class="tab-btn" data-tab="punctuality" role="tab" id="tabbtn-punctuality" aria-selected="false" aria-controls="tab-punctuality">Shortfall</button>
@@ -2352,7 +2409,7 @@
       <button type="button" class="btn ghost small" id="clearFiltersBtn">Clear</button>
     </div>
 
-    <div class="tab-panel active" id="tab-log" role="tabpanel" aria-labelledby="tabbtn-log" tabindex="0">
+    <div class="tab-panel" id="tab-log" role="tabpanel" aria-labelledby="tabbtn-log" tabindex="0">
       <div class="bulk-toolbar" id="bulkToolbar" style="display:none;">
         <label class="bulk-select-all">
           <input type="checkbox" id="bulkSelectAll">
@@ -2915,7 +2972,7 @@
 
 <footer class="ledger-foot">
   <div class="foot-row">
-    <p class="foot-note" id="storageNote">Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names. Type accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave.</p>
+    <p class="foot-note" id="storageNote" title="Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names. Type accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave.">Saved to your account. Export a backup regularly.</p>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <button class="btn ghost small" id="exportJsonBtn">Export JSON</button>
       <button class="btn ghost small" id="exportCsvBtn">Export CSV</button>
@@ -2964,7 +3021,11 @@
        number of equal-width slots and the clock stays exactly centered
        with mathematically even spacing, regardless of admin status. -->
   <div id="bnItemPool" hidden>
-    <button type="button" class="bn-item active" data-bn-tab="log">
+    <button type="button" class="bn-item active" data-bn-tab="overview">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>
+      <span>Overview</span>
+    </button>
+    <button type="button" class="bn-item" data-bn-tab="log">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6a1 1 0 0 1 1 1V5h.5A1.5 1.5 0 0 1 18 6.5v13A1.5 1.5 0 0 1 16.5 21h-9A1.5 1.5 0 0 1 6 19.5v-13A1.5 1.5 0 0 1 7.5 5H8v-.5a1 1 0 0 1 1-1z"/><path d="M9 10h6M9 13.5h6M9 17h3.5"/></svg>
       <span>Log</span>
     </button>

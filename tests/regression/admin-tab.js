@@ -232,7 +232,10 @@ async function boot(browser, server, query){
       JSON.stringify(s.onBar));
     ok(!s.adminInStrip, "Admin is no longer a tab", JSON.stringify(s.strip));
     ok(!s.adminInBottomNav, "Admin is no longer in the mobile bottom nav", JSON.stringify(s));
-    ok(s.strip.join(",") === "log,trends,calendar,punctuality,team",
+    // Overview leads now: the hero, stat cards and New Entry form moved into a
+    // tab of their own so switching views replaces the screen instead of
+    // scrolling past the same cards each time.
+    ok(s.strip.join(",") === "overview,log,trends,calendar,punctuality,team",
       "the tab strip keeps the attendance views", JSON.stringify(s.strip));
   }
   {

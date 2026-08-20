@@ -2611,7 +2611,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(isEditableTarget(ev.target)) return;
     if(document.querySelector(".modal-overlay")) return;
     ev.preventDefault();
-    document.querySelector('.tab-btn[data-tab="log"]').click();
+    document.querySelector('.tab-btn[data-tab="overview"]').click();
     openNewEntryForm();
     document.getElementById("fDate").focus();
   });
@@ -3431,9 +3431,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.querySelectorAll("#bottomNav .bn-spacer").forEach(function(s){ s.remove(); });
 
     // Admin is deliberately absent: it moved to the header, which is on screen
-    // on phones too, and leaving it here would push the nav to six slots and
+    // on phones too, and leaving it here would push the nav past six slots and
     // knock the centred clock button off balance.
-    var order = ["log", "trends", "calendar", "punctuality"].concat(isAdmin ? ["team"] : []);
+    //
+    // Every tab is listed, including Overview, which now leads. That is six
+    // slots for an admin and the labels get tight at 320px — but the rail is
+    // hidden below 760px and the tab strip with it, so anything dropped here
+    // would be unreachable on a phone entirely rather than merely crowded.
+    var order = ["overview", "log", "trends", "calendar", "punctuality"]
+      .concat(isAdmin ? ["team"] : []);
 
     // Return anything no longer in scope to the hidden pool FIRST. Without this,
     // an admin who demoted themselves kept Team and Admin sitting in the visible
@@ -3488,8 +3494,20 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var adminBtn = document.getElementById("adminBtn");
     if(adminBtn) adminBtn.setAttribute("aria-current", tab === "admin" ? "page" : "false");
 
+    // Overview lives outside #tabContentCard so its own cards sit on the
+    // canvas rather than nesting inside one big card. That means the card
+    // wrapper has to be hidden when Overview is the active tab, or an empty
+    // white panel is left standing under it.
+    var tabCard = document.getElementById("tabContentCard");
+    if(tabCard) tabCard.hidden = (tab === "overview");
+
     applyFilterBarVisibility(tab, activeSubtab());
 
+    if(tab === "overview"){
+      renderStats();
+      renderPersonCard();
+      renderTodayTeam().catch(function(){});
+    }
     if(tab === "trends") renderSubtab(activeSubtab());
     if(tab === "calendar") renderCalendarView();
     if(tab === "punctuality") renderPunctuality();
@@ -3555,6 +3573,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       // during that time whatever content is scrolling past visibly slides
       // behind the fixed nav. A tab switch should feel immediate.
       var target = document.getElementById("tabContentCard");
+      if(target && target.hidden) target = document.getElementById("tab-overview");
       if(target){
         var top = target.getBoundingClientRect().top + window.scrollY - 12;
         window.scrollTo(0, Math.max(0, top));
