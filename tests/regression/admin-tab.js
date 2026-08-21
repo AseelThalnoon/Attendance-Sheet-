@@ -206,30 +206,50 @@ async function boot(browser, server, query){
   }
 
   // ------------------------------------------------------------ header
-  // Theme, schedule settings and sign-out were behind a "More" overflow menu.
-  // They are buttons on the bar now, and Admin sits with them rather than in the
-  // tab strip — so none of the old menu machinery may survive.
+  // Settings, sign-out and Admin now live in the rail on desktop (≥761px,
+  // this test's 1280px context) — #settingsBtn/#logoutBtn/#adminBtn stay in
+  // the DOM only as the mobile fallback below 760px, where the rail is gone,
+  // and #headRight is hidden here so they must not be the visible copy. The
+  // rail-item click handler proxies to these same buttons rather than
+  // duplicating their logic, so none of the old menu machinery may survive
+  // either.
   {
-    const s = await page.evaluate(() => ({
-      menu: !!document.getElementById("headMenu"),
-      menuBtn: !!document.getElementById("headMenuBtn"),
-      onBar: ["settingsBtn","logoutBtn","adminBtn"].map(id => {
-        const el = document.getElementById(id);
-        if(!el) return `${id}: MISSING`;
+    const s = await page.evaluate(() => {
+      const visibleNamed = el => {
+        if(!el) return false;
         const r = el.getBoundingClientRect();
-        const named = (el.getAttribute("aria-label") || el.textContent).trim();
-        return r.width > 0 && r.height > 0 && named ? null : `${id}: ${r.width}x${r.height} "${named}"`;
-      }).filter(Boolean),
-      adminInStrip: !!document.querySelector('.tab-btn[data-tab="admin"]'),
-      adminInBottomNav: !!document.querySelector('.bn-item[data-bn-tab="admin"]'),
-      strip: [...document.querySelectorAll(".tabs .tab-btn")].map(b => b.getAttribute("data-tab")),
-    }));
+        const named = (el.getAttribute("aria-label") || el.textContent || "").trim();
+        return r.width > 0 && r.height > 0 && !!named;
+      };
+      return {
+        menu: !!document.getElementById("headMenu"),
+        menuBtn: !!document.getElementById("headMenuBtn"),
+        userChipGone: !document.getElementById("userChip"),
+        headRightHidden: getComputedStyle(document.getElementById("headRight")).display === "none",
+        // Still real elements in the DOM — just not the visible copy at this
+        // width. They only need to exist here; a mobile-width check covers
+        // their fallback role.
+        fallbackButtons: ["settingsBtn","logoutBtn","adminBtn"].every(id => !!document.getElementById(id)),
+        viewerInRail: !!document.querySelector(".rail #viewerSwitchWrap"),
+        railAdmin: visibleNamed(document.querySelector('.rail-item[data-rail-action="admin"]')),
+        railSettings: visibleNamed(document.querySelector('.rail-item[data-rail-action="settings"]')),
+        railLogout: visibleNamed(document.getElementById("railLogoutBtn")),
+        adminInStrip: !!document.querySelector('.tab-btn[data-tab="admin"]'),
+        adminInBottomNav: !!document.querySelector('.bn-item[data-bn-tab="admin"]'),
+        strip: [...document.querySelectorAll(".tabs .tab-btn")].map(b => b.getAttribute("data-tab")),
+      };
+    });
     ok(!s.menu && !s.menuBtn, "the header overflow menu is gone", JSON.stringify(s));
     const deskHeader = await page.evaluate(() => Math.round(
       document.querySelector("header.ledger-head").getBoundingClientRect().height));
     ok(deskHeader <= 130, "the header stays under 130px on a laptop", `${deskHeader}px`);
-    ok(s.onBar.length === 0, "theme, settings, sign out and admin are visible, named header buttons",
-      JSON.stringify(s.onBar));
+    ok(s.userChipGone, "the header name chip is gone — the rail already shows it", JSON.stringify(s));
+    ok(s.headRightHidden && s.fallbackButtons,
+      "settings, sign out and admin sit in the DOM as a mobile fallback, not visible on the desktop bar",
+      JSON.stringify(s));
+    ok(s.viewerInRail, "the viewer switcher moved into the rail", JSON.stringify(s));
+    ok(s.railAdmin && s.railSettings && s.railLogout,
+      "admin, settings and sign out are visible, named controls in the rail", JSON.stringify(s));
     ok(!s.adminInStrip, "Admin is no longer a tab", JSON.stringify(s.strip));
     ok(!s.adminInBottomNav, "Admin is no longer in the mobile bottom nav", JSON.stringify(s));
     // Overview leads and Settings closes the strip: both moved into tabs of

@@ -305,7 +305,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // (possibly stale, possibly zeroed) values sit there or pop in abruptly
   // once the fetch resolves.
   function setLoadingSkeletons(on){
-    var targets = [document.getElementById("heroStat"), document.getElementById("logTableWrap")]
+    var targets = [document.getElementById("formatCard"), document.getElementById("logTableWrap")]
       .concat(Array.prototype.slice.call(document.querySelectorAll("#statsRow .stat-card")));
     targets.forEach(function(el){
       if(!el) return;
@@ -1148,22 +1148,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(idx !== -1) current.splice(idx, 1);
     renderPeriodRows(current, "defaultsPeriodsList");
   });
-  // Settings is a tab; "closing" it means navigating away rather than
-  // collapsing a card that is the whole panel's content.
-  function leaveSettings(){
-    var active = document.querySelector(".tab-btn.active");
-    if(active && active.getAttribute("data-tab") === "settings"){
-      activateTab("overview");
-    }
-  }
-
   document.getElementById("settingsBtn").addEventListener("click", function(){
     var card = document.getElementById("settingsCard");
-    // The card lives in its own tab now, so the button navigates rather than
-    // toggling a panel open in place: it is always expanded once you are there.
-    var opening = true;
-    card.classList.add("open");
-    activateTab("settings");
+    var opening = !card.classList.contains("open");
+    card.classList.toggle("open", opening);
     if(opening){
       document.getElementById("settingsForLabel").textContent = isOwnData
         ? "Editing your own schedule."
@@ -1178,7 +1166,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     updateStickyClockVisibility();
   });
   document.getElementById("closeSettingsBtn").addEventListener("click", function(){
-    leaveSettings();
+    document.getElementById("settingsCard").classList.remove("open");
     updateStickyClockVisibility();
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
@@ -1265,7 +1253,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       btn.textContent = "Save Settings";
 
       if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = updated;
-      leaveSettings();
+      document.getElementById("settingsCard").classList.remove("open");
       updateStickyClockVisibility();
       renderAll();
       showToast(
@@ -1279,7 +1267,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     try{
       await sbSaveSettings(viewedUserId, updated);
       settings = updated;
-      leaveSettings();
+      document.getElementById("settingsCard").classList.remove("open");
       updateStickyClockVisibility();
       renderAll();
     }catch(err){
@@ -1800,17 +1788,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   function renderStats(){
     var today = todayStr();
-    var wk = weekKey(today), mk = monthKey(today);
+    var mk = monthKey(today);
 
-    var ws = summarize(entries.filter(function(e){ return weekKey(e.date) === wk; }));
     var ms = summarize(entries.filter(function(e){ return monthKey(e.date) === mk; }));
-
-    document.getElementById("weekAvg").textContent = ws.loggedDays ? minutesToHoursStr(ws.avgMin) : "0h";
-    // Clamp the denominator: logging an unscheduled day (a worked Saturday) used
-    // to produce "6 of 5 workdays logged".
-    document.getElementById("weekAvgDetail").textContent =
-      ws.loggedDays + " of " + Math.max(settings.workDays.length, ws.loggedDays) + " workdays logged" +
-      (ws.incompleteDays ? " · " + ws.incompleteDays + " incomplete" : "");
 
     document.getElementById("monthAvg").textContent = ms.loggedDays ? minutesToHoursStr(ms.avgMin) : "0h";
     document.getElementById("monthAvgDetail").textContent =
@@ -1848,12 +1828,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("otBankDetail").textContent =
       new Date().toLocaleDateString(undefined, {month:"long"}) + " vs. target";
 
-    // Trend vs. the previous week/month — purely informational, no "good/bad"
+    // Trend vs. the previous month — purely informational, no "good/bad"
     // judgement attached, since more hours isn't inherently positive.
-    var prevWeekStart = weekStartDate(today); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-    var pws = summarize(entries.filter(function(e){ return weekKey(e.date) === dateToStr(prevWeekStart); }));
-    renderTrend("weekTrend", ws.loggedDays ? ws.avgMin : null, pws.loggedDays ? pws.avgMin : null, "last week");
-
     var thisMonthDate = dateFromStr(today);
     var prevMonthDate = new Date(thisMonthDate.getFullYear(), thisMonthDate.getMonth()-1, 1);
     var pms = summarize(entries.filter(function(e){ return monthKey(e.date) === monthKey(dateToStr(prevMonthDate)); }));
@@ -1930,7 +1906,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     renderBnClock(todayEntry);
 
-    document.getElementById("scheduleLine").textContent = scheduleSummary();
     renderLeaveBalance();
   }
 
@@ -2433,10 +2408,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return out;
   }
 
-  function renderWeekLine(hostId, baseDate){
-    var host = document.getElementById(hostId || "weekLine");
+  function renderWeekLine(){
+    var host = document.getElementById("weekLine");
     if(!host) return;
-    var start = startOfWeek(baseDate || calendarViewDate);
+    var start = startOfWeek(calendarViewDate);
 
     var days = [];
     for(var i=0;i<7;i++){
@@ -2528,7 +2503,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(calMode === "week"){
       grid.hidden = true; grid.style.display = "none";
       week.hidden = false;
-      renderWeekLine("weekLine");
+      renderWeekLine();
       var s = startOfWeek(calendarViewDate);
       var e = new Date(s.getFullYear(), s.getMonth(), s.getDate()+6);
       var sameMonth = s.getMonth() === e.getMonth();
@@ -2572,27 +2547,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderCalendarView();
   });
 
-  var entryModalReturn = null;   // focus returns here on close
-
-  function openEntryModal(){
-    var m = document.getElementById("entryModal");
-    if(!m || !m.hidden) return;
-    entryModalReturn = document.activeElement;
-    m.hidden = false;
-    document.body.style.overflow = "hidden";
-    setTimeout(function(){ document.getElementById("fDate").focus(); }, 30);
-  }
-
-  function closeEntryModal(){
-    var m = document.getElementById("entryModal");
-    if(!m || m.hidden) return;
-    m.hidden = true;
-    document.body.style.overflow = "";
-    if(entryModalReturn && entryModalReturn.focus) entryModalReturn.focus();
-    entryModalReturn = null;
-  }
-
   function openNewEntryForm(dateStr){
+    // resetForm() closes the dialog, so it has to run before the open — not
+    // after, or the dialog opens and immediately shuts again.
     resetForm();
     if(dateStr){
       document.getElementById("fDate").value = dateStr;
@@ -2600,13 +2557,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
     openEntryModal();
   }
-
-  document.getElementById("openEntryBtn").addEventListener("click", function(){ openNewEntryForm(); });
-  document.getElementById("entryModalClose").addEventListener("click", closeEntryModal);
-  document.getElementById("entryModalBackdrop").addEventListener("click", closeEntryModal);
-  document.addEventListener("keydown", function(ev){
-    if(ev.key === "Escape") closeEntryModal();
-  });
 
   document.getElementById("calendarGrid").addEventListener("click", function(ev){
     var cell = ev.target.closest(".cal-cell[data-date]");
@@ -2776,12 +2726,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderLog();
     renderCharts();
     renderPersonCard();
-    renderDayTypeDonut();
-    renderOverviewWeek();
+    renderWorkingFormat();
     // Fire-and-forget: it is one row-per-person query for today only, and a
     // failure inside it must not stop the rest of the repaint. Non-admins
     // return immediately without touching the network.
     renderTodayTeam().catch(function(){});
+    fitOverview();
     // Repaint the calendar only when it is the visible tab: it is not part of
     // the default view, and rendering a hidden panel on every data change is
     // work nobody sees.
@@ -2956,9 +2906,81 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("fOut").value = sched.standardOut;
   });
 
+  // ---------- Entry dialog ----------
+  // The add/edit form used to sit open on the Overview under the clock panel.
+  // It is a dialog now, opened from the + in the Log toolbar, from an Edit
+  // action in the log, and from an empty day in the calendar.
+  var entryModalReturn = null;
+  // The [hidden] flip is deferred until the fade-out finishes. Reopening
+  // inside that window — which every "reset then open" caller does — has to
+  // cancel the pending flip, or the dialog opens and then vanishes 180ms later
+  // when the stale timer lands.
+  var entryModalHideTimer = null;
+
+  function openEntryModal(focusId){
+    var modal = document.getElementById("entryModal");
+    if(!modal) return;
+    var wasOpen = !modal.hidden && modal.classList.contains("show");
+    clearTimeout(entryModalHideTimer);
+    entryModalHideTimer = null;
+    if(!wasOpen) entryModalReturn = document.activeElement;
+    modal.hidden = false;
+    requestAnimationFrame(function(){ modal.classList.add("show"); });
+    document.removeEventListener("keydown", onEntryModalKey);
+    document.addEventListener("keydown", onEntryModalKey);
+    // After the open transition, so focus doesn't land mid-flight and scroll
+    // the card while it is still being transformed.
+    setTimeout(function(){
+      var target = modal.querySelector("#" + (focusId || "fDate"));
+      if(target) target.focus();
+    }, 60);
+  }
+
+  function closeEntryModal(){
+    var modal = document.getElementById("entryModal");
+    if(!modal || modal.hidden) return;
+    modal.classList.remove("show");
+    document.removeEventListener("keydown", onEntryModalKey);
+    clearTimeout(entryModalHideTimer);
+    entryModalHideTimer = setTimeout(function(){ modal.hidden = true; }, 180);
+    if(entryModalReturn && typeof entryModalReturn.focus === "function") entryModalReturn.focus();
+    entryModalReturn = null;
+  }
+
+  function onEntryModalKey(ev){
+    // A confirm dialog opens ON TOP of this one ("replace it?", "is that shift
+    // right?") and installs its own document-level Escape handler. Both would
+    // fire, and this one first, closing the form out from under a confirmation
+    // the user was still answering.
+    if(document.querySelector(".modal-overlay")) return;
+    var modal = document.getElementById("entryModal");
+    if(!modal || modal.hidden) return;
+    if(ev.key === "Escape"){ closeEntryModal(); return; }
+    if(ev.key !== "Tab") return;
+    var els = Array.prototype.slice.call(modal.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter(function(el){ return !el.disabled && el.offsetParent !== null; });
+    if(!els.length) return;
+    var first = els[0], last = els[els.length - 1];
+    if(ev.shiftKey && document.activeElement === first){ ev.preventDefault(); last.focus(); }
+    else if(!ev.shiftKey && document.activeElement === last){ ev.preventDefault(); first.focus(); }
+    else if(!modal.contains(document.activeElement)){ ev.preventDefault(); first.focus(); }
+  }
+
+  document.getElementById("entryModal").addEventListener("click", function(ev){
+    if(ev.target === this) closeEntryModal();
+  });
+  document.getElementById("entryModalClose").addEventListener("click", closeEntryModal);
+  document.getElementById("addEntryBtn").addEventListener("click", function(){ openNewEntryForm(); });
+
   function resetForm(){
     form.reset();
     editingId = null;
+    // Every caller of resetForm() is a "this form is finished or no longer
+    // valid" moment — a successful save, Cancel Edit, or the entry being
+    // deleted underneath it — so all of them should dismiss the dialog.
+    closeEntryModal();
+    document.getElementById("entryModalTitle").textContent = "Add Entry";
     var today = todayStr();
     document.getElementById("fDate").value = today;
     document.getElementById("fToDate").value = today;
@@ -2974,6 +2996,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function loadEntryIntoForm(id){
     var e = entries.find(function(x){ return x.id === id; });
     if(!e) return;
+    resetForm();
     document.getElementById("fDate").value = e.date;
     document.getElementById("fIn").value = e.clockIn || "";
     document.getElementById("fOut").value = e.clockOut || "";
@@ -2987,8 +3010,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("fToDateWrap").style.display = "none";
     document.getElementById("fRangeHint").style.display = "none";
     document.getElementById("fDateLabel").textContent = "Date";
-    openEntryModal();
-    setTimeout(function(){ document.getElementById("fOut").focus(); }, 30);
+    document.getElementById("entryModalTitle").textContent = "Edit Entry";
+    // Editing almost always means filling in the clock-out that was never
+    // recorded, so start there rather than on the date that is already right.
+    openEntryModal("fOut");
   }
 
   document.getElementById("fDate").addEventListener("change", function(){
@@ -3055,7 +3080,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       delete dismissedReminders[date];
       persistDismissals();
       resetForm();
-      closeEntryModal();
       await loadDataForViewedUser();
     }catch(err){
       showToast("Couldn't save that entry: " + friendlyError(err), "error");
@@ -3121,7 +3145,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     endBulkOperation();
     btn.disabled = false;
     resetForm();
-    closeEntryModal();
     await loadDataForViewedUser();
     if(bulkErr) showToast("Couldn't add those entries: " + friendlyError(bulkErr), "error");
     else showToast("Added " + applied + " entries.", "success");
@@ -3147,10 +3170,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     );
   }
 
-  document.getElementById("cancelEditBtn").addEventListener("click", function(){
-    resetForm();
-    closeEntryModal();
-  });
+  document.getElementById("cancelEditBtn").addEventListener("click", resetForm);
 
   document.getElementById("logBody").addEventListener("click", async function(ev){
     var btn = ev.target.closest("button");
@@ -3386,18 +3406,23 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     punchClock(this.getAttribute("data-bn-action") || "in");
   });
 
-  // The clock buttons live on the person card, which is only on Overview, so
-  // the sticky bar's rule is now simply "is the clock reachable on this
-  // screen" rather than an intersection test against a card that scrolled.
-  // It also steps aside on Settings, where clocking in is not the point and
-  // the bar would compete with that panel's own buttons.
+  // The sticky bar only appears once the main punch card has scrolled out of
+  // view. It also steps aside whenever Settings is open, since clocking in
+  // isn't the point of that screen and the bar would just compete for the
+  // same bottom-of-screen space as the panel's own buttons.
   var stickyClockEl = document.getElementById("stickyClock");
+  var mainQuickClockEl = document.querySelector(".quick-clock");
+  var mainClockCurrentlyVisible = true;
   function updateStickyClockVisibility(){
-    if(!stickyClockEl) return;
-    var active = document.querySelector(".tab-btn.active");
-    var tab = active ? active.getAttribute("data-tab") : "overview";
-    var clockOnScreen = tab === "overview";
-    stickyClockEl.classList.toggle("show", !clockOnScreen && isOwnData && tab !== "settings");
+    var settingsOpen = document.getElementById("settingsCard").classList.contains("open");
+    stickyClockEl.classList.toggle("show", !mainClockCurrentlyVisible && isOwnData && !settingsOpen);
+  }
+  if(stickyClockEl && mainQuickClockEl && "IntersectionObserver" in window){
+    var stickyObserver = new IntersectionObserver(function(entriesList){
+      mainClockCurrentlyVisible = entriesList[0].isIntersecting;
+      updateStickyClockVisibility();
+    }, {threshold: 0});
+    stickyObserver.observe(mainQuickClockEl);
   }
 
   // ---------- Tabs & filters ----------
@@ -3533,23 +3558,22 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var adminBtn = document.getElementById("adminBtn");
     if(adminBtn) adminBtn.setAttribute("aria-current", tab === "admin" ? "page" : "false");
 
-    // Overview and Settings live outside #tabContentCard so their own cards sit
-    // on the canvas rather than nesting inside one big card. Any such panel is
-    // marked .standalone, and the card wrapper hides behind it — otherwise an
-    // empty white panel is left standing underneath.
+    // Overview lives outside #tabContentCard so its own cards sit on the
+    // canvas rather than nesting inside one big card. That means the card
+    // wrapper has to be hidden when Overview is the active tab, or an empty
+    // white panel is left standing under it.
     var tabCard = document.getElementById("tabContentCard");
-    if(tabCard) tabCard.hidden = panel.classList.contains("standalone");
+    if(tabCard) tabCard.hidden = (tab === "overview");
 
     applyFilterBarVisibility(tab, activeSubtab());
-
-    updateStickyClockVisibility();
 
     if(tab === "overview"){
       renderStats();
       renderPersonCard();
-      renderDayTypeDonut();
-      renderOverviewWeek();
+      renderWorkingFormat();
       renderTodayTeam().catch(function(){});
+      // After the panel is displayed, or the measurement reads a hidden node.
+      fitOverview();
     }
     if(tab === "trends") renderSubtab(activeSubtab());
     if(tab === "calendar") renderCalendarView();
@@ -4283,35 +4307,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   document.getElementById("logoutBtn").addEventListener("click", async function(){
     await supabase.auth.signOut();
   });
+  // The rail's sign-out control proxies to the real button above rather than
+  // duplicating its logic — the same pattern .rail-item already uses for
+  // Admin and Settings.
+  document.getElementById("railLogoutBtn").addEventListener("click", function(){
+    document.getElementById("logoutBtn").click();
+  });
 
   // ---------- Admin: viewer switcher + Team tab ----------
   // ---------- Person card ----------
   // Whose record is on screen. For your own data that is you; when an admin
   // switches to someone else it becomes them, which makes the target of every
   // edit concrete rather than leaving it to the banner alone.
-  var ovWeekDate = new Date();
-
-  function renderOverviewWeek(){
-    if(!document.getElementById("weekLineOverview")) return;
-    renderWeekLine("weekLineOverview", ovWeekDate);
-    var s = startOfWeek(ovWeekDate);
-    var e = new Date(s.getFullYear(), s.getMonth(), s.getDate()+6);
-    var sameMonth = s.getMonth() === e.getMonth();
-    var left = s.toLocaleDateString(undefined,{month:"short", day:"numeric"});
-    var right = sameMonth ? String(e.getDate())
-                          : e.toLocaleDateString(undefined,{month:"short", day:"numeric"});
-    document.getElementById("ovWeekLabel").textContent = left + " – " + right + ", " + e.getFullYear();
-  }
-
-  document.getElementById("ovWeekPrev").addEventListener("click", function(){
-    ovWeekDate.setDate(ovWeekDate.getDate() - 7);
-    renderOverviewWeek();
-  });
-  document.getElementById("ovWeekNext").addEventListener("click", function(){
-    ovWeekDate.setDate(ovWeekDate.getDate() + 7);
-    renderOverviewWeek();
-  });
-
   function renderPersonCard(){
     var who = (!isOwnData && viewedProfile) ? viewedProfile : currentProfile;
     if(!who) return;
@@ -4322,91 +4329,154 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("personRole").textContent =
       (who.role === "admin" ? "Admin" : "Employee") + (isOwnData ? "" : " · viewing");
 
-    var av = document.getElementById("personAvatar");
-    // Photos are device-local, so only your own can ever be shown here.
+    // Photos are device-local, so only your own can ever be shown here — for
+    // anyone else this always resolves to the monogram, which is why the
+    // monogram is styled as a portrait rather than as a missing one.
+    var media = document.getElementById("portraitMedia");
     var url = (currentUser && who.id === currentUser.id) ? localAvatar(who.id) : null;
-    av.innerHTML = url ? '<img src="'+escapeAttr(url)+'" alt="">'
-                       : escapeHtml(initialsOf(who.full_name || who.email));
+    media.innerHTML = url
+      ? '<img src="'+escapeAttr(url)+'" alt="">'
+      : '<span class="portrait-mono" aria-hidden="true">'+
+          escapeHtml(initialsOf(who.full_name || who.email))+'</span>';
 
     var st = teamStatus(entries, settings);
     var pill = document.getElementById("personStatus");
     pill.hidden = false;
     pill.className = "team-status " + st.cls;
     pill.textContent = st.label;
-
-    var ms = summarize(entries.filter(function(e){ return monthKey(e.date) === monthKey(todayStr()); }));
-    var diffCls = ms.diffSum > 0 ? " over" : (ms.diffSum < 0 ? " short" : "");
-    document.getElementById("personFigures").innerHTML = [
-      ['Logged this month', String(ms.loggedDays) + 'd', ''],
-      ['Hours worked', minutesToHoursStr(ms.workedSum), ''],
-      ['vs target', (ms.diffSum > 0 ? "+" : "") + minutesToHoursStr(ms.diffSum), diffCls]
-    ].map(function(f){
-      return '<div class="person-figure"><span class="v'+f[2]+'">'+escapeHtml(f[1])+
-             '</span><span class="kicker">'+escapeHtml(f[0])+'</span></div>';
-    }).join("");
   }
 
-  // ---------- Day-type donut ----------
-  // The reference's "Working format" ring, carrying this product's equivalent
-  // split: how this month's logged days divide across day types. Hand-built
-  // SVG like every other chart here, so it inherits the token palette and
-  // needs no library.
-  var DONUT_COLORS = ["--gold", "--mint", "--blush", "--teal-600", "--excused", "--warn"];
+  // ---------- Day types ----------
+  // Every day type logged this month — Regular through Other, whatever
+  // actually occurs — rather than the three worked-only buckets (Office/
+  // Remote/Off-site) this replaced. A month of annual leave now shows as
+  // 100% Annual Leave instead of reading as no data.
+  //
+  // One fixed colour per type, keyed off TYPE_LABELS so a legend entry is
+  // never left unlabelled. Reuses existing tokens rather than inventing a
+  // wider accent set: the three Fill-Only accents (mint/gold/blush) for the
+  // types the old buckets already covered, then the status hues for the
+  // rest, which read as loosely on-theme (sick=red, holiday=green) without
+  // requiring the palette to grow.
+  var DAY_TYPE_COLORS = {
+    regular:"var(--mint)", wfh:"var(--gold)", halfleave:"var(--gold-light)",
+    leave:"var(--blush)", sick:"var(--negative-solid)", trip:"var(--teal-600)",
+    training:"var(--warn)", holiday:"var(--positive)", other:"var(--muted-2)"
+  };
 
-  function renderDayTypeDonut(){
-    var host = document.getElementById("dayTypeDonut");
-    var legend = document.getElementById("dayTypeLegend");
-    if(!host || !legend) return;
+  // Largest-remainder rounding, so the shares always total 100. Rounding each
+  // independently produced legends reading 34/33/34 and 33/33/33 for the very
+  // same split, depending only on where the fractions fell.
+  function pctSplit(counts, total){
+    var raw = counts.map(function(c){ return (c / total) * 100; });
+    var out = raw.map(function(v){ return Math.floor(v); });
+    var short = 100 - out.reduce(function(a, b){ return a + b; }, 0);
+    raw.map(function(v, i){ return {i:i, rem:v - Math.floor(v)}; })
+       .sort(function(a, b){ return b.rem - a.rem; })
+       .slice(0, Math.max(0, short))
+       .forEach(function(x){ out[x.i] += 1; });
+    return out;
+  }
+
+  function renderWorkingFormat(){
+    var dial = document.getElementById("formatDial");
+    var legend = document.getElementById("formatLegend");
+    var period = document.getElementById("heroMonthLabel");
+    if(!dial || !legend) return;
+    if(period){
+      period.textContent = new Date().toLocaleDateString(undefined, {month:"long", year:"numeric"});
+    }
 
     var mk = monthKey(todayStr());
-    var counts = {};
-    entries.filter(function(e){ return monthKey(e.date) === mk; })
-           .forEach(function(e){
-             var k = e.type || "regular";
-             counts[k] = (counts[k] || 0) + 1;
-           });
-    var rows = Object.keys(counts)
-      .map(function(k){ return {type:k, label:typeLabel(k), n:counts[k]}; })
-      .sort(function(a,b){ return b.n - a.n; });
-    var total = rows.reduce(function(a,r){ return a + r.n; }, 0);
+    var month = entries.filter(function(e){ return monthKey(e.date) === mk; });
+    // Canonical TYPE_LABELS order, but only the types that actually occurred —
+    // an entry-less type would just be a zero-percent legend row nobody needs.
+    var active = Object.keys(TYPE_LABELS).map(function(type){
+      return {type:type, label:TYPE_LABELS[type], color:DAY_TYPE_COLORS[type],
+        count:month.filter(function(e){ return (e.type || "regular") === type; }).length};
+    }).filter(function(b){ return b.count > 0; });
+    var total = active.reduce(function(sum, b){ return sum + b.count; }, 0);
 
     if(!total){
-      host.innerHTML = '<p class="tt-empty" style="text-align:center;">Nothing logged this month yet.</p>';
+      dial.innerHTML = '<p class="format-empty">No days logged this month yet.</p>';
       legend.innerHTML = "";
       return;
     }
 
-    // Concentric arcs read as one ring: a single track with each slice drawn
-    // as a dash segment, which keeps the geometry to one circle element per
-    // slice instead of arc-path maths.
-    var R = 54, C = 2 * Math.PI * R, gap = total > 1 ? 3 : 0;
-    var offset = 0, arcs = "";
-    rows.forEach(function(r, i){
-      var len = (r.n / total) * C;
-      var draw = Math.max(0, len - gap);
-      r.color = cssVar(DONUT_COLORS[i % DONUT_COLORS.length]);
-      arcs += '<circle cx="70" cy="70" r="'+R+'" fill="none" stroke="'+r.color+'" stroke-width="16" '+
-              'stroke-dasharray="'+draw.toFixed(2)+' '+(C - draw).toFixed(2)+'" '+
-              'stroke-dashoffset="'+(-offset).toFixed(2)+'" stroke-linecap="round" '+
-              'transform="rotate(-90 70 70)"></circle>';
-      offset += len;
-    });
+    var pcts = pctSplit(active.map(function(b){ return b.count; }), total);
+    // One ring, segments stacked end to end rather than the old concentric
+    // rings — those only read cleanly for a fixed 3-way split; day types can
+    // run to 9. Each segment is its own circle at a shared radius, advanced by
+    // the running total of arc-length already drawn. Rotated -90° on the group
+    // so the stack starts at twelve o'clock, same as before.
+    var C = 60, R = 44, SW = 13, circ = 2 * Math.PI * R;
+    var cum = 0;
+    var rings = '<circle class="format-ring-track" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'"/>' +
+      active.map(function(b){
+        var shown = circ * (b.count / total);
+        var seg = '<circle class="format-ring" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'" ' +
+          'stroke="'+b.color+'" stroke-dasharray="'+shown.toFixed(2)+' '+(circ - shown).toFixed(2)+'" ' +
+          'stroke-dashoffset="'+(-cum).toFixed(2)+'"/>';
+        cum += shown;
+        return seg;
+      }).join("");
 
-    var name = "Day types this month: " + rows.map(function(r){ return r.label + " " + r.n; }).join(", ");
-    host.innerHTML =
-      '<svg viewBox="0 0 140 140" role="img" aria-label="'+escapeAttr(name)+'">'+
-        '<circle cx="70" cy="70" r="'+R+'" fill="none" stroke="'+cssVar("--line-soft")+'" stroke-width="16"></circle>'+
-        arcs +
-        '<text class="donut-centre-value" x="70" y="70" text-anchor="middle">'+total+'</text>'+
-        '<text class="donut-centre-label" x="70" y="86" text-anchor="middle">DAYS</text>'+
+    // The centre readout is drawn inside the svg so it scales with the ring —
+    // as an HTML overlay it kept a fixed size while the dial shrank with the
+    // row, and spilled out of the hole on a short viewport.
+    var summary = total + " days: " +
+      active.map(function(b, i){ return pcts[i] + "% " + b.label; }).join(", ");
+    dial.innerHTML =
+      '<svg viewBox="0 0 120 120" role="img" aria-label="'+escapeAttr(summary)+'">'+
+        '<g transform="rotate(-90 '+C+' '+C+')">'+rings+'</g>'+
+        '<text class="format-count" x="'+C+'" y="'+(C + 1)+'" '+
+          'text-anchor="middle" dominant-baseline="middle">'+total+'</text>'+
+        '<text class="format-count-label" x="'+C+'" y="'+(C + 12)+'" '+
+          'text-anchor="middle" dominant-baseline="middle">DAYS</text>'+
       '</svg>';
 
-    legend.innerHTML = rows.slice(0, 4).map(function(r){
-      var pct = Math.round((r.n / total) * 100);
-      return '<span class="dl"><i style="background:'+r.color+'"></i>'+
-             '<b>'+pct+'%</b> <span>'+escapeHtml(r.label)+'</span></span>';
+    legend.innerHTML = active.map(function(b, i){
+      return '<div class="format-leg">'+
+        '<div class="format-leg-top">'+
+          '<i class="format-leg-dot" style="background:'+b.color+'"></i>'+
+          '<span class="format-leg-pct">'+pcts[i]+'%</span>'+
+        '</div>'+
+        '<span class="format-leg-label">'+escapeHtml(b.label)+'</span>'+
+      '</div>';
     }).join("");
   }
+
+  // ---------- Fit the Overview to the viewport ----------
+  // The Overview is meant to be one screen: its grid is sized to whatever is
+  // left of the viewport under the header rather than to its content, so the
+  // roster is the only thing that scrolls. Measured rather than hardcoded
+  // because the header's height moves — the viewing banner appears, the title
+  // wraps — and a stale constant would either clip the figures or bring the
+  // page scrollbar back.
+  function fitOverview(){
+    var panel = document.getElementById("tab-overview");
+    if(!panel) return;
+    if(!panel.classList.contains("active") ||
+       !window.matchMedia("(min-width:1100px)").matches){
+      panel.style.removeProperty("--ov-chrome");
+      return;
+    }
+    // Everything on the page that is not this panel: the header above it, and
+    // the export/import footer below. The footer is measured directly rather
+    // than inferred from scrollHeight, which the browser clamps to the viewport
+    // — that clamp turns "what is left over" into a feedback loop that shrinks
+    // the panel a little further on every call.
+    var top = panel.getBoundingClientRect().top + (window.scrollY || 0);
+    var foot = document.querySelector("footer.ledger-foot");
+    var below = 0;
+    if(foot){
+      var cs = getComputedStyle(foot);
+      below = foot.getBoundingClientRect().height +
+              (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+    }
+    panel.style.setProperty("--ov-chrome", Math.round(top + below) + "px");
+  }
+  window.addEventListener("resize", fitOverview);
 
   // ---------- Today's team ----------
   // Admin-only "who is in today". Deliberately its own one-day query rather
@@ -4415,17 +4485,21 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // screen where that would be the heaviest thing on the page.
   async function renderTodayTeam(){
     var card = document.getElementById("todayTeamCard");
-    var row = document.getElementById("personRow");
+    // .solo drops the Overview grid to two columns; without it the roster's
+    // column would stay behind as dead space for every non-admin.
+    var panel = document.getElementById("tab-overview");
     if(!card) return;
     if(!isAdmin){
       card.hidden = true;
-      if(row) row.classList.add("solo");
+      if(panel) panel.classList.add("solo");
+      fitOverview();
       return;
     }
     card.hidden = false;
-    if(row) row.classList.remove("solo");
+    if(panel) panel.classList.remove("solo");
 
     var list = document.getElementById("todayTeamList");
+    var countEl = document.getElementById("todayTeamCount");
     var today = todayStr();
     var byUser = {};
     try{
@@ -4438,6 +4512,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       });
     }catch(err){
       list.innerHTML = '<p class="tt-empty">Couldn\'t load today: '+escapeHtml(friendlyError(err))+'</p>';
+      if(countEl) countEl.textContent = "";
       return;
     }
 
@@ -4455,15 +4530,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     if(!rows.length){
       list.innerHTML = '<p class="tt-empty">No other users have registered yet.</p>';
+      if(countEl) countEl.textContent = "";
       return;
     }
-    var settled = rows.filter(function(r){ return r.st.cls !== "missing"; }).length;
-    var pct = rows.length ? Math.floor((settled / rows.length) * 100) : 0;
-    var pctEl = document.getElementById("todayTeamPct");
-    var fillEl = document.getElementById("todayTeamFill");
-    if(pctEl) pctEl.textContent = pct + "%";
-    if(fillEl) fillEl.style.width = pct + "%";
-
+    // The panel exists to surface whoever is still outstanding, so that — not
+    // a headcount — is what the header reports.
+    if(countEl){
+      var outstanding = rows.filter(function(r){ return r.st.cls === "missing"; }).length;
+      countEl.textContent = outstanding
+        ? outstanding + " outstanding"
+        : "All " + rows.length + " accounted for";
+    }
     list.innerHTML = rows.map(function(r){
       var name = r.p.full_name || r.p.email;
       var url = (currentUser && r.p.id === currentUser.id) ? localAvatar(r.p.id) : null;
@@ -4532,7 +4609,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     viewedUserId = newId;
     viewedProfile = allProfiles.find(function(p){ return p.id === newId; }) || null;
     resetForm();
-    leaveSettings();
+    document.getElementById("settingsCard").classList.remove("open");
     await loadDataForViewedUser();
   });
 
@@ -4913,9 +4990,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }catch(err){ return; }
 
     isAdmin = currentProfile.role === "admin";
-    var chip = document.getElementById("userChip");
-    chip.textContent = currentProfile.full_name || currentProfile.email;
-    chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
     refreshAvatars();
 
     if(isAdmin){
@@ -4928,7 +5002,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("teamTabBtn").style.display = "none";
       document.getElementById("adminBtn").style.display = "none";
       layoutBottomNav();
-      leaveSettings();
+      document.getElementById("settingsCard").classList.remove("open");
       if(viewedUserId !== currentUser.id){
         viewedUserId = currentUser.id;
         viewedProfile = currentProfile;
@@ -6030,10 +6104,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     isAdmin = currentProfile.role === "admin";
     viewedUserId = currentUser.id;
     viewedProfile = currentProfile;
-
-    var chip = document.getElementById("userChip");
-    chip.textContent = currentProfile.full_name || currentProfile.email;
-    chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
     refreshAvatars();
 
     if(isAdmin){
