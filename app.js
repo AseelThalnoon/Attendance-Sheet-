@@ -4400,6 +4400,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!total){
       dial.innerHTML = '<p class="format-empty">No days logged this month yet.</p>';
       legend.innerHTML = "";
+      updateFormatLegendScrollHint();
       return;
     }
 
@@ -4409,7 +4410,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // run to 9. Each segment is its own circle at a shared radius, advanced by
     // the running total of arc-length already drawn. Rotated -90° on the group
     // so the stack starts at twelve o'clock, same as before.
-    var C = 60, R = 44, SW = 13, circ = 2 * Math.PI * R;
+    // R/SW sized to fill more of the 120-unit viewBox: outer edge at 110 of
+    // 120 units (5-unit margin each side), vs. the previous 44/13's 101 —
+    // the ring was reading as small inside a card with a lot of open space
+    // around it, not because the card lacked room but because the ring
+    // wasn't using it.
+    var C = 60, R = 48, SW = 14, circ = 2 * Math.PI * R;
     var cum = 0;
     var rings = '<circle class="format-ring-track" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'"/>' +
       active.map(function(b){
@@ -4444,6 +4450,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         '<span class="format-leg-label">'+escapeHtml(b.label)+'</span>'+
       '</div>';
     }).join("");
+    updateFormatLegendScrollHint();
+  }
+
+  // A legend cut short read identically to one that just... ended — nothing
+  // told you the card's edge wasn't the last day type. Same fix as the tab
+  // strip's edge fade (updateTabsScrollHint above): fade in only once there
+  // is genuinely more to scroll to, so a legend that fits gets no fade.
+  function updateFormatLegendScrollHint(){
+    var legend = document.getElementById("formatLegend");
+    var card = legend && legend.closest(".format-card");
+    if(!legend || !card) return;
+    card.classList.toggle("can-scroll-legend",
+      legend.scrollHeight - legend.scrollTop - legend.clientHeight > 4);
   }
 
   // ---------- Fit the Overview to the viewport ----------
@@ -4477,6 +4496,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     panel.style.setProperty("--ov-chrome", Math.round(top + below) + "px");
   }
   window.addEventListener("resize", fitOverview);
+  window.addEventListener("resize", updateFormatLegendScrollHint);
+  var formatLegendEl = document.getElementById("formatLegend");
+  if(formatLegendEl) formatLegendEl.addEventListener("scroll", updateFormatLegendScrollHint);
 
   // ---------- Today's team ----------
   // Admin-only "who is in today". Deliberately its own one-day query rather

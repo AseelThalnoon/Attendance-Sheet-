@@ -470,6 +470,21 @@
     .overview-panel .hero-progress-track{height:5px;}
     .overview-panel .hero-progress-label{font-size:9.5px;}
     .overview-panel .quick-clock{padding:16px 20px;}
+    /* At the grid's own narrow end (1100-1350px-ish) the portrait column is
+       the tightest of the three, and an ordinary name ("Aseel Thalnoon")
+       collided with the status pill and lost characters to the ellipsis —
+       not a rare long name, the ordinary case. Letting the plate wrap drops
+       the pill to its own line only when the two don't fit together, so the
+       name gets the full row instead of losing a fixed slice to the pill.
+       flex-wrap alone doesn't force that: .portrait-id's min-width:0 lets it
+       shrink to fit the current line instead of wrapping, same as before, so
+       the floor needs restoring here — just wide enough for a name like
+       "Aseel Thalnoon" — to make wrapping the thing that gives first. */
+    .overview-panel .portrait-plate{flex-wrap:wrap; row-gap:4px;}
+    /* Sized in px, not ch: ch resolves against .portrait-id's own inherited
+       body-size font, not .portrait-name's larger 21px one nested inside it,
+       and came out under half the width an actual name needs. */
+    .overview-panel .portrait-id{min-width:150px;}
   }
 
   /* ---------- Portrait ----------
@@ -526,7 +541,13 @@
   /* overflow:hidden is a guard, not a layout tool: the dial is the only part
      that flexes, so anything that cannot fit has to be it, and a stray
      overhang would land on the clock panel below rather than clip. */
-  .format-card{
+  /* .card.format-card, not .format-card: the generic .card{padding:22px 22px
+     24px} rule sits later in the sheet, and at equal specificity source order
+     wins — this card's own tighter padding (every pixel here is a pixel the
+     dial and legend get back in the squeezed grid row, same reasoning as the
+     stat-card and quick-clock trims below) was being silently discarded for
+     the default. The compound selector outranks it regardless of order. */
+  .card.format-card{
     position:relative; display:flex; flex-direction:column;
     padding:18px 20px 16px; min-height:0; overflow:hidden;
   }
@@ -557,11 +578,11 @@
      with the row, and on a short viewport the figure spilled out of the hole
      it is supposed to sit in. Sizes are viewBox units, not pixels. */
   .format-count{
-    font-size:17px; font-weight:900; letter-spacing:-.6px;
+    font-size:19px; font-weight:900; letter-spacing:-.6px;
     fill:var(--ink); font-variant-numeric:tabular-nums;
   }
   .format-count-label{
-    font-size:5.5px; font-weight:600; letter-spacing:1.1px; fill:var(--muted-2);
+    font-size:6px; font-weight:600; letter-spacing:1.1px; fill:var(--muted-2);
   }
   .format-empty{margin:auto; text-align:center; font-size:12.5px; color:var(--muted); max-width:22ch;}
   /* Up to 9 day types can be active in one month, not the fixed 3 this used
@@ -581,16 +602,35 @@
   .format-leg{flex:0 1 auto; min-width:0;}
   .format-leg-top{display:flex; align-items:center; gap:6px;}
   .format-leg-dot{width:8px; height:8px; border-radius:50%; flex-shrink:0;}
-  .format-leg-pct{font-size:14.5px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums;}
+  /* Was 14.5px — close enough to the dial's own centre figure (19px) that a
+     row of four sat as a second, competing set of headline numbers instead
+     of reading as the ring's supporting legend. */
+  .format-leg-pct{font-size:13px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums;}
   .format-leg-label{
     display:block; font-size:9px; text-transform:uppercase; letter-spacing:.09em;
     color:var(--muted-2); margin-top:3px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
+  /* A legend still short a scroll's worth of day types ended flush with the
+     card's bottom edge, same as an unscrollable one — nothing distinguished
+     "that's everything" from "there's more below". Same fix as .tabs-wrap's
+     edge fade above: a gradient toggled by JS (updateFormatLegendScrollHint
+     in app.js) once scrollHeight actually exceeds clientHeight, so a legend
+     that fits gets no fade at all. */
+  .format-card::after{
+    content:""; position:absolute; left:20px; right:20px; bottom:16px; height:22px;
+    background:linear-gradient(180deg, transparent, var(--card));
+    pointer-events:none; opacity:0; transition:opacity var(--dur-fast) var(--ease-snap);
+  }
+  .format-card.can-scroll-legend::after{opacity:1;}
 
   /* The roster is the one panel whose content grows without bound, so it
      scrolls inside itself rather than pushing the page past the fold. */
-  .today-team{display:flex; flex-direction:column; min-height:0; padding:18px 20px 16px;}
+  /* .card.today-team for the same reason as .card.format-card above: the
+     later, generic .card padding was winning over this one at equal
+     specificity, and every row here matters for how many names fit before
+     the list itself has to scroll. */
+  .card.today-team{display:flex; flex-direction:column; min-height:0; padding:18px 20px 16px;}
   /* An author display: declaration outranks the UA sheet's [hidden] rule, so
      without this the roster stayed on screen — empty, and auto-placed outside
      the two-column grid — for every non-admin. */
@@ -616,8 +656,17 @@
   .tt-row:last-child{border-bottom:none;}
   .tt-row .avatar{width:32px; height:32px; font-size:11px;}
   .tt-name{
-    flex:1; min-width:0; font-size:12.5px; font-weight:600;
+    flex:1 1 auto; min-width:72px; font-size:12.5px; font-weight:600;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  /* .team-status is flex-shrink:0 everywhere else it's used (it names a real
+     state and shouldn't blur), but in this dense list the checkmark right
+     next to it already carries settled-vs-outstanding, so if anything has to
+     give it should be the pill's exact wording rather than the person's own
+     name — at the grid's narrow end an ordinary name like "Aseel Thalnoon"
+     was losing half its characters while "Clocked in" sat at full width. */
+  .tt-row .team-status{
+    flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   /* The reference's check circle: filled ink when the day is settled, an open
      ring while it is still outstanding. */
@@ -2365,7 +2414,7 @@
         <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
         <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
       </div>
-      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>Monthly Avg / Day</p>
+      <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>Avg / Day</p>
       <p class="stat-value" id="monthAvg">0h</p>
       <p class="stat-detail" id="monthAvgDetail">—</p>
       <p class="stat-trend" id="monthTrend"></p>
