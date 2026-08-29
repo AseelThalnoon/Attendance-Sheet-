@@ -143,6 +143,28 @@
     --radius-md:16px;
     --radius:22px;
 
+    /* Spacing scale, base 4. DESIGN.md declared three steps (10/16/24) and the
+       stylesheet ignored them: layout was written in thirty different values,
+       every integer from 1 to 18 plus another dozen above. That is why nothing
+       grouped — when the gap inside a control cluster (10px) is the same as the
+       gap between two unrelated bars (10px) and nearly the same as the gap
+       between whole regions (14px), proximity stops carrying meaning and every
+       group needs a container or a border to be legible instead.
+
+       Base 4, not 8: the useful middle steps (6, 12, 20) are exactly where this
+       app's rhythm lives, and an 8-only scale would round them to 8 or 16 and
+       flatten the contrast again. The half-steps below 8 are for inside a
+       control; the whole steps from 12 up separate things. */
+    --space-0:2px;    /* hairline: icon to its label */
+    --space-1:4px;
+    --space-1-5:6px;  /* tight: inside a group that reads as one object */
+    --space-2:8px;
+    --space-3:12px;   /* standard: between siblings in a group */
+    --space-4:16px;
+    --space-5:20px;   /* generous: between regions */
+    --space-6:24px;
+    --space-8:32px;   /* the module: one Log row */
+
     /* One family, three jobs. The tokens stay separate so a future change can
        split them again, but Atrium deliberately sets headings, body and
        figures in the same grotesk — there is no serif anywhere in this system. */
@@ -237,7 +259,7 @@
     margin:0 0 30px; padding:0 10px; color:#fff;
   }
   .rail-brand span{color:var(--gold);}
-  .rail-nav{display:flex; flex-direction:column; gap:2px;}
+  .rail-nav{display:flex; flex-direction:column; gap:2px; position:relative;}
   .rail-item{
     position:relative; display:flex; align-items:center; gap:12px;
     padding:11px 12px; border-radius:var(--radius-sm); cursor:pointer;
@@ -249,14 +271,28 @@
   .rail-item svg{flex-shrink:0; opacity:.85;}
   .rail-item:hover{background:rgba(255,255,255,.06); color:#fff;}
   /* Active state is the reference's one flash of colour in the rail: the label
-     goes lime and a lime bar pins to the left edge. */
+     goes lime, the row washes lime-8%, and the shared bar below travels to it
+     rather than popping in per-item. */
   .rail-item.active{color:var(--gold); background:rgba(214,232,92,.08);}
   .rail-item.active svg{opacity:1;}
-  .rail-item.active::before{
-    content:""; position:absolute; left:-16px; top:50%; transform:translateY(-50%);
-    width:3px; height:26px; border-radius:0 3px 3px 0; background:var(--gold);
+  /* One bar shared by the whole nav, not one pseudo-element per item — so
+     switching tabs reads as the rail's spine sliding to the new destination
+     instead of one flash of colour vanishing and another popping in beside
+     it. positionRailIndicator() (app.js) sets the transform on every tab
+     change, role-visibility change and resize; JS also toggles .on, so a
+     page that never got its first position (script error, no active item
+     yet) shows no stray bar at 0,0. transform-only, so reduced-motion's
+     blanket transition-duration override still lands it correctly, just
+     without the glide. */
+  .rail-nav-indicator{
+    position:absolute; left:-16px; top:0; width:3px; height:26px;
+    border-radius:0 3px 3px 0; background:var(--gold);
     box-shadow:0 0 14px rgba(214,232,92,.55);
+    opacity:0; transform:translateY(0);
+    transition:transform var(--dur-slow) var(--ease-soft), opacity var(--dur-fast) var(--ease-snap);
+    pointer-events:none;
   }
+  .rail-nav-indicator.on{opacity:1;}
   .rail-foot{margin-top:auto; display:flex; flex-direction:column; gap:14px;}
 
   /* Today's status. This is the seal's replacement — same job (one glanceable
@@ -272,8 +308,15 @@
     font-size:9.5px; letter-spacing:.14em; text-transform:uppercase;
     color:var(--muted-on-dark); margin:0;
   }
+  /* 20px: the seal is a status chip in the rail, not a stat card, so it sits
+     one step under the frame's 24px figures rather than level with them. It
+     was 24px when a stat card was 34px and the gap read as hierarchy; with
+     the cards down to 24px the same size would have made a rail chip as loud
+     as a tab's headline figure. 20px is Overview's own stat size, so the
+     rail lands inside the scale rather than beside it, and it narrows the
+     drop to the .long variant below from 10px to 6px. */
   .seal .seal-value{
-    font-family:var(--font-num); font-weight:700; font-size:24px; margin:0;
+    font-family:var(--font-num); font-weight:700; font-size:20px; margin:0;
     line-height:1.1; color:#fff; letter-spacing:-.02em;
   }
   .seal .seal-value.long{font-size:14px; letter-spacing:0;}
@@ -314,10 +357,7 @@
     display:flex; align-items:flex-start; justify-content:space-between;
     gap:24px; flex-wrap:wrap; max-width:1280px; margin:0 auto;
   }
-  .head-title-eyebrow{
-    letter-spacing:.1em; text-transform:uppercase; font-size:10px; font-weight:600;
-    color:var(--muted); margin:0 0 6px;
-  }
+  .head-titles{min-width:0;}
   .head-title{
     font-size:40px; margin:0; font-weight:700; letter-spacing:-.03em; line-height:1.05;
   }
@@ -361,6 +401,228 @@
 
   main{max-width:1280px; margin:0 auto; padding:24px 32px 0;}
 
+  /* ---------- Compact chrome ----------
+     The header and the notice strip hand over at the same breakpoint the rail
+     does, not at the frame's 1100px. Gated on 1100 they produced a cliff: at
+     1100px wide the chrome above the Log was 148px, and at 1099px it was 364px
+     — 46% of an 800px window, with the first row at y=544 and 653px of page
+     scroll. One pixel of width, 216px of chrome. DESIGN.md already records the
+     rail and the bottom nav being forced to the same breakpoint after an
+     earlier draft left a 140px band with neither; this is the same mistake with
+     the density rules, 340px wide.
+
+     Only the chrome moves down here. The frame itself — fixed height, panels
+     that scroll, the pointer-sized control module — stays at 1100px, because
+     below that there is no room for it and a tablet in this band is as likely
+     to be touched as clicked. */
+  @media (min-width:761px){
+    /* ---- The notice strip ----
+       Banners hold their height rather than being squeezed by the panel below
+       them, so in the frame they have to earn it. Stacked (icon over title over
+       text over buttons) each cost 116px; run inline they still cost 68, almost
+       all of it the 36px touch target on "Back Up Now" — and two of them took a
+       fifth of a 900px window away from the tab that is meant to be the screen.
+       Here each notice is one 30px line and consecutive ones sit flush, so two
+       notices read as a single thin strip instead of two stacked cards.
+       Long text still wraps rather than truncating. */
+    main > .reminder{flex:0 0 auto; padding:4px 12px; margin-bottom:0;}
+    main > .reminder + .reminder{border-top:none;}
+    /* Inline, but still allowed to wrap. Below the frame the content column is
+       narrow enough that the title, the sentence and the buttons genuinely do
+       not share a line, and forcing them to (see the frame's nowrap rule) made
+       the sentence wrap to five lines instead: 522px of chrome at 800px wide,
+       worse than the stacked layout this replaced. */
+    main > .reminder .reminder-body{
+      display:flex; align-items:center; gap:2px 12px; flex-wrap:wrap;
+    }
+    main > .reminder .reminder-title,
+    main > .reminder .reminder-text{margin:0;}
+    main > .reminder .reminder-actions{margin:0 0 0 auto; flex-shrink:0; gap:6px;}
+    main > .reminder .reminder-actions .btn{min-height:30px; padding:3px 10px; font-size:11.5px;}
+    main > .reminder svg{width:14px; height:14px; margin-top:0;}
+    /* The gap goes below the strip, not between its rows — so it is paid once
+       however many notices are up, and not at all when none are. */
+    main > .reminder.show:last-of-type{margin-bottom:12px;}
+
+    /* ---- The header ----
+       One compact row: the 40px greeting and its eyebrow cost 88px of every
+       tab, and the tab underneath is the thing people came for. The greeting
+       keeps its weight at a size that reads as a label, and the eyebrow drops
+       to the same line as a suffix naming the tab you are on. */
+    header.ledger-head{padding:12px 32px 0;}
+    .head-inner{align-items:baseline;}
+    .head-title{font-size:20px; letter-spacing:-.02em;}
+  }
+
+  /* ---------- One screen per tab ----------
+     Above the grid breakpoint the app is a fixed frame rather than a document:
+     the shell is exactly the viewport tall, the header and footer hold their
+     size, and whichever panel is active takes what is left. Nothing inside a
+     tab can push the page taller, so switching views never brings the page
+     scrollbar back — a long Log or a long Admin form scrolls inside its own
+     panel, the way the Overview's roster already scrolls inside its card.
+     The Overview used to size itself with a measured --ov-chrome custom
+     property; the frame gives it the same height from CSS, so that
+     measurement and its resize listener are gone from app.js. */
+  @media (min-width:1100px){
+    .shell{height:100dvh; min-height:0; display:flex; flex-direction:column;}
+    /* nowrap in the frame only, where the column is wide enough for it. With
+       flex-wrap:wrap the actions dropped to a second row on any frame narrower
+       than ~1400px: each notice went from 33px to 54px at 1280 and 74px at
+       1100. Wrapping the sentence inside its own box instead costs ~16px, not
+       ~40px, and keeps the buttons where the eye already found them. */
+    main > .reminder .reminder-body{flex-wrap:nowrap;}
+    main > .reminder .reminder-title{flex-shrink:0;}
+    main > .reminder .reminder-text{min-width:0;}
+    header.ledger-head, footer.ledger-foot{flex:0 0 auto;}
+    /* main and the footer centre themselves with margin:0 auto under their
+       1280px cap. As flex items those auto margins cancel the default stretch,
+       so both collapsed to fit-content — main went from 1204px wide to 699px,
+       taking the tab card in with it. width:100% gives the auto margins nothing
+       left to absorb, and the cap still applies on wide screens. */
+    main, footer.ledger-foot{width:100%;}
+    /* auto, not hidden: the panels below keep floors a short window can still
+       exceed (the Overview's 480px, a table row's own height), and a page that
+       scrolls a little is a better failure than one that quietly cuts content
+       off behind the footer. */
+    main{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; overflow:auto;}
+    /* The card is the frame and the panel inside it is what scrolls, so the
+       sub-tabs and filter bars stay on screen while the rows move under them.
+       :not([hidden]), because activateTab() hides this card whole while the
+       Overview is up — and an ID selector's display:flex outranks the UA's
+       [hidden]{display:none}, which left an empty card standing under the
+       Overview and stole the height the panel above it was meant to fill. */
+    /* flex:0 1 auto, not 1 1 auto: the card takes the height its content needs
+       and shrinks to the frame when that is more, instead of always stretching
+       to fill. Stretching made every short tab a white rectangle with its
+       content huddled at the top — Admin's seven collapsed sections ended at
+       340px and left 470px of empty card below them, which read as a loading
+       failure rather than as a tab that simply has little to say. Tall tabs are
+       unaffected: they grow past the frame, shrink back to it, and the panel
+       inside scrolls exactly as before.
+
+       .fill is the opt-out, set by activateTab() for the tabs whose content is
+       a figure rather than a list — a chart and a month grid are drawn to the
+       room they are given, and hugging their content collapsed the Trends
+       chart to a flat 90px band. A class, not :has(), because the fallback for
+       an engine without :has() would be exactly that collapsed chart. */
+    #tabContentCard:not([hidden]){
+      flex:0 1 auto; min-height:0; margin-bottom:0;
+      display:flex; flex-direction:column; overflow:hidden;
+    }
+    #tabContentCard.fill:not([hidden]){flex:1 1 auto;}
+    #tabContentCard > .tabs-wrap,
+    #tabContentCard > .sub-tabs,
+    #tabContentCard > .filter-bar{flex:0 0 auto;}
+    /* The card's own frame costs the panel inside it twice — once at the top,
+       once at the bottom — and a tab can carry two filter bars above the
+       content. Every pixel taken back here is a pixel of rows. */
+    #tabContentCard:not([hidden]){padding:var(--space-4) var(--space-5);}
+
+    /* The toolbar is one band, not a stack of bars. Both filter bars narrow the
+       same list, so they belong to each other more than either belongs to the
+       table — but at 10px below each, the gap inside the toolbar equalled the
+       gap separating it from the rows, and the eye read three unrelated
+       stripes. Tight between the bars, generous below the last one: the
+       toolbar now groups by proximity, which is what lets the table below it
+       start without a rule or a container to announce itself.
+
+       Which bar is the last visible one changes per tab (app.js's
+       applyFilterBarVisibility decides), and :last-of-type matches by tag
+       rather than by class, so the generous half of the gap is carried by the
+       panel below instead — one rule that is right whichever bars are up, and
+       right when none are. */
+    #tabContentCard > .filter-bar{margin:0 0 var(--space-1-5);}
+    #tabContentCard > .tab-panel.active{margin-top:var(--space-2);}
+    /* Inside the card only: the Overview's figures are grid rows whose gap
+       already spaces them, and a margin here would be counted twice. */
+    #tabContentCard .stats-row{margin-bottom:var(--space-4);}
+    #tabContentCard > .sub-tabs{margin-bottom:var(--space-3);}
+    /* ID + two classes, because .tab-panel.active's own display:block is
+       declared later in this stylesheet. */
+    #tabContentCard > .tab-panel.active{
+      flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+    }
+    /* Flex items shrink by default, and .accordion-section clips its own body —
+       so an opened section taller than the frame was cut off at the bottom
+       instead of scrolling. The cards that are meant to give height back
+       (a chart) opt back in with their own rules.
+
+       Trends nests one level deeper than every other tab — its direct
+       children are the two .sub-tab-panels, not the period-card and
+       accordion-section that actually hold height — so the direct-child
+       selector alone missed them: opening "Weekly totals" in a short window
+       shrank the table's own box instead of the panel scrolling, clipping
+       rows off the bottom underneath the fixed-height chart above it. */
+    #tabContentCard > .tab-panel.active > *,
+    #tabContentCard > .tab-panel.active > .sub-tab-panel.active > *{flex-shrink:0;}
+    /* The page frame never scrolls; a tab that outgrows it scrolls inside its
+       own panel. Rows are dense enough that most months land in one screenful,
+       so the scrollbar is the exception rather than the way you read the tab.
+       tests/regression/one-screen.js fails the build if the page itself, or
+       the frame around the panel, ever scrolls. */
+    .tab-panel.active{
+      overflow-y:auto; overflow-x:hidden; scrollbar-gutter:stable;
+      /* Reaching the end of a panel used to hand the remaining scroll to the
+         page behind it, which is how a tab that has finished scrolling still
+         drags the whole frame — and on a touchpad or phone that is also what
+         triggers a stray pull-to-refresh. The panel owns its gesture. */
+      overscroll-behavior:contain;
+      /* Match .table-wrap and .today-team-list, which already theme their bars.
+         The main scroll surface being the one place with a default OS scrollbar
+         made it look like a different application's window. */
+      scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+      /* Scroll shadows, in the pure-CSS form: the two `local` layers are the
+         card colour and travel WITH the content, so they cover the shadow
+         layers underneath them whenever you are at that end. The shadows are
+         visible only when there is actually something to scroll to — no JS, and
+         nothing to keep in sync with the scroll position. */
+      background:
+        linear-gradient(var(--card) 30%, rgba(255,255,255,0)) top    /100% 22px no-repeat local,
+        linear-gradient(rgba(255,255,255,0), var(--card) 70%) bottom /100% 22px no-repeat local,
+        radial-gradient(farthest-side at 50% 0,    rgba(17,17,16,.17), rgba(17,17,16,0)) top    /100% 13px no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(17,17,16,.17), rgba(17,17,16,0)) bottom /100% 13px no-repeat scroll;
+    }
+    .tab-panel.active::-webkit-scrollbar{width:8px;}
+    .tab-panel.active::-webkit-scrollbar-track{background:transparent;}
+    .tab-panel.active::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
+    /* The column headings are sticky at the panel's top edge, so anything
+       scrolled to by the browser — a focused row, an anchor, scrollIntoView —
+       landed underneath them. This is the height they occupy. */
+    #tabContentCard .tab-panel.active tbody tr{scroll-margin-top:44px;}
+    /* Opacity only, no translate: fadeIn slides its element 4px down from the
+       start, and those 4px are real scrollable overflow while it plays —
+       a scrollbar that flashes on every tab switch. */
+    .tab-panel.active, #tabContentCard .sub-tab-panel.active{animation-name:fadeFlat;}
+    /* Sticky, so the column headings stay put while the rows move under them —
+       the point of scrolling the panel rather than paging it.
+
+       .table-wrap has to give up its overflow for that to work. It carries
+       overflow-x:auto for narrow screens, and a non-visible value on one axis
+       forces the other to auto — which made the wrap its own scrollport, so
+       the headings stuck to a box that never scrolls vertically and rode up
+       out of the panel with the rows. In the frame the table always fits its
+       column (the panel's own no-sideways-scroll assertion in
+       tests/regression/one-screen.js holds it to that), so the wrap has
+       nothing to scroll and the panel becomes the scrollport the headings
+       stick to. */
+    #tabContentCard .tab-panel .table-wrap{overflow:visible;}
+    #tabContentCard .tab-panel.active thead th{position:sticky; top:0; z-index:2;}
+    /* The sticky clock bar floats 70px up from the bottom of the viewport. A
+       panel inside the tab card already ends above it — the card's own bottom
+       padding and the footer add up to more than that — but the Overview runs
+       12px lower, so scrolled to its end its clock panel sat behind the bar.
+       Only while the bar is actually up (app.js sets the class), since the
+       clearance is dead space the rest of the time. */
+    /* Every panel reserves room, not just the Overview. The bar occupies 70px
+       (56 tall, 14 up from the bottom); the tab card's own bottom padding and
+       the footer cover most of that, so the other tabs cleared it by about 5px
+       — luck, not clearance, and gone the moment either changes. The Overview
+       sits 12px lower and needs its own step. */
+    body.sticky-clock-up .tab-panel.active{padding-bottom:var(--space-3);}
+    body.sticky-clock-up .tab-panel.overview-panel.active{padding-bottom:var(--space-8);}
+  }
+
   /* Below 900px the rail gives way to the bottom nav — the clock button there
      is the primary moment on a phone and must not move. */
   @media (max-width:760px){
@@ -375,7 +637,7 @@
   .reminder{
     display:none; align-items:flex-start; gap:12px;
     background:var(--warn-bg); border:1px solid var(--warn-line);
-    border-left:4px solid var(--gold); border-radius:var(--radius-md);
+    border-radius:var(--radius-md);
     padding:14px 16px; margin-bottom:20px;
   }
   .reminder.show{display:flex;}
@@ -383,10 +645,10 @@
   .reminder-body{flex:1; min-width:0;}
   .reminder-title{font-size:13px; font-weight:600; color:var(--warn); margin:0 0 3px;}
   .reminder-text{font-size:12.5px; color:var(--muted); margin:0;}
-  .reminder-actions{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+  .reminder-actions{display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;}
 
   /* ---------- Stat cards ---------- */
-  .stats-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px; margin-bottom:28px;}
+  .stats-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:var(--space-3); margin-bottom:var(--space-6);}
 
   /* ---------- Overview ----------
      The reference grid, with the four figures pulled to the top: they lead
@@ -396,8 +658,8 @@
      screen never scrolls — the roster scrolls inside its own card instead.
      Below the grid breakpoint the sections simply stack in DOM order (stats
      first, same as the desktop grid) and the page scrolls as normal. */
-  .overview-panel{margin-bottom:24px;}
-  .overview-panel > section{margin-bottom:14px;}
+  .overview-panel{margin-bottom:var(--space-6);}
+  .overview-panel > section{margin-bottom:var(--space-3);}
   .overview-panel > section:last-child{margin-bottom:0;}
   .overview-panel .portrait-card{min-height:260px;}
 
@@ -405,25 +667,36 @@
     /* .tab-panel.active sets display:block at two classes; a media query adds
        no specificity, so this needs three to win regardless of source order. */
     .tab-panel.overview-panel.active{
-      display:grid; gap:14px; margin-bottom:0;
-      grid-template-columns:minmax(0,.86fr) minmax(0,1fr) minmax(0,1fr);
-      grid-template-rows:auto minmax(210px,1fr) auto;
+      display:grid; gap:var(--space-3); margin-bottom:0;
+      /* Roster gets the largest share, not an even split with format: its
+         rows carry a name AND a status pill AND a checkmark competing for
+         one line, while the portrait and Day Types columns have slack to
+         give up. At the grid's own 1100px floor an even 3-way split left
+         the roster too narrow for its own status pills ("Clocked in ·
+         8:58 AM" truncating to "CLOCKE…") well before that width. */
+      grid-template-columns:minmax(0,.78fr) minmax(0,1fr) minmax(0,1.1fr);
+      /* 150px, not the 210px this row used to floor at: inside the frame the
+         row's job is to be as tall as the screen can spare, and 210 was enough
+         to push a 720px window with two banners up over the edge. The cards in
+         it degrade gracefully well below that — the portrait crops, the dial
+         has its own clamp, the roster scrolls in its own card. */
+      grid-template-rows:auto minmax(150px,1fr) auto;
       grid-template-areas:
         "stats    stats  stats"
         "portrait format roster"
         "clock    clock  roster";
-      /* --ov-chrome is everything on the page that is NOT this panel: the
-         header above it plus the export/import footer below. fitOverview()
-         measures both, because each moves — the header grows a viewing banner,
-         the footer's buttons wrap. The literal is the 1440x900 measurement, so
-         the grid is already the right size on first paint, before any
-         measurement lands. */
-      height:calc(100dvh - var(--ov-chrome, 227px));
-      /* The floor is the sum of the rows at their tightest legible size (the
-         figures, the 210px portrait row, the clock panel, two gaps). Below it
-         the page scrolls a little rather than crushing the figures — a short
-         laptop is the one case where scrolling is the lesser harm. */
-      min-height:480px;
+      /* Whatever the frame has left after the header, any banner and the
+         footer — the same "one screen" rule every other tab now follows. This
+         was a measured height (fitOverview() wrote --ov-chrome on every resize)
+         back when the page was still a scrolling document. */
+      flex:1 1 auto;
+      /* No floor on the box — the rows carry their own (the figures' content,
+         the 210px portrait row, the clock panel), so a frame too short for all
+         three scrolls the panel by the difference instead of crushing them.
+         A 480px floor here did the same job while the page could still grow,
+         but inside the frame it was the one thing that could push the footer
+         off the bottom: two banners on a 768px screen leave less than 480. */
+      min-height:0;
     }
     .overview-panel > section{margin-bottom:0;}
     .overview-panel .portrait-card{min-height:0;}
@@ -442,33 +715,26 @@
     }
     /* auto-fit reflowed the figures to 2x2 inside the grid, costing height the
        fold cannot spare. Four across is explicit here. */
-    /* The grid row supplies the dial's height here, so it may shrink well
-       below its stacked-layout floor — but not to nothing: with up to 9 day
-       types active the legend below it can run to 3 lines, and giving the
-       dial min-height:0 here let the legend claim the entire card on a short
-       laptop, shrinking the ring to invisible rather than itself. A small
-       floor keeps the ring on screen; the legend absorbs the rest of the
-       squeeze (see .format-legend's own min-height:0 + overflow below). */
-    .overview-panel .format-dial{min-height:64px;}
+    /* The grid row supplies .format-body's height here, so it may shrink well
+       below its stacked-layout auto size on a short laptop. The dial itself
+       no longer depends on that height (clamp() above gives it a floor
+       nothing can take away); this floor is for the row as a whole, so the
+       legend beside it still gets a usable, scrollable column instead of
+       being squeezed to nothing. */
+    .overview-panel .format-body{min-height:104px;}
     .overview-panel .stats-row{grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px;}
-    /* Trimmed down from the standalone Shortfall/Admin stat card: now that
-       these lead the panel, every pixel the row gives up here is a pixel the
-       portrait/day-types/roster row and the clock panel get back — and the
-       four figures are still the largest text on the row by a wide margin,
-       so they don't need the full-size treatment to read as the headline. */
-    .overview-panel .stat-card{padding:11px 14px 10px;}
-    /* 9.5px, not a rounder 9: DESIGN.md's label scale floors at 9.5px
-       (rail-user-role, the seal label) — going smaller for this one card row
-       would be a fresh, undocumented micro-size rather than a reuse of the
-       system's existing floor. */
-    .overview-panel .stat-label{font-size:9.5px; margin:0 0 4px; gap:6px;}
-    .overview-panel .stat-label svg{width:11px; height:11px;}
-    .overview-panel .stat-value{font-size:20px;}
-    .overview-panel .stat-detail{font-size:10.5px; margin-top:2px;}
-    .overview-panel .stat-trend{font-size:10px; margin-top:3px; min-height:13px;}
-    .overview-panel .hero-progress{margin-top:7px; gap:7px;}
-    .overview-panel .hero-progress-track{height:5px;}
-    .overview-panel .hero-progress-label{font-size:9.5px;}
+    /* Nothing about the stat card is set here any more. This row used to run a
+       step under the rest of the frame — 20px figures, 9.5px labels, its own
+       trims on the detail, trend and progress rail — on the reasoning that a
+       row sharing its screen with the portrait/day-types/roster row and the
+       clock panel should give those pixels up. The reasoning held while a
+       stat card elsewhere was 34px and this was the only compact version of
+       it; once the frame came down to one 24px scale, all the exception did
+       was make the first row a user sees the odd one out: four figures
+       smaller here than the same four components one tab over. The frame's
+       min-width:1100px block below now sizes every stat card in the app
+       identically, Overview included. If this row ever needs its height back,
+       it comes from the grid — not from making one tab's type smaller. */
     .overview-panel .quick-clock{padding:16px 20px;}
     /* At the grid's own narrow end (1100-1350px-ish) the portrait column is
        the tightest of the three, and an ordinary name ("Aseel Thalnoon")
@@ -485,6 +751,30 @@
        body-size font, not .portrait-name's larger 21px one nested inside it,
        and came out under half the width an actual name needs. */
     .overview-panel .portrait-id{min-width:150px;}
+  }
+
+  /* ---------- Overview grid: where the slack actually is ----------
+     Day Types holds a dial capped at 170px by its own clamp() plus a legend
+     of a few short rows. Past 1400px the column keeps growing and the dial
+     does not, so the extra lands entirely in the legend column as a band of
+     empty white down the right of the card — 382px of card at 1440 and 409px
+     at 1920 to draw ~226px of content. The portrait, which is a photograph
+     and can use every pixel it is given, was the column paying for it at
+     298px.
+     Below 1400 this stays exactly as it was, deliberately. The legend needs
+     80px to keep its widest real label ("Half Day Leave", "Public Holiday")
+     on one line, and the same ratios that free 60px at 1440 leave it 62px at
+     1280 — reclaiming there would buy the portrait width by wrapping the
+     legend, and would take it from the roster too, whose status pills are
+     the tightest thing in the row at the 1100px end. Slack is only spent
+     where it exists. */
+  @media (min-width:1400px){
+    .tab-panel.overview-panel.active{
+      grid-template-columns:minmax(0,.95fr) minmax(0,.84fr) minmax(0,1.1fr);
+    }
+    .tab-panel.overview-panel.active.solo{
+      grid-template-columns:minmax(0,1.16fr) minmax(0,.84fr);
+    }
   }
 
   /* ---------- Portrait ----------
@@ -554,18 +844,28 @@
   .format-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
   .format-head h2{margin:0; font-size:19px;}
   .format-period{font-size:11px; color:var(--muted-2); white-space:nowrap;}
+  /* Legend sits beside the ring, not under it, so a long legend spends the
+     card's width instead of the ring's height. .format-body is the row:
+     a fixed-size dial plus a legend column that takes what's left and
+     scrolls internally rather than squeezing the ring. */
+  .format-body{
+    display:flex; align-items:stretch; gap:16px;
+    flex:1 1 auto; min-height:0; margin:8px 0 2px;
+  }
+  /* Sized off the viewport, not the row: a percentage/flex-based height would
+     still let a tall legend column drag the row (and the ring with it)
+     shorter. clamp() gives the ring a size nothing else in the card can
+     shrink, while align-self:center (not stretch) keeps aspect-ratio in
+     charge of its height instead of the row forcing one. */
   .format-dial{
-    position:relative; flex:1 1 auto; margin:8px 0 2px;
-    /* The svg is pinned, so it contributes no height of its own. Inside the
-       grid the row supplies one; stacked on a phone nothing does, and the
-       dial collapsed to nothing, leaving a legend with no chart above it. */
-    min-height:190px;
+    position:relative; flex:0 0 auto; align-self:center;
+    width:clamp(130px, 12vw, 170px); aspect-ratio:1;
     display:flex; align-items:center; justify-content:center;
   }
   /* Pinned rather than sized with height:100%. As an in-flow flex item the svg
      fell back to the replaced-element default and drew a ~60px dial in a 113px
-     box; pinned to the edges it scales with the row, and preserveAspectRatio
-     keeps it square and centred when the card is wider than it is tall. */
+     box; pinned to the edges it scales with the dial's own box, and
+     preserveAspectRatio keeps it centred. */
   .format-dial svg{position:absolute; inset:0; width:100%; height:100%; display:block;}
   .format-ring-track{stroke:rgba(17,17,16,.09);}
   /* Square caps: the segments are stacked flush end-to-end around one ring
@@ -580,26 +880,38 @@
   .format-count{
     font-size:19px; font-weight:900; letter-spacing:-.6px;
     fill:var(--ink); font-variant-numeric:tabular-nums;
+    transform-box:fill-box; transform-origin:center;
+    /* Lands as the ring's own draw-in (a WAAPI animation in app.js, gated on
+       prefers-reduced-motion there) finishes, same beat .trend-dot lands on
+       after .trend-line draws in. */
+    animation:trendDotIn .4s var(--ease-soft) .38s both;
   }
   .format-count-label{
     font-size:6px; font-weight:600; letter-spacing:1.1px; fill:var(--muted-2);
+    animation:fadeIn .3s var(--ease-soft) .48s both;
   }
   .format-empty{margin:auto; text-align:center; font-size:12.5px; color:var(--muted); max-width:22ch;}
-  /* Up to 9 day types can be active in one month, not the fixed 3 this used
-     to assume — wraps into as many rows as it needs instead of squeezing
-     every entry into one, and each chip sizes to its own content rather than
-     splitting the row into equal columns. */
-  .format-legend{
-    display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:10px;
-    /* A flex item's default min-height is auto, which protects its own
-       content from shrinking in a column flex container — so without this,
-       ALL the squeeze on a short viewport landed on .format-dial instead
-       (its sibling, min-height:64px above) and the legend never gave an inch.
-       overflow-y so a legend that still doesn't fit scrolls instead of
-       spilling out of the card's overflow:hidden. */
-    min-height:0; overflow-y:auto;
+  /* Non-scrolling wrapper the fade below can anchor to. .format-legend is the
+     thing that scrolls; the wrapper stays put at the ring's height so the
+     fade lines up with the legend's own column instead of the whole card's
+     width (which would paint over the ring's bottom edge too). */
+  .format-legend-wrap{
+    position:relative; flex:1 1 auto; min-width:0;
+    display:flex; flex-direction:column;
   }
-  .format-leg{flex:0 1 auto; min-width:0;}
+  /* Up to 9 day types can be active in one month, not the fixed 3 this used
+     to assume — stacked one per row in the column .format-legend-wrap gives
+     it, rather than wrapped chips eating into the dial's row like before. */
+  .format-legend{
+    display:flex; flex-direction:column; gap:9px;
+    /* A flex item's default min-height is auto, which protects its own
+       content from shrinking in a column flex container — so without this
+       the legend could never give up height to its own scroll. overflow-y so
+       a legend that still doesn't fit scrolls instead of spilling out of the
+       card's overflow:hidden. */
+    flex:1 1 auto; min-width:0; min-height:0; overflow-y:auto;
+  }
+  .format-leg{flex:0 0 auto; min-width:0;}
   .format-leg-top{display:flex; align-items:center; gap:6px;}
   .format-leg-dot{width:8px; height:8px; border-radius:50%; flex-shrink:0;}
   /* Was 14.5px — close enough to the dial's own centre figure (19px) that a
@@ -616,13 +928,22 @@
      "that's everything" from "there's more below". Same fix as .tabs-wrap's
      edge fade above: a gradient toggled by JS (updateFormatLegendScrollHint
      in app.js) once scrollHeight actually exceeds clientHeight, so a legend
-     that fits gets no fade at all. */
-  .format-card::after{
-    content:""; position:absolute; left:20px; right:20px; bottom:16px; height:22px;
+     that fits gets no fade at all. Lives on the wrapper, not .format-legend
+     itself, so it stays pinned to the visible edge instead of scrolling away
+     with the content it's hinting at. */
+  .format-legend-wrap::after{
+    content:""; position:absolute; left:0; right:0; bottom:0; height:20px;
     background:linear-gradient(180deg, transparent, var(--card));
     pointer-events:none; opacity:0; transition:opacity var(--dur-fast) var(--ease-snap);
   }
-  .format-card.can-scroll-legend::after{opacity:1;}
+  .format-card.can-scroll-legend .format-legend-wrap::after{opacity:1;}
+  /* No days logged: the dial carries the empty-state message alone, so it
+     takes the row back from the (now-empty) legend column instead of sitting
+     as a small square with dead space beside it. */
+  .format-card.no-days .format-dial{
+    flex:1 1 auto; align-self:stretch; width:auto; aspect-ratio:auto;
+  }
+  .format-card.no-days .format-legend-wrap{display:none;}
 
   /* The roster is the one panel whose content grows without bound, so it
      scrolls inside itself rather than pushing the page past the fold. */
@@ -650,13 +971,19 @@
   .today-team-list::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
   .today-team-list::-webkit-scrollbar-track{background:transparent;}
   .tt-row{
-    display:flex; align-items:center; gap:11px; padding:7px 0;
+    display:flex; align-items:center; gap:9px; padding:7px 0;
     border-bottom:1px solid var(--line-soft);
   }
   .tt-row:last-child{border-bottom:none;}
   .tt-row .avatar{width:32px; height:32px; font-size:11px;}
+  /* 72 -> 88: at the grid's own 1100px floor an ordinary name like "Omar
+     Haddad" or "Yousef Nabhan" sat just under the old floor and still lost
+     characters to its own ellipsis — the one thing this row is supposed to
+     protect (see the status pill's note below). 88px covers a 13-character
+     name without giving the pill noticeably less room; gap trimmed 11 -> 9px
+     on the same row to help pay for it. */
   .tt-name{
-    flex:1 1 auto; min-width:72px; font-size:12.5px; font-weight:600;
+    flex:1 1 auto; min-width:88px; font-size:12.5px; font-weight:600;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   /* .team-status is flex-shrink:0 everywhere else it's used (it names a real
@@ -699,9 +1026,14 @@
     transition:transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   /* Surface alternation, the reference's way of separating tiles without
-     borders or stripes. Positional so no render code has to know about it. */
-  .stats-row .stat-card:nth-child(2){background:var(--surface-cream);}
-  .stats-row .stat-card:nth-child(3){background:var(--surface-gray);}
+     borders or stripes. Positional so no render code has to know about it.
+     A repeating 3n cycle rather than a fixed 2nd/3rd: every stats-row in the
+     app is 4 cards except Team's 5-figure summary, and a fixed rule left its
+     last two tiles both white — nth-child(3n+2)/(3n+3) reduces to the same
+     2nd/3rd pair on a 4-card row (n=0) while still giving a 5th tile its own
+     surface. */
+  .stats-row .stat-card:nth-child(3n+2){background:var(--surface-cream);}
+  .stats-row .stat-card:nth-child(3n+3){background:var(--surface-gray);}
   @keyframes cardIn{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
 
   /* Kinetic's scroll-reveal styles live in themes/kinetic/theme.css now,
@@ -719,9 +1051,28 @@
   .stat-label svg{
     flex-shrink:0; color:var(--muted); width:14px; height:14px; box-sizing:border-box;
   }
+  /* 24px, not the 34px this started at. 34px was never a size the app
+     actually rendered any more: above 1100px the Overview panel overrides
+     the figure to 20px, and below 1100px the block further down overrides it
+     to 24px — so the only place the base survived was Shortfall, Team and
+     Admin inside the desktop frame, where it read as a different, louder
+     component than the same card one tab over. Worse, those rows are not
+     wider: a Shortfall card is 262px against Overview's 272px, and a Team
+     card is 207px, so the largest figure in the app was living in its
+     smallest cards. 24px is the size the app was already using at every
+     width below the frame, so this unifies onto an existing step of the
+     scale rather than inventing one.
+
+     line-height:1 is DESIGN.md's numeral token, and not setting it was costing
+     more than the font size ever did: the figure inherited the body's 1.45 and
+     took a 35px box to draw 24px of digits — 11px of leading above and below
+     every number in the app, on a row whose whole job is to be scannable at a
+     glance. A figure has no descenders and no second line to separate from, so
+     the leading was buying nothing. Reclaimed on every card at every width. */
   .stat-value{
-    font-family:var(--font-num); font-weight:900; font-size:34px; letter-spacing:-.035em; margin:0;
+    font-family:var(--font-num); font-weight:900; font-size:24px; letter-spacing:-.035em; margin:0;
     font-variant-numeric:tabular-nums; color:var(--ink); letter-spacing:-.01em;
+    line-height:1;
   }
   .stat-detail{font-size:11.5px; color:var(--muted-2); margin:5px 0 0;}
   /* A streak milestone reuses --positive (this row's existing "good news"
@@ -729,6 +1080,18 @@
      context or any glow/border — the wax seal stays the only element
      allowed to look ornamental. */
   .stat-detail.milestone{color:var(--positive); font-weight:600;}
+  /* The one motion this earns: the earned clause itself settles into view
+     rather than the whole line just silently swapping text, so a milestone
+     lands as something the ledger noticed rather than a value that happened
+     to change. Text-only — no card treatment, no icon, no badge — because
+     the rule two comments up is absolute: nothing here becomes a second
+     ornament next to the seal. renderStats() (app.js) adds .landing only the
+     first time a given streak count crosses into milestone territory, so
+     returning to Overview later the same day shows the earned text at rest,
+     not replaying the beat on every visit. */
+  .stat-detail .milestone-clause{display:inline-block;}
+  .stat-detail .milestone-clause.landing{animation:milestoneClauseIn .5s var(--ease-soft) both;}
+  @keyframes milestoneClauseIn{from{opacity:0; transform:translateY(3px);} to{opacity:1; transform:translateY(0);}}
   .stat-trend{
     display:flex; align-items:center; gap:4px; font-size:11px; color:var(--muted-2);
     margin:6px 0 0; min-height:15px;
@@ -739,6 +1102,10 @@
   .stat-trend.trend-flat{color:var(--muted-2);}
   .stat-value.positive{color:var(--positive);}
   .stat-value.negative{color:var(--negative);}
+  /* --warn, not --negative: "getting low" is a heads-up, not yet a problem
+     (that's what a negative Leave Balance already renders as) — the same
+     distinction --warn-bg reminder banners already draw elsewhere. */
+  .stat-value.warn{color:var(--warn);}
 
   /* ---------- Cards ---------- */
   .card{
@@ -761,6 +1128,24 @@
       radial-gradient(480px 160px at 90% -20%, rgba(214,232,92,.13), transparent 65%),
       linear-gradient(135deg, var(--teal-900), var(--teal-950));
     border-radius:var(--radius); padding:18px 22px; margin-bottom:8px; box-shadow:var(--shadow-md);
+  }
+  /* The focal moment: a successful punch blooms the SAME radial glow already
+     baked into the panel's own background (same 90% -20% origin, same lime),
+     rather than a distinct effect — the panel earning its one-dark-region
+     exception (DESIGN.md) is the whole reason to author motion here at all.
+     A pseudo-element, not the base gradient's own alpha, so the idle panel
+     is unaffected and pulseQuickClock() (app.js) only ever retriggers this
+     layer. Bounded by .quick-clock's own overflow:hidden above. */
+  .quick-clock::before{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(480px 220px at 90% -20%, rgba(214,232,92,.55), transparent 65%);
+    opacity:0;
+  }
+  .quick-clock.punched::before{animation:quickClockPulse .8s var(--ease-soft);}
+  @keyframes quickClockPulse{
+    0%{opacity:0; transform:scale(.88);}
+    40%{opacity:1; transform:scale(1.04);}
+    100%{opacity:0; transform:scale(1.16);}
   }
   .quick-clock-time{display:flex; flex-direction:column; gap:2px; position:relative;}
   .qc-label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--gold-light);}
@@ -789,7 +1174,7 @@
      narrow — Safari/iOS draws its own segmented control at an intrinsic width
      and simply overflows the cell. A floor fixes it for every engine and every
      width at once, instead of chasing a breakpoint per device. */
-  .form-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:14px; align-items:stretch;}
+  .form-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:var(--space-3); align-items:stretch;}
   /* Cells stretch to the tallest in their row and lay their control out as a
      flex column, so the control fills whatever height the row settled on.
      This is what keeps a date, time, number and select box the same height
@@ -865,8 +1250,6 @@
   .form-actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
 
   /* ---------- Settings ---------- */
-  .settings-card{display:none;}
-  .settings-card.open{display:block; animation:fadeIn .25s var(--ease-soft);}
   .daypicker{display:flex; gap:6px; flex-wrap:wrap;}
   .daypicker input{position:absolute; opacity:0; width:0; height:0;}
   .daypicker label{
@@ -897,31 +1280,236 @@
   .settings-danger-zone .btn{flex-shrink:0;}
 
   /* ---------- Settings accordion ---------- */
-  .accordion-section{border:1px solid var(--line-soft); border-radius:var(--radius-md); margin-bottom:12px; overflow:hidden;}
+  /* No border. DESIGN.md's card rule is that separation comes from surface
+     colour, not an edge — and these sections sit inside #tabContentCard, so a
+     border here drew a second frame inside the card's own: a card in a card,
+     which is the one nesting the system never allows. The head's own wash
+     against the card's white already says where each section starts. */
+  .accordion-section{border-radius:var(--radius-md); margin-bottom:var(--space-1-5); overflow:hidden;}
   .accordion-head{
     width:100%; display:flex; align-items:center; justify-content:space-between;
     background:var(--teal-50); border:none; cursor:pointer;
-    padding:13px 16px; font-size:13px; font-weight:600; color:var(--ink);
-    text-align:left; min-height:46px;
+    padding:var(--space-3) var(--space-4); font-size:13px; font-weight:600; color:var(--ink);
+    text-align:left; min-height:44px;
   }
   .accordion-chevron{transition:transform var(--dur-slow) var(--ease-soft); color:var(--muted); flex-shrink:0;}
   .accordion-section.open .accordion-chevron{transform:rotate(180deg);}
-  .accordion-body{display:none; padding:18px 16px 16px;}
+  .accordion-body{display:none; padding:var(--space-4);}
   .accordion-section.open .accordion-body{display:block; animation:fadeIn .2s var(--ease-soft);}
-  .accordion-head-right{display:inline-flex; align-items:center; gap:10px; min-width:0;}
-  /* The Admin console is eight sections deep. Collapsed, the whole thing is one
-     screen of headings you can scan; expanded, it was several thousand pixels of
-     scrolling to reach the log. The count on each head is what makes a closed
-     section still worth reading. */
-  .admin-section{margin-bottom:10px;}
-  .admin-section > .accordion-head{font-size:14px; min-height:52px;}
-  .admin-section > .accordion-head .filter-count{
-    font-size:11px; color:var(--muted-2); font-weight:500; white-space:nowrap;
-    overflow:hidden; text-overflow:ellipsis; max-width:46vw;
+  .accordion-head-right{display:inline-flex; align-items:center; gap:var(--space-2); min-width:0;}
+  /* ---------- Settings / Admin console ----------
+     Both panels used to be a vertical stack of accordions: to reach Storage you
+     scrolled past six headings, and every section you opened pushed the rest
+     further down. They are a directory now — a nav column naming every section
+     with a line saying what it holds, and one pane showing the section you
+     picked. Nothing scrolls to reach anything; the pane is the only thing that
+     ever moves.
+
+     The nav column carries the wash so a white card can sit on it and read as
+     lifted. The pane deliberately carries NO surface of its own: it is already
+     inside #tabContentCard's white, and DESIGN.md's one forbidden nesting is a
+     card inside a card. Separation there comes from the gap and the rule. */
+  /* One line, not a stacked title-and-subtitle block. Two lines of page chrome
+     cost ~68px at the top of every section of both tabs — on a 768px-tall
+     laptop that was a third of the overflow, spent on a heading the rail
+     already tells you. Baseline-aligned so the hint reads as a continuation of
+     the title rather than a second heading. */
+  .console-head{
+    display:flex; align-items:baseline; gap:var(--space-3); flex-wrap:wrap;
+    margin:0 0 var(--space-4);
+  }
+  .console-head h2{
+    margin:0; font-family:var(--font-display); font-size:21px; font-weight:700;
+    letter-spacing:-.02em; line-height:1.15; color:var(--ink);
+  }
+  .console-head p{margin:0; font-size:12px; color:var(--muted-2);}
+
+  .console{display:grid; grid-template-columns:minmax(0,1fr); gap:var(--space-5); align-items:start;}
+  @media (min-width:900px){
+    /* The nav took a flat 290px, which on a 1280px screen left the pane about
+       600px — narrow enough that the Overview's four figures wrapped to two
+       rows and pushed the section past the fold. It scales with the window
+       instead, and stops growing once the pane has room to spare. */
+    .console{grid-template-columns:clamp(232px, 21vw, 290px) minmax(0,1fr); gap:var(--space-5);}
+  }
+  @media (min-width:1500px){
+    .console{gap:var(--space-6);}
+  }
+
+  .console-side{display:flex; flex-direction:column; gap:var(--space-3); min-width:0;}
+  .console-nav{
+    display:flex; flex-direction:column; gap:var(--space-1);
+    background:var(--teal-50); border-radius:var(--radius); padding:var(--space-2);
+    min-width:0;
+  }
+  /* Sticky so a long section (the Activity Log, the People list) scrolls under a
+     nav that stays where you left it — the directory is only useful if it is
+     still on screen when you want the next section. */
+  @media (min-width:900px){
+    /* The column is what gets bounded, not the nav: the nav's own max-height
+       knew nothing about the identity card stacked above it, so on Admin the
+       last section fell off the bottom of the screen. The card takes the
+       height it needs and the nav scrolls in whatever is left. */
+    .console-side{
+      position:sticky; top:0; max-height:calc(100vh - 214px);
+      display:flex; flex-direction:column;
+    }
+    .console-side > .console-profile{flex:0 0 auto;}
+    .console-nav{
+      min-height:0; flex:1 1 auto;
+      overflow-y:auto; scrollbar-gutter:stable; overscroll-behavior:contain;
+      scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+      /* The same scroll shadows the panel uses, in the nav's own wash so the
+         masking layers match its ground. Seven sections do not fit a 768px
+         screen beside the card; without this the list just stopped mid-row and
+         read as broken rather than as scrollable. */
+      background:
+        linear-gradient(var(--teal-50) 30%, rgba(239,237,232,0)) top    /100% 20px no-repeat local,
+        linear-gradient(rgba(239,237,232,0), var(--teal-50) 70%) bottom /100% 20px no-repeat local,
+        radial-gradient(farthest-side at 50% 0,    rgba(17,17,16,.14), rgba(17,17,16,0)) top    /100% 9px no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(17,17,16,.14), rgba(17,17,16,0)) bottom /100% 9px no-repeat scroll,
+        var(--teal-50);
+    }
+    .console-nav::-webkit-scrollbar{width:8px;}
+    .console-nav::-webkit-scrollbar-track{background:transparent;}
+    .console-nav::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
+  }
+  /* A fixed row height, not one that follows the description. Left to size
+     themselves the rows came out at two heights depending on whether a
+     description wrapped, and a directory whose rows are all slightly different
+     reads as a list of unrelated things rather than one set of choices. */
+  .console-nav-item{
+    display:flex; align-items:center; gap:var(--space-3); width:100%; min-height:62px;
+    padding:10px var(--space-3); border:none; background:transparent; cursor:pointer;
+    border-radius:var(--radius-md); text-align:left; color:var(--ink);
+    font:inherit; letter-spacing:0; text-transform:none; min-width:0;
+    transition:background var(--dur-base) var(--ease-soft), box-shadow var(--dur-base) var(--ease-soft);
+  }
+  .console-nav-item:hover{background:rgba(255,255,255,.62);}
+  .console-nav-item[aria-selected="true"]{background:var(--card); box-shadow:var(--shadow-sm);}
+  .console-nav-icon{
+    width:36px; height:36px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--card); color:var(--ink);
+    transition:background var(--dur-base) var(--ease-soft);
+  }
+  .console-nav-item[aria-selected="true"] .console-nav-icon{background:var(--gold);}
+  .console-nav-text{min-width:0; flex:1;}
+  .console-nav-title{
+    display:block; font-size:13px; font-weight:700; color:var(--ink); line-height:1.25;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  /* Two lines, not one with an ellipsis. These lines carry the state a section
+     is in — "3 periods set", "Not set — new accounts fall back to Sun–Thu" —
+     and a truncated one is worse than none, because it looks like it said
+     something and you cannot tell what. */
+  .console-nav-desc{
+    display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
+    font-size:11px; color:var(--muted-2); line-height:1.35; margin-top:2px;
+    overflow:hidden;
+  }
+  .console-nav-chevron{color:var(--muted); flex-shrink:0; transition:transform var(--dur-base) var(--ease-soft);}
+  .console-nav-item[aria-selected="true"] .console-nav-chevron{transform:translateX(2px);}
+  /* The count a collapsed accordion head used to carry. It is the reason a
+     closed section is still worth reading — "3 periods", "12 people" — so it
+     survives the layout change, on the description line where it belongs. */
+  .console-nav-count{color:var(--muted); font-weight:600;}
+
+  .console-pane{min-width:0;}
+  .console-section{display:none;}
+  .console-section.active{display:block; animation:fadeFlat .22s var(--ease-soft);}
+  .console-section-head{
+    margin:0 0 var(--space-3); padding-bottom:var(--space-2);
+    border-bottom:1px solid var(--line-soft);
+  }
+  .console-section-head h3{
+    margin:0; font-family:var(--font-display); font-size:17px; font-weight:700;
+    letter-spacing:-.015em; color:var(--ink);
+  }
+  /* The pane runs to ~1350px on a wide screen, which put these explanations on
+     a 200-character line — technically legible, actually unreadable, because
+     the eye loses the return sweep. Everything that is prose gets a measure;
+     the fields and tables below still use the full width. */
+  .console-section-head p{margin:3px 0 0; font-size:11.5px; color:var(--muted-2); line-height:1.4; max-width:74ch;}
+  .console-section .settings-hint{max-width:78ch; margin-top:var(--space-2);}
+
+  /* Where a section commits. Without the rule the save button just followed the
+     last field at the same spacing as everything else, so nothing said "this is
+     the end of the form" — it read as one more control in the stack. */
+  .console-commit{
+    margin-top:var(--space-4); padding-top:var(--space-3);
+    border-top:1px solid var(--line-soft);
+  }
+  /* Settings commits through one button for the whole pane, so its scope switch
+     and that button are the closing group — the rule goes above the pair. */
+  /* Two classes: .check-row is declared further down this sheet and would
+     otherwise win on source order and put its wash box back. */
+  .check-row.console-scope{
+    margin:var(--space-4) 0 0;
+    padding-top:var(--space-3); padding-bottom:var(--space-1);
+    border:none; border-top:1px solid var(--line-soft);
+    border-radius:0; background:transparent; padding-left:0; padding-right:0;
+  }
+  /* The measure belongs to the sentence, not to the row — capping the row
+     shortened its rule and left it out of step with the section divider. */
+  .check-row.console-scope > span{max-width:78ch;}
+  .console-scope + .form-actions{margin-top:var(--space-3);}
+
+  /* A section can hold a second group (Seasonal Hours inside Organisation
+     Defaults). At the shared .periods-head weight it competed with the section
+     title above it and the pane read as having two headings of equal rank. */
+  .console-subhead{
+    font-family:var(--font-display); font-size:13.5px; font-weight:700;
+    letter-spacing:-.01em; color:var(--ink);
+  }
+  .console-section .periods-empty{padding:6px 0;}
+  /* A second group inside a section is still inside it — the shared
+     .periods-section gap was sized for a standalone block. */
+  .console-section .periods-section{margin-top:var(--space-4); padding-top:var(--space-3);}
+  .console-section-head.with-action{display:flex; align-items:flex-start; gap:var(--space-3);}
+  /* Only the title block flexes. Matching every child div gave the button
+     wrapper flex:1 too, which spread its two buttons to opposite ends of the
+     row as though they were unrelated. */
+  .console-section-head.with-action > :first-child{min-width:0; flex:1;}
+
+  /* The person the panel is about, above the sections rather than inside one —
+     it names who you are editing, which every section below is scoped to.
+     Cream, because a white card on white is the nesting the system forbids. */
+  /* A column, because it lives in the ~250px side rail. Laid out as a row the
+     name wrapped mid-phrase and the note ran to four lines — the narrowest
+     element on the page carrying the most awkward text. */
+  .console-profile{
+    display:flex; flex-direction:column; gap:var(--space-2);
+    background:var(--surface-cream); border-radius:var(--radius);
+    padding:var(--space-3); margin:0;
+  }
+  .console-profile-id{display:flex; align-items:center; gap:var(--space-3); min-width:0;}
+  /* 38px, not the 56px .avatar.lg: an identity strip, not a profile hero. */
+  .console-profile .avatar.lg{width:38px; height:38px; font-size:13px;}
+  .console-profile-badge{
+    width:38px; height:38px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--teal-700); color:#fff;
+  }
+  .console-profile-name{margin:0; font-size:14px; font-weight:700; color:var(--ink); line-height:1.2; min-width:0;}
+  .console-profile-sub{margin:0; font-size:11px; color:var(--muted-2); line-height:1.4;}
+  .console-profile-actions{display:flex; gap:var(--space-2); flex-wrap:wrap;}
+  .console-profile-actions .btn{flex:1 1 auto; justify-content:center;}
+
+  @media (max-width:899px){
+    .console-nav{background:transparent; padding:0; gap:var(--space-1-5);}
+    .console-nav-item{background:var(--teal-50);}
+    .console-nav-item[aria-selected="true"]{background:var(--teal-100); box-shadow:none;}
+    .console-profile{padding:var(--space-4);}
+  }
+  /* On a narrow card the photo button and the avatar between them left the
+     text a column six words wide. The row wraps, so giving the buttons a full
+     basis drops them to their own line and hands the paragraph the width. */
+  @media (max-width:600px){
+    .console-profile-actions{flex-basis:100%;}
   }
   @media (max-width:480px){
-    .admin-section > .accordion-head{font-size:13.5px; padding:12px 13px;}
-    .admin-section > .accordion-body{padding:15px 13px 14px;}
+    .console-head h2{font-size:20px;}
   }
 
   .check-row{
@@ -935,7 +1523,7 @@
   .check-row strong{display:block; font-size:12.5px; font-weight:600; color:var(--ink); text-transform:none; letter-spacing:0;}
   .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted-2); margin-top:3px; text-transform:none; letter-spacing:0;}
 
-  .periods-section{margin-top:22px; padding-top:18px; border-top:1px solid var(--line-soft);}
+  .periods-section{margin-top:var(--space-6); padding-top:var(--space-4); border-top:1px solid var(--line-soft);}
   .periods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:2px;}
   .period-row{
     display:grid; grid-template-columns:1.4fr 1fr 1fr .8fr .8fr 1.1fr auto;
@@ -980,6 +1568,11 @@
   }
 
   #selectModeToggle.active{background:var(--info-bg); border-color:var(--teal-600); color:var(--info);}
+  /* A bit more air than the generic .filter-bar gap: this is the last
+     toolbar row before the table itself, so it earns a clearer break from
+     the content zone starting under it — the same "more space above than
+     below" rhythm the rest of the system uses at heading transitions. */
+  #searchFilterWrap{margin-bottom:24px;}
 
   .bulk-toolbar{
     display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
@@ -1015,15 +1608,13 @@
   .muted-inline{color:var(--muted); font-weight:400; font-size:11px;}
   .spark-holder{display:inline-block; line-height:0;}
 
-  .backup-reminder{border-left-color:var(--teal-600);}
   .backup-reminder svg{color:var(--teal-600);}
   .backup-reminder .reminder-title{color:var(--teal-600);}
 
   .punct-stats{margin-bottom:22px;}
   .punct-rule{
     font-size:11.5px; color:var(--muted-2); margin:-4px 0 16px;
-    padding:9px 12px; border-left:3px solid var(--gold);
-    background:var(--teal-50); border-radius:0 7px 7px 0;
+    padding:9px 12px; background:var(--teal-50); border-radius:var(--radius-sm);
   }
   .late-cell{color:var(--negative); font-weight:600;}
 
@@ -1087,6 +1678,9 @@
   .sub-tab-panel{display:none;}
   .sub-tab-panel.active{display:block; animation:fadeIn .2s var(--ease-soft);}
   @keyframes fadeIn{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
+  /* The same entrance without the 4px slide, for anything whose height is
+     being measured while it plays — see the note in the frame's block. */
+  @keyframes fadeFlat{from{opacity:0;} to{opacity:1;}}
 
   /* ---------- Skeleton loading states ---------- */
   @keyframes skeletonShimmer{0%{background-position:-200% 0;} 100%{background-position:200% 0;}}
@@ -1132,6 +1726,11 @@
     background:var(--teal-50); border-radius:var(--radius-md); padding:14px 14px 10px;
     border:1px solid var(--line-soft); overflow-x:auto;
   }
+  /* Month mode sets weekLine.hidden, but an author display beats the UA's
+     [hidden]{display:none} no matter the specificity — so the timeline sat
+     under every month as an empty grey bar. Same defect the reminder banners
+     had with their inline display. */
+  .weekline[hidden]{display:none;}
   .wl-dayhead{
     grid-row:1; text-align:center; padding-bottom:10px;
     font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
@@ -1149,8 +1748,14 @@
     min-height:220px; min-width:44px;
   }
   .wl-col.is-today{background:rgba(214,232,92,.16);}
+  /* radius-sm, not the 99px pill .wl-chip uses: a chip is always short, so a
+     full round reads as a badge, but a shift bar's height tracks the hours
+     worked and can grow past its own width on a wide desktop column — 99px
+     rounded both ends into a full circle right when the column got roomy
+     enough to make the bar legible. A fixed small radius stays a rounded
+     rectangle at any height. */
   .wl-bar{
-    position:absolute; left:4px; right:4px; border-radius:99px;
+    position:absolute; left:4px; right:4px; border-radius:var(--radius-sm);
     background:var(--ink); color:#fff; overflow:hidden;
     display:flex; align-items:center; justify-content:center;
     font-size:9.5px; font-weight:600; min-height:18px;
@@ -1179,9 +1784,12 @@
     .wl-bar{font-size:0; padding:0;} /* keep the span visible, drop the label */
   }
 
+  /* No border: the grid sits inside #tabContentCard, and its own wash against
+     the card already separates it. The edge was the card-in-card line DESIGN.md
+     rules out. */
   .calendar-grid{
     display:grid; grid-template-columns:repeat(7, 1fr); gap:5px;
-    border:1px solid var(--line-soft); border-radius:var(--radius-md); padding:10px;
+    border-radius:var(--radius-md); padding:var(--space-2);
     background:var(--teal-50);
   }
   .cal-dow{
@@ -1220,13 +1828,38 @@
     .cal-daynum{font-size:11px;}
     .calendar-month-label{font-size:14px; min-width:110px;}
   }
+  /* Inside the frame the month has to fit the screen it is handed, so the grid
+     takes whatever the panel has left and the week rows share it. That means
+     the cells stop being squares: seven across a 1100px card makes a 150px
+     square, and six rows of those is two screens of calendar. They become the
+     flatter boxes a wall calendar actually uses instead. Below the frame's
+     breakpoint they stay square and the page scrolls as before.
+     #tab-calendar.active, not #tab-calendar: an ID's display would outrank
+     .tab-panel{display:none} and leave the calendar showing under every
+     other tab. */
+  @media (min-width:1100px){
+    #tab-calendar.active{display:flex; flex-direction:column;}
+    /* Two IDs, to out-rank the frame's blanket flex-shrink:0 on panel children:
+       the month grid is the one child here that must shrink, since giving
+       height back is exactly how it fits. */
+    #tabContentCard #tab-calendar .calendar-grid{
+      flex:1 1 auto; min-height:0; grid-auto-rows:minmax(0,1fr);
+    }
+    /* The number and its dot are centred in the cell, so a shorter box just
+       brings them closer together — nothing to reflow. */
+    #tab-calendar .cal-cell{aspect-ratio:auto; min-height:0;}
+  }
 
-  .filter-bar{display:flex; align-items:center; gap:10px; margin:-6px 0 18px; flex-wrap:wrap;}
+  /* gap:6px between controls, not 10px: a toolbar is one object, and the space
+     inside it has to read as tighter than the space around it or it stops
+     being a group. The -6px top margin was a patch for the old 18px bottom
+     margin above it; both are gone in favour of the scale. */
+  .filter-bar{display:flex; align-items:center; gap:var(--space-1-5); margin:0 0 var(--space-4); flex-wrap:wrap;}
   /* Groups a label with its own select/input so flex-wrap moves them
      together as one unit — otherwise a short label can fit in whatever
      space is left on the current line while its (wider) control gets
      pushed to the next line alone, leaving the label visually orphaned. */
-  .filter-field{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .filter-field{display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;}
   /* Every filter label sits in a column of the same width, so the controls
      that follow share a left edge instead of starting wherever their label's
      word happens to end ("Month" is ~10px wider than "Year"). min-width, not
@@ -1236,8 +1869,25 @@
   .filter-spacer{margin-left:auto;}
 
   /* ---------- Table ---------- */
+  /* No border/radius of its own: every .table-wrap already sits inside a
+     carded panel (the tab content card, or a .period-card), so framing it
+     again here was a card nested in a card — a second, barely-visible edge
+     doing the same job the outer card's own border and shadow already do.
+     overflow-x is what actually matters, for narrow viewports below the
+     card-stack breakpoint. */
+  /* position:relative is load-bearing, not cosmetic. Every cell carries a
+     visually-hidden .cell-label (position:absolute) so a screen reader on the
+     phone's card layout hears "Date: Aug 24" rather than a bare stream of
+     values. With no positioned ancestor their containing block was the initial
+     one, which means no scroll container between them and <html> could clip
+     them — so each label sat at its row's real depth and stretched the
+     document to the bottom of the last row. A full month put 107px of phantom
+     scroll on a 1280x720 window: the page scrolled, but there was nothing
+     down there to see. Anchoring them here puts them back inside the panel
+     that scrolls. */
   .table-wrap{
-    overflow-x:auto; border:1px solid var(--line-soft); border-radius:var(--radius-sm);
+    position:relative;
+    overflow-x:auto;
     scrollbar-width:thin; scrollbar-color:var(--line) transparent;
   }
   .table-wrap::-webkit-scrollbar{height:8px;}
@@ -1245,22 +1895,31 @@
   .table-wrap::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
   .table-wrap.is-loading table{display:none;}
   table{width:100%; border-collapse:collapse; font-size:13px;}
+  /* A shade darker than the zebra stripe (--teal-100, not --teal-50) so the
+     header reads as its own row rather than blending into the first even
+     data row beneath it — both were the same wash before. */
   thead th{
     text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.07em;
-    color:var(--muted-2); padding:10px 12px; background:var(--teal-50);
+    color:var(--muted-2); padding:7px 10px; background:var(--teal-100);
     border-bottom:1px solid var(--line); white-space:nowrap;
   }
-  tbody td{padding:10px 12px; border-bottom:1px solid var(--line-soft); white-space:nowrap;}
+  tbody td{padding:5px 10px; border-bottom:1px solid var(--line-soft); white-space:nowrap;}
   tbody tr:last-child td{border-bottom:none;}
   tbody tr:nth-child(even){background:var(--teal-50);}
   /* Status tinting: lets a problem day (under target, forgot to clock out)
-     stand out without having to read the Status column. */
-  tbody tr.row-under{background:var(--negative-bg); border-left:3px solid var(--negative);}
-  tbody tr.row-open{background:var(--warn-bg); border-left:3px solid var(--warn);}
-  tbody tr.row-excused{background:var(--excused-bg); border-left:3px solid var(--gold);}
-  tbody tr.row-over{background:var(--positive-bg); border-left:3px solid var(--positive);}
+     stand out without having to read the Status column. Surface colour only,
+     the way the rest of the system separates one surface from another —
+     the border-left this used to carry alongside the tint was the same
+     signal twice, and the loudest thing on the row. */
+  tbody tr.row-under{background:var(--negative-bg);}
+  tbody tr.row-open{background:var(--warn-bg);}
+  tbody tr.row-excused{background:var(--excused-bg);}
+  tbody tr.row-over{background:var(--positive-bg);}
   td.num, th.num{text-align:right; font-variant-numeric:tabular-nums;}
   td.num{font-family:var(--font-num); font-size:13.5px;}
+  /* The one number worth a glance is the actual worked total; Target and
+     Diff (the pill already carries Diff's own weight) stay regular. */
+  td.num.col-worked{font-weight:700;}
   td.note-cell{white-space:normal; max-width:220px; color:var(--muted-2);}
 
   .pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px 3px 8px; border-radius:99px; font-size:11px; font-weight:600; letter-spacing:.01em;}
@@ -1273,13 +1932,77 @@
 
   .row-actions button{background:none; border:none; cursor:pointer; font-size:11.5px; color:var(--muted); padding:8px 10px; border-radius:var(--radius-xs); min-height:36px;}
   .log-more-row td{text-align:center; padding:14px 10px; border-bottom:none;}
+
+  /* ---------- Density in the frame ----------
+     A second (min-width:1100px) block rather than more rules in the one up
+     top: every declaration here overrides a base rule declared below that
+     block, and a media query adds no specificity — placed any earlier these
+     lose on source order alone.
+
+     A row is as tall as the tallest thing in it, and that was the 36px touch
+     target on "Edit": rows measured 57px, so a month of them needed three
+     pages. Shrinking it here costs the phone nothing — and takes the row to
+     32px, which is a whole month in one screenful.
+
+     24px, not smaller: that is WCAG 2.2 SC 2.5.8's floor at AA, and it applies
+     to a mouse as much as a finger. An earlier pass of this block took these
+     buttons to 21px and justified it against the same standard it was failing.
+     The row keeps its 32px because the cell gives back the two pixels the
+     button takes — 24 + 4 + 4, instead of 21 + 5 + 5. */
+  @media (min-width:1100px){
+    .row-actions button{min-height:24px; padding:2px 7px;}
+    tbody td{padding-top:var(--space-1); padding-bottom:var(--space-1);}
+    .pill{padding:1px 8px 1px 7px;}
+    td.num{font-size:13px;}
+    .empty-state{padding:var(--space-6) var(--space-3);}
+    .log-more-row td{padding:var(--space-2) var(--space-3);}
+
+    /* One module for the whole frame. Above the 32px rows sat a 44px select,
+       a 44px search box and a 36px button — four heights in one vertical
+       stack, so the toolbar read as heavier than the data it filters and the
+       eye had no line to follow down the column. 34px is one step above the
+       row: still visibly a control, no longer competing with the table.
+
+       The 44px floor is WCAG 2.5.5 (AAA, touch). This block is pointer-only,
+       where the applicable floor is 2.5.8's 24px at AA — 34px clears it with
+       room, and min-height stays a floor, so a native date/time control that
+       needs more still takes it. Phones keep 44px untouched. */
+    input[type="date"], input[type="time"], input[type="text"], input[type="number"],
+    input[type="email"], input[type="password"], input[type="search"], select{
+      min-height:34px; padding:var(--space-1-5) var(--space-3); font-size:13px;
+    }
+    /* Re-asserted after the shorthand above, which has the same specificity and
+       would otherwise reset the room the search icon sits in — the glyph ended
+       up printed under the first letter of the placeholder. */
+    .search-field input{padding-left:30px;}
+    .period-row input{padding:var(--space-1) var(--space-2);}
+    /* Capped. flex:1 1 200px with no ceiling made the search box 65% of the
+       content width, and narrowing the selects only fed it more — 808px at
+       1920 to hold a short phrase, with the buttons beside it pushed to the
+       far edge. */
+    .search-field{max-width:420px;}
+    .btn{min-height:34px; padding:var(--space-1-5) var(--space-4);}
+    .btn.small{min-height:30px; padding:var(--space-1) var(--space-3); font-size:12px;}
+    /* 170px was a floor set for phones, where a select is a full-width row.
+       On a pointer it made "Year" 170px wide to hold four digits, so the two
+       month controls ate half the toolbar and pushed Print Report to the far
+       edge with a lake between them. Sized to their content instead; the
+       search field keeps flex:1 and takes the width they give back. */
+    .filter-bar select{min-width:0; width:auto;}
+    .filter-bar #logYearSelect, .filter-bar #monthlyYearSelect,
+    .filter-bar #punctYearSelect{min-width:88px;}
+    .filter-bar #monthFilterSelect, .filter-bar #punctMonthSelect,
+    .filter-bar #typeFilterSelect{min-width:128px;}
+    /* Section heads are a list to scan on a pointer, so they take the module
+       rather than the touch target. */
+    .accordion-head{min-height:36px; padding:var(--space-2) var(--space-4);}
+  }
   .table-wrap.responsive-cards tr.log-more-row{
     background:transparent; border:none; box-shadow:none; padding:0;
   }
   .table-wrap.responsive-cards tr.log-more-row td{justify-content:center;}
   .empty-state{text-align:center; padding:36px 10px; color:var(--muted); font-size:13.5px;}
-  .first-run-empty{display:flex; flex-direction:column; align-items:center; gap:10px; max-width:320px; margin:0 auto;}
-  .first-run-empty svg{color:var(--gold); opacity:.8;}
+  .first-run-empty{display:flex; flex-direction:column; align-items:center; gap:14px; max-width:320px; margin:0 auto;}
   .first-run-title{font-family:var(--font-display); font-size:16px; color:var(--ink); margin:2px 0 0;}
   .first-run-sub{font-size:12.5px; color:var(--muted); line-height:1.6; margin:0;}
   .first-run-sub strong{color:var(--teal-600);}
@@ -1331,13 +2054,9 @@
 
   /* ---------- Period cards ---------- */
   .period-card{
-    position:relative; border:1px solid var(--line-soft); border-radius:var(--radius);
-    padding:18px 18px 16px 20px; margin-bottom:16px; background:var(--card); box-shadow:var(--shadow-sm);
+    position:relative; border-radius:var(--radius);
+    padding:18px 18px 16px; margin-bottom:16px; background:var(--card); box-shadow:var(--shadow-sm);
     transition:box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
-  }
-  .period-card::before{
-    content:""; position:absolute; left:0; top:14px; bottom:14px; width:3px;
-    background:var(--gradient-gold); border-radius:2px;
   }
   .period-card-head{display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
   .period-title{font-family:var(--font-display); font-size:17px; color:var(--ink); margin:0; font-weight:700; letter-spacing:-.02em;}
@@ -1346,18 +2065,59 @@
   .period-figure .label{font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
   .period-figure .value{font-family:var(--font-num); font-weight:700; font-size:24px; font-variant-numeric:tabular-nums; margin-top:2px; letter-spacing:-.005em;}
 
+  /* No border: this already sits inside a borderless .period-card, and a
+     bordered box nested inside a bordered-by-nothing card is the "card
+     inside a card" pattern the rest of the system deliberately avoids — the
+     gradient tint alone is enough to read as its own surface. */
   .chart-holder{
     background:linear-gradient(180deg, var(--teal-50), var(--card));
-    border:1px solid var(--line-soft); border-radius:var(--radius-md); padding:10px 6px 2px;
+    border-radius:var(--radius-md); padding:10px 6px 2px;
   }
   .chart-wrap{width:100%; display:block;}
+  /* A chart is the one thing on these tabs that can give height back without
+     losing anything: it is drawn into a viewBox, so squeezing the box scales
+     the drawing instead of cropping it. Inside the frame the card takes what
+     is left after its own title and legend, down to a floor where the shape is
+     still readable — below that the tab pages instead. Without this the fixed
+     160px chart made the card an unbreakable 261px block that no amount of
+     paging could fit into a short window. */
+  @media (min-width:1100px){
+    #tab-trends.active, #tab-punctuality.active{display:flex; flex-direction:column;}
+    #tab-trends .sub-tab-panel.active{display:flex; flex-direction:column; flex:1 1 auto; min-height:0;}
+    /* Two IDs so this out-ranks the frame's flex-shrink:0 on panel children.
+       Shortfall's chart card is a direct child of its panel, and locked at its
+       full height it was paged away whole — leaving a screen holding four stat
+       cards and a lot of nothing, with the chart a page-turn away.
+
+       No min-height:0 override: an item's automatic minimum already respects
+       what its own children need, chart-holder's 76px floor included, so the
+       card still shrinks — just not past the point where its content has
+       nowhere left to go. Overriding it to 0 let the card get squeezed past
+       that floor anyway; overflow:visible doesn't clip the difference, it
+       just renders the chart spilling out the bottom of its own (too-short)
+       card and into the section below it. */
+    #tabContentCard #tab-trends .period-card,
+    #tabContentCard #tab-punctuality .period-card{
+      display:flex; flex-direction:column; flex:0 1 auto;
+    }
+    /* 0 1 auto: the chart gives height back when the frame is short, but never
+       takes more than it was drawn at — a three-point line stretched to fill a
+       tall panel reads as a chart with something missing. */
+    #tab-trends .chart-holder, #tab-punctuality .chart-holder{
+      flex:0 1 auto; min-height:76px; display:flex;
+    }
+    #tab-trends .chart-holder > svg, #tab-punctuality .chart-holder > svg{
+      height:100%; min-height:0;
+    }
+  }
   .bar-label{font-family:var(--font-num); font-size:9.5px; fill:var(--muted);}
   .bar-value{font-family:var(--font-num); font-size:9px; fill:var(--ink); font-variant-numeric:tabular-nums; font-weight:700;}
   .bar-value.bar-empty{fill:var(--muted-2); font-weight:400;}
-  /* Bars grow up from the baseline instead of just appearing — the chart is
-     re-rendered from scratch on every filter change, so these are always
-     freshly-inserted elements and the animation retriggers naturally. */
-  .bar-rect{transform-box:fill-box; transform-origin:bottom; animation:barGrow .5s var(--ease-soft) both;}
+  /* Bars grow up from the baseline instead of just appearing — the sparkline
+     is re-rendered from scratch on every filter change, so these are always
+     freshly-inserted elements and the animation retriggers naturally. Used by
+     .spark-rect below; the bar chart it was written for went with the Year
+     over Year card. */
   @keyframes barGrow{from{transform:scaleY(0);} to{transform:scaleY(1);}}
   .bar-value{animation:fadeIn .35s var(--ease-soft) both;}
   /* Opacity-only: rotated axis labels carry their own SVG rotate() transform
@@ -1367,7 +2127,12 @@
   .chart-legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:var(--muted);}
   .chart-legend span{display:inline-flex; align-items:center; gap:6px;}
   .swatch{width:10px; height:10px; border-radius:2px; display:inline-block;}
-  .swatch.target{width:14px; height:0; border-top:2px dashed var(--gold);}
+  /* --gold-deep, not --gold: the chart itself draws the target line in
+     --gold-deep (renderTrendChart in app.js — --gold measures
+     1.35:1 on white and fails WCAG 1.4.11's 3:1 floor for meaningful
+     graphics), so the legend key has to match what's actually on screen,
+     not a lighter, non-compliant stand-in for it. */
+  .swatch.target{width:14px; height:0; border-top:2px dashed var(--gold-deep);}
   .swatch.line{width:14px; height:2px; border-radius:2px; background:var(--teal-600);}
 
   /* ---------- Trend chart (line/area) ---------- */
@@ -1383,6 +2148,25 @@
   .trend-area{animation:fadeIn .6s var(--ease-soft) .15s both;}
   .trend-dot{transform-box:fill-box; transform-origin:center; animation:trendDotIn .35s var(--ease-soft) both;}
   @keyframes trendDotIn{from{opacity:0; transform:scale(0);} to{opacity:1; transform:scale(1);}}
+  .trend-hit{fill:transparent; cursor:pointer;}
+  /* The floating value callout (app.js positions/labels one shared <g> per
+     chart on hover/tap). Ink background with white text — the rail/seal's
+     own dark-chip treatment, reused rather than a new colour introduced
+     just for this, and legible regardless of what part of the chart it
+     lands over. Transform-only show/hide so reduced-motion's blanket
+     transition-duration override still lands it correctly, just without
+     the fade. */
+  .trend-callout{opacity:0; pointer-events:none; transition:opacity var(--dur-fast) var(--ease-snap);}
+  .trend-callout.show{opacity:1;}
+  .trend-callout-bg{fill:var(--ink); filter:drop-shadow(0 4px 10px rgba(17,17,16,.3));}
+  .trend-callout-date{
+    fill:var(--muted-on-dark); font-size:8px; text-transform:uppercase;
+    letter-spacing:.05em; font-family:var(--font-num);
+  }
+  .trend-callout-value{
+    fill:#fff; font-size:12px; font-weight:800; font-family:var(--font-num);
+    font-variant-numeric:tabular-nums;
+  }
 
   /* ---------- Sparkline (compact per-week trend) ---------- */
   .sparkline{vertical-align:middle;}
@@ -1444,11 +2228,45 @@
     header.ledger-head{padding:14px 16px 13px;}
     main{padding:20px 14px 0;}
     .card{padding:16px;}
-    .stat-card{padding:13px 14px 12px;}
-    .stat-value{font-size:24px;}
     .head-right{width:100%; justify-content:space-between; flex-wrap:wrap; gap:10px;}
     .quick-clock{padding:16px;}
     .qc-time{font-size:23px;}
+  }
+  /* .stat-card alone (not the rest of the 860px block above) runs to 1099px:
+     the rail stays visible and .stats-row stays a 4-up auto-fit grid across
+     the whole 861-1099px span, at a per-card width (~165-190px) no wider than
+     the 2-column mobile layout this size was already proven against. The
+     figure itself no longer needs restating — 24px is the base now — but the
+     box does: outside the desktop frame there is no one-screen budget to
+     spend, so a card here keeps the roomier padding rather than the frame's
+     trim below. */
+  @media (max-width:1099px){
+    .stat-card{padding:13px 14px 12px;}
+  }
+  /* ---------- Stat cards inside the desktop frame ----------
+     Above 1100px every tab is one screen, so a stat row is spending height
+     the panel underneath it needs. The Overview panel has trimmed its own
+     row to this box for a while; these are the same four declarations
+     applied to the whole frame, so Shortfall, Team and Admin stop carrying a
+     visibly taller, looser version of the component Overview uses. Overview
+     still overrides the type sizes from here (its 4-up row sits beside the
+     portrait/day-types/roster row and goes a step smaller at 20px/9.5px) —
+     only the box is shared, and the .overview-panel rules further up win on
+     specificity regardless of source order. */
+  @media (min-width:1100px){
+    .stat-card{padding:10px 14px 10px;}
+    .stat-label{margin:0 0 5px; gap:7px;}
+    /* 1.35, not the body's 1.45: this caption wraps to two lines on the
+       Overview cards at 1440px and under, and at 1.45 the second line was
+       adding 17px to a row four cards wide. The figure above it is the thing
+       being read; the caption is the footnote, and a footnote can sit closer
+       to itself. Font size is untouched — the leading is what was loose. */
+    .stat-detail{margin:3px 0 0; line-height:1.35;}
+    /* min-height reserves a slot so a card with a trend and a card without
+       still line up. It was sized against the old 11px/1.45 line box; the
+       slot only ever needs to be one line of .stat-trend. */
+    .stat-trend{margin:4px 0 0; min-height:13px;}
+    .hero-progress{margin-top:8px;}
   }
   @media (max-width:420px){
     .stats-row{grid-template-columns:1fr;}
@@ -1465,7 +2283,7 @@
        still resolved to 2 columns of ~160px on a 430px phone, which is not
        enough for a native time control, and its Standard Start / Standard
        End fields collided there. */
-    .form-grid{grid-template-columns:1fr; gap:12px;}
+    .form-grid{grid-template-columns:1fr; gap:var(--space-3);}
   }
 
   /* ---------- Auth screen ---------- */
@@ -1483,7 +2301,7 @@
   .auth-screen .copyright{margin-top:22px;}
   .auth-card{
     position:relative; width:100%; max-width:380px;
-    background:var(--card); border:1px solid var(--line-soft); border-radius:var(--radius);
+    background:var(--card); border-radius:var(--radius);
     padding:34px 28px 28px; box-shadow:var(--shadow-lg);
     animation:cardIn .5s var(--ease-soft) backwards;
   }
@@ -1516,10 +2334,6 @@
      translucent-white fills the rail already uses, rather than the
      light-card styling a header control would need. */
   .rail-viewer{margin:0 0 18px; padding:0 2px;}
-  .rail-viewer-label{
-    display:block; margin:0 0 6px; font-size:9.5px; text-transform:uppercase;
-    letter-spacing:.14em; color:var(--muted-on-dark);
-  }
   .rail-viewer select{
     width:100%; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.09);
     color:#fff; font-size:12px; padding:9px 10px; border-radius:var(--radius-sm);
@@ -1540,11 +2354,13 @@
   .announcement-banner{border-left-color:var(--teal-600); background:var(--teal-50);}
   .announcement-banner svg{color:var(--teal-600);}
 
-  /* ---------- Admin panel ----------
-     Section headings used to be plain .admin-section-head rows. They are
-     accordion heads now (see .admin-section above), so that rule is gone rather
-     than left behind unused. */
-  .stats-row.admin-stats{margin-bottom:18px;}
+  /* ---------- Admin panel ---------- */
+  /* A narrower floor than the general .stats-row: these four sit in a console
+     pane rather than the full page width, and at 160px they wrapped. */
+  .stats-row.admin-stats{
+    margin-bottom:var(--space-3);
+    grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
+  }
   .admin-user-row{
     display:flex; align-items:center; gap:12px; flex-wrap:wrap;
     border:1px solid var(--line-soft); border-radius:var(--radius-md);
@@ -1575,10 +2391,12 @@
 
   /* Data health. Findings are listed even when the count is zero — an admin
      needs to see that a check ran and passed, not just silence. */
+  /* A surface, not an outline. Settings groups with wash and rules and never
+     draws a box inside the tab card; this was the one place in the console
+     that framed itself, and it read as belonging to a different screen. */
   .admin-attention{
-    border:1px solid var(--line-soft); border-radius:var(--radius-md);
-    background:var(--card); box-shadow:var(--shadow-sm);
-    padding:13px 16px; margin-bottom:6px;
+    border-radius:var(--radius); background:var(--teal-50);
+    padding:var(--space-3) var(--space-4); margin-bottom:6px;
   }
   .admin-attention h3{
     margin:0 0 4px; font-size:10.5px; font-weight:700;
@@ -1620,30 +2438,65 @@
   .team-controls input[type="search"]{width:auto; min-width:180px;}
   .team-controls select{width:auto; min-width:170px;}
 
-  /* One line of team-wide truth above the cards, so a manager does not have to
-     add eight numbers up to answer "is the month on track". */
-  .team-summary{
-    display:flex; flex-wrap:wrap; gap:10px 26px; align-items:baseline;
-    padding:12px 15px; margin-bottom:14px;
-    border:1px solid var(--line-soft); border-radius:var(--radius-md);
-    background:var(--teal-50);
-  }
-  .team-summary .ts-item{display:flex; align-items:baseline; gap:7px;}
-  .team-summary .ts-value{font-family:var(--font-num); font-weight:700; font-size:16px; color:var(--ink);}
-  .team-summary .ts-label{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);}
+  /* The team-wide figures above the roster, so a manager does not have to add
+     eight numbers up to answer "is the month on track" — five .stat-cards,
+     the same component and alternating white/cream/gray surfaces Overview's
+     own row uses, not a bespoke summary bar. */
+  .team-stats{margin-bottom:18px;}
 
-  .team-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(268px, 1fr)); gap:12px;}
+  /* Sidebar sized to fit a name, a relative time and a short line of body
+     text without wrapping every row — narrower and the activity feed reads
+     ragged; wider and it starts competing with the roster for the width the
+     roster actually needs. Collapses to one column at the same rough width
+     the reference grid's own breakpoints already treat as "tablet". */
+  /* The aside is a short list — "Recent activity" is 46px of content on a real
+     roster — and at 260–300px it was taking the width the roster needed for a
+     third column. With 30 people the roster ran two columns of fifteen and the
+     panel scrolled three screens, alongside a 300px column that was empty for
+     2,500 of them. Narrowing it here is what lets .team-grid below fit three
+     cards at the 268px they are designed for, rather than three squeezed to
+     248px where the name and status line start truncating. */
+  .team-layout{display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,240px); gap:16px; align-items:start;}
+  /* The roster is what scrolls; the team-wide feed beside it is context for all
+     of it, so it should not scroll away with the first screenful of people. */
+  @media (min-width:1100px){
+    .team-activity{position:sticky; top:0;}
+  }
+  .team-layout.no-activity{grid-template-columns:minmax(0,1fr);}
+  .team-layout.no-activity .team-activity{position:static;}
+  @media (max-width:920px){
+    .team-layout{grid-template-columns:1fr;}
+  }
+  .team-main{min-width:0;}
+
+  /* 240px is the floor auto-fit measures against, not the width a card ends up
+     at: with the narrowed aside above, three of them land at 268px. Left at
+     268px the floor itself blocked the third column, so the same width the
+     cards want was the reason they could not have it. */
+  .team-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:var(--space-3);}
   /* A real button, not a div with a click handler: the old rows could not be
-     reached or activated from a keyboard at all. */
+     reached or activated from a keyboard at all. No border, matching every
+     other card in the system (DESIGN.md: "Cards have no border — separation
+     comes from surface colour and shadow") — this one sits on the canvas
+     alone rather than in a row, so shadow-sm alone does the separating. */
   .team-card{
-    display:flex; flex-direction:column; gap:11px; width:100%; text-align:left;
-    padding:15px 16px; border:1px solid var(--line-soft); border-radius:var(--radius-md);
+    display:flex; flex-direction:column; gap:9px; width:100%; text-align:left;
+    padding:13px 14px; border-radius:var(--radius-md);
     background:var(--card); box-shadow:var(--shadow-sm); cursor:pointer; font-family:inherit;
-    transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
+    transition:box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
   .team-card:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
-  .team-card-head{display:flex; align-items:center; gap:11px; min-width:0;}
-  .team-card-figures{display:flex; gap:16px; flex-wrap:wrap;}
+  /* Only on a month or sort change (see renderTeamCards's entering param) —
+     never on a search keystroke, which redraws the whole grid on every
+     character and would turn this into a flicker instead of an explanation.
+     Reuses .auth-card's own cardIn keyframe rather than inventing a sibling
+     of it. */
+  .team-card.entering{animation:cardIn .4s var(--ease-soft) both;}
+  .team-card-head{display:flex; align-items:center; gap:10px; min-width:0;}
+  /* Status and role pills, on their own line. Inline in the name they broke it
+     mid-phrase; here they wrap against each other and nothing else. */
+  .team-tags{display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0;}
+  .team-card-figures{display:flex; gap:14px; flex-wrap:wrap;}
   .team-card-figures div{min-width:0;}
   .team-card-figures .label{font-size:9.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted);}
   .team-card-figures .value{font-family:var(--font-num); font-weight:700; font-size:15px; color:var(--ink);}
@@ -1657,15 +2510,43 @@
   .team-bar.is-short span{background:var(--gold-deep);}
   .team-bar-note{font-size:11px; color:var(--muted-2); margin-top:5px;}
 
+  /* No margin-left:auto. It existed to push this pill to the end of the card
+     head; in the tag row it shoved the whole line right, so the first line of
+     pills sat indented while any that wrapped started flush — the two halves of
+     one row looking like two unrelated things. */
   .team-status{
     font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
-    padding:3px 8px; border-radius:99px; white-space:nowrap; margin-left:auto; flex-shrink:0;
+    padding:3px 8px; border-radius:99px; white-space:nowrap; flex-shrink:0;
   }
   .team-status.in{background:var(--positive-bg); color:var(--positive);}
   .team-status.done{background:var(--info-bg); color:var(--info);}
   .team-status.off{background:var(--teal-50); color:var(--muted-2);}
   .team-status.excused{background:var(--excused-bg); color:var(--excused);}
   .team-status.missing{background:var(--negative-bg); color:var(--negative);}
+
+  /* ---------- Team activity sidebar ----------
+     Same job as Overview's "In today" panel — a live read on the team — but
+     a different question: not who's in right now, but who did what most
+     recently. Built from the same per-month entries fetch renderTeam() already
+     makes (entries.updated_at, added to that query), not a second network
+     round-trip. */
+  .card.team-activity h2{font-size:19px; margin-bottom:14px;}
+  .team-activity-list{display:flex; flex-direction:column;}
+  .team-activity-empty{font-size:12.5px; color:var(--muted); margin:0;}
+  .activity-row{
+    display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--line-soft);
+  }
+  .activity-row:last-child{border-bottom:none; padding-bottom:0;}
+  .activity-row:first-child{padding-top:0;}
+  .activity-row .avatar{flex-shrink:0; width:30px; height:30px; font-size:11px;}
+  .activity-row-body{min-width:0; flex:1;}
+  .activity-row-head{display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;}
+  .activity-row-name{
+    font-size:12.5px; font-weight:600; color:var(--ink);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .activity-row-time{font-size:10.5px; color:var(--muted-2); white-space:nowrap; margin-left:auto;}
+  .activity-row-desc{font-size:11.5px; color:var(--muted-2); margin:2px 0 0;}
 
   .sr-only{
     position:absolute; width:1px; height:1px; padding:0; margin:-1px;
@@ -1680,14 +2561,6 @@
     text-decoration:none; transition:top var(--dur-fast) var(--ease-snap);
   }
   .skip-link:focus{top:12px;}
-  .photo-row{
-    display:flex; align-items:flex-start; gap:16px; margin:0 0 20px;
-    padding:16px; border-radius:var(--radius-md); background:var(--teal-50);
-  }
-  .photo-row-text{min-width:0; flex:1;}
-  .photo-row-title{margin:0; font-size:13px; font-weight:700;}
-  .photo-row-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
-
   /* ---------- Avatar ----------
      One component for every place a person appears: the rail, the team roster,
      the admin people list, the person hero. It is a photo when there is one and
@@ -1701,16 +2574,20 @@
   }
   .avatar img{width:100%; height:100%; object-fit:cover; display:block;}
   .avatar.lg{width:56px; height:56px; font-size:19px;}
-  .team-avatar{
-    position:relative; width:36px; height:36px; border-radius:50%; flex-shrink:0;
-    background:var(--teal-700); color:#fff; overflow:hidden;
-    display:flex; align-items:center; justify-content:center;
-    font-family:var(--font-num); font-weight:700; font-size:13px;
+  .team-info{flex:1; min-width:0;}
+  /* A name may wrap — two lines of a long name is still a readable name — but
+     it breaks between words, not inside one. overflow-wrap:anywhere was here to
+     stop a long unbroken string forcing the card wider; min-width:0 on the
+     flex parent already does that. */
+  .team-name{font-size:13px; font-weight:600; color:var(--ink);}
+  /* An address gets one line and an ellipsis. Wrapped, it split mid-domain
+     ("p1@example.co / m"), which reads as two broken strings rather than one
+     truncated address — and an address you can't finish reading is no more
+     useful on two lines than on one. The full value stays in the title. */
+  .team-email{
+    font-size:11.5px; color:var(--muted-2);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  .team-avatar img{width:100%; height:100%; object-fit:cover; display:block;}
-  .team-info{flex:1; min-width:0; overflow-wrap:anywhere;}
-  .team-name{font-size:13px; font-weight:600; color:var(--ink); overflow-wrap:anywhere;}
-  .team-email{font-size:11.5px; color:var(--muted-2); overflow-wrap:anywhere;}
   .admin-badge{
     font-size:10px; text-transform:uppercase; letter-spacing:.06em;
     color:var(--excused); background:var(--excused-bg); padding:2px 7px; border-radius:99px;
@@ -1746,7 +2623,7 @@
     pointer-events:auto;
     display:flex; align-items:flex-start; gap:10px;
     max-width:420px; width:100%;
-    background:var(--card); border:1px solid var(--line-soft); border-radius:var(--radius-md);
+    background:var(--card); border-radius:var(--radius-md);
     padding:12px 14px; box-shadow:var(--shadow-lg);
     opacity:0; transform:translateY(10px) scale(.98);
     transition:opacity var(--dur-slow) var(--ease-soft), transform var(--dur-slow) var(--ease-soft);
@@ -1776,7 +2653,6 @@
        decorative and the seal repeats what the quick-clock card says, so both
        shrink or go. */
     header.ledger-head{padding:12px 14px 11px;}
-    .head-title-eyebrow{display:none;}
     .head-title{font-size:20px;}
     .head-inner{gap:10px;}
     .head-right{gap:8px;}
@@ -1790,6 +2666,7 @@
      mobile now uses the bottom nav's clock button instead) ---------- */
   .sticky-clock{
     display:none; position:fixed; left:12px; right:12px;
+    /* left is overridden to clear the rail above 760px — see below. */
     /* Clear the home indicator on notched devices rather than sitting under it. */
     bottom:calc(14px + env(safe-area-inset-bottom)); z-index:120;
     align-items:center; justify-content:space-between; gap:12px;
@@ -1810,6 +2687,16 @@
   .sticky-clock .btn{padding:8px 14px; min-height:36px;}
   .sticky-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:var(--ink-on-gold);}
   .sticky-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.22); color:#fff;}
+  /* The bar is anchored to the viewport, but the rail owns the first 236px of
+     it. Left at 12px the bar ran 224px underneath the rail and put the user
+     block — avatar, name, role — 52px behind a dark panel, so on every tab but
+     the Overview you could not see whose record you were editing. It also laid
+     a second dark mass across the one dark region DESIGN.md allows. Starting it
+     after the rail is the whole fix; below 760px there is no rail and the base
+     12px stands. */
+  @media (min-width:761px){
+    .sticky-clock{left:calc(236px + 12px);}
+  }
 
   /* ---------- Bottom navigation (mobile) ---------- */
   .bottom-nav{
@@ -1918,7 +2805,9 @@
   .entry-modal.show{opacity:1;}
   .entry-modal-card{
     position:relative; width:100%; max-width:560px; max-height:calc(100dvh - 40px);
-    overflow-y:auto; background:var(--card); border-radius:var(--radius);
+    overflow-y:auto; overscroll-behavior:contain;
+    scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+    background:var(--card); border-radius:var(--radius);
     box-shadow:var(--shadow-lg); padding:20px 22px 22px;
     transform:translateY(8px) scale(.98); transition:transform var(--dur-slow) var(--ease-soft);
   }
@@ -1998,7 +2887,7 @@
     .period-card:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
     .link-btn:hover{color:var(--teal-700);}
     .icon-btn.small:hover{background:var(--teal-50); color:var(--teal-600); transform:none; box-shadow:none;}
-    .team-card:hover{border-color:var(--teal-600); box-shadow:var(--shadow-md); transform:translateY(-1px);}
+    .team-card:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
     .toast-close:hover{color:var(--ink); background:var(--teal-50);}
     .btn.danger-solid:hover{filter:brightness(1.06);}
   }
@@ -2026,7 +2915,6 @@
 <!-- ============ AUTH SCREEN ============ -->
 <div id="authScreen" class="auth-screen">
   <div class="auth-card">
-    <p class="head-title-eyebrow" style="color:var(--gold-deep);">Personal Time Record</p>
     <h1 class="display auth-title">Attendance Ledger</h1>
 
     <div id="authConfigWarning" class="auth-config-warning" style="display:none;">
@@ -2101,8 +2989,8 @@
 <!-- The rail. Nav items are a thin visual layer over the real .tab-btn
      elements — exactly the pattern the bottom nav already uses — so every
      render, filter and admin rule applies identically no matter which control
-     was clicked. Admin and Settings are destinations rather than tabs and
-     forward to their own existing buttons. -->
+     was clicked. Admin is a destination rather than a tab and forwards to its
+     own existing button; Settings is a tab like any other now. -->
 <aside class="rail" id="rail">
   <p class="rail-brand">Attendance<span>.</span></p>
 
@@ -2112,11 +3000,16 @@
        760px — but the Team tab's cards already jump straight into anyone's
        record, so switching is still one tap away on a phone. -->
   <div class="rail-viewer" id="viewerSwitchWrap" style="display:none;">
-    <label for="viewerSelect" class="rail-viewer-label">Viewing</label>
+    <!-- Visually hidden, not removed: the select is still "Viewing" to a
+         screen reader, it's just not a second line of chrome sighted users
+         have to read past — the picked name in the closed control already
+         says who's showing. -->
+    <label for="viewerSelect" class="sr-only">Viewing</label>
     <select id="viewerSelect"></select>
   </div>
 
   <nav class="rail-nav" id="railNav" aria-label="Primary">
+    <span class="rail-nav-indicator" id="railNavIndicator" aria-hidden="true"></span>
     <button type="button" class="rail-item active" data-rail-tab="overview">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>
       <span>Overview</span>
@@ -2145,7 +3038,7 @@
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
       <span>Admin</span>
     </button>
-    <button type="button" class="rail-item" data-rail-action="settings">
+    <button type="button" class="rail-item" data-rail-tab="settings">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21v-7M5 10V3M12 21v-11M12 6V3M19 21v-3M19 14V3"/><path d="M2.5 14h5M9.5 6h5M16.5 18h5"/></svg>
       <span>Settings</span>
     </button>
@@ -2175,8 +3068,11 @@
 <div class="shell">
 <header class="ledger-head">
   <div class="head-inner">
-    <div>
-      <p class="head-title-eyebrow" id="headEyebrow">Personal Time Record</p>
+    <!-- No eyebrow. "Personal Time Record" above the greeting was a label for
+         a page that already says what it is, and the tab name beside it
+         repeated what the rail states with a lime bar and aria-current. The
+         heading carries itself. -->
+    <div class="head-titles">
       <h1 class="head-title display" id="headGreeting">Attendance</h1>
     </div>
     <!-- Admin, Settings and Sign Out all have a rail equivalent now (the rail
@@ -2245,159 +3141,6 @@
     </div>
   </div>
 
-  <section class="card settings-card" id="settingsCard">
-    <h2>Schedule Settings</h2>
-    <p class="settings-hint" id="settingsForLabel" style="margin:-10px 0 18px;"></p>
-
-    <!-- Your photo. Stored in this browser only — see the profile-photo block
-         in app.js for why, and what that costs. The hint text says so plainly
-         rather than letting someone assume their team can see it. -->
-    <div class="photo-row" id="photoRow">
-      <div class="avatar lg" id="settingsAvatar"></div>
-      <div class="photo-row-text">
-        <p class="photo-row-title">Your photo</p>
-        <p class="settings-hint" style="margin:2px 0 0;">
-          Saved on this device only — it isn't uploaded, so your team won't see it
-          and it won't follow you to another browser.
-        </p>
-        <div class="photo-row-actions">
-          <button type="button" class="btn ghost small" id="photoChooseBtn">Choose photo</button>
-          <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
-          <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
-        </div>
-      </div>
-    </div>
-
-    <label class="check-row" for="sApplyAll" style="margin:-8px 0 18px;">
-      <input type="checkbox" id="sApplyAll">
-      <span>
-        <strong>Apply to everyone</strong>
-        <em>Save these schedule settings for every team member at once, instead of just the person you're currently viewing.</em>
-      </span>
-    </label>
-
-    <div class="accordion-section open" data-section="hours">
-      <button type="button" class="accordion-head">
-        <span>Working Hours &amp; Schedule</span>
-        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="accordion-body">
-        <div style="margin-bottom:18px;">
-          <label>Working Days</label>
-          <div class="daypicker" id="dayPicker"></div>
-        </div>
-        <div class="form-grid">
-          <div>
-            <label for="sTargetH">Target Hours</label>
-            <input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric">
-          </div>
-          <div>
-            <label for="sTargetM">Target Minutes</label>
-            <input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric">
-          </div>
-          <div>
-            <label for="sIn">Standard Start</label>
-            <input type="time" id="sIn">
-          </div>
-          <div>
-            <label for="sOut">Standard End</label>
-            <input type="time" id="sOut">
-          </div>
-          <div>
-            <label for="sRemind">Remind After (hours)</label>
-            <input type="number" id="sRemind" min="1" max="24" step="0.5">
-          </div>
-          <div>
-            <label for="sGrace">Grace Period (minutes)</label>
-            <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
-          </div>
-          <div>
-            <label for="sLeaveDays">Annual Leave Days / Year</label>
-            <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
-          </div>
-        </div>
-        <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival. "Annual Leave Days" is the yearly entitlement used to calculate the Leave Balance card.</p>
-      </div>
-    </div>
-
-    <div class="accordion-section" data-section="punctuality">
-      <button type="button" class="accordion-head">
-        <span>Log Highlighting</span>
-        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="accordion-body">
-        <p class="settings-hint" style="margin:0 0 12px;">
-          Only affects the Log tab, which marks a clock time red when it's outside your standard hours by more
-          than the grace period. The Shortfall tab ignores clock times entirely — it only cares whether the
-          hours got made up.
-        </p>
-        <label class="check-row" for="sLateOnlyShort" style="margin-top:0;">
-          <input type="checkbox" id="sLateOnlyShort">
-          <span>
-            <strong>Only mark a late arrival red if I didn't complete my target hours</strong>
-            <em>A late start you make up by staying later won't be highlighted in the Log. Turn this off to always mark late arrivals and early departures, regardless of hours worked.</em>
-          </span>
-        </label>
-      </div>
-    </div>
-
-    <div class="accordion-section" data-section="seasonal">
-      <button type="button" class="accordion-head">
-        <span>Seasonal Hours</span>
-        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="accordion-body">
-        <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
-          <div class="periods-head">
-            <span></span>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
-              <button type="button" class="btn ghost small" id="addPeriodBtn">+ Add Period</button>
-            </div>
-          </div>
-          <p class="settings-hint" style="margin:0 0 12px;">Reduced hours for a date range, such as Ramadan or summer schedules. These override the standard hours above for the dates they cover. The Ramadan button fills in the expected dates and a 6-hour day — confirm them once the moon sighting is announced, since the start can shift by a day.</p>
-          <div id="periodsList"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Export/import/clear used to sit in the page footer, visible under
-         every tab whether or not there was anything to back up. They are
-         data management, same family as the rest of this card, so they moved
-         here instead. Clear All always acts on your OWN account regardless of
-         who you're viewing (see the isOwnData guard in app.js), so it stays
-         out of "Apply to everyone" and out of the schedule sections above. -->
-    <div class="accordion-section" data-section="data">
-      <button type="button" class="accordion-head">
-        <span>Backup &amp; Data</span>
-        <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="accordion-body">
-        <p class="settings-hint" id="storageNote" style="margin:0 0 14px;" title="Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names. Type accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave.">Saved to your account. Export a backup regularly.</p>
-        <div class="settings-data-actions">
-          <button type="button" class="btn ghost small" id="exportJsonBtn">Export JSON</button>
-          <button type="button" class="btn ghost small" id="exportCsvBtn">Export CSV</button>
-          <button type="button" class="btn ghost small" id="importBtn">Import JSON</button>
-          <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
-          <button type="button" class="btn ghost small" id="importCsvBtn" title="Type column accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave">Import CSV</button>
-          <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
-          <button type="button" class="btn ghost small" id="csvTemplateBtn">Download CSV Template</button>
-        </div>
-        <div class="settings-danger-zone">
-          <div>
-            <p class="settings-danger-title">Clear All Entries</p>
-            <p class="settings-hint" style="margin:2px 0 0;">Permanently deletes every entry in your own account — not whoever you're currently viewing. This can't be undone.</p>
-          </div>
-          <button type="button" class="btn danger-ghost small" id="clearAllBtn">Clear All</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="form-actions">
-      <button type="button" class="btn" id="saveSettingsBtn">Save Settings</button>
-      <button type="button" class="btn ghost" id="closeSettingsBtn">Close</button>
-    </div>
-  </section>
 
   <!-- Overview. Everything that used to sit stacked above the tab strip is a
        tab of its own now, so switching views replaces the screen instead of
@@ -2477,11 +3220,15 @@
       <h2>Day Types</h2>
       <span class="format-period" id="heroMonthLabel">—</span>
     </div>
-    <div class="format-dial" id="formatDial"></div>
+    <div class="format-body">
+      <div class="format-dial" id="formatDial"></div>
+      <div class="format-legend-wrap">
+        <div class="format-legend" id="formatLegend"></div>
+      </div>
+    </div>
     <div class="skeleton-overlay">
       <span class="skeleton" style="width:150px; height:150px; border-radius:50%;"></span>
     </div>
-    <div class="format-legend" id="formatLegend"></div>
   </section>
 
   <!-- Who is in today. Admin-only; it removes itself for everyone else, and
@@ -2524,13 +3271,13 @@
         <button class="tab-btn" data-tab="calendar" role="tab" id="tabbtn-calendar" aria-selected="false" aria-controls="tab-calendar">Calendar</button>
         <button class="tab-btn" data-tab="punctuality" role="tab" id="tabbtn-punctuality" aria-selected="false" aria-controls="tab-punctuality">Shortfall</button>
         <button class="tab-btn" data-tab="team" id="teamTabBtn" role="tab" aria-selected="false" aria-controls="tab-team" style="display:none;">Team</button>
+        <button class="tab-btn" data-tab="settings" role="tab" id="tabbtn-settings" aria-selected="false" aria-controls="tab-settings">Settings</button>
       </div>
     </div>
 
     <div class="sub-tabs" id="trendsSubTabs" style="display:none;">
       <button type="button" class="sub-tab-btn active" data-subtab="weekly">Weekly</button>
       <button type="button" class="sub-tab-btn" data-subtab="monthly">Monthly</button>
-      <button type="button" class="sub-tab-btn" data-subtab="yearly">Yearly</button>
     </div>
 
     <div class="filter-bar" id="monthFilterWrap">
@@ -2553,16 +3300,6 @@
       <label for="monthlyYearSelect">Year</label>
       <select id="monthlyYearSelect"></select>
       <span class="filter-count" id="monthlyCount"></span>
-    </div>
-
-    <div class="filter-bar" id="yearFilterWrap" style="display:none;">
-      <label for="yearFilterSelect">Year</label>
-      <select id="yearFilterSelect"></select>
-      <div class="filter-spacer"></div>
-      <button type="button" class="btn ghost small" id="printYearBtn">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/></svg>
-        Print Year Report
-      </button>
     </div>
 
     <div class="filter-bar" id="punctFilterWrap" style="display:none;">
@@ -2661,18 +3398,26 @@
             <span><i class="swatch target"></i>Daily target</span>
           </div>
         </div>
-        <div class="table-wrap responsive-cards">
-          <table>
-            <thead>
-              <tr>
-                <th>Week</th><th class="num">Days</th><th class="num">Total</th>
-                <th class="num">Avg / Day</th><th class="num">Diff</th><th>Days worked</th>
-              </tr>
-            </thead>
-            <tbody id="weeklyBody"></tbody>
-          </table>
+        <div class="accordion-section" data-section="weekly-table">
+          <button type="button" class="accordion-head">
+            <span>Weekly totals</span>
+            <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="accordion-body">
+            <div class="table-wrap responsive-cards">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Week</th><th class="num">Days</th><th class="num">Total</th>
+                    <th class="num">Avg / Day</th><th class="num">Diff</th><th>Days worked</th>
+                  </tr>
+                </thead>
+                <tbody id="weeklyBody"></tbody>
+              </table>
+            </div>
+            <div class="empty-state" id="weeklyEmpty" style="display:none;"></div>
+          </div>
         </div>
-        <div class="empty-state" id="weeklyEmpty" style="display:none;"></div>
       </div>
 
       <div class="sub-tab-panel" id="subtab-monthly">
@@ -2689,58 +3434,28 @@
             <span><i class="swatch target"></i>Daily target</span>
           </div>
         </div>
-        <div class="table-wrap responsive-cards">
-          <table>
-            <thead>
-              <tr>
-                <th>Month</th><th class="num">Days</th><th class="num">Total</th>
-                <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th>
-              </tr>
-            </thead>
-            <tbody id="monthlyBody"></tbody>
-          </table>
+        <div class="accordion-section" data-section="monthly-table">
+          <button type="button" class="accordion-head">
+            <span>Monthly totals</span>
+            <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="accordion-body">
+            <div class="table-wrap responsive-cards">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Month</th><th class="num">Days</th><th class="num">Total</th>
+                    <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th>
+                  </tr>
+                </thead>
+                <tbody id="monthlyBody"></tbody>
+              </table>
+            </div>
+            <div class="empty-state" id="monthlyEmpty" style="display:none;">No entries yet.</div>
+          </div>
         </div>
-        <div class="empty-state" id="monthlyEmpty" style="display:none;">No entries yet.</div>
       </div>
 
-      <div class="sub-tab-panel" id="subtab-yearly">
-        <div class="period-card">
-          <div class="period-card-head">
-            <h3 class="period-title display" id="yearTitle">—</h3>
-            <span class="period-meta" id="yearMeta"></span>
-          </div>
-          <div class="period-figures" id="yearFigures"></div>
-          <div class="chart-holder" id="yearChart"></div>
-          <div class="chart-legend">
-            <span><i class="swatch line"></i>Avg / day</span>
-            <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
-            <span><i class="swatch" style="background:var(--negative)"></i>Below target</span>
-            <span><i class="swatch" style="background:var(--line)"></i>No entries</span>
-            <span><i class="swatch target"></i>Daily target</span>
-          </div>
-        </div>
-
-        <div class="period-card" id="yoyCard">
-          <div class="period-card-head">
-            <h3 class="period-title display">Year over Year</h3>
-            <span class="period-meta">Average hours / day</span>
-          </div>
-          <div class="chart-holder" id="yoyChart"></div>
-        </div>
-
-        <div class="table-wrap responsive-cards">
-          <table>
-            <thead>
-              <tr>
-                <th>Year</th><th class="num">Days</th><th class="num">Total</th>
-                <th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th><th class="num">vs. Prev Year</th>
-              </tr>
-            </thead>
-            <tbody id="yearlyBody"></tbody>
-          </table>
-        </div>
-        <div class="empty-state" id="yearlyEmpty" style="display:none;">No entries yet.</div>
-      </div>
     </div>
 
     <div class="tab-panel" id="tab-calendar" role="tabpanel" aria-labelledby="tabbtn-calendar" tabindex="0">
@@ -2812,19 +3527,27 @@
         </div>
       </div>
 
-      <div class="table-wrap responsive-cards">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th><th>Day</th>
-              <th class="num">Worked</th><th class="num">Target</th><th class="num">Short By</th>
-              <th>Note</th>
-            </tr>
-          </thead>
-          <tbody id="punctBody"></tbody>
-        </table>
+      <div class="accordion-section" data-section="punct-table">
+        <button type="button" class="accordion-head">
+          <span>Flagged days</span>
+          <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="accordion-body">
+          <div class="table-wrap responsive-cards">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th><th>Day</th>
+                  <th class="num">Worked</th><th class="num">Target</th><th class="num">Short By</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody id="punctBody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="punctEmpty" style="display:none;"></div>
+        </div>
       </div>
-      <div class="empty-state" id="punctEmpty" style="display:none;"></div>
     </div>
 
     <div class="tab-panel" id="tab-team" role="tabpanel" aria-labelledby="tabbtn-team" tabindex="0">
@@ -2855,24 +3578,319 @@
         </div>
       </div>
 
-      <div class="team-summary" id="teamSummary" hidden></div>
+      <!-- Same stat-card row Overview leads with, not a bespoke summary bar —
+           the team-wide figures are the same kind of number the personal ones
+           are, so they read the same way. -->
+      <section class="stats-row team-stats" id="teamSummary" hidden></section>
 
-      <div class="team-grid" id="teamList"></div>
-      <div class="empty-state" id="teamEmpty" style="display:none;">No other users have registered yet.</div>
+      <!-- Roster + a sidebar, not one wide grid: the roster is the reason the
+           tab exists and earns most of the width; a narrow rail holds the one
+           thing that isn't about any single person — who did what recently,
+           across everyone at once. Search/sort only ever touch the roster;
+           the activity feed is team-wide regardless. -->
+      <div class="team-layout">
+        <div class="team-main">
+          <div class="team-grid" id="teamList"></div>
+          <div class="empty-state" id="teamEmpty" style="display:none;">No other users have registered yet.</div>
+        </div>
+        <aside class="card team-activity" id="teamActivityCard">
+          <h2>Recent Activity</h2>
+          <div class="team-activity-list" id="teamActivityList"></div>
+          <p class="team-activity-empty" id="teamActivityEmpty" style="display:none;">Nothing logged yet this month.</p>
+        </aside>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-settings" role="tabpanel" aria-labelledby="tabbtn-settings" tabindex="0">
+      <div class="console-head">
+        <h2>Settings &amp; Profile</h2>
+        <p class="settings-hint" id="settingsForLabel" style="margin:5px 0 0;"></p>
+      </div>
+
+      <div class="console" id="settingsConsole">
+        <div class="console-side">
+          <!-- Your photo. Stored in this browser only — see the profile-photo
+               block in app.js for why, and what that costs. It sits beside the
+               nav rather than in the pane: it names who every section below is
+               scoped to, and the side column has the room the pane does not. -->
+          <div class="console-profile" id="photoRow">
+            <div class="console-profile-id">
+              <div class="avatar lg" id="settingsAvatar"></div>
+              <p class="console-profile-name" id="settingsProfileName">Your profile</p>
+            </div>
+            <p class="console-profile-sub">Saved on this device only — your team can't see it.</p>
+            <div class="console-profile-actions">
+              <button type="button" class="btn ghost small" id="photoChooseBtn">Choose photo</button>
+              <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
+              <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
+            </div>
+          </div>
+        <div class="console-nav" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+          <button type="button" class="console-nav-item" role="tab" data-console-target="hours" id="cnav-hours" aria-selected="false" aria-controls="csec-hours">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Working Hours</span>
+              <span class="console-nav-desc" id="cnavDescHours">Working days, target hours, start and end</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="punctuality" id="cnav-punctuality" aria-selected="false" aria-controls="csec-punctuality">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="M6.5 16.5 15 8l3.5 3.5-8.5 8.5H6.5z"/><path d="M14 5.5 16.5 3 21 7.5 18.5 10"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Log Highlighting</span>
+              <span class="console-nav-desc" id="cnavDescPunctuality">When the Log marks a clock time red</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="seasonal" id="cnav-seasonal" aria-selected="false" aria-controls="csec-seasonal">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Seasonal Hours</span>
+              <span class="console-nav-desc" id="cnavDescSeasonal">Reduced hours for Ramadan and other date ranges</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="data" id="cnav-data" aria-selected="false" aria-controls="csec-data">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Backup &amp; Data</span>
+              <span class="console-nav-desc">Export, import, or clear your attendance records</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        </div><!-- /.console-side -->
+
+        <div class="console-pane">
+      <div class="console-section" data-section="hours" id="csec-hours" role="tabpanel" aria-labelledby="cnav-hours" tabindex="0">
+        <div class="console-section-head">
+          <h3>Working Hours &amp; Schedule</h3>
+          <p>The week this person is measured against — which days they work, how long a day is, and when it normally starts.</p>
+        </div>
+        <div>
+          <div style="margin-bottom:var(--space-3);">
+            <label>Working Days</label>
+            <div class="daypicker" id="dayPicker"></div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label for="sTargetH">Target Hours</label>
+              <input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric">
+            </div>
+            <div>
+              <label for="sTargetM">Target Minutes</label>
+              <input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric">
+            </div>
+            <div>
+              <label for="sIn">Standard Start</label>
+              <input type="time" id="sIn">
+            </div>
+            <div>
+              <label for="sOut">Standard End</label>
+              <input type="time" id="sOut">
+            </div>
+            <div>
+              <label for="sRemind">Remind After (hours)</label>
+              <input type="number" id="sRemind" min="1" max="24" step="0.5">
+            </div>
+            <div>
+              <label for="sGrace">Grace Period (minutes)</label>
+              <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
+            </div>
+            <div>
+              <label for="sLeaveDays">Annual Leave Days / Year</label>
+              <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
+            </div>
+          </div>
+          <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival. "Annual Leave Days" is the yearly entitlement used to calculate the Leave Balance card.</p>
+        </div>
+      </div>
+
+      <div class="console-section" data-section="punctuality" id="csec-punctuality" role="tabpanel" aria-labelledby="cnav-punctuality" tabindex="0">
+        <div class="console-section-head">
+          <h3>Log Highlighting</h3>
+          <p>Which clock times the Log paints red. This changes nothing about the hours themselves — only how they are marked.</p>
+        </div>
+        <div>
+          <p class="settings-hint" style="margin:0 0 12px;">
+            Only affects the Log tab, which marks a clock time red when it's outside your standard hours by more
+            than the grace period. The Shortfall tab ignores clock times entirely — it only cares whether the
+            hours got made up.
+          </p>
+          <label class="check-row" for="sLateOnlyShort" style="margin-top:0;">
+            <input type="checkbox" id="sLateOnlyShort">
+            <span>
+              <strong>Only mark a late arrival red if I didn't complete my target hours</strong>
+              <em>A late start you make up by staying later won't be highlighted in the Log. Turn this off to always mark late arrivals and early departures, regardless of hours worked.</em>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="console-section" data-section="seasonal" id="csec-seasonal" role="tabpanel" aria-labelledby="cnav-seasonal" tabindex="0">
+        <div class="console-section-head with-action">
+          <div>
+            <h3>Seasonal Hours</h3>
+            <p>Reduced hours for a date range. These override the standard hours for the dates they cover.</p>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
+            <button type="button" class="btn ghost small" id="addPeriodBtn">+ Add Period</button>
+          </div>
+        </div>
+        <div>
+          <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
+            <p class="settings-hint" style="margin:0 0 12px;">The Ramadan button fills in the expected dates and a 6-hour day — confirm them once the moon sighting is announced, since the start can shift by a day.</p>
+            <div id="periodsList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Export/import/clear used to sit in the page footer, visible under
+           every tab whether or not there was anything to back up. They are
+           data management, same family as the rest of this panel, so they
+           moved here instead. Clear All always acts on your OWN account
+           regardless of who you're viewing (see the isOwnData guard in
+           app.js), so it stays out of "Apply to everyone" and out of the
+           schedule sections above. -->
+      <div class="console-section" data-section="data" id="csec-data" role="tabpanel" aria-labelledby="cnav-data" tabindex="0">
+        <div class="console-section-head">
+          <h3>Backup &amp; Data</h3>
+          <p>Take a copy of your records, bring one in, or wipe your own account clean.</p>
+        </div>
+        <div>
+          <p class="settings-hint" id="storageNote" style="margin:0 0 14px;" title="Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names. Type accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave.">Saved to your account. Export a backup regularly.</p>
+          <div class="settings-data-actions">
+            <button type="button" class="btn ghost small" id="exportJsonBtn">Export JSON</button>
+            <button type="button" class="btn ghost small" id="exportCsvBtn">Export CSV</button>
+            <button type="button" class="btn ghost small" id="importBtn">Import JSON</button>
+            <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+            <button type="button" class="btn ghost small" id="importCsvBtn" title="Type column accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave">Import CSV</button>
+            <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
+            <button type="button" class="btn ghost small" id="csvTemplateBtn">Download CSV Template</button>
+          </div>
+          <div class="settings-danger-zone">
+            <div>
+              <p class="settings-danger-title">Clear All Entries</p>
+              <p class="settings-hint" style="margin:2px 0 0;">Permanently deletes every entry in your own account — not whoever you're currently viewing. This can't be undone.</p>
+            </div>
+            <button type="button" class="btn danger-ghost small" id="clearAllBtn">Clear All</button>
+          </div>
+        </div>
+      </div>
+
+          <!-- Sits with Save, not at the top of the pane. It does not change any
+               field above it — it changes who Save writes to — so next to the
+               button is where it is actually read, and where it stops competing
+               with the profile card for the first thing you look at. -->
+          <label class="check-row console-scope" for="sApplyAll">
+            <input type="checkbox" id="sApplyAll">
+            <span>
+              <strong>Apply to everyone</strong>
+              <em>Saves these settings for every team member, not just the person you're viewing.</em>
+            </span>
+          </label>
+          <div class="form-actions">
+            <button type="button" class="btn" id="saveSettingsBtn">Save Settings</button>
+          </div>
+        </div><!-- /.console-pane -->
+      </div><!-- /.console -->
     </div>
 
     <div class="tab-panel" id="tab-admin" role="tabpanel" aria-labelledby="tabbtn-admin" tabindex="0">
+      <div class="console-head">
+        <h2>Organisation Admin</h2>
+        <p>Everything here lands on other people's data. Pick a section to work in.</p>
+      </div>
+
+      <div class="console" id="adminConsole">
+        <div class="console-side">
+          <!-- The counterpart to Settings' profile card: it names what this
+               console acts on and how that thing is doing, and carries the one
+               action that applies to every section rather than to one. -->
+          <div class="console-profile">
+            <div class="console-profile-id">
+              <div class="console-profile-badge">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V5.5A1.5 1.5 0 0 1 6.5 4h7A1.5 1.5 0 0 1 15 5.5V21"/><path d="M15 10h3.5A1.5 1.5 0 0 1 20 11.5V21"/><path d="M8.5 8h3M8.5 12h3M8.5 16h3"/></svg>
+              </div>
+              <p class="console-profile-name">Organisation</p>
+            </div>
+            <p class="console-profile-sub" id="adminHealthSummary">Running data checks…</p>
+            <div class="console-profile-actions">
+              <button type="button" class="btn ghost small" id="refreshStatsBtn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+                Refresh
+              </button>
+            </div>
+          </div>
+        <div class="console-nav" role="tablist" aria-orientation="vertical" aria-label="Admin sections">
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-overview" id="cnav-admin-overview" aria-selected="false" aria-controls="csec-admin-overview">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V4.5M16 19v-7M22 19H2"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Overview</span>
+              <span class="console-nav-desc" id="cnavDescOverview">System figures and data health</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-people" id="cnav-admin-people" aria-selected="false" aria-controls="csec-admin-people">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-1.6a3.4 3.4 0 0 0-3.4-3.4H6.4A3.4 3.4 0 0 0 3 18.4V20"/><circle cx="9.5" cy="7.5" r="3.5"/><path d="M21 20v-1.6a3.4 3.4 0 0 0-2.6-3.3M15.5 4.2a3.4 3.4 0 0 1 0 6.6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">People</span>
+              <span class="console-nav-desc"><span id="adminUserCount">Roles, access, and accounts</span></span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-defaults" id="cnav-admin-defaults" aria-selected="false" aria-controls="csec-admin-defaults">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Organisation Defaults</span>
+              <span class="console-nav-desc"><span id="adminDefaultsState">The schedule a new account starts with</span></span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-bulk" id="cnav-admin-bulk" aria-selected="false" aria-controls="csec-admin-bulk">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Company-Wide Days</span>
+              <span class="console-nav-desc">Mark a holiday for the whole team at once</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-app" id="cnav-admin-app" aria-selected="false" aria-controls="csec-admin-app">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2.5L12 18.5v-13L6.5 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 9a4.5 4.5 0 0 1 0 6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Announcement &amp; Sign-Up</span>
+              <span class="console-nav-desc">The banner everyone sees, and who may register</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-audit" id="cnav-admin-audit" aria-selected="false" aria-controls="csec-admin-audit">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14v17l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Activity Log</span>
+              <span class="console-nav-desc"><span id="auditCount">Who changed what, and when</span></span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-storage" id="cnav-admin-storage" aria-selected="false" aria-controls="csec-admin-storage">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Storage</span>
+              <span class="console-nav-desc">Row counts and size, table by table</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        </div><!-- /.console-side -->
+
+        <div class="console-pane">
       <!-- ---------- Overview: system stats + data health ---------- -->
-      <div class="accordion-section admin-section open" data-section="admin-overview">
-        <button type="button" class="accordion-head">
-          <span>Overview</span>
-          <span class="accordion-head-right"><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-        </button>
-        <div class="accordion-body">
-          <div class="form-actions" style="margin:-4px 0 14px;"><button type="button" class="btn ghost small" id="refreshStatsBtn">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
-          Refresh
-        </button></div>
+      <div class="console-section" data-section="admin-overview" id="csec-admin-overview" role="tabpanel" aria-labelledby="cnav-admin-overview" tabindex="0">
+        <div class="console-section-head">
+          <h3>Overview</h3>
+          <p>What the database currently holds, and the records that need a human to look at them.</p>
+        </div>
+        <div>
       <div class="stats-row admin-stats" id="adminStatsRow">
         <div class="stat-card">
           <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>Database Size</p>
@@ -2905,20 +3923,18 @@
         </div>
       </div>
 
-      <!-- ---------- People: roles, access, accounts ---------- -->
         </div>
       </div>
       <!-- ---------- People: roles, access, accounts ---------- -->
-      <div class="accordion-section admin-section open" data-section="admin-people">
-        <button type="button" class="accordion-head">
-          <span>People</span>
-          <span class="accordion-head-right"><span class="filter-count" id="adminUserCount"></span><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-        </button>
-        <div class="accordion-body">
-      <p class="settings-hint" style="margin:-4px 0 14px;">
-        Role changes take effect immediately. Deactivating blocks sign-in but keeps all attendance history.
-        Deleting removes the person and every entry they logged — that can't be undone.
-      </p>
+      <div class="console-section" data-section="admin-people" id="csec-admin-people" role="tabpanel" aria-labelledby="cnav-admin-people" tabindex="0">
+        <div class="console-section-head">
+          <h3>People</h3>
+          <p>
+            Role changes take effect immediately. Deactivating blocks sign-in but keeps attendance history;
+            deleting removes the person and every entry they logged, and can't be undone.
+          </p>
+        </div>
+        <div>
       <div class="form-grid" id="adminPeopleFilters">
         <div>
           <label for="adminUserSearch">Search</label>
@@ -2938,22 +3954,20 @@
       <div id="adminUsersList"></div>
       <div class="empty-state" id="adminUsersEmpty" style="display:none;">No one matches that filter.</div>
 
-      <!-- ---------- Organisation defaults ---------- -->
         </div>
       </div>
       <!-- ---------- Organisation defaults ---------- -->
-      <div class="accordion-section admin-section" data-section="admin-defaults">
-        <button type="button" class="accordion-head">
-          <span>Organisation Defaults</span>
-          <span class="accordion-head-right"><span class="filter-count" id="adminDefaultsState"></span><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-        </button>
-        <div class="accordion-body">
-      <p class="settings-hint" style="margin:-4px 0 14px;">
-        The schedule a brand-new account starts with. Until this is set, new employees silently inherit
-        Sunday–Thursday, 08:00–16:00 — and every figure the app shows them is measured against the wrong week.
-        Saving this does not change anyone's existing schedule.
-      </p>
-      <div style="margin-bottom:18px;">
+      <div class="console-section" data-section="admin-defaults" id="csec-admin-defaults" role="tabpanel" aria-labelledby="cnav-admin-defaults" tabindex="0">
+        <div class="console-section-head">
+          <h3>Organisation Defaults</h3>
+          <p>
+            The schedule a brand-new account starts with. Until it is set, new employees silently inherit
+            Sunday–Thursday 08:00–16:00, and every figure they see is measured against the wrong week. Saving
+            does not change anyone's existing schedule.
+          </p>
+        </div>
+        <div>
+      <div style="margin-bottom:var(--space-3);">
         <label id="defaultsDaysLabel">Working Days</label>
         <div class="daypicker" id="defaultsDayPicker" role="group" aria-labelledby="defaultsDaysLabel"></div>
       </div>
@@ -2988,41 +4002,38 @@
         </div>
       </div>
 
-      <div class="periods-section" style="margin-top:18px; padding-top:16px; border-top:1px solid var(--line-soft);">
+      <div class="periods-section" style="margin-top:var(--space-4); padding-top:var(--space-4); border-top:1px solid var(--line-soft);">
         <div class="periods-head">
-          <span>Seasonal Hours</span>
+          <span class="console-subhead">Seasonal Hours</span>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button type="button" class="btn ghost small" id="addDefaultsRamadanBtn">+ Ramadan</button>
             <button type="button" class="btn ghost small" id="addDefaultsPeriodBtn">+ Add Period</button>
           </div>
         </div>
-        <p class="settings-hint" style="margin:0 0 12px;">
-          Reduced hours for a date range that every new account starts with — Ramadan, summer schedules, and the
-          like. Anyone can still override these on their own Schedule Settings; this only sets the starting point.
+        <p class="settings-hint" style="margin:0 0 10px;">
+          Reduced hours every new account starts with. Anyone can still override them in their own Schedule Settings.
         </p>
         <div id="defaultsPeriodsList"></div>
       </div>
 
-      <div class="form-actions" style="margin-top:16px;">
+      <div class="form-actions console-commit">
         <button type="button" class="btn" id="saveDefaultsBtn">Save Defaults</button>
         <button type="button" class="btn ghost" id="seedSettingsBtn">Give these to people with no schedule</button>
       </div>
 
-      <!-- ---------- Company-wide days (moved here from Team &amp; Access) ---------- -->
         </div>
       </div>
       <!-- ---------- Company-wide days (moved here from Team &amp; Access) ---------- -->
-      <div class="accordion-section admin-section" data-section="admin-bulk">
-        <button type="button" class="accordion-head">
-          <span>Company-Wide Days</span>
-          <span class="accordion-head-right"><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-        </button>
-        <div class="accordion-body">
-      <p class="settings-hint" style="margin:-4px 0 14px;">
-        Mark a public holiday or company-wide day off for the whole team in one action, instead of entering it
-        person by person. Days that already hold recorded hours are listed before anything is written, and skipped
-        unless you explicitly choose to overwrite them.
-      </p>
+      <div class="console-section" data-section="admin-bulk" id="csec-admin-bulk" role="tabpanel" aria-labelledby="cnav-admin-bulk" tabindex="0">
+        <div class="console-section-head">
+          <h3>Company-Wide Days</h3>
+          <p>
+            Mark a public holiday or company-wide day off for the whole team in one action, instead of entering it
+            person by person. Days that already hold recorded hours are listed before anything is written, and skipped
+            unless you explicitly choose to overwrite them.
+          </p>
+        </div>
+        <div>
       <div class="form-grid" id="adminBulkGrid">
         <div>
           <label for="bulkApplyFromDate">From</label>
@@ -3047,21 +4058,20 @@
           <input type="text" id="bulkApplyNote" maxlength="500" dir="auto" placeholder="e.g. National Day">
         </div>
       </div>
-      <div class="form-actions">
+      <div class="form-actions console-commit">
         <button type="button" class="btn" id="bulkApplyBtn">Apply to All Team Members</button>
       </div>
 
-      <!-- ---------- Announcement &amp; sign-up ---------- -->
         </div>
       </div>
       <!-- ---------- Announcement &amp; sign-up ---------- -->
-      <div class="accordion-section admin-section" data-section="admin-app">
-        <button type="button" class="accordion-head">
-          <span>Announcement &amp; Sign-Up</span>
-          <span class="accordion-head-right"><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-        </button>
-        <div class="accordion-body">
-          <label class="check-row" for="setAllowRegistration">
+      <div class="console-section" data-section="admin-app" id="csec-admin-app" role="tabpanel" aria-labelledby="cnav-admin-app" tabindex="0">
+        <div class="console-section-head">
+          <h3>Announcement &amp; Sign-Up</h3>
+          <p>A message across the top of the app for everyone, and whether strangers can create their own account.</p>
+        </div>
+        <div>
+          <label class="check-row" for="setAllowRegistration" style="margin-top:0;">
             <input type="checkbox" id="setAllowRegistration">
             <span>
               <strong>Allow new registrations</strong>
@@ -3081,23 +4091,22 @@
             <input type="text" id="setAnnouncement" maxlength="300" dir="auto" placeholder="e.g. Office closed Thursday for maintenance">
           </div>
 
-          <div class="form-actions" style="margin-top:16px;">
+          <div class="form-actions console-commit">
             <button type="button" class="btn" id="saveAppSettingsBtn">Save App Settings</button>
           </div>
         </div>
       </div>
       <!-- ---------- Activity log ---------- -->
-      <div class="accordion-section admin-section" data-section="admin-audit">
-        <button type="button" class="accordion-head">
-          <span>Activity Log</span>
-          <span class="accordion-head-right"><span class="filter-count" id="auditCount"></span><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-        </button>
-        <div class="accordion-body">
-      <p class="settings-hint" style="margin:-4px 0 14px;">
-        Every change to attendance data, user roles, and organisation settings, with who made it and — for edits —
-        exactly what changed. Append-only — nothing in the app can edit or delete a line of it. Recording started
-        when this feature was installed.
-      </p>
+      <div class="console-section" data-section="admin-audit" id="csec-admin-audit" role="tabpanel" aria-labelledby="cnav-admin-audit" tabindex="0">
+        <div class="console-section-head">
+          <h3>Activity Log</h3>
+          <p>
+            Every change to attendance data, user roles, and organisation settings, with who made it and — for edits —
+            exactly what changed. Append-only: nothing in the app can edit or delete a line of it. Recording started
+            when this feature was installed.
+          </p>
+        </div>
+        <div>
       <div class="form-grid" id="adminAuditFilters">
         <div>
           <label for="auditFilterAction">Activity</label>
@@ -3149,16 +4158,15 @@
         <button type="button" class="btn ghost small" id="auditMoreBtn">Show more</button>
       </div>
 
-      <!-- ---------- Storage ---------- -->
         </div>
       </div>
       <!-- ---------- Storage ---------- -->
-      <div class="accordion-section admin-section" data-section="admin-storage">
-        <button type="button" class="accordion-head">
-          <span>Storage</span>
-          <span class="accordion-head-right"><svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-        </button>
-        <div class="accordion-body">
+      <div class="console-section" data-section="admin-storage" id="csec-admin-storage" role="tabpanel" aria-labelledby="cnav-admin-storage" tabindex="0">
+        <div class="console-section-head">
+          <h3>Storage</h3>
+          <p>How much room each table takes, and how many rows it holds.</p>
+        </div>
+        <div>
       <div class="table-wrap responsive-cards" style="margin-bottom:10px;">
         <table>
           <thead>
@@ -3170,6 +4178,8 @@
       <p class="settings-hint" id="adminStatsFooter" style="margin-bottom:26px;"></p>
         </div>
       </div>
+        </div><!-- /.console-pane -->
+      </div><!-- /.console -->
     </div>
   </section>
 
@@ -3301,6 +4311,11 @@
 </div>
 </div><!-- /#appShell -->
 
-<script type="module" src="app.js"></script>
+<!-- The query is a cache buster. A browser that has app.js in its HTTP cache
+     will happily pair a fresh index.html with a stale script — the markup for a
+     new feature renders while the code that drives it never loads, which looks
+     exactly like the feature being broken rather than being cached. Bump this
+     whenever app.js changes shape enough that a stale copy would misbehave. -->
+<script type="module" src="app.js?v=console-1"></script>
 </body>
 </html>

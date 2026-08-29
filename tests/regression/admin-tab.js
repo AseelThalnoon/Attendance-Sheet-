@@ -232,7 +232,7 @@ async function boot(browser, server, query){
         fallbackButtons: ["settingsBtn","logoutBtn","adminBtn"].every(id => !!document.getElementById(id)),
         viewerInRail: !!document.querySelector(".rail #viewerSwitchWrap"),
         railAdmin: visibleNamed(document.querySelector('.rail-item[data-rail-action="admin"]')),
-        railSettings: visibleNamed(document.querySelector('.rail-item[data-rail-action="settings"]')),
+        railSettings: visibleNamed(document.querySelector('.rail-item[data-rail-tab="settings"]')),
         railLogout: visibleNamed(document.getElementById("railLogoutBtn")),
         adminInStrip: !!document.querySelector('.tab-btn[data-tab="admin"]'),
         adminInBottomNav: !!document.querySelector('.bn-item[data-bn-tab="admin"]'),
@@ -321,50 +321,68 @@ async function boot(browser, server, query){
     await page.waitForTimeout(300);
   }
 
-  // ------------------------------------------------------------ collapsing
-  // Seven sections open at once was several thousand pixels of scrolling to
-  // reach the log. Collapsed, the console is one screen you can scan.
+  // ------------------------------------------------------------ the console
+  // Seven sections stacked as accordions was several thousand pixels of
+  // scrolling to reach the log, and every section you opened pushed the rest
+  // further down. The nav column makes each of them one click from anywhere,
+  // and the panel's height stops depending on what is open.
   {
     const s = await page.evaluate(() => {
-      const secs = [...document.querySelectorAll("#tab-admin .accordion-section")];
-      const head = s => s.querySelector(".accordion-head");
+      const root = document.getElementById("adminConsole");
+      const items = [...root.querySelectorAll(".console-nav-item")];
+      const secs = [...root.querySelectorAll(".console-section")];
       return {
-        count: secs.length,
-        open: secs.filter(x => x.classList.contains("open"))
-                  .map(x => x.getAttribute("data-section")),
-        panelHeight: Math.round(document.getElementById("tab-admin").getBoundingClientRect().height),
-        aria: secs.map(x => head(x).getAttribute("aria-expanded") ===
-                            (x.classList.contains("open") ? "true" : "false")).every(Boolean),
-        controls: secs.every(x => {
-          const id = head(x).getAttribute("aria-controls");
-          return id && x.querySelector(".accordion-body").id === id;
+        count: items.length,
+        sections: secs.length,
+        // Every nav row names a section that exists, and vice versa.
+        paired: items.every(i => root.querySelector(
+          '.console-section[data-section="' + i.getAttribute("data-console-target") + '"]')),
+        controls: items.every(i => {
+          const sec = document.getElementById(i.getAttribute("aria-controls"));
+          return sec && sec.getAttribute("data-section") === i.getAttribute("data-console-target");
         }),
+        // Exactly one showing, and it is the one the nav says is selected.
+        shown: secs.filter(x => x.classList.contains("active")).map(x => x.getAttribute("data-section")),
+        selected: items.filter(i => i.getAttribute("aria-selected") === "true")
+                       .map(i => i.getAttribute("data-console-target")),
+        // Every row carries a line saying what the section holds — that is what
+        // makes a section you are not looking at still worth reading.
+        described: items.every(i => (i.querySelector(".console-nav-desc")?.textContent || "").trim().length > 0),
+        panelHeight: Math.round(document.getElementById("tab-admin").getBoundingClientRect().height),
       };
     });
     // 7 since "Themes & Layouts" was removed with the theme picker.
-    ok(s.count === 7, "the console is split into collapsible sections", JSON.stringify(s.count));
-    ok(s.open.join(",") === "admin-overview,admin-people",
-      "only the two everyday sections start open", JSON.stringify(s.open));
-    ok(s.panelHeight < 1800, "the collapsed console fits a scannable page", `${s.panelHeight}px`);
-    ok(s.aria, "each head reports its expanded state", JSON.stringify(s.aria));
-    ok(s.controls, "each head points at the body it controls", JSON.stringify(s.controls));
+    ok(s.count === 7, "the console is split into seven sections", JSON.stringify(s.count));
+    ok(s.sections === 7, "every nav row has a section behind it", JSON.stringify(s.sections));
+    ok(s.paired && s.controls, "each nav row points at the section it selects", JSON.stringify(s));
+    ok(s.shown.length === 1 && s.selected.length === 1 && s.shown[0] === s.selected[0],
+      "exactly one section shows, and the nav agrees which", JSON.stringify(s));
+    ok(s.described, "each nav row says what its section holds", JSON.stringify(s.described));
+    ok(s.panelHeight < 1800, "the console fits a scannable page", `${s.panelHeight}px`);
   }
   {
     const s = await page.evaluate(() => {
-      const sec = document.querySelector('#tab-admin [data-section="admin-audit"]');
-      const head = sec.querySelector(".accordion-head");
-      const body = sec.querySelector(".accordion-body");
-      const shut = getComputedStyle(body).display;
-      head.click();
-      const opened = {display: getComputedStyle(body).display, aria: head.getAttribute("aria-expanded")};
-      head.click();
-      return {shut, opened, reshut: getComputedStyle(body).display,
-        aria: head.getAttribute("aria-expanded")};
+      const root = document.getElementById("adminConsole");
+      const item = root.querySelector('.console-nav-item[data-console-target="admin-audit"]');
+      const sec = root.querySelector('.console-section[data-section="admin-audit"]');
+      const before = getComputedStyle(sec).display;
+      item.click();
+      const after = {display: getComputedStyle(sec).display, aria: item.getAttribute("aria-selected")};
+      // Arrow keys move between sections — a vertical list of mutually
+      // exclusive panels is a tablist, and is driven like one.
+      item.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+      const moved = {
+        audit: item.getAttribute("aria-selected"),
+        next: root.querySelector('.console-nav-item[data-console-target="admin-storage"]')
+                  .getAttribute("aria-selected")
+      };
+      return {before, after, moved};
     });
-    ok(s.shut === "none" && s.opened.display !== "none" && s.reshut === "none",
-      "a section opens and closes on its heading", JSON.stringify(s));
-    ok(s.opened.aria === "true" && s.aria === "false",
-      "the heading's expanded state follows it", JSON.stringify(s));
+    ok(s.before === "none" && s.after.display !== "none",
+      "picking a section from the nav shows it", JSON.stringify(s));
+    ok(s.after.aria === "true", "the nav row reports itself selected", JSON.stringify(s.after));
+    ok(s.moved.audit === "false" && s.moved.next === "true",
+      "an arrow key moves to the next section", JSON.stringify(s.moved));
   }
 
   // ------------------------------------------------------------ People
@@ -513,7 +531,7 @@ async function boot(browser, server, query){
       "cards are real buttons, reachable from a keyboard", JSON.stringify(s.tags));
     ok(s.named, "each card says whose record it opens", JSON.stringify(s.named));
     ok(s.nextDisabled, "the roster cannot walk into future months", JSON.stringify(s));
-    ok(/people/.test(s.summary) && /target met/.test(s.summary) && /target/.test(s.summary),
+    ok(/people/i.test(s.summary) && /target met/i.test(s.summary) && /target/i.test(s.summary),
       "a team-wide summary sits above the cards", s.summary.slice(0, 120));
     ok(s.statuses.every(x => typeof x === "string" && x.length),
       "every card says what that person is doing today", JSON.stringify(s.statuses));

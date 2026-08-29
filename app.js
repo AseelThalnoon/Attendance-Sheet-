@@ -389,6 +389,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function fmtDateLong(s){
     return dateFromStr(s).toLocaleDateString(undefined,{weekday:"long", month:"long", day:"numeric", year:"numeric"});
   }
+  // Weekday + month + day, no year — for lists already scoped to one month
+  // (the Team roster's recent-days lines, the activity feed), where the year
+  // and often the month too would just repeat what the toolbar already says.
+  function fmtDateShort(s){
+    return dateFromStr(s).toLocaleDateString(undefined,{weekday:"short", month:"short", day:"numeric"});
+  }
   function isScheduled(dateStr){
     return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
   }
@@ -919,18 +925,47 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("sLateOnlyShort").checked = settings.lateOnlyIfShort;
     renderPeriodRows(settings.periods);
 
-    // Open sections that already have non-default content, so nothing
-    // configured gets hidden behind a collapsed accordion by surprise.
-    var seasonalSection = document.querySelector('.accordion-section[data-section="seasonal"]');
-    if(seasonalSection) seasonalSection.classList.toggle("open", settings.periods.length > 0);
-    var punctSection = document.querySelector('.accordion-section[data-section="punctuality"]');
-    if(punctSection) punctSection.classList.toggle("open", !settings.lateOnlyIfShort);
+    // A section the console isn't showing has to say on its nav row that it
+    // holds something, or a configured seasonal schedule is invisible until you
+    // happen to click it. This is what the collapsed accordion's count used to
+    // do; it now rides on the nav description instead of a heading.
+    var seasonalDesc = document.getElementById("cnavDescSeasonal");
+    if(seasonalDesc) seasonalDesc.textContent = settings.periods.length
+      ? settings.periods.length + (settings.periods.length === 1 ? " period set" : " periods set")
+      : "Reduced hours for Ramadan and other date ranges";
+    var punctDesc = document.getElementById("cnavDescPunctuality");
+    if(punctDesc) punctDesc.textContent = settings.lateOnlyIfShort
+      ? "When the Log marks a clock time red"
+      : "Marking every late arrival, hours or not";
+    var hoursDesc = document.getElementById("cnavDescHours");
+    if(hoursDesc) hoursDesc.textContent =
+      settings.workDays.length + " days · " + minutesToHoursStr(settings.targetMin) + " · from " + settings.standardIn;
+  }
+
+  // Keeps the Settings tab in step with WHO it's showing — the label, the
+  // admin-only "Apply to everyone" row, and the fields themselves. Called
+  // both when the tab is entered (activateTab) and, unconditionally, from
+  // renderAll() — the tab can be the one already on screen when the viewed
+  // person or role changes underneath it (the admin "Viewing" switcher, a
+  // role change), and it has to pick that up without being re-entered.
+  // Cheap (DOM field writes only, no network), so running it even while the
+  // tab isn't visible costs nothing — same reasoning as renderAll()'s other
+  // unconditional repaints.
+  function refreshSettingsPanel(){
+    var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user";
+    document.getElementById("settingsForLabel").textContent = isOwnData
+      ? "Editing your own schedule."
+      : "Editing the schedule for " + who + ".";
+    document.getElementById("settingsProfileName").textContent = isOwnData ? "Your profile" : who;
+    var applyAllRow = document.getElementById("sApplyAll").closest(".check-row");
+    if(applyAllRow) applyAllRow.style.display = isAdmin ? "" : "none";
+    document.getElementById("sApplyAll").checked = false;
+    fillSettingsForm();
   }
 
   // Collapsible sections. The open/closed state was conveyed by a rotated
   // chevron alone, so a screen reader had no way to know whether a heading's
-  // content was showing — which matters more now the Admin console is eight of
-  // these stacked.
+  // content was showing.
   document.querySelectorAll(".accordion-head").forEach(function(head, i){
     var section = head.closest(".accordion-section");
     var body = section.querySelector(".accordion-body");
@@ -942,8 +977,80 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     head.addEventListener("click", function(){
       var open = section.classList.toggle("open");
       head.setAttribute("aria-expanded", open ? "true" : "false");
+      // A section opening below the fold is the click reading as "nothing
+      // happened", so bring it into view — but only if it is actually out of
+      // sight, or every open jerks the panel.
+      if(open) section.scrollIntoView({block:"nearest", behavior:"smooth"});
     });
   });
+
+  // ---------- Settings / Admin console ----------
+  // Settings and Admin were stacks of accordions: seven headings to scroll past
+  // to reach Storage, and every section you opened pushed the rest further
+  // down. They are a directory now — a nav column on the left, one section
+  // showing on the right — so reaching any section is one click from anywhere,
+  // and the panel's height stops depending on what you have open.
+  //
+  // It is a real tablist (arrow keys move between sections, Home/End jump to
+  // the ends), because that is what a vertical list of mutually exclusive
+  // panels is, and it costs nothing to say so.
+  function initConsole(root){
+    var items = Array.prototype.slice.call(root.querySelectorAll(".console-nav-item"));
+    var sections = Array.prototype.slice.call(root.querySelectorAll(".console-section"));
+    if(!items.length) return null;
+
+    function show(name, focusNav, silent){
+      var matched = false;
+      items.forEach(function(item){
+        var on = item.getAttribute("data-console-target") === name;
+        if(on) matched = true;
+        item.setAttribute("aria-selected", on ? "true" : "false");
+        // Only the selected row is in the tab order; arrow keys reach the rest.
+        item.tabIndex = on ? 0 : -1;
+        if(on && focusNav) item.focus();
+      });
+      if(!matched) return false;
+      sections.forEach(function(sec){
+        sec.classList.toggle("active", sec.getAttribute("data-section") === name);
+      });
+      // Where "the section you picked" is depends on the layout. Side by side,
+      // it is already beside the nav and the panel just needs to be back at the
+      // top. Stacked — a phone — it is *below* the whole nav, so resetting to
+      // the top would leave you looking at the list you just chose from.
+      var panel = root.closest(".tab-panel");
+      if(!panel || silent) return true;
+      if(window.matchMedia("(min-width:900px)").matches){
+        panel.scrollTop = 0;
+      }else{
+        var pane = root.querySelector(".console-pane");
+        if(pane) pane.scrollIntoView({block:"start", behavior:"smooth"});
+      }
+      return true;
+    }
+
+    items.forEach(function(item, i){
+      item.addEventListener("click", function(){
+        show(item.getAttribute("data-console-target"));
+      });
+      item.addEventListener("keydown", function(e){
+        var next = null;
+        if(e.key === "ArrowDown" || e.key === "ArrowRight") next = items[(i + 1) % items.length];
+        else if(e.key === "ArrowUp" || e.key === "ArrowLeft") next = items[(i - 1 + items.length) % items.length];
+        else if(e.key === "Home") next = items[0];
+        else if(e.key === "End") next = items[items.length - 1];
+        if(!next) return;
+        e.preventDefault();
+        show(next.getAttribute("data-console-target"), true);
+      });
+    });
+
+    // Silent: the panel is not on screen yet at boot, and scrolling anything
+    // to reach a section nobody asked for is how a page loads halfway down.
+    show(items[0].getAttribute("data-console-target"), false, true);
+    return show;
+  }
+  initConsole(document.getElementById("settingsConsole"));
+  initConsole(document.getElementById("adminConsole"));
 
   // The period editor works on the DOM rows directly; nothing is committed to
   // settings until Save is pressed, so Close always discards edits.
@@ -1148,26 +1255,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(idx !== -1) current.splice(idx, 1);
     renderPeriodRows(current, "defaultsPeriodsList");
   });
+  // Mobile fallback only — the rail's own Settings item reaches the tab
+  // directly. Same pattern as the header Admin button: click the real tab
+  // control, then bring #tabContentCard on screen, since this button lives
+  // up in the header rather than beside the content it's opening.
   document.getElementById("settingsBtn").addEventListener("click", function(){
-    var card = document.getElementById("settingsCard");
-    var opening = !card.classList.contains("open");
-    card.classList.toggle("open", opening);
-    if(opening){
-      document.getElementById("settingsForLabel").textContent = isOwnData
-        ? "Editing your own schedule."
-        : "Editing the schedule for " + (viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user") + ".";
-      // "Apply to everyone" is an admin-only bulk action.
-      var applyAllRow = document.getElementById("sApplyAll").closest(".check-row");
-      if(applyAllRow) applyAllRow.style.display = isAdmin ? "" : "none";
-      document.getElementById("sApplyAll").checked = false;
-      fillSettingsForm();
-      card.scrollIntoView({behavior:"smooth", block:"nearest"});
-    }
-    updateStickyClockVisibility();
-  });
-  document.getElementById("closeSettingsBtn").addEventListener("click", function(){
-    document.getElementById("settingsCard").classList.remove("open");
-    updateStickyClockVisibility();
+    document.querySelector('.tab-btn[data-tab="settings"]').click();
+    var card = document.getElementById("tabContentCard");
+    if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
     // You may always edit your own schedule; editing someone else's requires
@@ -1253,8 +1348,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       btn.textContent = "Save Settings";
 
       if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = updated;
-      document.getElementById("settingsCard").classList.remove("open");
-      updateStickyClockVisibility();
       renderAll();
       showToast(
         "Applied to " + done + " of " + allProfiles.length + " team members." + (failed ? " " + failed + " failed." : ""),
@@ -1267,9 +1360,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     try{
       await sbSaveSettings(viewedUserId, updated);
       settings = updated;
-      document.getElementById("settingsCard").classList.remove("open");
-      updateStickyClockVisibility();
       renderAll();
+      showToast("Settings saved.", "success");
     }catch(err){
       showToast("Couldn't save settings: " + friendlyError(err), "error");
     }finally{
@@ -1279,7 +1371,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   // ---------- Filters ----------
   function getMonthFilter(){ return document.getElementById("monthFilterSelect").value; }
-  function getYearFilter(){ return document.getElementById("yearFilterSelect").value; }
   function getLogYearFilter(){ return document.getElementById("logYearSelect").value; }
   function getMonthlyYearFilter(){ return document.getElementById("monthlyYearSelect").value; }
 
@@ -1329,12 +1420,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     mySel.innerHTML = '<option value="all">All Years</option>' +
       allYearKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
     mySel.value = myPrev && (myPrev === "all" || allYearKeys.indexOf(myPrev) !== -1) ? myPrev : todayYear;
-
-    var ySel = document.getElementById("yearFilterSelect");
-    var yPrev = ySel.value;
-    var yKeys = allYearKeys.slice();
-    ySel.innerHTML = yKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    ySel.value = yKeys.indexOf(yPrev) !== -1 ? yPrev : (yKeys.indexOf(todayYear) !== -1 ? todayYear : yKeys[0]);
 
     // Every day type is always offered, even ones not used yet — otherwise
     // there's no way to filter for a type until at least one exists.
@@ -1445,117 +1530,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
   }
 
-  // ---------- Chart ----------
-  // data: [{label, value (minutes), targetMin, hasEntry, excused}]
-  function renderBarChart(container, data, opts){
-    if(!container) return;
-    opts = opts || {};
-    var h = opts.height || 150;
-    if(!data.length){ container.innerHTML = '<div class="empty-state">Nothing to chart yet.</div>'; return; }
-
-    var w = Math.max(container.clientWidth || 0, 260);
-    var padL = 10, padR = 10, padTop = 22;
-    var slot = (w - padL - padR) / data.length;
-    var barW = Math.max(6, Math.min(34, slot * 0.52));
-
-    // Scale label text with the available slot rather than dropping labels.
-    // "8h 30m" runs longer than a plain decimal, so this scales a notch
-    // smaller than the axis-label font at the same slot width to keep it fitting.
-    var valueFont = slot >= 46 ? 10.5 : (slot >= 36 ? 9.5 : (slot >= 28 ? 8.5 : (slot >= 20 ? 7 : 6)));
-    var axisFont  = slot >= 42 ? 10   : (slot >= 32 ? 9.5 : (slot >= 24 ? 8.5 : (slot >= 18 ? 7.5 : 6.5)));
-
-    // Rotate axis labels when the widest one wouldn't fit its slot horizontally.
-    var longest = data.reduce(function(m, d){ return Math.max(m, String(d.label).length); }, 0);
-    var estWidth = longest * axisFont * 0.55;
-    var rotate = estWidth > slot - 2;
-    var padBottom = rotate ? Math.min(estWidth * 0.72, 46) + 8 : 22;
-
-    // Fallback only — for a bucket without its own d.targetMin (e.g. seasonal
-    // periods weren't averaged in for it). Each bar's real reference is drawn
-    // as its own segment below, not this one flat number for the whole chart.
-    var targetMin = opts.targetMin != null ? opts.targetMin : targetMinPerDay();
-    var maxVal = Math.max(targetMin, 1);
-    data.forEach(function(d){
-      if(d.value) maxVal = Math.max(maxVal, d.value);
-      if(d.targetMin) maxVal = Math.max(maxVal, d.targetMin);
-    });
-    maxVal = maxVal * 1.12;
-    var scale = (h - padTop - padBottom) / maxVal;
-
-    var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
-        cLine = cssVar("--line"),
-        // The target reference line is meaningful graphics, not decoration, so
-        // it takes the dark step of the accent: --gold is lime and measures
-        // 1.35:1 on a white card, which WCAG 1.4.11 (3:1) fails and the eye
-        // simply loses. --gold-deep is the same hue family at 5.89:1.
-        cGold = cssVar("--gold-deep");
-
-    function valueText(mins){
-      // Same "8h 2m" style used everywhere else on the page, so a chart label
-      // and its matching stat-card figure always read identically. Charts that
-      // plot something other than worked hours (e.g. minutes late) can pass
-      // their own opts.formatter instead.
-      return (opts.formatter || minutesToHoursStr)(mins);
-    }
-
-    // An accessible name plus a spoken summary of the series. role="img" with
-    // no name was announced as an unlabelled "image", making every chart opaque.
-    var chartName = opts.name || "Bar chart";
-    var described = data.map(function(d){ return d.label + " " + valueText(d.value || 0); }).join(", ");
-    var titleId = "cht" + Math.random().toString(36).slice(2,8);
-    var svg = '<svg class="chart-wrap" viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" ' +
-      'role="img" aria-labelledby="'+titleId+'">' +
-      '<title id="'+titleId+'">'+escapeHtml(chartName)+'</title>' +
-      '<desc>'+escapeHtml(described)+'</desc>';
-    // A step, not one flat line: each bar's own target (a seasonal period can
-    // put a 5h day right next to an 8h one) gets its own dashed segment,
-    // instead of implying a single constant target across the whole chart.
-    data.forEach(function(d, i){
-      var t = d.targetMin != null ? d.targetMin : targetMin;
-      if(t > 0){
-        var segL = padL + slot*i, segR = padL + slot*(i+1);
-        var ty = h - padBottom - t*scale;
-        svg += '<line x1="'+segL.toFixed(1)+'" y1="'+ty.toFixed(1)+'" x2="'+segR.toFixed(1)+'" y2="'+ty.toFixed(1)+'" stroke="'+cGold+'" stroke-width="1.2" stroke-dasharray="4 3"/>';
-      }
-    });
-    data.forEach(function(d, i){
-      var cx = padL + slot*i + slot/2;
-      var val = d.value || 0;
-      var barH = Math.max(val*scale, val > 0 ? 2 : 1);
-      var y = h - padBottom - barH;
-      var color = !d.hasEntry ? cLine : (val >= (d.targetMin != null ? d.targetMin : targetMin) ? cPos : cUnder);
-      // Capped stagger: a 30-bar yearly chart shouldn't take a full second to
-      // finish appearing, so the delay ramp stops growing past ~10 bars.
-      var delay = Math.min(i, 10) * 28;
-      var delayStyle = "animation-delay:" + delay + "ms;";
-
-      svg += '<rect x="'+(cx-barW/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+barH.toFixed(1)+'" fill="'+color+'" rx="2" class="bar-rect" style="'+delayStyle+'">'+
-             '<title>'+escapeHtml(d.label)+': '+valueText(val)+'</title></rect>';
-
-      // Value label: above the bar, or tucked inside when the bar reaches the top.
-      if(val > 0){
-        var above = y - 5 >= padTop;
-        var ty2 = above ? y - 5 : y + valueFont + 3;
-        var fill = above ? "" : ' fill="#fff"';
-        svg += '<text x="'+cx.toFixed(1)+'" y="'+ty2.toFixed(1)+'" text-anchor="middle" class="bar-value" '+
-               'style="font-size:'+valueFont+'px;'+delayStyle+'"'+fill+'>'+valueText(val)+'</text>';
-      } else {
-        svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-padBottom-6)+'" text-anchor="middle" class="bar-value bar-empty" '+
-               'style="font-size:'+valueFont+'px;'+delayStyle+'">–</text>';
-      }
-
-      if(rotate){
-        var lx = cx.toFixed(1), ly = (h - padBottom + 12).toFixed(1);
-        svg += '<text x="'+lx+'" y="'+ly+'" text-anchor="end" class="bar-label" '+
-               'transform="rotate(-45 '+lx+' '+ly+')" style="font-size:'+axisFont+'px;'+delayStyle+'">'+escapeHtml(d.label)+'</text>';
-      } else {
-        svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-7)+'" text-anchor="middle" class="bar-label" '+
-               'style="font-size:'+axisFont+'px;'+delayStyle+'">'+escapeHtml(d.label)+'</text>';
-      }
-    });
-    svg += '</svg>';
-    container.innerHTML = svg;
-  }
+  // The bar chart that lived here drew one categorical comparison — the
+  // Year over Year card on Trends — and went with it. Trends draws
+  // trajectories (renderTrendChart below); the Day Types donut and the
+  // weekly sparklines each build their own SVG.
 
   // A gently-smoothed line through a series of points: each segment is a cubic
   // Bezier whose control points sit at the segment's horizontal midpoint, at
@@ -1579,8 +1557,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // A line/area chart for anything read as a trajectory over many points
   // (hours per day, by week/month) rather than a handful of categories to
   // compare — a bar repeated 12-30 times reads as noise, where a line reads
-  // as a shape. Categorical comparisons (Year over Year) still use
-  // renderBarChart above. data: [{label, value (minutes), targetMin,
+  // as a shape. data: [{label, value (minutes), targetMin,
   // hasEntry, met}]. `met` (value >= that point's target) colors the point's
   // dot; set hasEntry:false for a gap the line breaks around instead of
   // drawing through, so a future or unlogged period never looks like a real
@@ -1594,7 +1571,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!data.length){ container.innerHTML = '<div class="empty-state">Nothing to chart yet.</div>'; return; }
 
     var w = Math.max(container.clientWidth || 0, 260);
-    var padL = 12, padR = 12, padTop = 22;
+    // 44 on the left, not 12: the chart now carries a labelled y-axis, and
+    // the labels need a gutter to sit in. "8h 30m" at 9px is ~30px wide, plus
+    // 8px of air before the plot starts.
+    var padL = 44, padR = 12, padTop = 22;
     var slot = (w - padL - padR) / Math.max(data.length - 1, 1);
 
     var axisFont  = slot >= 42 ? 10 : (slot >= 32 ? 9.5 : (slot >= 24 ? 8.5 : (slot >= 18 ? 7.5 : 6.5)));
@@ -1612,19 +1592,80 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // real reference is drawn as its own segment below, not this one flat
     // number for the whole chart.
     var targetMin = opts.targetMin != null ? opts.targetMin : targetMinPerDay();
-    var maxVal = Math.max(targetMin, 1);
+
+    // ---- Vertical domain ----
+    // This used to be hard-anchored at zero: yOf() mapped 0 to the baseline
+    // and 1.15x the largest value to the top. That is right for a series that
+    // starts near zero — the Shortfall chart runs 1h to 4h and genuinely
+    // wants zero in frame — and useless for one that does not. The weekly
+    // hours chart sits at 8h against an 8h target, so every point landed at
+    // 87% of the height with the whole bottom of the card an empty gradient,
+    // and the week-to-week differences that are the entire point of a trend
+    // (8h 1m vs 8h) were a 0.2% wobble: a dead flat line, with the target
+    // line hidden underneath it.
+    //
+    // So: keep zero when the data reaches down toward it, and window the
+    // domain when the data lives in a band far above it. The lo >= 35% of hi
+    // test is what separates the two cases, and it keeps every existing
+    // zero-based chart exactly as it was.
+    var hi = Math.max(targetMin, 1), lo = Infinity, plotted = false;
     data.forEach(function(d){
-      if(d.value) maxVal = Math.max(maxVal, d.value);
-      if(d.targetMin) maxVal = Math.max(maxVal, d.targetMin);
+      if(d.hasEntry !== false && d.value != null){
+        hi = Math.max(hi, d.value); lo = Math.min(lo, d.value); plotted = true;
+      }
+      if(d.targetMin){ hi = Math.max(hi, d.targetMin); lo = Math.min(lo, d.targetMin); }
     });
-    maxVal = maxVal * 1.15;
-    var scale = (h - padTop - padBottom) / maxVal;
-    function yOf(val){ return h - padBottom - Math.max(val, 0) * scale; }
+    if(targetMin > 0) lo = Math.min(lo, targetMin);
+    if(!plotted || !isFinite(lo)) lo = 0;
+
+    var domLo = 0, domHi = hi * 1.15;
+    if(lo > 0 && lo >= hi * 0.35){
+      var span = hi - lo;
+      // A floor on the span, so windowing cannot turn noise into a mountain.
+      // Four weeks that differ by one minute are four weeks that are the
+      // same; blown up to fill the card they would read as a real swing, and
+      // a chart that lies in the flattering direction is worse than one that
+      // wastes space. 12% of the scale is enough that a genuine half-hour
+      // move is clearly visible while a one-minute move stays flat.
+      var minSpan = Math.max(hi * 0.12, 30);
+      if(span < minSpan){
+        var mid = (hi + lo) / 2;
+        lo = mid - minSpan / 2; hi = mid + minSpan / 2; span = minSpan;
+      }
+      domLo = Math.max(0, lo - span * 0.18);
+      domHi = hi + span * 0.18;
+    }
+    if(domHi - domLo < 1) domHi = domLo + 1;
+    // An area fill reads as "how much", and it can only mean that when the
+    // bottom of the plot is zero. On a windowed domain the fill would shade
+    // from the line down to 7h 33m and invite exactly the wrong reading, so
+    // the windowed case is a plain line and the zero-based case keeps its
+    // area. This is why the Shortfall chart still has one and the weekly
+    // hours chart no longer does.
+    var zeroBased = domLo === 0;
+
+    var plotH = h - padTop - padBottom;
+    function yOf(val){
+      var t = (Math.max(val, domLo) - domLo) / (domHi - domLo);
+      return h - padBottom - Math.min(Math.max(t, 0), 1) * plotH;
+    }
     function xOf(i){ return data.length === 1 ? padL + slot/2 : padL + slot*i; }
+
+    // ---- Gridline steps ----
+    // Minutes, so the "nice" numbers are the ones a clock actually has:
+    // quarter/half/whole hours, then multiples of an hour. A generic
+    // 1/2/5 x 10^n ladder would happily label a chart of hours at 250-minute
+    // intervals, which nobody reads as anything.
+    function niceStepMin(range, want){
+      var raw = range / Math.max(want, 1);
+      var steps = [5, 10, 15, 20, 30, 60, 90, 120, 180, 240, 360, 480, 720, 1440];
+      for(var s = 0; s < steps.length; s++){ if(steps[s] >= raw) return steps[s]; }
+      return steps[steps.length - 1];
+    }
 
     var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
         cLine = cssVar("--line"),
-        cGold = cssVar("--gold-deep"), // see the note in renderBarChart
+        cGold = cssVar("--gold-deep"), // see the .swatch.target note in index.html
         cAccent = opts.accent || cssVar("--teal-600");
 
     function valueText(mins){ return (opts.formatter || minutesToHoursStr)(mins); }
@@ -1642,6 +1683,24 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         '<stop offset="0%" stop-color="'+cAccent+'" stop-opacity=".22"/>' +
         '<stop offset="100%" stop-color="'+cAccent+'" stop-opacity="0"/>' +
       '</linearGradient></defs>';
+
+    // ---- Gridlines and the y-axis ----
+    // There was no vertical reference of any kind: a line floating in a
+    // gradient, with the only numbers in the chart printed on the points
+    // themselves. That reads as a shape but cannot be read as a quantity —
+    // you could see the line was flat, but not what it was flat AT, and the
+    // gold dashed target line had nothing to be measured against either.
+    // Drawn first so the area, the line and the dots all sit over them.
+    var gridStep = niceStepMin(domHi - domLo, h >= 150 ? 4 : 3);
+    var gridFont = Math.max(8, Math.min(9.5, axisFont));
+    for(var gv = Math.ceil(domLo / gridStep) * gridStep; gv <= domHi + 0.5; gv += gridStep){
+      var gy = yOf(gv);
+      if(gy < padTop - 2 || gy > h - padBottom + 0.5) continue;
+      svg += '<line x1="'+padL+'" y1="'+gy.toFixed(1)+'" x2="'+(w-padR)+'" y2="'+gy.toFixed(1)+'" ' +
+             'stroke="'+cLine+'" stroke-width="1" opacity=".6"/>';
+      svg += '<text x="'+(padL-8)+'" y="'+(gy + gridFont*0.35).toFixed(1)+'" text-anchor="end" ' +
+             'class="bar-label" style="font-size:'+gridFont+'px;">'+escapeHtml(valueText(gv))+'</text>';
+    }
 
     // A step, not one flat line: each point's own target (a seasonal period
     // can put a 5h week/month right next to an 8h one) gets its own dashed
@@ -1669,12 +1728,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     runs.forEach(function(pts){
       if(pts.length > 1){
-        var areaD = smoothPathD(pts) +
-          " L" + pts[pts.length-1].x.toFixed(1) + "," + (h-padBottom).toFixed(1) +
-          " L" + pts[0].x.toFixed(1) + "," + (h-padBottom).toFixed(1) + " Z";
-        svg += '<path d="'+areaD+'" fill="url(#'+gradId+')" class="trend-area"/>';
+        if(zeroBased){
+          var areaD = smoothPathD(pts) +
+            " L" + pts[pts.length-1].x.toFixed(1) + "," + (h-padBottom).toFixed(1) +
+            " L" + pts[0].x.toFixed(1) + "," + (h-padBottom).toFixed(1) + " Z";
+          svg += '<path d="'+areaD+'" fill="url(#'+gradId+')" class="trend-area"/>';
+        }
+        // A soft glow in the line's own accent colour — hex+alpha, not a
+        // separate token, since the accent itself is already dynamic
+        // (opts.accent). Restrained on purpose: a blurred, low-alpha shadow
+        // the same hue as the stroke, not a neon halo.
         svg += '<path d="'+smoothPathD(pts)+'" fill="none" stroke="'+cAccent+'" stroke-width="2.25" ' +
-               'pathLength="1" stroke-linecap="round" stroke-linejoin="round" class="trend-line"/>';
+               'pathLength="1" stroke-linecap="round" stroke-linejoin="round" class="trend-line" ' +
+               'style="filter:drop-shadow(0 0 4px '+cAccent+'80)"/>';
       } else if(pts.length === 1 && data.length === 1){
         // One point, nothing to connect: still show the accent as a short
         // baseline tick so the chart doesn't read as broken.
@@ -1704,6 +1770,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         var ty2 = above ? cy - 8 : cy + valueFont + 8;
         svg += '<text x="'+cx.toFixed(1)+'" y="'+ty2.toFixed(1)+'" text-anchor="'+edgeAnchor+'" class="bar-value" '+
                'style="font-size:'+valueFont+'px;'+delayStyle+'">'+valueText(val)+'</text>';
+        // A generous invisible hit target, not the 4px dot itself — the dot
+        // is sized to look right on the line, not to be pointed at, and is
+        // especially too small to tap reliably.
+        svg += '<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="11" class="trend-hit" data-idx="'+i+'"/>';
       } else {
         svg += '<circle cx="'+cx.toFixed(1)+'" cy="'+(h-padBottom).toFixed(1)+'" r="3" fill="none" stroke="'+cLine+'" stroke-width="1.5" class="trend-dot" style="'+delayStyle+'">'+
                '<title>'+escapeHtml(d.label)+': no data</title></circle>';
@@ -1719,8 +1789,53 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       }
     });
 
+    // The floating value callout: hidden until a point is hovered (mouse) or
+    // tapped (touch), positioned in the same viewBox coordinate space as
+    // everything else so no separate HTML-overlay positioning math is
+    // needed. One shared <g>, moved and re-labelled per point rather than
+    // one per point, since only ever one is visible at a time.
+    var calloutW = 78, calloutH = 36;
+    svg += '<g class="trend-callout" aria-hidden="true">'+
+      '<rect class="trend-callout-bg" width="'+calloutW+'" height="'+calloutH+'" rx="8"/>'+
+      '<text class="trend-callout-date" x="'+(calloutW/2)+'" y="14" text-anchor="middle"></text>'+
+      '<text class="trend-callout-value" x="'+(calloutW/2)+'" y="27" text-anchor="middle"></text>'+
+    '</g>';
+
     svg += '</svg>';
     container.innerHTML = svg;
+
+    var callout = container.querySelector(".trend-callout");
+    var calloutDate = callout.querySelector(".trend-callout-date");
+    var calloutValue = callout.querySelector(".trend-callout-value");
+    var activeHitIdx = null;
+
+    function positionCallout(i){
+      var d = data[i];
+      var cx = xOf(i), cy = yOf(d.value || 0);
+      var x = Math.min(Math.max(cx - calloutW/2, padL), w - padR - calloutW);
+      // Flips below the point instead of clipping past the chart's own top
+      // edge — only reachable for a point sitting right under the target
+      // line near the very top of the plot.
+      var above = cy - 14 - calloutH >= 0;
+      var y = above ? cy - 14 - calloutH : cy + 14;
+      callout.setAttribute("transform", "translate("+x.toFixed(1)+","+y.toFixed(1)+")");
+      calloutDate.textContent = d.label;
+      calloutValue.textContent = valueText(d.value || 0);
+    }
+    function showCallout(i){ positionCallout(i); callout.classList.add("show"); activeHitIdx = i; }
+    function hideCallout(){ callout.classList.remove("show"); activeHitIdx = null; }
+
+    container.querySelectorAll(".trend-hit").forEach(function(hit){
+      var i = +hit.getAttribute("data-idx");
+      // pointerenter/leave for a mouse, which can rest on a point without
+      // committing to a tap; click as the touch path, since touch has no
+      // hover to rest into. Both funnel into the same show/hideCallout.
+      hit.addEventListener("pointerenter", function(ev){ if(ev.pointerType !== "touch") showCallout(i); });
+      hit.addEventListener("pointerleave", function(ev){ if(ev.pointerType !== "touch") hideCallout(); });
+      hit.addEventListener("click", function(){
+        activeHitIdx === i ? hideCallout() : showCallout(i);
+      });
+    });
   }
 
   // A tiny inline sparkline for one week's seven days — small bars rather
@@ -1763,7 +1878,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // ---------- Stats ----------
   // Renders a neutral up/down/flat trend indicator into a stat card.
   // current/previous are in minutes; pass null when there's no prior period to compare.
-  function renderTrend(elId, current, previous, label, isSigned){
+  function renderTrend(elId, current, previous, label, isSigned, neutral){
     var el = document.getElementById(elId);
     if(!el) return;
     if(current === null || previous === null){
@@ -1778,13 +1893,27 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return;
     }
     var up = diff > 0;
-    el.className = "stat-trend " + (up ? "trend-up" : "trend-down");
+    // Raw hours-worked trends (e.g. Avg/Day) carry no good/bad judgement —
+    // more hours isn't inherently positive, and the mix of half days, WFH,
+    // etc. across the two periods can shift the average with no change in
+    // performance. Only a target-relative figure (like the overtime bank)
+    // earns the green/red treatment; this one stays neutral regardless of
+    // direction.
+    el.className = "stat-trend " + (neutral ? "trend-flat" : (up ? "trend-up" : "trend-down"));
     var arrowPath = up ? "M12 19V5M5 12l7-7 7 7" : "M12 5v14M5 12l7 7 7-7";
     var amount = isSigned ? signed(diff) : minutesToHoursStr(Math.abs(diff));
     el.innerHTML =
       '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="'+arrowPath+'"/></svg>' +
       amount + ' vs. ' + label;
   }
+
+  // Which streak count has already played its milestone-clause landing
+  // animation this session — renderStats() runs on every tab visit, punch
+  // and data reload, and without this the clause would replay every single
+  // time rather than once at the moment it's actually earned. null, not 0,
+  // so a genuine (if impossible) 0-length "milestone" isn't mistaken for
+  // "nothing announced yet".
+  var lastAnnouncedMilestoneStreak = null;
 
   function renderStats(){
     var today = todayStr();
@@ -1833,7 +1962,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var thisMonthDate = dateFromStr(today);
     var prevMonthDate = new Date(thisMonthDate.getFullYear(), thisMonthDate.getMonth()-1, 1);
     var pms = summarize(entries.filter(function(e){ return monthKey(e.date) === monthKey(dateToStr(prevMonthDate)); }));
-    renderTrend("monthTrend", ms.loggedDays ? ms.avgMin : null, pms.loggedDays ? pms.avgMin : null, "last month");
+    renderTrend("monthTrend", ms.loggedDays ? ms.avgMin : null, pms.loggedDays ? pms.avgMin : null, "last month", false, true);
     renderTrend("otBankTrend", ms.loggedDays ? ms.diffSum : null, pms.loggedDays ? pms.diffSum : null, "last month", true);
 
     // Streak: consecutive scheduled workdays with worked time logged.
@@ -1879,7 +2008,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       ? "Consecutive workdays logged"
       : "Consecutive workdays · clock out today to extend it";
     var milestone = STREAK_MILESTONES[streak];
-    streakDetailEl.textContent = milestone ? streakBase + " — " + milestone : streakBase;
+    if(milestone){
+      // Landing only fires the first time THIS streak count renders as a
+      // milestone — a revisit later the same day (or the same streak
+      // surviving a tab switch) shows the clause already settled, not
+      // replaying the beat.
+      var isNewLanding = lastAnnouncedMilestoneStreak !== streak;
+      lastAnnouncedMilestoneStreak = streak;
+      streakDetailEl.innerHTML = escapeHtml(streakBase) + ' <span class="milestone-clause' +
+        (isNewLanding ? " landing" : "") + '">— ' + escapeHtml(milestone) + '</span>';
+    } else {
+      streakDetailEl.textContent = streakBase;
+    }
     streakDetailEl.classList.toggle("milestone", !!milestone);
 
     var todayEntry = entries.find(function(e){ return e.date === today; });
@@ -1939,7 +2079,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       el.className = "stat-value negative";
     } else {
       el.textContent = fmtDays(remaining) + "d";
-      el.className = "stat-value";
+      // 2 days is arbitrary but reasonable: close enough to zero that
+      // running out without noticing is a real risk, on any entitlement
+      // this app is likely to see. remaining === 0 counts as low, not as
+      // "over" — that's what the negative branch above is for.
+      el.className = "stat-value" + (remaining <= 2 ? " warn" : "");
     }
     document.getElementById("leaveBalanceDetail").textContent =
       fmtDays(used) + " of " + fmtDays(entitlement) + " days used in " + year + " · working days only";
@@ -2021,23 +2165,40 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       : '<span class="pill under">'+minutesToHoursStr(c.diffMin)+'</span>';
   }
 
-  // The log rendered every matching row as DOM. With the default current-month
-  // filter that's ~22 rows, but "All Years" on a long history built thousands of
-  // rows in a single synchronous loop and froze the tab. Render a page at a time.
-  var LOG_PAGE_SIZE = 200;
-  var logVisibleCount = LOG_PAGE_SIZE;
+  // ---------- The long lists ----------
+  // Every tab is one screen (see "One screen per tab" in index.html): the page
+  // frame never scrolls. A tab whose content outgrows the frame scrolls inside
+  // its own panel rather than being split across numbered pages — the rows are
+  // dense enough that most months land in one screenful, and a scrollbar on the
+  // few that don't beats hiding two thirds of the month behind "2 of 3".
+  //
+  // The Log is the one list with no ceiling: "All Years" on a long history is
+  // thousands of entries, and building every row at once is a synchronous loop
+  // that freezes the tab. So it renders a chunk at a time with a button for the
+  // next chunk, on every width.
+  var LOG_SCROLL_CHUNK = 200;
+  var logScrollLimit = LOG_SCROLL_CHUNK;
 
   function renderLog(){
     var body = document.getElementById("logBody");
     var allRows = searchedEntries().sort(function(a,b){ return b.date.localeCompare(a.date); });
-    var rows = allRows.slice(0, logVisibleCount);
+    var rows = allRows.slice(0, logScrollLimit);
     body.innerHTML = "";
 
     var empty = document.getElementById("logEmpty");
     if(entries.length === 0){
+      // The dashed ring echoes the Day Types donut on Overview — an "empty"
+      // version of that same ring, rather than a generic clock borrowed from
+      // nowhere in particular. The plus sits in --gold-deep, not --gold: a
+      // lime-family element carrying real meaning (invites the first tap)
+      // needs the accent that actually clears contrast (see DESIGN.md's
+      // Fill-Only Rule) — --gold alone measures 1.35:1 on white.
       empty.innerHTML =
         '<div class="first-run-empty">' +
-          '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3.2 2"/></svg>' +
+          '<svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">' +
+            '<circle cx="24" cy="24" r="18" stroke="var(--line)" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>' +
+            '<path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>' +
+          '</svg>' +
           '<p class="first-run-title">No attendance logged yet</p>' +
           '<p class="first-run-sub">Tap <strong>Clock In Now</strong> above to log today, or add a day by hand using the form.</p>' +
         '</div>';
@@ -2077,7 +2238,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         "<td data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
         "<td data-label='In'><span class=\"cell-label\">In</span>"+inCell+"</td>"+
         "<td data-label='Out'><span class=\"cell-label\">Out</span>"+outCell+"</td>"+
-        "<td class='num' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
+        "<td class='num col-worked' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
         "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+(c.targetMin ? minutesToHoursStr(c.targetMin) : "—")+"</td>"+
         "<td class='num' data-label='Status'><span class=\"cell-label\">Status</span>"+pillFor(c)+"</td>"+
         "<td data-label='Type'><span class=\"cell-label\">Type</span>"+escapeHtml(typeLabel(e.type))+"</td>"+
@@ -2092,8 +2253,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       body.appendChild(tr);
     });
 
-    // Paging control. Uses a real table row so it sits inside the table and
-    // survives the mobile card layout.
+    // Uses a real table row so it sits inside the table and survives the
+    // mobile card layout.
     var remaining = allRows.length - rows.length;
     if(remaining > 0){
       var moreRow = document.createElement("tr");
@@ -2103,9 +2264,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var moreBtn = document.createElement("button");
       moreBtn.type = "button";
       moreBtn.className = "btn ghost small";
-      moreBtn.textContent = "Show " + Math.min(remaining, LOG_PAGE_SIZE) + " more (" + remaining + " remaining)";
+      moreBtn.textContent = "Show " + Math.min(remaining, LOG_SCROLL_CHUNK) + " more (" + remaining + " remaining)";
       moreBtn.addEventListener("click", function(){
-        logVisibleCount += LOG_PAGE_SIZE;
+        logScrollLimit += LOG_SCROLL_CHUNK;
         renderLog();
       });
       cell.appendChild(moreBtn);
@@ -2116,7 +2277,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   // ---------- Weekly ----------
   // One overview trend chart (avg hours/day, by week) plus a dense table —
-  // the same two-piece shape Monthly and Yearly already use. Used to be a
+  // the same two-piece shape Monthly also uses. Used to be a
   // full-height bar chart repeated once per week, which meant a handful of
   // bars and a lot of empty chart padding, over and over, down the page.
   // Each week keeps its own day-by-day shape as an inline sparkline instead.
@@ -2246,92 +2407,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         "<td class='num' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(m.loggedDays?minutesToHoursStr(m.avgMin):"—")+"</td>"+
         "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(m.targetSum)+"</td>"+
         "<td class='num' data-label='Diff' style='color:"+(m.diffSum>0?cssVar("--positive"):m.diffSum<0?cssVar("--negative"):"inherit")+"'><span class=\"cell-label\">Diff</span>"+signed(m.diffSum)+"</td>";
-      body.appendChild(tr);
-    });
-  }
-
-  // ---------- Yearly ----------
-  function yearStats(){
-    var groups = groupBy(entries, yearKey);
-    // Only years with at least one Regular-type day feed the year-over-year
-    // comparison — a year with none has no average to compare.
-    return Object.keys(groups).sort()
-      .map(function(k){
-        var s = summarize(groups[k]);
-        s.key = k;
-        return s;
-      })
-      .filter(function(s){ return s.loggedDays > 0; });
-  }
-
-  function renderYearly(){
-    var stats = yearStats();
-    var yearlyEmptyEl = document.getElementById("yearlyEmpty");
-    yearlyEmptyEl.textContent = entries.length ? "No regular workdays logged yet." : "No entries yet.";
-    yearlyEmptyEl.style.display = stats.length ? "none" : "block";
-
-    var yr = getYearFilter();
-    var yearEntries = entries.filter(function(e){ return yearKey(e.date) === yr; });
-    var ys = summarize(yearEntries);
-
-    document.getElementById("yearTitle").textContent = yr;
-    document.getElementById("yearMeta").textContent =
-      ys.loggedDays + " workday" + (ys.loggedDays===1?"":"s") + " logged" +
-      (ys.openDays ? " · " + ys.openDays + " open" : "");
-
-    document.getElementById("yearFigures").innerHTML =
-      '<div class="period-figure"><div class="label">Total Hours</div><div class="value">'+minutesToHoursStr(ys.workedSum)+'</div></div>'+
-      '<div class="period-figure"><div class="label">Avg / Day</div><div class="value">'+(ys.loggedDays?minutesToHoursStr(ys.avgMin):"—")+'</div></div>'+
-      '<div class="period-figure"><div class="label">Target</div><div class="value">'+minutesToHoursStr(ys.targetSum)+'</div></div>'+
-      '<div class="period-figure"><div class="label">Overtime / Under</div><div class="value" style="color:'+
-        (ys.diffSum>0?cssVar("--positive"):ys.diffSum<0?cssVar("--negative"):"inherit")+'">'+signed(ys.diffSum)+'</div></div>';
-
-    // Full 12 months so gaps in the year stay visible.
-    var byMonth = groupBy(yearEntries, monthKey);
-    var monthData = [];
-    for(var m=0;m<12;m++){
-      var k = yr+"-"+pad2(m+1);
-      var s = byMonth[k] ? summarize(byMonth[k]) : null;
-      monthData.push({
-        label: new Date(+yr, m, 1).toLocaleDateString(undefined,{month:"short"}),
-        value: s ? s.avgMin : 0,
-        hasEntry: !!(s && s.loggedDays),
-        targetMin: (s && s.loggedDays) ? (s.targetSum / s.loggedDays) : null
-      });
-    }
-    renderTrendChart(document.getElementById("yearChart"), monthData, {height:160, name:"Average hours per day in "+yr+", by month"});
-
-    // A single year has nothing to compare against — a lone bar reads as a
-    // broken chart, not a comparison — so the whole card sits out until
-    // there's a second year to set it against.
-    var yoyCard = document.getElementById("yoyCard");
-    yoyCard.style.display = stats.length > 1 ? "" : "none";
-    if(stats.length > 1){
-      renderBarChart(document.getElementById("yoyChart"), stats.map(function(y){
-        return {
-          label:y.key, value:y.avgMin, hasEntry:y.loggedDays > 0,
-          targetMin: y.loggedDays ? (y.targetSum / y.loggedDays) : null
-        };
-      }), {height:140, name:"Average hours per day, year over year"});
-    }
-
-    var body = document.getElementById("yearlyBody");
-    body.innerHTML = "";
-    stats.slice().reverse().forEach(function(y, idx, arr){
-      var prev = arr[idx+1]; // next in reversed list = previous year
-      var delta = (prev && prev.loggedDays && y.loggedDays) ? (y.avgMin - prev.avgMin) : null;
-      var deltaCell = delta === null
-        ? "—"
-        : "<span style='color:"+(delta>0?cssVar("--positive"):delta<0?cssVar("--negative"):"inherit")+"'>"+signed(delta)+" / day</span>";
-      var tr = document.createElement("tr");
-      tr.innerHTML =
-        "<td data-label='Year'><span class=\"cell-label\">Year</span>"+y.key+"</td>"+
-        "<td class='num' data-label='Days'><span class=\"cell-label\">Days</span>"+y.loggedDays+"</td>"+
-        "<td class='num' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(y.workedSum)+"</td>"+
-        "<td class='num' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(y.loggedDays?minutesToHoursStr(y.avgMin):"—")+"</td>"+
-        "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(y.targetSum)+"</td>"+
-        "<td class='num' data-label='Diff' style='color:"+(y.diffSum>0?cssVar("--positive"):y.diffSum<0?cssVar("--negative"):"inherit")+"'><span class=\"cell-label\">Diff</span>"+signed(y.diffSum)+"</td>"+
-        "<td class='num' data-label='vs. Prev Year'><span class=\"cell-label\">vs. Prev Year</span>"+deltaCell+"</td>";
       body.appendChild(tr);
     });
   }
@@ -2635,19 +2710,30 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("pMetRateDetail").textContent = "No scheduled days yet";
     }
 
-    document.getElementById("pShortDays").textContent = s.shortDays;
+    // These three cards ARE the bad news pMetRate above only implies — so,
+    // like it, they carry --negative when there's something to flag rather
+    // than sitting in plain ink regardless of whether shortDays is 0 or 20.
+    var shortCls = "stat-value" + (s.shortDays ? " negative" : "");
+
+    var shortDaysEl = document.getElementById("pShortDays");
+    shortDaysEl.textContent = s.shortDays;
+    shortDaysEl.className = shortCls;
     document.getElementById("pShortDaysDetail").textContent = s.shortDays
       ? (s.missedDays
           ? s.missedDays + " with nothing logged at all"
           : "All partial — some hours were logged")
       : "Nothing flagged";
 
-    document.getElementById("pShortTotal").textContent = s.shortDays ? minutesToHoursStr(s.shortSum) : "—";
+    var shortTotalEl = document.getElementById("pShortTotal");
+    shortTotalEl.textContent = s.shortDays ? minutesToHoursStr(s.shortSum) : "—";
+    shortTotalEl.className = shortCls;
     document.getElementById("pShortTotalDetail").textContent = s.shortDays
       ? "Across " + s.shortDays + " day" + (s.shortDays===1?"":"s")
       : "Nothing owed this period";
 
-    document.getElementById("pAvgShort").textContent = s.shortDays ? minutesToHoursStr(s.avgShortMin) : "—";
+    var avgShortEl = document.getElementById("pAvgShort");
+    avgShortEl.textContent = s.shortDays ? minutesToHoursStr(s.avgShortMin) : "—";
+    avgShortEl.className = shortCls;
     document.getElementById("pAvgShortDetail").textContent = s.shortDays
       ? "Per day that fell short"
       : "Nothing flagged";
@@ -2714,7 +2800,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function renderCharts(){
     renderWeekly();
     renderMonthly();
-    renderYearly();
     renderPunctuality();
   }
 
@@ -2731,7 +2816,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // failure inside it must not stop the rest of the repaint. Non-admins
     // return immediately without touching the network.
     renderTodayTeam().catch(function(){});
-    fitOverview();
+    // Unconditional, like renderPersonCard()/renderWorkingFormat() above —
+    // cheap field writes, not a network call — so the Settings tab stays
+    // correct even when it's the one already on screen and the viewed
+    // person or role just changed underneath it (see refreshSettingsPanel).
+    refreshSettingsPanel();
     // Repaint the calendar only when it is the visible tab: it is not part of
     // the default view, and rendering a hidden panel on every data change is
     // work nobody sees.
@@ -2788,20 +2877,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // suppressDialog is set when we're building in response to the browser's own
   // beforeprint — the print dialog is already opening, so calling window.print()
   // again would loop.
-  function buildPrintReport(period, suppressDialog){
-    var rows, title, subtitle;
-    if(period === "year"){
-      var yr = getYearFilter();
-      rows = entries.filter(function(e){ return yearKey(e.date) === yr; });
-      title = "Attendance Report — " + yr;
-      subtitle = "January 1 – December 31, " + yr;
-    } else {
-      var mf = getMonthFilter(), yf = getLogYearFilter();
-      rows = filteredEntries();
-      var scopeLabel = mf !== "all" ? monthLabel(mf) : (yf !== "all" ? yf : "");
-      title = "Attendance Report" + (scopeLabel ? " — " + scopeLabel : "");
-      subtitle = scopeLabel ? scopeLabel : "All recorded days";
-    }
+  // One scope now the Yearly view is gone: whatever the Log's own filters are
+  // showing, which is also what the reader sees on screen when they press it.
+  function buildPrintReport(suppressDialog){
+    var mf = getMonthFilter(), yf = getLogYearFilter();
+    var rows = filteredEntries();
+    var scopeLabel = mf !== "all" ? monthLabel(mf) : (yf !== "all" ? yf : "");
+    var title = "Attendance Report" + (scopeLabel ? " — " + scopeLabel : "");
+    var subtitle = scopeLabel ? scopeLabel : "All recorded days";
     rows = rows.slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
     var s = summarize(rows);
 
@@ -2868,8 +2951,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!suppressDialog) window.print();
   }
 
-  document.getElementById("printBtn").addEventListener("click", function(){ buildPrintReport("month"); });
-  document.getElementById("printYearBtn").addEventListener("click", function(){ buildPrintReport("year"); });
+  document.getElementById("printBtn").addEventListener("click", function(){ buildPrintReport(); });
 
   // The print stylesheet hides the header, main and footer unconditionally and
   // shows only #printArea, which was populated only by the buttons above. So
@@ -2881,7 +2963,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   window.addEventListener("beforeprint", function(){
     var area = document.getElementById("printArea");
     if(area && !area.innerHTML.trim()){
-      buildPrintReport("month", true);
+      buildPrintReport(true);
       printAreaBuilt = true;
     }
   });
@@ -3306,6 +3388,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     seal.classList.add("punched");
   }
 
+  // Same one-shot retrigger technique as pulseSeal(), for the quick-clock
+  // panel's own glow bloom (see .quick-clock.punched in the stylesheet).
+  function pulseQuickClock(){
+    var panel = document.querySelector(".quick-clock");
+    if(!panel) return;
+    panel.classList.remove("punched");
+    void panel.offsetWidth;
+    panel.classList.add("punched");
+  }
+
   // Disabled buttons only stop taps, and punchClock is also reachable
   // programmatically (see the quick-clock dispatch further up). The buttons
   // are the visual affordance; this flag is the actual lock that serialises
@@ -3361,6 +3453,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
       await loadDataForViewedUser();
       pulseSeal();
+      pulseQuickClock();
 
       var msg = "Clocked " + kind + " at " + formatTime12(timeNow) + " · " + fmtDate(today);
       if(kind === "out"){
@@ -3413,9 +3506,21 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   var stickyClockEl = document.getElementById("stickyClock");
   var mainQuickClockEl = document.querySelector(".quick-clock");
   var mainClockCurrentlyVisible = true;
+  // Driven purely by whether the real quick-clock panel (on Overview) is on
+  // screen — the same IntersectionObserver-based mechanism that already
+  // covers switching to Log, Trends, or any other tab. Settings used to be
+  // an inline card rather than a tab and needed an explicit exception here;
+  // now that it's a tab like the others, activating it hides Overview (and
+  // the observed panel with it) exactly the same way, so no special case is
+  // needed.
   function updateStickyClockVisibility(){
-    var settingsOpen = document.getElementById("settingsCard").classList.contains("open");
-    stickyClockEl.classList.toggle("show", !mainClockCurrentlyVisible && isOwnData && !settingsOpen);
+    var show = !mainClockCurrentlyVisible && isOwnData;
+    stickyClockEl.classList.toggle("show", show);
+    // The bar floats over the bottom of the viewport, and above 1100px the
+    // frame no longer scrolls out from under it — so the panel underneath has
+    // to leave room at the end of its scroll. Carried on <body> because the
+    // bar is a sibling of the shell, not of the panel that has to react.
+    document.body.classList.toggle("sticky-clock-up", show);
   }
   if(stickyClockEl && mainQuickClockEl && "IntersectionObserver" in window){
     var stickyObserver = new IntersectionObserver(function(entriesList){
@@ -3453,8 +3558,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
     document.getElementById("monthlyFilterWrap").style.display =
       (tab === "trends" && subtab === "monthly") ? "flex" : "none";
-    document.getElementById("yearFilterWrap").style.display =
-      (tab === "trends" && subtab === "yearly") ? "flex" : "none";
     document.getElementById("punctFilterWrap").style.display = (tab === "punctuality") ? "flex" : "none";
     document.getElementById("trendsSubTabs").style.display = (tab === "trends") ? "flex" : "none";
   }
@@ -3462,7 +3565,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function renderSubtab(subtab){
     if(subtab === "weekly") renderWeekly();
     if(subtab === "monthly") renderMonthly();
-    if(subtab === "yearly") renderYearly();
   }
 
   document.querySelectorAll(".sub-tab-btn").forEach(function(btn){
@@ -3537,6 +3639,42 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   }
 
+  // Slides the rail's one accent bar to whichever .rail-item is active,
+  // instead of a bar popping in on the new item while the old one just
+  // vanishes. Re-run on every tab change, on the role-based show/hide of the
+  // Team and Admin items (those shift every row below them), and on resize —
+  // the rail collapses to the bottom nav under 760px, so a stale transform
+  // computed at a wider width would land the bar in the wrong place if the
+  // window is later grown back past that breakpoint without a tab change.
+  function positionRailIndicator(){
+    var bar = document.getElementById("railNavIndicator");
+    var nav = document.getElementById("railNav");
+    if(!bar || !nav) return;
+    var active = nav.querySelector(".rail-item.active");
+    // offsetParent is null while the rail itself is display:none (mobile) or
+    // before the active item has ever been laid out — bail rather than
+    // transform to a meaningless 0,0.
+    if(!active || !active.offsetParent){ bar.classList.remove("on"); return; }
+    var navTop = nav.getBoundingClientRect().top;
+    var itemRect = active.getBoundingClientRect();
+    var y = itemRect.top - navTop + itemRect.height / 2 - bar.offsetHeight / 2;
+    bar.style.transform = "translateY(" + y + "px)";
+    bar.classList.add("on");
+  }
+  window.addEventListener("resize", positionRailIndicator);
+
+  // The one tab whose content is sized to its container rather than to itself:
+  // the month grid's cells stretch to whatever height the frame gives them, and
+  // a card that hugged would collapse them to a strip.
+  //
+  // Not the two chart tabs, despite the temptation. Their chart-holder is
+  // deliberately flex:0 1 auto — a four-point line stretched to fill a tall
+  // panel reads as a chart with something missing (see the note on
+  // #tab-trends .chart-holder in index.html) — so filling the frame there
+  // only moves the empty space from under the card to inside it. Hugging puts
+  // the card's edge right below the content, and the canvas takes the rest.
+  var CARD_FILLS_FRAME = ["calendar"];
+
   // One activation path for every control that can open a panel: the tab strip,
   // the mobile bottom nav, and the header's Admin button — which is not a tab at
   // all, since managing the organisation is not a view of your own attendance.
@@ -3554,6 +3692,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.querySelectorAll(".tab-panel").forEach(function(p){ p.classList.remove("active"); });
     panel.classList.add("active");
 
+
     // Admin lives outside the tablist, so its own trigger carries the state.
     var adminBtn = document.getElementById("adminBtn");
     if(adminBtn) adminBtn.setAttribute("aria-current", tab === "admin" ? "page" : "false");
@@ -3565,6 +3704,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var tabCard = document.getElementById("tabContentCard");
     if(tabCard) tabCard.hidden = (tab === "overview");
 
+    // Above 1100px the card hugs its content, so a short tab no longer leaves a
+    // tall empty rectangle under it. These three are the exception: a chart and
+    // a month grid are drawn to whatever height they are given, so their card
+    // still takes the whole frame. See #tabContentCard.fill in index.html.
+    if(tabCard) tabCard.classList.toggle("fill", CARD_FILLS_FRAME.indexOf(tab) !== -1);
+
     applyFilterBarVisibility(tab, activeSubtab());
 
     if(tab === "overview"){
@@ -3572,14 +3717,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       renderPersonCard();
       renderWorkingFormat();
       renderTodayTeam().catch(function(){});
-      // After the panel is displayed, or the measurement reads a hidden node.
-      fitOverview();
     }
     if(tab === "trends") renderSubtab(activeSubtab());
     if(tab === "calendar") renderCalendarView();
     if(tab === "punctuality") renderPunctuality();
     if(tab === "team") renderTeam();
     if(tab === "admin") renderAdmin();
+    if(tab === "settings") refreshSettingsPanel();
 
     document.querySelectorAll(".bn-item").forEach(function(b){
       b.classList.toggle("active", b.getAttribute("data-bn-tab") === tab);
@@ -3597,6 +3741,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(on) b.setAttribute("aria-current", "page");
       else b.removeAttribute("aria-current");
     });
+    positionRailIndicator();
+
+    // A tab you come back to opens at the top of its list, not wherever you
+    // had scrolled it to on the last visit.
+    if(panel) panel.scrollTop = 0;
   }
 
   document.querySelectorAll(".tab-btn").forEach(function(btn){
@@ -3606,18 +3755,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   });
 
   // The rail is the same thin layer over the real controls that the bottom nav
-  // is: a tab item clicks its .tab-btn, and the two destinations that are not
-  // tabs (Admin, Settings) click their own existing header buttons, so their
-  // admin guards and scroll behaviour are not duplicated here.
+  // is: a tab item clicks its .tab-btn, and Admin — the one destination that
+  // isn't a tab — clicks its own existing header button, so its admin guard
+  // and scroll behaviour aren't duplicated here.
   document.querySelectorAll(".rail-item").forEach(function(btn){
     btn.addEventListener("click", function(){
       var action = btn.getAttribute("data-rail-action");
       if(action === "admin"){
         document.getElementById("adminBtn").click();
-        return;
-      }
-      if(action === "settings"){
-        document.getElementById("settingsBtn").click();
         return;
       }
       var realTab = document.querySelector('.tab-btn[data-tab="'+btn.getAttribute("data-rail-tab")+'"]');
@@ -3671,7 +3816,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   ["searchInput","typeFilterSelect","fromDate","toDate"].forEach(function(id){
     var el = document.getElementById(id);
     el.addEventListener(id === "searchInput" ? "input" : "change", function(){
-      logVisibleCount = LOG_PAGE_SIZE;
+      // Back to the first chunk: this is a different list now.
+      logScrollLimit = LOG_SCROLL_CHUNK;
       renderLog();
       updateAdvancedFilterBadge();
     });
@@ -3706,7 +3852,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderWeekly();
     updateAdvancedFilterBadge();
   });
-  document.getElementById("yearFilterSelect").addEventListener("change", renderYearly);
 
   // ---------- Export / import ----------
   function download(filename, content, mime){
@@ -4396,6 +4541,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         count:month.filter(function(e){ return (e.type || "regular") === type; }).length};
     }).filter(function(b){ return b.count > 0; });
     var total = active.reduce(function(sum, b){ return sum + b.count; }, 0);
+    dial.closest(".format-card").classList.toggle("no-days", !total);
 
     if(!total){
       dial.innerHTML = '<p class="format-empty">No days logged this month yet.</p>';
@@ -4441,6 +4587,28 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           'text-anchor="middle" dominant-baseline="middle">DAYS</text>'+
       '</svg>';
 
+    // Every other chart in the app (bar, trend line, sparkline) draws its
+    // data in on render; this ring popped in fully formed because its
+    // dasharray/dashoffset already encode real data rather than a 0-1 draw
+    // fraction like .trend-line's pathLength trick, so it can't be a plain
+    // CSS keyframe — each segment's start and length are per-render values.
+    // Growing stroke-dasharray's first number from 0 up to its real length,
+    // with stroke-dashoffset left untouched, sweeps each segment out from its
+    // true starting angle to its true end angle: never a wrong intermediate
+    // shape, just an incomplete one. Web Animations API, not CSS, because the
+    // target value is dynamic per segment — and NOT covered by the sheet's
+    // blanket prefers-reduced-motion override (that only intercepts CSS
+    // transition/animation durations), so it's gated here explicitly.
+    if(!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)){
+      dial.querySelectorAll(".format-ring").forEach(function(ring, i){
+        var full = ring.getAttribute("stroke-dasharray");
+        ring.animate(
+          [{strokeDasharray: "0 " + circ.toFixed(2)}, {strokeDasharray: full}],
+          {duration: 520, delay: i * 70, easing: "cubic-bezier(.22,1,.36,1)", fill: "backwards"}
+        );
+      });
+    }
+
     legend.innerHTML = active.map(function(b, i){
       return '<div class="format-leg">'+
         '<div class="format-leg-top">'+
@@ -4465,37 +4633,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       legend.scrollHeight - legend.scrollTop - legend.clientHeight > 4);
   }
 
-  // ---------- Fit the Overview to the viewport ----------
-  // The Overview is meant to be one screen: its grid is sized to whatever is
-  // left of the viewport under the header rather than to its content, so the
-  // roster is the only thing that scrolls. Measured rather than hardcoded
-  // because the header's height moves — the viewing banner appears, the title
-  // wraps — and a stale constant would either clip the figures or bring the
-  // page scrollbar back.
-  function fitOverview(){
-    var panel = document.getElementById("tab-overview");
-    if(!panel) return;
-    if(!panel.classList.contains("active") ||
-       !window.matchMedia("(min-width:1100px)").matches){
-      panel.style.removeProperty("--ov-chrome");
-      return;
-    }
-    // Everything on the page that is not this panel: the header above it, and
-    // the export/import footer below. The footer is measured directly rather
-    // than inferred from scrollHeight, which the browser clamps to the viewport
-    // — that clamp turns "what is left over" into a feedback loop that shrinks
-    // the panel a little further on every call.
-    var top = panel.getBoundingClientRect().top + (window.scrollY || 0);
-    var foot = document.querySelector("footer.ledger-foot");
-    var below = 0;
-    if(foot){
-      var cs = getComputedStyle(foot);
-      below = foot.getBoundingClientRect().height +
-              (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
-    }
-    panel.style.setProperty("--ov-chrome", Math.round(top + below) + "px");
-  }
-  window.addEventListener("resize", fitOverview);
+  // The Overview used to measure its own height here (fitOverview wrote an
+  // --ov-chrome custom property on every resize) because the page was a
+  // scrolling document and the chrome around the panel moved. The shell is a
+  // fixed frame above 1100px now — see "One screen per tab" in index.html — so
+  // the panel gets its height from the flex layout and no measurement is left
+  // to keep in sync.
   window.addEventListener("resize", updateFormatLegendScrollHint);
   var formatLegendEl = document.getElementById("formatLegend");
   if(formatLegendEl) formatLegendEl.addEventListener("scroll", updateFormatLegendScrollHint);
@@ -4514,7 +4657,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!isAdmin){
       card.hidden = true;
       if(panel) panel.classList.add("solo");
-      fitOverview();
       return;
     }
     card.hidden = false;
@@ -4539,29 +4681,31 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
 
     var settingsByUser = await loadTeamSettings();
-    var rows = allProfiles.map(function(p){
-      var own = settingsByUser[p.id] || normalizeSettings({});
-      return {p: p, st: teamStatus(byUser[p.id] || [], own)};
-    });
-    // Anyone still outstanding first — the panel exists to surface those.
-    var order = {missing:0, in:1, excused:2, done:3, off:4};
+    // Only people who actually punched in today — not the whole roster with
+    // its day-offs and not-yet-arriveds cluttering the list. Still-in first,
+    // then whoever's already done, alphabetically within each.
+    var rows = allProfiles
+      .map(function(p){
+        var own = settingsByUser[p.id] || normalizeSettings({});
+        return {p: p, st: teamStatus(byUser[p.id] || [], own)};
+      })
+      .filter(function(r){ return r.st.cls === "in" || r.st.cls === "done"; });
+    var order = {in:0, done:1};
     rows.sort(function(a,b){
       var d = (order[a.st.cls] || 9) - (order[b.st.cls] || 9);
       return d || (a.p.full_name || a.p.email).localeCompare(b.p.full_name || b.p.email);
     });
 
     if(!rows.length){
-      list.innerHTML = '<p class="tt-empty">No other users have registered yet.</p>';
+      list.innerHTML = '<p class="tt-empty">No one has clocked in yet today.</p>';
       if(countEl) countEl.textContent = "";
       return;
     }
-    // The panel exists to surface whoever is still outstanding, so that — not
-    // a headcount — is what the header reports.
     if(countEl){
-      var outstanding = rows.filter(function(r){ return r.st.cls === "missing"; }).length;
-      countEl.textContent = outstanding
-        ? outstanding + " outstanding"
-        : "All " + rows.length + " accounted for";
+      var inNow = rows.filter(function(r){ return r.st.cls === "in"; }).length;
+      countEl.textContent = inNow
+        ? inNow + " in now"
+        : rows.length + " clocked in today";
     }
     list.innerHTML = rows.map(function(r){
       var name = r.p.full_name || r.p.email;
@@ -4631,7 +4775,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     viewedUserId = newId;
     viewedProfile = allProfiles.find(function(p){ return p.id === newId; }) || null;
     resetForm();
-    document.getElementById("settingsCard").classList.remove("open");
+    // No explicit Settings refresh needed here: loadDataForViewedUser()
+    // calls renderAll(), which refreshes the Settings tab unconditionally
+    // (see refreshSettingsPanel) — including its "editing X's schedule"
+    // label and admin-only row, in case it's the tab already on screen.
     await loadDataForViewedUser();
   });
 
@@ -5000,6 +5147,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(railTeam) railTeam.style.display = isAdmin ? "" : "none";
     var railAdmin = document.getElementById("railAdminBtn");
     if(railAdmin) railAdmin.style.display = isAdmin ? "" : "none";
+    // Showing/hiding Team and Admin shifts every rail-item below them, so the
+    // shared indicator bar needs to catch up even when no tab switch fired.
+    positionRailIndicator();
   }
 
   // Re-syncs UI after the signed-in user's own role changes (e.g. self-demotion),
@@ -5024,11 +5174,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("teamTabBtn").style.display = "none";
       document.getElementById("adminBtn").style.display = "none";
       layoutBottomNav();
-      document.getElementById("settingsCard").classList.remove("open");
       if(viewedUserId !== currentUser.id){
         viewedUserId = currentUser.id;
         viewedProfile = currentProfile;
         await loadDataForViewedUser();
+      } else {
+        // loadDataForViewedUser() (and the renderAll() it calls) only run
+        // above when the viewed person actually changes — but a
+        // self-demotion while already viewing yourself still changes
+        // isAdmin, which the Settings tab's "Apply to everyone" row depends
+        // on, so it needs its own refresh here.
+        refreshSettingsPanel();
       }
       // Leave any admin-only tab the demoted user is standing on. Hiding the
       // button alone would leave the panel — roles, the audit log, everyone's
@@ -5084,6 +5240,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     try { return isScheduled(dateStr); }
     finally { settings = saved; }
   }
+  function computeEntryAs(personSettings, entry){
+    var saved = settings;
+    settings = personSettings;
+    try { return computeEntry(entry); }
+    finally { settings = saved; }
+  }
 
   // What that person is doing today — the question a roster is actually opened
   // to answer, and one the old three-number row could not answer at all.
@@ -5122,13 +5284,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var monthStart = teamMonth + "-01";
       var mp = teamMonth.split("-");
       var monthEnd = dateToStr(new Date(+mp[0], +mp[1], 0)); // last day of month
+      // updated_at powers the activity sidebar below — added to this same
+      // query rather than a second one, since it's already scoped to exactly
+      // the entries that feed it.
       var res = await supabase.from("entries")
-        .select("user_id,date,clock_in,clock_out,type")
+        .select("user_id,date,clock_in,clock_out,type,updated_at")
         .gte("date", monthStart).lte("date", monthEnd);
       if(res.error) throw res.error;
       (res.data || []).forEach(function(row){
         if(!byUser[row.user_id]) byUser[row.user_id] = [];
-        byUser[row.user_id].push(rowToEntry(row));
+        var entry = rowToEntry(row);
+        entry.updatedAt = row.updated_at;
+        byUser[row.user_id].push(entry);
       });
     }catch(err){
       list.innerHTML = "";
@@ -5152,10 +5319,73 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       };
     });
 
-    renderTeamCards();
+    renderTeamCards(true);
+    renderTeamActivity();
   }
 
-  function renderTeamCards(){
+  // Who did what most recently, across the whole team for the displayed
+  // month — every logged/updated entry, flattened across teamRowsCache and
+  // sorted by updated_at, newest first. Unaffected by the roster's own
+  // search/sort (this answers a different question), so it lives in
+  // renderTeam() rather than renderTeamCards().
+  function renderTeamActivity(){
+    var list = document.getElementById("teamActivityList");
+    var empty = document.getElementById("teamActivityEmpty");
+    if(!list || !empty) return;
+
+    var events = [];
+    teamRowsCache.forEach(function(t){
+      t.rows.forEach(function(e){
+        if(!e.updatedAt) return;
+        events.push({profile: t.profile, entry: e, settings: t.settings});
+      });
+    });
+    events.sort(function(a, b){ return new Date(b.entry.updatedAt) - new Date(a.entry.updatedAt); });
+    events = events.slice(0, 8);
+
+    empty.style.display = events.length ? "none" : "block";
+    // With nothing to show, the rail was a 240px column standing empty beside
+    // the full height of the roster. The roster takes the width back and the
+    // card drops below it, where one line of "nothing yet" costs nothing.
+    var layout = document.querySelector(".team-layout");
+    if(layout) layout.classList.toggle("no-activity", !events.length);
+    list.innerHTML = events.map(function(ev){
+      var p = ev.profile, e = ev.entry;
+      var name = p.full_name || p.email;
+      var initials = name.trim().split(/\s+/).map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
+      var c = computeEntryAs(ev.settings, e);
+      var desc;
+      if((e.type || "regular") !== "regular"){
+        desc = "Logged " + typeLabel(e.type);
+      } else if(e.clockIn && e.clockOut){
+        desc = "Clocked out at " + formatTime12(e.clockOut) +
+          (c.workedMin !== null ? " · " + minutesToHoursStr(c.workedMin) + " worked" : "");
+      } else if(e.clockIn){
+        desc = "Clocked in at " + formatTime12(e.clockIn);
+      } else {
+        desc = "Logged " + fmtDateShort(e.date);
+      }
+      return '<div class="activity-row">'+
+        ((currentUser && p.id === currentUser.id && localAvatar(p.id))
+          ? '<div class="avatar"><img src="'+escapeAttr(localAvatar(p.id))+'" alt=""></div>'
+          : '<div class="avatar">'+escapeHtml(initials)+'</div>')+
+        '<div class="activity-row-body">'+
+          '<div class="activity-row-head">'+
+            '<span class="activity-row-name" dir="auto">'+escapeHtml(name)+'</span>'+
+            '<span class="activity-row-time">'+fmtRelative(e.updatedAt)+'</span>'+
+          '</div>'+
+          '<p class="activity-row-desc">'+escapeHtml(desc)+'</p>'+
+        '</div>'+
+      '</div>';
+    }).join("");
+  }
+
+  // entering: true only when this call is drawing a genuinely new set of
+  // people to look at — a month change or a sort change — not the search
+  // box, which calls this on every keystroke. Re-playing a stagger entrance
+  // on every keystroke would turn typing into a flicker; a changed month or
+  // sort order is infrequent enough, and different enough data, to earn one.
+  function renderTeamCards(entering){
     var list = document.getElementById("teamList");
     var empty = document.getElementById("teamEmpty");
     var summaryEl = document.getElementById("teamSummary");
@@ -5180,17 +5410,43 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return a;
     }, {worked:0, target:0, days:0, inNow:0});
 
+    // Same figures the flat summary bar showed, but as the stat-card Overview
+    // itself leads with — icon + label, a tabular-nums headline, one detail
+    // line. Two of the five reuse Overview's own icons (the calendar for a
+    // day count, the ledger circle for a worked-vs-target total) on purpose:
+    // it is the same kind of number, so it earns the same glyph.
     summaryEl.hidden = false;
     summaryEl.innerHTML = [
-      ['<span class="ts-value">'+teamRowsCache.length+'</span><span class="ts-label">people</span>'],
-      ['<span class="ts-value">'+totals.inNow+'</span><span class="ts-label">clocked in now</span>'],
-      ['<span class="ts-value">'+totals.days+'</span><span class="ts-label">days logged</span>'],
-      ['<span class="ts-value">'+minutesToHoursStr(totals.worked)+'</span><span class="ts-label">of '+minutesToHoursStr(totals.target)+' target</span>'],
+      {
+        icon:'<circle cx="8.5" cy="8.5" r="3"/><path d="M3.5 20c0-3.5 2.2-6 5-6s5 2.5 5 6"/><circle cx="16" cy="9" r="2.3"/><path d="M14.7 14.2c2.2.5 3.8 2.5 3.8 5.8"/>',
+        label:"People", value:String(teamRowsCache.length), detail:"On the roster"
+      },
+      {
+        icon:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3.5 2"/>',
+        label:"Clocked In Now", value:String(totals.inNow), detail:totals.inNow ? "Right now" : "Nobody right now"
+      },
+      {
+        icon:'<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/>',
+        label:"Days Logged", value:String(totals.days), detail:"Across the team"
+      },
+      {
+        icon:'<circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/>',
+        label:"Hours Worked", value:minutesToHoursStr(totals.worked), detail:"Of "+minutesToHoursStr(totals.target)+" target"
+      },
       // Same accomplishment reading as the Shortfall tab's Target Met Rate:
       // share of target HOURS worked, not a day-count rate. Floored, not
       // rounded — see the note by pMetRate above for why.
-      ['<span class="ts-value">'+(totals.target ? Math.floor((totals.worked/totals.target)*100)+"%" : "—")+'</span><span class="ts-label">target met</span>']
-    ].map(function(x){ return '<div class="ts-item">'+x+'</div>'; }).join("");
+      {
+        icon:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.3"/><circle cx="12" cy="12" r=".8" fill="currentColor"/>',
+        label:"Target Met", value:totals.target ? Math.floor((totals.worked/totals.target)*100)+"%" : "—", detail:"Team-wide"
+      }
+    ].map(function(c){
+      return '<div class="stat-card">'+
+        '<p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+c.icon+'</svg>'+c.label+'</p>'+
+        '<p class="stat-value">'+c.value+'</p>'+
+        '<p class="stat-detail">'+c.detail+'</p>'+
+      '</div>';
+    }).join("");
 
     var shown = teamRowsCache.filter(function(t){
       if(!term) return true;
@@ -5216,7 +5472,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!shown.length) empty.textContent = "Nobody matches that search.";
     list.innerHTML = "";
 
-    shown.forEach(function(t){
+    shown.forEach(function(t, i){
       var p = t.profile, s = t.summary;
       var initials = (p.full_name || p.email || "?").trim().split(/\s+/)
         .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
@@ -5231,6 +5487,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var card = document.createElement("button");
       card.type = "button";
       card.className = "team-card";
+      if(entering){
+        // Capped at 8 steps so a long roster still finishes inside ~0.6s
+        // rather than stacking indefinitely — see .team-card.entering below.
+        card.classList.add("entering");
+        card.style.animationDelay = (Math.min(i, 8) * 35) + "ms";
+      }
       card.setAttribute("data-uid", p.id);
       card.setAttribute("aria-label", "Open " + name + "'s attendance for " + monthLabel(teamMonth));
       card.innerHTML =
@@ -5239,16 +5501,24 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           // never transmitted, so there is nothing to render here but initials.
           // Your own card is the one exception.
           ((currentUser && p.id === currentUser.id && localAvatar(p.id))
-            ? '<div class="team-avatar"><img src="'+escapeAttr(localAvatar(p.id))+'" alt=""></div>'
-            : '<div class="team-avatar">'+escapeHtml(initials)+'</div>')+
+            ? '<div class="avatar"><img src="'+escapeAttr(localAvatar(p.id))+'" alt=""></div>'
+            : '<div class="avatar">'+escapeHtml(initials)+'</div>')+
           '<div class="team-info">'+
-            '<div class="team-name" dir="auto">'+escapeHtml(name)+
-              (p.role === "admin" ? ' <span class="admin-badge">Admin</span>' : '')+
-              (t.configured ? '' : ' <span class="admin-badge unconfigured">No schedule</span>')+
-            '</div>'+
-            '<div class="team-email" dir="auto">'+escapeHtml(p.email)+'</div>'+
+            // The badges used to sit inside this line. Being inline text they
+            // wrapped with it, so at a card's width a two-word name broke
+            // across lines with a pill wedged into the middle of it, and the
+            // email lost most of its characters to whatever was left. Name and
+            // address get the full width; the pills have their own row below.
+            '<div class="team-name" dir="auto">'+escapeHtml(name)+'</div>'+
+            // title, because .team-email truncates to one line: the full
+            // address has to stay reachable on hover and to assistive tech.
+            '<div class="team-email" dir="auto" title="'+escapeAttr(p.email)+'">'+escapeHtml(p.email)+'</div>'+
           '</div>'+
+        '</div>'+
+        '<div class="team-tags">'+
           '<span class="team-status '+t.status.cls+'">'+escapeHtml(t.status.label)+'</span>'+
+          (p.role === "admin" ? '<span class="admin-badge">Admin</span>' : '')+
+          (t.configured ? '' : '<span class="admin-badge unconfigured">No schedule</span>')+
         '</div>'+
         '<div>'+
           '<div class="team-bar'+barCls+'"><span style="width:'+pct+'%"></span></div>'+
@@ -5256,7 +5526,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
             (s.targetSum
               ? minutesToHoursStr(s.workedSum)+' of '+minutesToHoursStr(s.targetSum)+' target'+
                 (s.incompleteDays ? ' · '+s.incompleteDays+' incomplete' : '')
-              : 'No scheduled days this month')+
+              : 'No scheduled days')+
           '</div>'+
         '</div>'+
         '<div class="team-card-figures">'+
@@ -5278,8 +5548,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     sel.dispatchEvent(new Event("change"));
     activateTab("log");
   });
-  document.getElementById("teamSearch").addEventListener("input", renderTeamCards);
-  document.getElementById("teamSort").addEventListener("change", renderTeamCards);
+  // Wrapped, not passed directly: renderTeamCards's entering param would
+  // otherwise receive the raw Event object from these listeners (always
+  // truthy) and stagger-animate on every keystroke — the one case it's
+  // meant to skip. Sort explicitly opts in; search explicitly does not.
+  document.getElementById("teamSearch").addEventListener("input", function(){ renderTeamCards(); });
+  document.getElementById("teamSort").addEventListener("change", function(){ renderTeamCards(true); });
   document.getElementById("teamPrevMonth").addEventListener("click", function(){
     teamMonth = shiftMonth(teamMonth || monthKey(todayStr()), -1);
     renderTeam();
@@ -5993,6 +6267,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return res.count || 0;
   }
 
+  // null means the checks could not be run at all — say so rather than
+  // reporting "all clear", which is the one wrong answer here.
+  function setHealthSummary(needing){
+    var el = document.getElementById("adminHealthSummary");
+    if(!el) return;
+    if(needing === null){ el.textContent = "Data checks couldn't run."; return; }
+    el.textContent = needing === 0
+      ? "All data checks clear."
+      : needing === 1 ? "1 check needs attention." : needing + " checks need attention.";
+  }
+
   async function renderAdminHealth(){
     var wrap = document.getElementById("adminAttentionList");
     var today = todayStr();
@@ -6045,18 +6330,22 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       findings.push({
         count: results[2],
         title: results[2] === 1 ? "1 entry dated far in the future" : results[2] + " entries dated far in the future",
-        note: "More than 400 days ahead. These distort the year filter and the year-over-year chart.",
+        note: "More than 400 days ahead. These distort the Log's year filter and every monthly total.",
         clear: "No implausible dates."
       });
     }catch(err){
       wrap.innerHTML = '<p class="settings-hint" style="margin:0;">Couldn\'t run the data checks: ' +
         escapeHtml(friendlyError(err)) + '</p>';
+      setHealthSummary(null);
       return;
     }
 
     // Worst first, but clean checks are still listed — an admin needs to see
     // that a check ran and passed, not be left guessing whether it ran at all.
     findings.sort(function(a, b){ return b.count - a.count; });
+    // The side card says the same thing in one line, so the state of the data
+    // is readable from every section rather than only from Overview.
+    setHealthSummary(findings.filter(function(f){ return f.count; }).length);
     wrap.innerHTML = findings.map(function(f){
       return '<div class="attention-item" role="listitem">'+
         '<span class="attention-count'+(f.count ? '' : ' is-clear')+'">'+(f.count ? f.count : '✓')+'</span>'+
@@ -6142,6 +6431,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
 
     showApp();
+    // Overview is already .active in the markup, so no activateTab() call
+    // runs on a fresh sign-in to trigger the indicator's own reposition —
+    // and it could not have measured anything correctly before this anyway,
+    // with the rail still display:none.
+    positionRailIndicator();
     buildDayPicker();
     // Built before loadAppSettings() below, which fills it from
     // app_settings.default_settings.

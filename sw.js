@@ -17,7 +17,7 @@ const CACHE_NAME = "attendance-ledger-shell-v6";
 // for the directory and would never match a cache entry keyed to index.html.
 //
 // The theme stylesheets that used to be listed here are gone: the app ships one
-// design system (Atrium) and its CSS is inline in index.html. Leaving the three
+// design system (Meridian) and its CSS is inline in index.html. Leaving the three
 // dead paths in place was worse than it looked — cache.addAll rejects if ANY
 // entry 404s, and the .catch() below swallows that, so three missing files
 // meant nothing at all got precached and offline boot failed silently.
@@ -99,7 +99,12 @@ self.addEventListener("fetch", (event) => {
         return res;
       })
       .catch(async () => {
-        const hit = await caches.match(req);
+        // ignoreSearch, because index.html requests app.js with a cache-busting
+        // version query while the shell precaches the bare path. Without it an
+        // offline boot misses on "app.js?v=..." and the app dies with the shell
+        // already on screen — the exact silent failure this worker exists to
+        // prevent. It also means a version bump costs nothing here.
+        const hit = await caches.match(req, {ignoreSearch: true});
         return hit || new Response("Offline and not cached", {
           status: 504,
           statusText: "Offline",

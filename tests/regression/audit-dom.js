@@ -230,7 +230,9 @@ function ok(cond, name, detail){
   // ---------------------------------------------------------------- chart target steps
   // A January logged against a 5h seasonal period and a June logged against
   // the base 8h target must draw two different heights for the dashed target
-  // reference on the Yearly chart, not one flat line for the whole year.
+  // reference, not one flat line for the whole year. Measured on the Monthly
+  // chart since the Yearly view was removed; it plots the same twelve months
+  // of one year that the Yearly chart did.
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -240,12 +242,13 @@ function ok(cond, name, detail){
     await page.waitForTimeout(1000);
     const ys = await page.evaluate(() => {
       document.querySelector('.tab-btn[data-tab="trends"]').click();
-      const svg = document.getElementById("yearChart").querySelector("svg");
+      document.querySelector('.sub-tab-btn[data-subtab="monthly"]').click();
+      const svg = document.getElementById("monthlyChart").querySelector("svg");
       return [...svg.querySelectorAll('line[stroke-dasharray]')].map(l => l.getAttribute("y1"));
     });
     const distinct = new Set(ys);
     ok(ys.length >= 2 && distinct.size >= 2,
-      "the Yearly chart's target reference steps between the 5h period and the 8h base",
+      "the Monthly chart's target reference steps between the 5h period and the 8h base",
       JSON.stringify(ys));
     await ctx.close();
   }
@@ -340,7 +343,18 @@ function ok(cond, name, detail){
   }
   {
     const worst = await page.evaluate(() => {
-      document.querySelectorAll(".settings-card, .accordion-section").forEach(e => e.classList.add("open"));
+      // Settings is a real .tab-panel now, inside #tabContentCard like every
+      // other non-Overview tab — .active alone isn't enough to make its date/
+      // time fields measurable if that shared ancestor is still [hidden].
+      const settingsPanel = document.getElementById("tab-settings");
+      if(settingsPanel) settingsPanel.classList.add("active");
+      const tabContentCard = document.getElementById("tabContentCard");
+      if(tabContentCard) tabContentCard.hidden = false;
+      document.querySelectorAll(".accordion-section").forEach(e => e.classList.add("open"));
+      // Settings and Admin are consoles now — one section shows at a time. The
+      // fields in the six that are hidden still have to survive a narrow
+      // screen, so every section is made measurable at once here.
+      document.querySelectorAll(".console-section").forEach(e => e.classList.add("active"));
       // Model what iOS does and Chromium will not: resolve the control to a
       // width far larger than its cell. Forced as `width`, not `min-width` —
       // min-width beats max-width in the cascade, so pinning it that way would
