@@ -294,8 +294,11 @@ async function boot(browser, server, query){
     ok(!s.darkClass && s.uiThemeAttr === null, "no dark-mode class or theme attribute remains", JSON.stringify(s));
   }
   {
-    // At phone width the Admin label is hidden to save the bar, so the button
-    // must still carry a name for anyone who cannot see the icon.
+    // At phone width this row is the only way to reach Admin, Settings and
+    // Sign out — the rail is gone below 760px. The labels used to be hidden
+    // here to save the bar, which left three unlabelled discs with a crimson
+    // sign-out among them; they stay visible now. Either way the button has to
+    // carry a name, so that is what is asserted.
     await page.setViewportSize({width: 390, height: 850});
     await page.waitForTimeout(150);
     const s = await page.evaluate(() => {
@@ -303,11 +306,14 @@ async function boot(browser, server, query){
       const r = b.getBoundingClientRect();
       return {w: Math.round(r.width), h: Math.round(r.height),
         labelShown: getComputedStyle(b.querySelector("span")).display,
+        visibleText: (b.querySelector("span").textContent || "").trim(),
         name: (b.getAttribute("aria-label") || b.getAttribute("title") || "").trim()};
     });
     ok(s.w >= 40 && s.h >= 40, "the Admin button stays a 40px touch target on a phone", JSON.stringify(s));
-    ok(s.labelShown === "none" && s.name.length > 0,
-      "the collapsed Admin button keeps an accessible name", JSON.stringify(s));
+    ok(s.name.length > 0,
+      "the Admin button carries an accessible name on a phone", JSON.stringify(s));
+    ok(s.labelShown !== "none" && (s.visibleText || "").length > 0,
+      "the Admin button is labelled on screen, not icon-only", JSON.stringify(s));
 
     // The header was eating a third of a phone screen before any attendance
     // showed. These are the budgets it was trimmed to; they are the point of
@@ -531,7 +537,11 @@ async function boot(browser, server, query){
       "cards are real buttons, reachable from a keyboard", JSON.stringify(s.tags));
     ok(s.named, "each card says whose record it opens", JSON.stringify(s.named));
     ok(s.nextDisabled, "the roster cannot walk into future months", JSON.stringify(s));
-    ok(/people/i.test(s.summary) && /target met/i.test(s.summary) && /target/i.test(s.summary),
+    // "Target Hours Met", not "Target Met Rate": the figure is worked hours over
+    // target hours, and the old name read as a count of days that met target —
+    // a different number the same tab could plausibly have shown.
+    ok(/people/i.test(s.summary) && /hours worked/i.test(s.summary) &&
+       /target hours met/i.test(s.summary),
       "a team-wide summary sits above the cards", s.summary.slice(0, 120));
     ok(s.statuses.every(x => typeof x === "string" && x.length),
       "every card says what that person is doing today", JSON.stringify(s.statuses));

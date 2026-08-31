@@ -29,7 +29,7 @@
   default-src 'self';
   script-src 'self';
   style-src 'self' 'unsafe-inline';
-  img-src 'self' data:;
+  img-src 'self' data: blob:;
   font-src 'self';
   connect-src 'self' https://lxnfiszrlgddpcbwavfw.supabase.co wss://lxnfiszrlgddpcbwavfw.supabase.co;
   form-action 'none';
@@ -84,16 +84,18 @@
        Every text/surface pair below was measured against WCAG AA 4.5:1 rather
        than eyeballed — see The Measured Floor rule in DESIGN.md. */
 
-    /* The neutral ramp. Named --teal-* for continuity with the component CSS
-       that already references these steps; there is no teal in Atrium, this is
-       the ink ramp from near-black down to the two page washes. */
-    --teal-950:#0A0A09;
-    --teal-900:#111110;  /* the rail, and primary ink */
-    --teal-800:#1C1C1A;
-    --teal-700:#2A2A27;
-    --teal-600:#3D3D38;  /* focus borders, active outlines */
-    --teal-100:#E4E2DC;  /* wash: sub-tab tray, active tab */
-    --teal-50:#EFEDE8;   /* lighter wash: table header, zebra rows */
+    /* The neutral ramp, near-black down to the two page washes. These were
+       --teal-* until the Atrium pass: names inherited from Gilt Ledger, whose
+       ramp really was teal. DESIGN.md documented them as --ink-* and the
+       stylesheet never followed, so the colour contract named steps that a
+       grep for --ink-700 could not find. */
+    --ink-950:#0A0A09;
+    --ink-900:#111110;  /* the rail, and primary ink */
+    --ink-800:#1C1C1A;
+    --ink-700:#2A2A27;
+    --ink-600:#3D3D38;  /* focus borders, active outlines */
+    --ink-100:#E4E2DC;  /* wash: sub-tab tray, active tab */
+    --ink-50:#EFEDE8;   /* lighter wash: table header, zebra rows */
 
     --rail:#111110;
     --paper:#E9E7E2;     /* the canvas the cards sit on */
@@ -155,14 +157,24 @@
        app's rhythm lives, and an 8-only scale would round them to 8 or 16 and
        flatten the contrast again. The half-steps below 8 are for inside a
        control; the whole steps from 12 up separate things. */
+    /* Every even step from 2 to 16, then 20/24/28/32. The declared scale used
+       to skip 10 and 14 while the sheet used them 99 times between them — so
+       the doc described a rhythm the app was not keeping, which is the same
+       failure the scale was introduced to fix, one iteration on. The odd
+       values went instead: 3, 5, 7, 9, 11, 13, 15 were 81 one-off declarations
+       carrying no relationship to each other, and every one of them moved by a
+       pixel or two onto a step that already existed. */
     --space-0:2px;    /* hairline: icon to its label */
     --space-1:4px;
     --space-1-5:6px;  /* tight: inside a group that reads as one object */
     --space-2:8px;
+    --space-2-5:10px;
     --space-3:12px;   /* standard: between siblings in a group */
+    --space-3-5:14px;
     --space-4:16px;
     --space-5:20px;   /* generous: between regions */
     --space-6:24px;
+    --space-7:28px;
     --space-8:32px;   /* the module: one Log row */
 
     /* One family, three jobs. The tokens stay separate so a future change can
@@ -179,7 +191,7 @@
     --shadow-glow:0 0 0 1px rgba(214,232,92,.55), 0 8px 28px rgba(214,232,92,.22);
 
     --gradient-gold:linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 55%, #B9CF3E 100%);
-    --gradient-teal:linear-gradient(135deg, var(--teal-700) 0%, var(--teal-900) 100%);
+    --gradient-ink:linear-gradient(135deg, var(--ink-700) 0%, var(--ink-900) 100%);
     /* The iridescent tile — Atrium's one decorative gradient, reserved for a
        single "highlight" stat so it stays an event rather than a texture. */
     --gradient-iris:linear-gradient(135deg, #E8DCC8 0%, #DCD9E8 38%, #CFE4DC 68%, #EFDCE2 100%);
@@ -240,7 +252,7 @@
   /* The uppercase tracked micro-label. Atrium's most-repeated typographic move:
      every stat label, field label, nav item and meta line is set this way. */
   .kicker{
-    text-transform:uppercase; letter-spacing:.1em; font-size:10px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.1em; font-size:10px; font-weight:500;
     color:var(--muted); margin:0;
   }
 
@@ -252,19 +264,19 @@
   .rail{
     position:fixed; left:0; top:0; bottom:0; width:236px; z-index:120;
     background:var(--rail); color:#fff;
-    display:flex; flex-direction:column; padding:26px 16px 18px;
+    display:flex; flex-direction:column; padding:24px 16px 16px;
   }
   .rail-brand{
     font-size:19px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
-    margin:0 0 30px; padding:0 10px; color:#fff;
+    margin:0 0 32px; padding:0 10px; color:#fff;
   }
   .rail-brand span{color:var(--gold);}
   .rail-nav{display:flex; flex-direction:column; gap:2px; position:relative;}
   .rail-item{
     position:relative; display:flex; align-items:center; gap:12px;
-    padding:11px 12px; border-radius:var(--radius-sm); cursor:pointer;
+    padding:12px 12px; border-radius:var(--radius-sm); cursor:pointer;
     background:none; border:none; width:100%; text-align:left;
-    font-family:inherit; font-size:11px; font-weight:600;
+    font-family:inherit; font-size:11px; font-weight:500;
     text-transform:uppercase; letter-spacing:.09em;
     color:var(--muted-on-dark); min-height:44px;
   }
@@ -302,7 +314,7 @@
   .seal{
     position:relative; border-radius:var(--radius-md); padding:14px 16px;
     background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.09);
-    display:flex; flex-direction:column; gap:3px;
+    display:flex; flex-direction:column; gap:4px;
   }
   .seal .seal-label{
     font-size:9.5px; letter-spacing:.14em; text-transform:uppercase;
@@ -338,7 +350,7 @@
   .rail-user .avatar{width:36px; height:36px; font-size:12px;}
   .rail-user-text{min-width:0; flex:1;}
   .rail-user-name{
-    font-size:12px; font-weight:600; color:#fff; margin:0;
+    font-size:12px; font-weight:700; color:#fff; margin:0;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .rail-user-role{
@@ -351,7 +363,7 @@
      page and the controls shrink to circular buttons on the right. */
   .shell{margin-left:236px; min-height:100vh;}
   header.ledger-head{
-    padding:30px 32px 0; background:none; color:inherit;
+    padding:32px 32px 0; background:none; color:inherit;
   }
   .head-inner{
     display:flex; align-items:flex-start; justify-content:space-between;
@@ -384,19 +396,22 @@
      where the rail is gone, and keeps its own current-page state since the
      Admin panel is a destination rather than a tab. */
   .head-action{
-    display:inline-flex; align-items:center; gap:7px; cursor:pointer;
-    height:42px; padding:0 16px; border-radius:99px;
+    display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+    height:44px; padding:0 16px; border-radius:99px;
     background:var(--card); border:1px solid transparent;
-    color:var(--ink); font-family:inherit; font-size:11px; font-weight:600;
+    color:var(--ink); font-family:inherit; font-size:11px; font-weight:500;
     text-transform:uppercase; letter-spacing:.08em; white-space:nowrap;
     box-shadow:var(--shadow-sm);
   }
   .head-action[aria-current="page"]{
     background:var(--ink); color:#fff;
   }
+  .head-action.danger{color:var(--negative);}
   @media (max-width:480px){
-    .head-action span{display:none;}
-    .head-action{padding:0; width:42px; justify-content:center;}
+    /* The labels stay. Dropping them was what turned this row into three
+       anonymous discs on the smallest screens — the exact widths where a
+       mis-tap on Sign out costs the most. Shrink the pills instead. */
+    .head-action{padding:0 var(--space-3); font-size:10px; letter-spacing:.06em; gap:var(--space-1-5);}
   }
 
   main{max-width:1280px; margin:0 auto; padding:24px 32px 0;}
@@ -425,24 +440,31 @@
        Here each notice is one 30px line and consecutive ones sit flush, so two
        notices read as a single thin strip instead of two stacked cards.
        Long text still wraps rather than truncating. */
-    main > .reminder{flex:0 0 auto; padding:4px 12px; margin-bottom:0;}
-    main > .reminder + .reminder{border-top:none;}
+    .notice-stack{flex:0 0 auto; display:flex; flex-direction:column;}
+    .notice-stack > .reminder{flex:0 0 auto; padding:4px 12px; margin-bottom:0;}
+    .notice-stack > .reminder + .reminder{border-top:none;}
     /* Inline, but still allowed to wrap. Below the frame the content column is
        narrow enough that the title, the sentence and the buttons genuinely do
        not share a line, and forcing them to (see the frame's nowrap rule) made
        the sentence wrap to five lines instead: 522px of chrome at 800px wide,
        worse than the stacked layout this replaced. */
-    main > .reminder .reminder-body{
+    .notice-stack > .reminder .reminder-body{
       display:flex; align-items:center; gap:2px 12px; flex-wrap:wrap;
     }
-    main > .reminder .reminder-title,
-    main > .reminder .reminder-text{margin:0;}
-    main > .reminder .reminder-actions{margin:0 0 0 auto; flex-shrink:0; gap:6px;}
-    main > .reminder .reminder-actions .btn{min-height:30px; padding:3px 10px; font-size:11.5px;}
-    main > .reminder svg{width:14px; height:14px; margin-top:0;}
+    .notice-stack > .reminder .reminder-title,
+    .notice-stack > .reminder .reminder-text{margin:0;}
+    .notice-stack > .reminder .reminder-actions{margin:0 0 0 auto; flex-shrink:0; gap:6px;}
+    .notice-stack > .reminder .reminder-actions .btn{font-size:11.5px;}
+    .notice-stack > .reminder svg{width:14px; height:14px; margin-top:0;}
     /* The gap goes below the strip, not between its rows — so it is paid once
-       however many notices are up, and not at all when none are. */
-    main > .reminder.show:last-of-type{margin-bottom:12px;}
+       however many notices are up, and not at all when none are.
+       This rule did nothing until the notices were wrapped in .notice-stack:
+       as direct children of main, :last-of-type looked for the last div among
+       main's children and found a tab panel, so no reminder ever matched. Six,
+       not twelve, because the strip now genuinely gets a gap and the chrome
+       budget above the card is measured — 12 put 1280-wide windows at 160px,
+       over the 155 the regression suite holds. */
+    .notice-stack > .reminder.show:last-of-type{margin-bottom:var(--space-1-5);}
 
     /* ---- The header ----
        One compact row: the 40px greeting and its eyebrow cost 88px of every
@@ -471,9 +493,10 @@
        than ~1400px: each notice went from 33px to 54px at 1280 and 74px at
        1100. Wrapping the sentence inside its own box instead costs ~16px, not
        ~40px, and keeps the buttons where the eye already found them. */
-    main > .reminder .reminder-body{flex-wrap:nowrap;}
-    main > .reminder .reminder-title{flex-shrink:0;}
-    main > .reminder .reminder-text{min-width:0;}
+    .notice-stack > .reminder .reminder-actions .btn{min-height:30px; padding:4px 10px;}
+    .notice-stack > .reminder .reminder-body{flex-wrap:nowrap;}
+    .notice-stack > .reminder .reminder-title{flex-shrink:0;}
+    .notice-stack > .reminder .reminder-text{min-width:0;}
     header.ledger-head, footer.ledger-foot{flex:0 0 auto;}
     /* main and the footer centre themselves with margin:0 auto under their
        1280px cap. As flex items those auto margins cancel the default stretch,
@@ -617,9 +640,13 @@
     /* Every panel reserves room, not just the Overview. The bar occupies 70px
        (56 tall, 14 up from the bottom); the tab card's own bottom padding and
        the footer cover most of that, so the other tabs cleared it by about 5px
-       — luck, not clearance, and gone the moment either changes. The Overview
-       sits 12px lower and needs its own step. */
-    body.sticky-clock-up .tab-panel.active{padding-bottom:var(--space-3);}
+       — luck, not clearance, and gone the moment either changes. It did change:
+       snapping the footer's bottom padding from 18px to 16px spent 2px that was
+       never the footer's to spend, and four tabs ended up behind the bar at
+       four widths. The reservation is 20px now, so the panel carries its own
+       clearance and the footer is free to move. The Overview sits 12px lower
+       and needs its own step. */
+    body.sticky-clock-up .tab-panel.active{padding-bottom:var(--space-5);}
     body.sticky-clock-up .tab-panel.overview-panel.active{padding-bottom:var(--space-8);}
   }
 
@@ -628,8 +655,8 @@
   @media (max-width:760px){
     .rail{display:none;}
     .shell{margin-left:0;}
-    header.ledger-head{padding:22px 18px 0;}
-    main{padding:18px 18px 0;}
+    header.ledger-head{padding:24px 16px 0;}
+    main{padding:16px 16px 0;}
     .head-title{font-size:30px;}
   }
 
@@ -643,9 +670,63 @@
   .reminder.show{display:flex;}
   .reminder svg{flex-shrink:0; margin-top:1px; color:var(--warn);}
   .reminder-body{flex:1; min-width:0;}
-  .reminder-title{font-size:13px; font-weight:600; color:var(--warn); margin:0 0 3px;}
+  .reminder-title{font-size:13px; font-weight:700; color:var(--warn); margin:0 0 4px;}
   .reminder-text{font-size:12.5px; color:var(--muted); margin:0;}
   .reminder-actions{display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;}
+
+  /* Today's hours, on a phone only — above 760px the rail's status card is
+     already on screen and this would be the same fact twice. It exists because
+     the top of a phone screen was two notices and a greeting: the one number
+     the person opened the app for was below the fold on every tab. */
+  .today-line{
+    display:none; align-items:baseline; gap:var(--space-3);
+    padding:var(--space-3) var(--space-4); margin-bottom:var(--space-4);
+    background:var(--ink); border-radius:var(--radius-md); color:#fff;
+  }
+  .today-line-label{
+    font-size:10px; font-weight:500; text-transform:uppercase;
+    letter-spacing:.12em; color:var(--muted-on-dark);
+  }
+  .today-line-value{font-size:20px; font-weight:900; letter-spacing:-.02em; margin-left:auto;}
+  .today-line.status-over .today-line-value{color:var(--positive-on-dark);}
+  .today-line.status-under .today-line-value{color:var(--negative-on-dark);}
+  @media (max-width:759px){ .today-line:not([hidden]){display:flex;} }
+
+  /* The notice stack's fold. On a pointer the stack is just the reminders in a
+     row of the page and this button never appears. On a phone the second and
+     further notices fold behind it, because two open notices were costing 282px
+     of an 852px screen and neither was the thing the person opened the app to
+     do. Nothing is dismissed on their behalf — the count says exactly what is
+     waiting and one tap brings it back. */
+  .notice-more{
+    display:none; width:100%; margin-bottom:var(--space-5);
+    padding:var(--space-3) var(--space-4); align-items:center; gap:var(--space-2);
+    background:var(--wash-soft); border:1px solid var(--line-soft);
+    border-radius:var(--radius-md); color:var(--muted-2);
+    font-family:inherit; font-size:12.5px; font-weight:500; text-align:left;
+    cursor:pointer; min-height:44px;
+  }
+  .notice-more::before{
+    content:""; width:6px; height:6px; border-radius:50%;
+    background:var(--warn); flex-shrink:0;
+  }
+  .notice-more:hover{border-color:var(--line); color:var(--ink);}
+  @media (max-width:759px){
+    .notice-stack:not(.is-open) .reminder.show.is-folded{display:none;}
+    .notice-more:not([hidden]){display:flex;}
+    /* Compact: a notice on a phone is a sentence and its buttons, not a card
+       with desktop padding. The body clamps to two lines — the notice has to
+       say what happened and offer the fix, and the third line was always the
+       one restating what the buttons already say. */
+    .reminder{padding:var(--space-3); gap:var(--space-3); margin-bottom:var(--space-3);}
+    .reminder-title{font-size:12.5px;}
+    .reminder-text{
+      display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+      overflow:hidden; font-size:12px;
+    }
+    .reminder-actions{margin-top:var(--space-2);}
+    .reminder-actions .btn{min-height:40px; padding:var(--space-2) var(--space-3); font-size:12.5px;}
+  }
 
   /* ---------- Stat cards ---------- */
   .stats-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:var(--space-3); margin-bottom:var(--space-6);}
@@ -713,6 +794,7 @@
       grid-template-columns:minmax(0,.9fr) minmax(0,1fr);
       grid-template-areas:"stats stats" "portrait format" "clock clock";
     }
+
     /* auto-fit reflowed the figures to 2x2 inside the grid, costing height the
        fold cannot spare. Four across is explicit here. */
     /* The grid row supplies .format-body's height here, so it may shrink well
@@ -792,10 +874,17 @@
   .portrait-media img{width:100%; height:100%; object-fit:cover; display:block;}
   /* Photos are device-local, so a teammate always lands here. Sized to fill
      the tile so it reads as the portrait rather than as a missing one. */
+  /* This was clamp(48px, 6.5vw, 88px) — 88px at desktop, which made a person's
+     initials the largest piece of type in the whole app. DESIGN.md puts the
+     hero value at 56px and calls it "the single largest figure on screen"; no
+     56px figure ships, so the top step of the scale was occupied by two letters
+     that carry no information, on the same screen where the Log shows 11 rows
+     of 42. Capped below the hero step: still unmistakably the portrait when
+     there is no photo, no longer the loudest thing on the tab. */
   .portrait-mono{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    font-weight:900; font-size:clamp(48px, 6.5vw, 88px); letter-spacing:-.05em;
-    line-height:1; color:var(--ink); opacity:.8;
+    font-weight:900; font-size:clamp(40px, 4vw, 52px); letter-spacing:-.05em;
+    line-height:1; color:var(--ink); opacity:.55;
     /* Clears the name plate rather than centring on the whole tile — on a
        short viewport the tile shrinks under the plate's height and the
        monogram was running behind it. */
@@ -806,7 +895,7 @@
     background:rgba(255,255,255,.72);
     -webkit-backdrop-filter:blur(18px) saturate(1.4); backdrop-filter:blur(18px) saturate(1.4);
     box-shadow:inset 0 0 0 1px rgba(255,255,255,.55), 0 6px 20px rgba(17,17,16,.13);
-    padding:12px 15px; display:flex; align-items:center; gap:10px;
+    padding:12px 16px; display:flex; align-items:center; gap:10px;
   }
   .portrait-id{min-width:0; flex:1;}
   .portrait-name{
@@ -831,7 +920,7 @@
   /* overflow:hidden is a guard, not a layout tool: the dial is the only part
      that flexes, so anything that cannot fit has to be it, and a stray
      overhang would land on the clock panel below rather than clip. */
-  /* .card.format-card, not .format-card: the generic .card{padding:22px 22px
+  /* .card.format-card, not .format-card: the generic .card{padding:24px 24px
      24px} rule sits later in the sheet, and at equal specificity source order
      wins — this card's own tighter padding (every pixel here is a pixel the
      dial and legend get back in the squeezed grid row, same reasoning as the
@@ -839,7 +928,7 @@
      the default. The compound selector outranks it regardless of order. */
   .card.format-card{
     position:relative; display:flex; flex-direction:column;
-    padding:18px 20px 16px; min-height:0; overflow:hidden;
+    padding:16px 20px 16px; min-height:0; overflow:hidden;
   }
   .format-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
   .format-head h2{margin:0; font-size:19px;}
@@ -873,6 +962,17 @@
      round cap on every segment boundary left a visible notch and a sliver of
      track showing through between colours. */
   .format-ring{stroke-linecap:butt;}
+  /* These arcs ARE the data, which makes them meaningful graphical objects
+     under WCAG 1.4.11 — and the Atrium accents are pastels chosen to be read
+     on ink, not against white: mint measured 1.53:1 on the card, lime 1.35:1,
+     blush 1.68:1, all under the 3:1 floor. Rather than darken the palette (the
+     Fill-Only Rule exists precisely so these stay pastel), the ring is given
+     edges: a hairline of ink inside and out, and a gap between segments that
+     lets the same ink show through as a divider. The boundary is the object
+     that clears 3:1, so every arc is bounded by something at 12.6:1 and the
+     fills stay exactly as designed. The legend carries label and percentage as
+     text, so colour is never the only channel either. */
+  .format-ring-edge{stroke:var(--ink); opacity:.55;}
   /* The centre readout is drawn INSIDE the svg so it scales with the rings.
      As an HTML overlay at a fixed 30px it kept its size while the dial shrank
      with the row, and on a short viewport the figure spilled out of the hole
@@ -886,11 +986,20 @@
        after .trend-line draws in. */
     animation:trendDotIn .4s var(--ease-soft) .38s both;
   }
+  /* 6px of viewBox rendered to about 10px of glyph — the smallest type in the
+     app and under the 9.5px label floor DESIGN.md sets. It sits inside an SVG,
+     which is why both the CLI detector and a DOM sweep for small text walked
+     straight past it. */
   .format-count-label{
-    font-size:6px; font-weight:600; letter-spacing:1.1px; fill:var(--muted-2);
+    font-size:7px; font-weight:700; letter-spacing:1.1px; fill:var(--muted-2);
     animation:fadeIn .3s var(--ease-soft) .48s both;
   }
-  .format-empty{margin:auto; text-align:center; font-size:12.5px; color:var(--muted); max-width:22ch;}
+  /* balance, so the last word does not fall to a line of its own — at 22ch this
+     sentence broke as "No days logged this month / yet." */
+  .format-empty{
+    margin:auto; text-align:center; font-size:12.5px; color:var(--muted);
+    max-width:22ch; text-wrap:balance;
+  }
   /* Non-scrolling wrapper the fade below can anchor to. .format-legend is the
      thing that scrolls; the wrapper stays put at the ring's height so the
      fade lines up with the legend's own column instead of the whole card's
@@ -903,7 +1012,7 @@
      to assume — stacked one per row in the column .format-legend-wrap gives
      it, rather than wrapped chips eating into the dial's row like before. */
   .format-legend{
-    display:flex; flex-direction:column; gap:9px;
+    display:flex; flex-direction:column; gap:8px;
     /* A flex item's default min-height is auto, which protects its own
        content from shrinking in a column flex container — so without this
        the legend could never give up height to its own scroll. overflow-y so
@@ -920,7 +1029,7 @@
   .format-leg-pct{font-size:13px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums;}
   .format-leg-label{
     display:block; font-size:9px; text-transform:uppercase; letter-spacing:.09em;
-    color:var(--muted-2); margin-top:3px;
+    color:var(--muted-2); margin-top:4px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
   /* A legend still short a scroll's worth of day types ended flush with the
@@ -951,7 +1060,7 @@
      later, generic .card padding was winning over this one at equal
      specificity, and every row here matters for how many names fit before
      the list itself has to scroll. */
-  .card.today-team{display:flex; flex-direction:column; min-height:0; padding:18px 20px 16px;}
+  .card.today-team{display:flex; flex-direction:column; min-height:0; padding:16px 20px 16px;}
   /* An author display: declaration outranks the UA sheet's [hidden] rule, so
      without this the roster stayed on screen — empty, and auto-placed outside
      the two-column grid — for every non-admin. */
@@ -971,7 +1080,7 @@
   .today-team-list::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
   .today-team-list::-webkit-scrollbar-track{background:transparent;}
   .tt-row{
-    display:flex; align-items:center; gap:9px; padding:7px 0;
+    display:flex; align-items:center; gap:8px; padding:8px 0;
     border-bottom:1px solid var(--line-soft);
   }
   .tt-row:last-child{border-bottom:none;}
@@ -983,7 +1092,7 @@
      name without giving the pill noticeably less room; gap trimmed 11 -> 9px
      on the same row to help pay for it. */
   .tt-name{
-    flex:1 1 auto; min-width:88px; font-size:12.5px; font-weight:600;
+    flex:1 1 auto; min-width:88px; font-size:12.5px; font-weight:500;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   /* .team-status is flex-shrink:0 everywhere else it's used (it names a real
@@ -1004,25 +1113,43 @@
   }
   .tt-check.is-done{background:var(--ink); border-color:var(--ink); color:#fff;}
   .tt-check.is-in{background:var(--gold); border-color:var(--gold); color:var(--ink-on-gold);}
-  .tt-empty{font-size:12.5px; color:var(--muted); padding:8px 0;}
+  /* The roster's ordinary morning state, not an afterthought. It is a card in
+     a filled grid row, so "nobody yet" has to hold the row the way a list of
+     names would — one sentence pinned to the top left the rest of the card
+     reading as something that failed to load. Centred, with the line that says
+     what happens next, because on most mornings this is the state the card is
+     actually in. */
+  .tt-empty{
+    flex:1 1 auto; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:var(--space-1);
+    padding:var(--space-5) var(--space-3); margin:0; text-align:center;
+  }
+  .tt-empty-head{font-size:13px; font-weight:500; color:var(--ink); margin:0;}
+  .tt-empty-sub{font-size:12px; color:var(--muted); margin:0;}
 
   /* ---------- Monthly-avg progress rail ----------
      The reference's 0-250-500 bar under its headline figure. It lives inside
      the Monthly Avg stat card now that the hero panel is gone; the class names
      are unchanged because renderStats() addresses the fill and label by id. */
-  .hero-progress{display:flex; align-items:center; gap:9px; margin-top:11px;}
+  .hero-progress{display:flex; align-items:center; gap:8px; margin-top:12px;}
   .hero-progress-track{
     flex:1; height:6px; border-radius:99px; background:rgba(17,17,16,.12); overflow:hidden;
   }
+  /* Lime is "how far along", the same job it does on the nav — it is not a
+     verdict. Once the month is actually at target the bar turns green, which
+     is what the Team bar beside it has always done and what the Calendar and
+     Trends dots do. Before this, the identical component read lime on Overview
+     and green on Team, so "met" had to be relearned per tab. */
   .hero-progress-fill{
     width:100%; height:100%; border-radius:99px; background:var(--gradient-gold);
     transform:scaleX(0); transform-origin:left;
     transition:transform var(--dur-slower) var(--ease-soft);
   }
+  .hero-progress.is-met .hero-progress-fill{background:var(--positive);}
   .hero-progress-label{font-size:10px; color:var(--muted-2); white-space:nowrap; font-variant-numeric:tabular-nums;}
   .stat-card{
     position:relative; background:var(--card); border:1px solid transparent;
-    border-radius:var(--radius); padding:20px 20px 18px; box-shadow:var(--shadow-sm);
+    border-radius:var(--radius); padding:20px 20px 16px; box-shadow:var(--shadow-sm);
     transition:transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   /* Surface alternation, the reference's way of separating tiles without
@@ -1074,12 +1201,12 @@
     font-variant-numeric:tabular-nums; color:var(--ink); letter-spacing:-.01em;
     line-height:1;
   }
-  .stat-detail{font-size:11.5px; color:var(--muted-2); margin:5px 0 0;}
+  .stat-detail{font-size:11.5px; color:var(--muted-2); margin:6px 0 0;}
   /* A streak milestone reuses --positive (this row's existing "good news"
      colour, e.g. Overtime Bank) rather than introducing gold text in a new
      context or any glow/border — the wax seal stays the only element
      allowed to look ornamental. */
-  .stat-detail.milestone{color:var(--positive); font-weight:600;}
+  .stat-detail.milestone{color:var(--positive); font-weight:500;}
   /* The one motion this earns: the earned clause itself settles into view
      rather than the whole line just silently swapping text, so a milestone
      lands as something the ledger noticed rather than a value that happened
@@ -1110,13 +1237,13 @@
   /* ---------- Cards ---------- */
   .card{
     background:var(--card); border:1px solid transparent; border-radius:var(--radius);
-    padding:22px 22px 24px; margin-bottom:24px; box-shadow:var(--shadow-sm);
+    padding:24px 24px 24px; margin-bottom:24px; box-shadow:var(--shadow-sm);
     transition:box-shadow var(--dur-fast) var(--ease-snap);
   }
   .card h2{
     display:flex; align-items:center; gap:10px;
     font-family:var(--font-display); font-weight:700; font-size:21px; letter-spacing:-.025em;
-    margin:0 0 18px; color:var(--ink);
+    margin:0 0 16px; color:var(--ink);
     padding-bottom:0;
   }
 
@@ -1126,8 +1253,8 @@
     display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;
     background:
       radial-gradient(480px 160px at 90% -20%, rgba(214,232,92,.13), transparent 65%),
-      linear-gradient(135deg, var(--teal-900), var(--teal-950));
-    border-radius:var(--radius); padding:18px 22px; margin-bottom:8px; box-shadow:var(--shadow-md);
+      linear-gradient(135deg, var(--ink-900), var(--ink-950));
+    border-radius:var(--radius); padding:16px 24px; margin-bottom:8px; box-shadow:var(--shadow-md);
   }
   /* The focal moment: a successful punch blooms the SAME radial glow already
      baked into the panel's own background (same 90% -20% origin, same lime),
@@ -1149,10 +1276,10 @@
   }
   .quick-clock-time{display:flex; flex-direction:column; gap:2px; position:relative;}
   .qc-label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--gold-light);}
-  .qc-time{font-family:var(--font-num); font-weight:600; font-size:27px; color:#fff; font-variant-numeric:tabular-nums; letter-spacing:.01em;}
+  .qc-time{font-family:var(--font-num); font-weight:700; font-size:27px; color:#fff; font-variant-numeric:tabular-nums; letter-spacing:.01em;}
   .qc-date{font-size:11.5px; color:var(--muted-on-dark); margin-top:1px;}
   .quick-clock-actions{display:flex; gap:10px; flex-wrap:wrap; position:relative;}
-  .qc-btn{display:inline-flex; align-items:center; gap:7px;}
+  .qc-btn{display:inline-flex; align-items:center; gap:8px;}
   .quick-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:var(--ink-on-gold);}
   .quick-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.22); color:#fff;}
   /* The note now lives INSIDE the clock panel, so it takes the dark-surface
@@ -1203,7 +1330,10 @@
     font-size:14px; color:var(--ink); background:var(--input-bg); font-family:inherit;
     transition:border-color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
-  input:focus, select:focus{border-color:var(--teal-600); box-shadow:0 0 0 3px rgba(27,114,107,.16);}
+  /* The halo was rgba(27,114,107,.16) — #1B726B, Gilt Ledger's teal — on every
+     input and select in the app, which is the one browser surface a person
+     stares straight at while typing. Atrium's own ink, at the same weight. */
+  input:focus, select:focus{border-color:var(--ink-600); box-shadow:0 0 0 3px rgba(61,61,56,.20);}
   .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(168,58,85,.18);}
 
   /* iOS Safari lays a native date/time control out from its own shadow DOM and
@@ -1231,8 +1361,8 @@
   .btn{
     position:relative; overflow:hidden;
     display:inline-flex; align-items:center; justify-content:center; gap:6px;
-    padding:11px 20px; min-height:44px; border-radius:var(--radius-sm); border:1px solid var(--teal-900);
-    background:var(--gradient-teal); color:#fff; font-size:13px; font-weight:600;
+    padding:12px 20px; min-height:44px; border-radius:var(--radius-sm); border:1px solid var(--ink-900);
+    background:var(--gradient-ink); color:#fff; font-size:13px; font-weight:700;
     cursor:pointer; box-shadow:var(--shadow-sm);
   }
   .btn::before{
@@ -1244,7 +1374,15 @@
   .btn.secondary::before{display:none;}
   .btn.ghost{background:transparent; border-color:var(--line); color:var(--muted); font-weight:500; box-shadow:none;}
   .btn.ghost::before{display:none;}
-  .btn.small{padding:7px 13px; min-height:36px; font-size:12px;}
+  /* 44px, not 36px. One Module says the pointer sizes come off the 32px row
+     and that "below 1100px every one of those keeps its 44px touch floor
+     untouched" — but .btn.small declared 36px flat, so the floor was only ever
+     restored on the controls that happened to inherit .btn. Measured at
+     393x852 before this: Calendar's Today/prev/next at 32px, Settings' Choose
+     photo and Admin's Refresh at 36px. The base is the touch size now and the
+     min-width:1100px block below takes it back down to 30px for a pointer,
+     which is the direction the rule is actually written in. */
+  .btn.small{padding:8px 12px; min-height:44px; font-size:12px;}
   .btn.danger-ghost{background:transparent; border-color:var(--line); color:var(--negative); font-weight:500; box-shadow:none;}
   .btn.danger-ghost::before{display:none;}
   .form-actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
@@ -1253,16 +1391,23 @@
   .daypicker{display:flex; gap:6px; flex-wrap:wrap;}
   .daypicker input{position:absolute; opacity:0; width:0; height:0;}
   .daypicker label{
-    margin:0; cursor:pointer; user-select:none; min-height:34px; display:inline-flex; align-items:center;
-    padding:7px 13px; border:1px solid var(--line); border-radius:99px;
+    margin:0; cursor:pointer; user-select:none; min-height:44px; display:inline-flex; align-items:center;
+    padding:8px 12px; border:1px solid var(--line); border-radius:99px;
     font-size:11.5px; letter-spacing:.04em; text-transform:none; color:var(--muted);
     background:var(--input-bg); transition:background-color var(--dur-fast) var(--ease-snap), border-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap);
   }
   .daypicker input:checked + label{
-    background:var(--gradient-teal); border-color:var(--teal-800); color:#fff; font-weight:600;
+    background:var(--gradient-ink); border-color:var(--ink-800); color:#fff; font-weight:700;
     box-shadow:0 2px 8px rgba(17,17,16,.22);
   }
   .daypicker input:focus-visible + label{outline:2px solid var(--gold); outline-offset:2px;}
+  .settings-warn{
+    display:flex; align-items:flex-start; gap:var(--space-2);
+    margin:0 0 var(--space-3); padding:var(--space-3) var(--space-4);
+    background:var(--warn-bg); border-radius:var(--radius-sm);
+    font-size:12.5px; font-weight:500; color:var(--warn);
+  }
+  .settings-warn svg{flex-shrink:0; margin-top:1px;}
   .settings-hint{font-size:11.5px; color:var(--muted-2); margin:10px 0 0;}
 
   /* ---------- Settings: Backup & Data ---------- */
@@ -1273,7 +1418,7 @@
      already draws in miniature. */
   .settings-danger-zone{
     display:flex; align-items:center; justify-content:space-between; gap:16px;
-    flex-wrap:wrap; margin-top:18px; padding:14px 16px;
+    flex-wrap:wrap; margin-top:16px; padding:14px 16px;
     background:var(--negative-bg); border-radius:var(--radius-sm);
   }
   .settings-danger-title{margin:0; font-size:12.5px; font-weight:700; color:var(--ink);}
@@ -1288,8 +1433,8 @@
   .accordion-section{border-radius:var(--radius-md); margin-bottom:var(--space-1-5); overflow:hidden;}
   .accordion-head{
     width:100%; display:flex; align-items:center; justify-content:space-between;
-    background:var(--teal-50); border:none; cursor:pointer;
-    padding:var(--space-3) var(--space-4); font-size:13px; font-weight:600; color:var(--ink);
+    background:var(--ink-50); border:none; cursor:pointer;
+    padding:var(--space-3) var(--space-4); font-size:13px; font-weight:700; color:var(--ink);
     text-align:left; min-height:44px;
   }
   .accordion-chevron{transition:transform var(--dur-slow) var(--ease-soft); color:var(--muted); flex-shrink:0;}
@@ -1339,7 +1484,7 @@
   .console-side{display:flex; flex-direction:column; gap:var(--space-3); min-width:0;}
   .console-nav{
     display:flex; flex-direction:column; gap:var(--space-1);
-    background:var(--teal-50); border-radius:var(--radius); padding:var(--space-2);
+    background:var(--ink-50); border-radius:var(--radius); padding:var(--space-2);
     min-width:0;
   }
   /* Sticky so a long section (the Activity Log, the People list) scrolls under a
@@ -1364,11 +1509,11 @@
          screen beside the card; without this the list just stopped mid-row and
          read as broken rather than as scrollable. */
       background:
-        linear-gradient(var(--teal-50) 30%, rgba(239,237,232,0)) top    /100% 20px no-repeat local,
-        linear-gradient(rgba(239,237,232,0), var(--teal-50) 70%) bottom /100% 20px no-repeat local,
+        linear-gradient(var(--ink-50) 30%, rgba(239,237,232,0)) top    /100% 20px no-repeat local,
+        linear-gradient(rgba(239,237,232,0), var(--ink-50) 70%) bottom /100% 20px no-repeat local,
         radial-gradient(farthest-side at 50% 0,    rgba(17,17,16,.14), rgba(17,17,16,0)) top    /100% 9px no-repeat scroll,
         radial-gradient(farthest-side at 50% 100%, rgba(17,17,16,.14), rgba(17,17,16,0)) bottom /100% 9px no-repeat scroll,
-        var(--teal-50);
+        var(--ink-50);
     }
     .console-nav::-webkit-scrollbar{width:8px;}
     .console-nav::-webkit-scrollbar-track{background:transparent;}
@@ -1413,7 +1558,7 @@
   /* The count a collapsed accordion head used to carry. It is the reason a
      closed section is still worth reading — "3 periods", "12 people" — so it
      survives the layout change, on the description line where it belongs. */
-  .console-nav-count{color:var(--muted); font-weight:600;}
+  .console-nav-count{color:var(--muted); font-weight:500;}
 
   .console-pane{min-width:0;}
   .console-section{display:none;}
@@ -1430,7 +1575,7 @@
      a 200-character line — technically legible, actually unreadable, because
      the eye loses the return sweep. Everything that is prose gets a measure;
      the fields and tables below still use the full width. */
-  .console-section-head p{margin:3px 0 0; font-size:11.5px; color:var(--muted-2); line-height:1.4; max-width:74ch;}
+  .console-section-head p{margin:4px 0 0; font-size:11.5px; color:var(--muted-2); line-height:1.4; max-width:74ch;}
   .console-section .settings-hint{max-width:78ch; margin-top:var(--space-2);}
 
   /* Where a section commits. Without the rule the save button just followed the
@@ -1484,12 +1629,24 @@
     padding:var(--space-3); margin:0;
   }
   .console-profile-id{display:flex; align-items:center; gap:var(--space-3); min-width:0;}
+  /* The one editable field in the identity strip. Full width because a name is
+     the longest thing in this column, and the button sits on its line rather
+     than under it so the pair reads as one control. */
+  .console-profile-name-form{display:flex; flex-direction:column; gap:var(--space-1-5);}
+  .console-profile-name-form[hidden]{display:none;}
+  .console-profile-name-form label{
+    font-size:10px; font-weight:500; text-transform:uppercase;
+    letter-spacing:.09em; color:var(--muted-2);
+  }
+  .console-profile-name-row{display:flex; gap:var(--space-2); align-items:stretch;}
+  .console-profile-name-row input{flex:1 1 auto; min-width:0;}
+  .console-profile-name-row .btn{flex:0 0 auto;}
   /* 38px, not the 56px .avatar.lg: an identity strip, not a profile hero. */
   .console-profile .avatar.lg{width:38px; height:38px; font-size:13px;}
   .console-profile-badge{
     width:38px; height:38px; border-radius:50%; flex-shrink:0;
     display:flex; align-items:center; justify-content:center;
-    background:var(--teal-700); color:#fff;
+    background:var(--ink-700); color:#fff;
   }
   .console-profile-name{margin:0; font-size:14px; font-weight:700; color:var(--ink); line-height:1.2; min-width:0;}
   .console-profile-sub{margin:0; font-size:11px; color:var(--muted-2); line-height:1.4;}
@@ -1498,8 +1655,8 @@
 
   @media (max-width:899px){
     .console-nav{background:transparent; padding:0; gap:var(--space-1-5);}
-    .console-nav-item{background:var(--teal-50);}
-    .console-nav-item[aria-selected="true"]{background:var(--teal-100); box-shadow:none;}
+    .console-nav-item{background:var(--ink-50);}
+    .console-nav-item[aria-selected="true"]{background:var(--ink-100); box-shadow:none;}
     .console-profile{padding:var(--space-4);}
   }
   /* On a narrow card the photo button and the avatar between them left the
@@ -1515,13 +1672,21 @@
   .check-row{
     display:flex; align-items:flex-start; gap:10px;
     margin:16px 0 0; padding:12px 14px;
-    border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--teal-50);
+    border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--ink-50);
     cursor:pointer; text-transform:none; letter-spacing:0; font-size:inherit; color:inherit;
   }
-  .check-row input{width:16px; height:16px; margin:1px 0 0; flex-shrink:0; accent-color:var(--teal-700); cursor:pointer;}
+  /* 20px, and the label is the target (778x55 at 1440, 331x71 at 393), so
+     WCAG 2.5.8 was never the problem here. The problem was weight: "Apply to
+     everyone" rewrites every teammate's schedule and every past calculation
+     behind it, and it was carrying less visual mass than Print Report. */
+  .check-row input{width:20px; height:20px; margin:0; flex-shrink:0; accent-color:var(--ink-700); cursor:pointer;}
+  /* Armed, this row is the widest-reaching control in the app. It should look
+     like it — and it should be obvious at a glance on returning to the tab,
+     because the box survives a save. */
+  .check-row:has(input:checked){border-color:var(--warn); background:var(--warn-bg);}
   .check-row > span{flex:1; min-width:0;}
-  .check-row strong{display:block; font-size:12.5px; font-weight:600; color:var(--ink); text-transform:none; letter-spacing:0;}
-  .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted-2); margin-top:3px; text-transform:none; letter-spacing:0;}
+  .check-row strong{display:block; font-size:12.5px; font-weight:500; color:var(--ink); text-transform:none; letter-spacing:0;}
+  .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted-2); margin-top:4px; text-transform:none; letter-spacing:0;}
 
   .periods-section{margin-top:var(--space-6); padding-top:var(--space-4); border-top:1px solid var(--line-soft);}
   .periods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:2px;}
@@ -1529,16 +1694,16 @@
     display:grid; grid-template-columns:1.4fr 1fr 1fr .8fr .8fr 1.1fr auto;
     gap:10px; align-items:end;
     padding:12px; margin-bottom:10px;
-    border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--teal-50);
+    border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--ink-50);
   }
   .period-row > div{min-width:0;}
   .period-row label{font-size:9px; margin-bottom:4px;}
-  .period-row input{padding:7px 8px; font-size:12.5px; min-width:0;}
+  .period-row input{padding:8px 8px; font-size:12.5px; min-width:0;}
   .period-time-row{display:flex; gap:6px; flex-wrap:wrap;}
   .period-time-row input{flex:1 1 90px; min-width:90px;}
   .period-del{
     background:none; border:1px solid var(--line); color:var(--negative);
-    border-radius:var(--radius-xs); cursor:pointer; padding:7px 10px; font-size:12px; height:34px; white-space:nowrap;
+    border-radius:var(--radius-xs); cursor:pointer; padding:8px 10px; font-size:12px; height:34px; white-space:nowrap;
   }
   .periods-empty{font-size:12px; color:var(--muted-2); padding:10px 2px;}
   @media (max-width:760px){
@@ -1551,24 +1716,24 @@
   /* ---------- Log search bar ---------- */
   .search-field{position:relative; flex:1 1 200px; min-width:170px; display:flex; align-items:center;}
   .search-field svg{position:absolute; left:10px; color:var(--muted-2); pointer-events:none;}
-  .search-field input{padding-left:31px; width:100%;}
+  .search-field input{padding-left:32px; width:100%;}
   .filter-bar .date-field{width:auto; min-width:130px;}
   .filter-bar #typeFilterSelect{min-width:140px;}
   .filter-count{font-size:11.5px; color:var(--muted-2); white-space:nowrap;}
   #advancedFiltersToggle{display:inline-flex; align-items:center; gap:6px; position:relative;}
-  #advancedFiltersToggle.active{background:var(--info-bg); border-color:var(--teal-600); color:var(--info);}
+  #advancedFiltersToggle.active{background:var(--info-bg); border-color:var(--ink-600); color:var(--info);}
   .filter-badge{
     display:inline-flex; align-items:center; justify-content:center;
     min-width:16px; height:16px; padding:0 4px; border-radius:99px;
     background:var(--gradient-gold); color:var(--ink-on-gold); font-size:10px; font-weight:700;
   }
   .advanced-filters{
-    background:var(--teal-50); border:1px solid var(--line-soft); border-radius:var(--radius-md);
-    padding:12px; margin:-6px 0 18px;
+    background:var(--ink-50); border:1px solid var(--line-soft); border-radius:var(--radius-md);
+    padding:12px; margin:-6px 0 16px;
   }
 
-  #selectModeToggle.active{background:var(--info-bg); border-color:var(--teal-600); color:var(--info);}
-  /* A bit more air than the generic .filter-bar gap: this is the last
+  #selectModeToggle.active{background:var(--info-bg); border-color:var(--ink-600); color:var(--info);}
+  /* A bit more air than the generic .filter-bar gap:this is the last
      toolbar row before the table itself, so it earns a clearer break from
      the content zone starting under it — the same "more space above than
      below" rhythm the rest of the system uses at heading transitions. */
@@ -1576,17 +1741,17 @@
 
   .bulk-toolbar{
     display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
-    background:var(--teal-800); color:#fff; border-radius:var(--radius-md);
+    background:var(--ink-800); color:#fff; border-radius:var(--radius-md);
     padding:10px 16px; margin-bottom:14px;
   }
-  .bulk-select-all{display:flex; align-items:center; gap:9px; cursor:pointer; font-size:13px; font-weight:600;}
+  .bulk-select-all{display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:500;}
   .bulk-select-all input{width:16px; height:16px; accent-color:var(--gold);}
   .bulk-actions{display:flex; gap:8px;}
   .bulk-toolbar .btn.danger-ghost{background:rgba(255,255,255,.06); border-color:rgba(224,133,133,.5); color:var(--negative-on-dark);}
   .bulk-toolbar .btn.ghost{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.25); color:#fff;}
   th.select-col{width:34px;}
   td.select-col{width:1%;}
-  td.select-col input, th.select-col input{width:16px; height:16px; accent-color:var(--teal-700); cursor:pointer;}
+  td.select-col input, th.select-col input{width:16px; height:16px; accent-color:var(--ink-700); cursor:pointer;}
   @media (max-width:700px){
     .table-wrap.responsive-cards td.select-col{
       display:flex; justify-content:flex-end; padding:0 0 8px; border-bottom:1px dashed var(--line-soft);
@@ -1608,15 +1773,15 @@
   .muted-inline{color:var(--muted); font-weight:400; font-size:11px;}
   .spark-holder{display:inline-block; line-height:0;}
 
-  .backup-reminder svg{color:var(--teal-600);}
-  .backup-reminder .reminder-title{color:var(--teal-600);}
+  .backup-reminder svg{color:var(--ink-600);}
+  .backup-reminder .reminder-title{color:var(--ink-600);}
 
-  .punct-stats{margin-bottom:22px;}
+  .punct-stats{margin-bottom:24px;}
   .punct-rule{
     font-size:11.5px; color:var(--muted-2); margin:-4px 0 16px;
-    padding:9px 12px; background:var(--teal-50); border-radius:var(--radius-sm);
+    padding:8px 12px; background:var(--ink-50); border-radius:var(--radius-sm);
   }
-  .late-cell{color:var(--negative); font-weight:600;}
+  .late-cell{color:var(--negative); font-weight:700;}
 
   /* ---------- Tabs ---------- */
   /* Kept in the DOM as the single activation path every nav surface clicks
@@ -1639,11 +1804,11 @@
   }
   .tabs::-webkit-scrollbar{display:none;}
   .tab-btn{
-    background:none; border:none; padding:10px 18px; font-size:13.5px; color:var(--muted);
+    background:none; border:none; padding:10px 16px; font-size:13.5px; color:var(--muted);
     cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; border-radius:var(--radius-xs) 6px 0 0;
     white-space:nowrap; flex-shrink:0; transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
-  .tab-btn.active{color:var(--ink); border-bottom-color:var(--gold); font-weight:600; background:var(--teal-50);}
+  .tab-btn.active{color:var(--ink); border-bottom-color:var(--gold); font-weight:500; background:var(--ink-50);}
   /* Team is oversight of the whole roster, not a view of your own attendance
      like the four tabs before it — a hairline divider marks that boundary
      instead of leaving five equal-weight destinations in an undifferentiated
@@ -1653,12 +1818,12 @@
   .tab-panel.active{display:block; animation:fadeIn .25s var(--ease-soft);}
 
   .sub-tabs{
-    display:flex; gap:6px; margin:16px 0 18px; padding:3px;
-    background:var(--teal-50); border-radius:var(--radius-md); width:fit-content; max-width:100%; overflow-x:auto;
+    display:flex; gap:6px; margin:16px 0 16px; padding:4px;
+    background:var(--ink-50); border-radius:var(--radius-md); width:fit-content; max-width:100%; overflow-x:auto;
   }
   .sub-tab-btn{
-    background:none; border:none; cursor:pointer; padding:7px 15px; min-height:32px;
-    border-radius:var(--radius-sm); font-size:12.5px; font-weight:600; color:var(--muted);
+    background:none; border:none; cursor:pointer; padding:8px 16px; min-height:44px;
+    border-radius:var(--radius-sm); font-size:12.5px; font-weight:500; color:var(--muted);
     white-space:nowrap; transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
   .sub-tab-btn.active{background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm);}
@@ -1666,12 +1831,12 @@
      but has its own class on purpose: .sub-tab-btn carries the Trends handler,
      which reads data-subtab and would throw on a button that has none. */
   .cal-mode{
-    display:flex; gap:6px; padding:3px;
-    background:var(--teal-50); border-radius:var(--radius-md); width:fit-content;
+    display:flex; gap:6px; padding:4px;
+    background:var(--ink-50); border-radius:var(--radius-md); width:fit-content;
   }
   .cal-mode-btn{
-    background:none; border:none; cursor:pointer; padding:6px 14px; min-height:32px;
-    border-radius:var(--radius-sm); font-size:12px; font-weight:600; color:var(--muted);
+    background:none; border:none; cursor:pointer; padding:6px 14px; min-height:44px;
+    border-radius:var(--radius-sm); font-size:12px; font-weight:500; color:var(--muted);
     white-space:nowrap; font-family:inherit;
   }
   .cal-mode-btn.active{background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm);}
@@ -1686,7 +1851,7 @@
   @keyframes skeletonShimmer{0%{background-position:-200% 0;} 100%{background-position:200% 0;}}
   .skeleton{
     display:inline-block; border-radius:var(--radius-xs);
-    background:linear-gradient(90deg, var(--teal-50) 25%, var(--teal-100) 40%, var(--teal-50) 63%);
+    background:linear-gradient(90deg, var(--ink-50) 25%, var(--ink-100) 40%, var(--ink-50) 63%);
     background-size:400% 100%;
     animation:skeletonShimmer 1.6s ease-in-out infinite;
   }
@@ -1699,10 +1864,10 @@
   .skeleton-overlay{
     display:none; position:absolute; inset:0; z-index:5;
     background:var(--card); border-radius:inherit;
-    flex-direction:column; justify-content:center; gap:9px;
-    padding:16px 17px 15px;
+    flex-direction:column; justify-content:center; gap:8px;
+    padding:16px 16px 16px;
   }
-  .format-card .skeleton-overlay{align-items:center; justify-content:center; padding:22px;}
+  .format-card .skeleton-overlay{align-items:center; justify-content:center; padding:24px;}
   .portrait-card .skeleton-overlay{background:rgba(233,231,226,.96);}
   .table-wrap .skeleton-overlay{
     position:static; display:none; flex-direction:column; gap:10px; padding:16px; background:var(--card);
@@ -1714,7 +1879,10 @@
   .calendar-nav{
     display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;
   }
-  .calendar-nav .btn.ghost.small{padding:7px 10px; min-height:32px; flex-shrink:0;}
+  /* 44px on a phone, like every other control below 1100px — these are the
+     month arrows and Today, which is the most-tapped cluster on this tab. The
+     pointer block below takes them back to 30px. */
+  .calendar-nav .btn.ghost.small{padding:8px 10px; min-height:44px; flex-shrink:0;}
   .calendar-month-label{font-size:16px; color:var(--ink); min-width:140px; text-align:center;}
 
   /* ---------- Week timeline ----------
@@ -1723,7 +1891,7 @@
      answers "which days went well"; this answers "when did I actually work". */
   .weekline{
     display:grid; grid-template-columns:56px repeat(7, 1fr);
-    background:var(--teal-50); border-radius:var(--radius-md); padding:14px 14px 10px;
+    background:var(--ink-50); border-radius:var(--radius-md); padding:14px 14px 10px;
     border:1px solid var(--line-soft); overflow-x:auto;
   }
   /* Month mode sets weekLine.hidden, but an author display beats the UA's
@@ -1733,7 +1901,7 @@
   .weekline[hidden]{display:none;}
   .wl-dayhead{
     grid-row:1; text-align:center; padding-bottom:10px;
-    font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+    font-size:9.5px; font-weight:500; text-transform:uppercase; letter-spacing:.08em;
     color:var(--muted); white-space:nowrap;
   }
   .wl-dayhead.is-today{color:var(--ink);}
@@ -1758,26 +1926,26 @@
     position:absolute; left:4px; right:4px; border-radius:var(--radius-sm);
     background:var(--ink); color:#fff; overflow:hidden;
     display:flex; align-items:center; justify-content:center;
-    font-size:9.5px; font-weight:600; min-height:18px;
+    font-size:9.5px; font-weight:500; min-height:18px;
     padding:0 6px; text-align:center;
   }
   /* Status is a ring on the bar, which keeps the accents as fills and keeps
      the label on ink where it stays legible. */
   .wl-bar.is-met{box-shadow:inset 0 0 0 2px var(--mint);}
   .wl-bar.is-under{box-shadow:inset 0 0 0 2px var(--blush);}
-  .wl-bar.is-open{background:repeating-linear-gradient(135deg, var(--teal-700) 0 6px, var(--teal-800) 6px 12px);}
+  .wl-bar.is-open{background:repeating-linear-gradient(135deg, var(--ink-700) 0 6px, var(--ink-800) 6px 12px);}
   /* An all-day entry with no clock times (leave, holiday) has no span to draw,
      so it becomes a chip pinned to the top of the column rather than a bar
      floating at an arbitrary hour. */
   .wl-chip{
     position:absolute; top:4px; left:4px; right:4px; border-radius:99px;
-    padding:3px 6px; font-size:9px; font-weight:600; text-align:center;
+    padding:4px 6px; font-size:9px; font-weight:500; text-align:center;
     background:var(--excused-bg); color:var(--excused);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .wl-empty{
     grid-column:2 / -1; align-self:center; text-align:center; color:var(--muted);
-    font-size:12.5px; padding:26px 0 18px;
+    font-size:12.5px; padding:24px 0 16px;
   }
   @media (max-width:760px){
     .weekline{grid-template-columns:44px repeat(7, minmax(40px,1fr)); padding:10px 8px 8px;}
@@ -1788,9 +1956,9 @@
      the card already separates it. The edge was the card-in-card line DESIGN.md
      rules out. */
   .calendar-grid{
-    display:grid; grid-template-columns:repeat(7, 1fr); gap:5px;
+    display:grid; grid-template-columns:repeat(7, 1fr); gap:6px;
     border-radius:var(--radius-md); padding:var(--space-2);
-    background:var(--teal-50);
+    background:var(--ink-50);
   }
   .cal-dow{
     text-align:center; font-size:10px; text-transform:uppercase; letter-spacing:.06em;
@@ -1808,13 +1976,19 @@
      Empty leading cells are invisible filler and skip the entrance. */
   .cal-cell:not(.cal-empty){animation:calCellIn .3s var(--ease-soft) backwards;}
   @keyframes calCellIn{from{opacity:0; transform:scale(.9);} to{opacity:1; transform:scale(1);}}
-  .cal-daynum{font-family:var(--font-num); font-size:12.5px; font-weight:600; color:var(--ink);}
-  .cal-dot{width:6px; height:6px; border-radius:50%; background:var(--line);}
+  .cal-daynum{font-family:var(--font-num); font-size:12.5px; font-weight:500; color:var(--ink);}
+  /* The dot is a meaningful graphical object under WCAG 1.4.11, so it is
+     measured against 3:1 on the tint it actually sits on, not on white. The
+     excused dot used --gold on --excused-bg and landed at 1.16:1 — the Fill-Only
+     Rule governs lime as *text*, so lime as a shape walked straight into the
+     1.35:1 the rule exists to prevent. --excused is the same hue dark enough to
+     carry meaning, exactly as --gold-deep does for the chart's target line. */
+  .cal-dot{width:6px; height:6px; border-radius:50%; background:var(--muted-2);}
   .cal-cell.cal-met .cal-dot{background:var(--positive);}
   .cal-cell.cal-met{background:var(--positive-bg);}
   .cal-cell.cal-under .cal-dot{background:var(--negative);}
   .cal-cell.cal-under{background:var(--negative-bg);}
-  .cal-cell.cal-excused .cal-dot{background:var(--gold);}
+  .cal-cell.cal-excused .cal-dot{background:var(--excused);}
   .cal-cell.cal-excused{background:var(--excused-bg);}
   .cal-cell.cal-open .cal-dot{background:var(--warn);}
   .cal-cell.cal-open{background:var(--warn-bg);}
@@ -1822,11 +1996,26 @@
   .cal-cell.cal-missing{background:var(--negative-bg);}
   .cal-cell.cal-off .cal-daynum{color:var(--muted-2);}
   .cal-cell.cal-future .cal-daynum{color:var(--muted-2);}
-  .cal-cell.cal-today{border-color:var(--gold); box-shadow:0 0 0 1px var(--gold);}
+  /* Today was a lime edge at 1.35:1 and nothing else — and cal-off, cal-future
+     and cal-today otherwise share the same white cell and the same grey dot, so
+     the one day you look for first was the one the calendar marked most faintly.
+     Ink carries the ring now (12.6:1), and the number goes bold: colour is no
+     longer the only channel, which is what 1.4.1 asks of a status this important. */
+  .cal-cell.cal-today{border-color:var(--ink); box-shadow:0 0 0 2px var(--ink);}
+  .cal-cell.cal-today .cal-daynum{font-weight:900;}
   @media (max-width:480px){
-    .calendar-grid{gap:3px; padding:7px;}
+    .calendar-grid{gap:4px; padding:8px;}
     .cal-daynum{font-size:11px;}
     .calendar-month-label{font-size:14px; min-width:110px;}
+    /* The one target in the app that cannot be a 44px square. Seven columns in
+       a 393px viewport leaves 41.6px of width per cell after the card, the grid
+       padding and six gaps, and 320px leaves 33px — the only ways to 44 wide
+       are a horizontal scrollbar on a month grid or a week that does not fit on
+       one line. The height is not constrained the same way, so the cell drops
+       its square aspect and takes the full 44 vertically: 41.6x44 rather than
+       41.6x41.6. Well clear of 2.5.8's 24px AA floor; short of 2.5.5's AAA
+       square on width alone, and recorded rather than rounded away. */
+    .cal-cell{aspect-ratio:auto; min-height:44px;}
   }
   /* Inside the frame the month has to fit the screen it is handed, so the grid
      takes whatever the panel has left and the week rows share it. That means
@@ -1842,8 +2031,15 @@
     /* Two IDs, to out-rank the frame's blanket flex-shrink:0 on panel children:
        the month grid is the one child here that must shrink, since giving
        height back is exactly how it fits. */
+    /* grid-template-rows:auto for the first row, because the seven SUN..SAT
+       labels are the grid's first row and grid-auto-rows alone sized them like
+       a week: a 20px strip of text was handed 97px and wore the other 77 as a
+       blank band across the top of the month, while the six rows that hold the
+       actual dates were each 16px shorter for it. The labels take what they
+       need; only the weeks below them share what is left. */
     #tabContentCard #tab-calendar .calendar-grid{
-      flex:1 1 auto; min-height:0; grid-auto-rows:minmax(0,1fr);
+      flex:1 1 auto; min-height:0;
+      grid-template-rows:auto; grid-auto-rows:minmax(0,1fr);
     }
     /* The number and its dot are centred in the cell, so a shorter box just
        brings them closer together — nothing to reflow. */
@@ -1852,7 +2048,7 @@
 
   /* gap:6px between controls, not 10px: a toolbar is one object, and the space
      inside it has to read as tighter than the space around it or it stops
-     being a group. The -6px top margin was a patch for the old 18px bottom
+     being a group. The -6px top margin was a patch for the old 16px bottom
      margin above it; both are gone in favour of the scale. */
   .filter-bar{display:flex; align-items:center; gap:var(--space-1-5); margin:0 0 var(--space-4); flex-wrap:wrap;}
   /* Groups a label with its own select/input so flex-wrap moves them
@@ -1895,17 +2091,21 @@
   .table-wrap::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
   .table-wrap.is-loading table{display:none;}
   table{width:100%; border-collapse:collapse; font-size:13px;}
-  /* A shade darker than the zebra stripe (--teal-100, not --teal-50) so the
+  /* A shade darker than the zebra stripe (--ink-100, not --ink-50) so the
      header reads as its own row rather than blending into the first even
      data row beneath it — both were the same wash before. */
   thead th{
     text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.07em;
-    color:var(--muted-2); padding:7px 10px; background:var(--teal-100);
+    color:var(--muted-2); padding:8px 10px; background:var(--ink-100);
     border-bottom:1px solid var(--line); white-space:nowrap;
   }
-  tbody td{padding:5px 10px; border-bottom:1px solid var(--line-soft); white-space:nowrap;}
+  tbody td{padding:6px 10px; border-bottom:1px solid var(--line-soft); white-space:nowrap;}
   tbody tr:last-child td{border-bottom:none;}
-  tbody tr:nth-child(even){background:var(--teal-50);}
+  /* No zebra. It was a fifth row background stacked under four that mean
+     something — over, under, open, excused — so "why is this row tinted?"
+     had two possible answers and only one of them was information. DESIGN.md's
+     own line is that surfaces separate, not stripes; the 1px --line-soft rule
+     under each cell already does the tracking job a zebra is for. */
   /* Status tinting: lets a problem day (under target, forgot to clock out)
      stand out without having to read the Status column. Surface colour only,
      the way the rest of the system separates one surface from another —
@@ -1922,7 +2122,14 @@
   td.num.col-worked{font-weight:700;}
   td.note-cell{white-space:normal; max-width:220px; color:var(--muted-2);}
 
-  .pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px 3px 8px; border-radius:99px; font-size:11px; font-weight:600; letter-spacing:.01em;}
+  /* Not a pill: see pillFor() in app.js. Same column, same alignment, a
+     fraction of the weight — it reads as "nothing to see here", which is
+     exactly what it means. */
+  .on-target{
+    display:inline-flex; align-items:center; font-size:11px; font-weight:500;
+    color:var(--muted-2); letter-spacing:.01em;
+  }
+  .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 10px 4px 8px; border-radius:99px; font-size:11px; font-weight:500; letter-spacing:.01em;}
   .pill::before{content:""; width:5px; height:5px; border-radius:50%; background:currentColor; flex-shrink:0; box-shadow:0 0 4px currentColor;}
   .pill.over{background:var(--positive-bg); color:var(--positive);}
   .pill.under{background:var(--negative-bg); color:var(--negative);}
@@ -1930,7 +2137,11 @@
   .pill.excused{background:var(--excused-bg); color:var(--excused);}
   .pill.open{background:var(--warn-bg); color:var(--warn);}
 
-  .row-actions button{background:none; border:none; cursor:pointer; font-size:11.5px; color:var(--muted); padding:8px 10px; border-radius:var(--radius-xs); min-height:36px;}
+  .row-actions button{background:none; border:none; cursor:pointer; font-size:11.5px; color:var(--muted); padding:8px 10px; border-radius:var(--radius-xs); min-height:44px;}
+  /* Delete is permanent and there is no undo in this app. It should not be
+     typographically identical to Edit, which is reversible by definition. */
+  .row-actions button[data-del]{color:var(--negative);}
+  .row-actions button[data-del]:hover{background:var(--negative-bg);}
   .log-more-row td{text-align:center; padding:14px 10px; border-bottom:none;}
 
   /* ---------- Density in the frame ----------
@@ -1950,9 +2161,9 @@
      The row keeps its 32px because the cell gives back the two pixels the
      button takes — 24 + 4 + 4, instead of 21 + 5 + 5. */
   @media (min-width:1100px){
-    .row-actions button{min-height:24px; padding:2px 7px;}
+    .row-actions button{min-height:24px; padding:2px 8px;}
     tbody td{padding-top:var(--space-1); padding-bottom:var(--space-1);}
-    .pill{padding:1px 8px 1px 7px;}
+    .pill{padding:1px 8px 1px 8px;}
     td.num{font-size:13px;}
     .empty-state{padding:var(--space-6) var(--space-3);}
     .log-more-row td{padding:var(--space-2) var(--space-3);}
@@ -1974,7 +2185,7 @@
     /* Re-asserted after the shorthand above, which has the same specificity and
        would otherwise reset the room the search icon sits in — the glyph ended
        up printed under the first letter of the placeholder. */
-    .search-field input{padding-left:30px;}
+    .search-field input{padding-left:32px;}
     .period-row input{padding:var(--space-1) var(--space-2);}
     /* Capped. flex:1 1 200px with no ceiling made the search box 65% of the
        content width, and narrowing the selects only fed it more — 808px at
@@ -1983,6 +2194,16 @@
     .search-field{max-width:420px;}
     .btn{min-height:34px; padding:var(--space-1-5) var(--space-4);}
     .btn.small{min-height:30px; padding:var(--space-1) var(--space-3); font-size:12px;}
+    .cal-mode-btn{min-height:30px; padding:var(--space-1-5) var(--space-4);}
+    .calendar-nav .btn.ghost.small{min-height:30px; padding:var(--space-1) var(--space-3);}
+    .icon-btn.small{width:30px; height:30px;}
+    /* The rest of the module's step-downs. Each of these carried its pointer
+       size as its base, so the 44px touch floor the rule promises below 1100px
+       was never actually there: a tablet got a 30px sign-out disc, a 32px
+       sub-tab and a 36px row action. The base is the touch size now and the
+       frame is what shrinks it. */
+    .daypicker label{min-height:34px;}
+    .sub-tab-btn{min-height:32px;}
     /* 170px was a floor set for phones, where a select is a full-width row.
        On a pointer it made "Year" 170px wide to hold four digits, so the two
        month controls ate half the toolbar and pushed Print Report to the far
@@ -2005,7 +2226,7 @@
   .first-run-empty{display:flex; flex-direction:column; align-items:center; gap:14px; max-width:320px; margin:0 auto;}
   .first-run-title{font-family:var(--font-display); font-size:16px; color:var(--ink); margin:2px 0 0;}
   .first-run-sub{font-size:12.5px; color:var(--muted); line-height:1.6; margin:0;}
-  .first-run-sub strong{color:var(--teal-600);}
+  .first-run-sub strong{color:var(--ink-600);}
 
   /* ---------- Responsive tables: stacked cards below 700px ---------- */
   @media (max-width:700px){
@@ -2026,7 +2247,7 @@
     .table-wrap.responsive-cards tbody tr.row-over{background:var(--positive-bg);}
     .table-wrap.responsive-cards td{
       display:flex; align-items:center; justify-content:space-between; gap:14px;
-      padding:9px 0; border-bottom:1px dashed var(--line-soft);
+      padding:8px 0; border-bottom:1px dashed var(--line-soft);
       white-space:normal; text-align:right; font-size:13px;
     }
     .table-wrap.responsive-cards td:last-child{border-bottom:none;}
@@ -2042,9 +2263,9 @@
     .table-wrap.responsive-cards td.note-cell{
       flex-direction:column; align-items:flex-start; text-align:left;
     }
-    .table-wrap.responsive-cards td.note-cell > .cell-label{margin-bottom:3px;}
+    .table-wrap.responsive-cards td.note-cell > .cell-label{margin-bottom:4px;}
     .table-wrap.responsive-cards td.row-actions{
-      justify-content:flex-end; gap:6px; padding-top:11px;
+      justify-content:flex-end; gap:6px; padding-top:12px;
     }
     .table-wrap.responsive-cards td.row-actions > .cell-label{display:none;}
     .table-wrap.responsive-cards td.row-actions button{
@@ -2052,16 +2273,27 @@
     }
   }
 
+  /* The three data tables behind an accordion — Weekly totals, Monthly totals,
+     Shortfall by month — open on arrival rather than collapsed.
+     Collapsed, Trends ended in 234px of empty canvas at 1440x900 and Shortfall
+     in 165px, with the numbers those tabs exist for one click away and no sign
+     that a click was owed. The chart above them still leads; the table is the
+     same month in the form you can read a single row out of. Closing one is
+     still a click, and the state is per-session, so a reader who prefers the
+     chart alone keeps it for as long as they are working.
+     DESIGN.md: "Density is how a tab earns [one screen], not pagination." An
+     empty third of the frame is the opposite of density. */
+
   /* ---------- Period cards ---------- */
   .period-card{
     position:relative; border-radius:var(--radius);
-    padding:18px 18px 16px; margin-bottom:16px; background:var(--card); box-shadow:var(--shadow-sm);
+    padding:16px 16px 16px; margin-bottom:16px; background:var(--card); box-shadow:var(--shadow-sm);
     transition:box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
   .period-card-head{display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
   .period-title{font-family:var(--font-display); font-size:17px; color:var(--ink); margin:0; font-weight:700; letter-spacing:-.02em;}
   .period-meta{font-size:11.5px; color:var(--muted);}
-  .period-figures{display:flex; gap:26px; flex-wrap:wrap; margin-bottom:14px;}
+  .period-figures{display:flex; gap:24px; flex-wrap:wrap; margin-bottom:14px;}
   .period-figure .label{font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
   .period-figure .value{font-family:var(--font-num); font-weight:700; font-size:24px; font-variant-numeric:tabular-nums; margin-top:2px; letter-spacing:-.005em;}
 
@@ -2070,7 +2302,7 @@
      inside a card" pattern the rest of the system deliberately avoids — the
      gradient tint alone is enough to read as its own surface. */
   .chart-holder{
-    background:linear-gradient(180deg, var(--teal-50), var(--card));
+    background:linear-gradient(180deg, var(--ink-50), var(--card));
     border-radius:var(--radius-md); padding:10px 6px 2px;
   }
   .chart-wrap{width:100%; display:block;}
@@ -2133,7 +2365,7 @@
      graphics), so the legend key has to match what's actually on screen,
      not a lighter, non-compliant stand-in for it. */
   .swatch.target{width:14px; height:0; border-top:2px dashed var(--gold-deep);}
-  .swatch.line{width:14px; height:2px; border-radius:2px; background:var(--teal-600);}
+  .swatch.line{width:14px; height:2px; border-radius:2px; background:var(--ink-600);}
 
   /* ---------- Trend chart (line/area) ---------- */
   /* Drawn in with pathLength="1" set in markup, so stroke-dasharray/offset
@@ -2164,7 +2396,7 @@
     letter-spacing:.05em; font-family:var(--font-num);
   }
   .trend-callout-value{
-    fill:#fff; font-size:12px; font-weight:800; font-family:var(--font-num);
+    fill:#fff; font-size:12px; font-weight:900; font-family:var(--font-num);
     font-variant-numeric:tabular-nums;
   }
 
@@ -2173,7 +2405,7 @@
   .spark-rect{transform-box:fill-box; transform-origin:bottom; animation:barGrow .4s var(--ease-soft) both;}
 
   footer.ledger-foot{
-    max-width:1280px; margin:0 auto; padding:14px 32px 18px;
+    max-width:1280px; margin:0 auto; padding:14px 32px 16px;
   }
   .foot-row{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
   .foot-note{font-size:11px; color:var(--muted-2); max-width:340px;}
@@ -2225,7 +2457,7 @@
        range and drops to 1 when even two no longer fit. */
     .seal{width:70px; height:70px;}
     .head-title{font-size:21px;}
-    header.ledger-head{padding:14px 16px 13px;}
+    header.ledger-head{padding:14px 16px 12px;}
     main{padding:20px 14px 0;}
     .card{padding:16px;}
     .head-right{width:100%; justify-content:space-between; flex-wrap:wrap; gap:10px;}
@@ -2241,7 +2473,7 @@
      spend, so a card here keeps the roomier padding rather than the frame's
      trim below. */
   @media (max-width:1099px){
-    .stat-card{padding:13px 14px 12px;}
+    .stat-card{padding:12px 14px 12px;}
   }
   /* ---------- Stat cards inside the desktop frame ----------
      Above 1100px every tab is one screen, so a stat row is spending height
@@ -2255,13 +2487,13 @@
      specificity regardless of source order. */
   @media (min-width:1100px){
     .stat-card{padding:10px 14px 10px;}
-    .stat-label{margin:0 0 5px; gap:7px;}
+    .stat-label{margin:0 0 6px; gap:8px;}
     /* 1.35, not the body's 1.45: this caption wraps to two lines on the
        Overview cards at 1440px and under, and at 1.45 the second line was
        adding 17px to a row four cards wide. The figure above it is the thing
        being read; the caption is the footnote, and a footnote can sit closer
        to itself. Font size is untouched — the leading is what was loose. */
-    .stat-detail{margin:3px 0 0; line-height:1.35;}
+    .stat-detail{margin:4px 0 0; line-height:1.35;}
     /* min-height reserves a slot so a card with a trend and a card without
        still line up. It was sized against the old 11px/1.45 line box; the
        slot only ever needs to be one line of .stat-trend. */
@@ -2298,14 +2530,14 @@
       radial-gradient(900px 420px at 12% -10%, rgba(214,232,92,.16), transparent 60%),
       radial-gradient(700px 380px at 95% 105%, rgba(169,220,198,.14), transparent 62%);
   }
-  .auth-screen .copyright{margin-top:22px;}
+  .auth-screen .copyright{margin-top:24px;}
   .auth-card{
     position:relative; width:100%; max-width:380px;
     background:var(--card); border-radius:var(--radius);
     padding:34px 28px 28px; box-shadow:var(--shadow-lg);
     animation:cardIn .5s var(--ease-soft) backwards;
   }
-  .auth-title{font-size:30px; color:var(--ink); margin:0 0 22px; font-weight:700; letter-spacing:-.03em;}
+  .auth-title{font-size:30px; color:var(--ink); margin:0 0 24px; font-weight:700; letter-spacing:-.03em;}
   .auth-form{display:flex; flex-direction:column; gap:14px;}
   .auth-form label{margin-bottom:6px;}
   .auth-switch{
@@ -2314,7 +2546,7 @@
   }
   .link-btn{
     background:none; border:none; padding:2px; cursor:pointer;
-    color:var(--teal-600); font-size:12px; text-decoration:underline; text-underline-offset:2px;
+    color:var(--ink-600); font-size:12px; text-decoration:underline; text-underline-offset:2px;
   }
   .auth-error{
     font-size:12px; color:var(--negative); margin:0; min-height:1px;
@@ -2324,7 +2556,7 @@
   }
   .auth-config-warning{
     font-size:11.5px; color:var(--excused); background:var(--excused-bg);
-    border:1px solid var(--warn-line); border-radius:var(--radius-sm); padding:10px 12px; margin:0 0 18px;
+    border:1px solid var(--warn-line); border-radius:var(--radius-sm); padding:10px 12px; margin:0 0 16px;
     line-height:1.5;
   }
   .auth-config-warning code{font-family:var(--font-num); font-size:11px;}
@@ -2333,26 +2565,27 @@
      Dark-surface siblings of the seal above and .rail-item below — same
      translucent-white fills the rail already uses, rather than the
      light-card styling a header control would need. */
-  .rail-viewer{margin:0 0 18px; padding:0 2px;}
+  .rail-viewer{margin:0 0 16px; padding:0 2px;}
   .rail-viewer select{
     width:100%; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.09);
-    color:#fff; font-size:12px; padding:9px 10px; border-radius:var(--radius-sm);
+    color:#fff; font-size:12px; padding:8px 10px; border-radius:var(--radius-sm);
   }
   /* The OPEN dropdown is painted by the browser on a system surface, not on
      the page, so its options are pinned to the system pair rather than to a
      theme token that assumes the page's own dark background. */
   .rail-viewer select option{color:CanvasText; background:Canvas;}
   .rail-logout-btn{
-    flex-shrink:0; width:30px; height:30px; border-radius:50%;
+    flex-shrink:0; width:44px; height:44px; border-radius:50%;
     display:inline-flex; align-items:center; justify-content:center;
     background:none; border:none; cursor:pointer;
     color:var(--muted-on-dark);
     transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap);
   }
   .rail-logout-btn:hover{background:rgba(240,185,201,.14); color:var(--negative-on-dark);}
+  @media (min-width:1100px){ .rail-logout-btn{width:30px; height:30px;} }
   .viewing-other-banner{border-left-color:var(--gold); background:var(--excused-bg);}
-  .announcement-banner{border-left-color:var(--teal-600); background:var(--teal-50);}
-  .announcement-banner svg{color:var(--teal-600);}
+  .announcement-banner{border-left-color:var(--ink-600); background:var(--ink-50);}
+  .announcement-banner svg{color:var(--ink-600);}
 
   /* ---------- Admin panel ---------- */
   /* A narrower floor than the general .stats-row: these four sit in a console
@@ -2364,23 +2597,23 @@
   .admin-user-row{
     display:flex; align-items:center; gap:12px; flex-wrap:wrap;
     border:1px solid var(--line-soft); border-radius:var(--radius-md);
-    padding:13px 15px; margin-bottom:9px; background:var(--card); box-shadow:var(--shadow-sm);
+    padding:12px 16px; margin-bottom:8px; background:var(--card); box-shadow:var(--shadow-sm);
   }
-  .admin-user-row.is-deactivated{opacity:.62; background:var(--teal-50);}
+  .admin-user-row.is-deactivated{opacity:.62; background:var(--ink-50);}
   .admin-user-main{flex:1 1 200px; min-width:0;}
-  .admin-user-name{font-weight:600; font-size:14px; color:var(--ink); display:flex; align-items:center; gap:7px; flex-wrap:wrap;}
-  .admin-user-meta{font-size:11.5px; color:var(--muted-2); margin-top:3px;}
-  .admin-user-actions{display:flex; gap:7px; flex-wrap:wrap;}
+  .admin-user-name{font-weight:700; font-size:14px; color:var(--ink); display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .admin-user-meta{font-size:11.5px; color:var(--muted-2); margin-top:4px;}
+  .admin-user-actions{display:flex; gap:8px; flex-wrap:wrap;}
   .admin-badge{
     font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:700;
-    padding:2px 7px; border-radius:99px; white-space:nowrap;
+    padding:2px 8px; border-radius:99px; white-space:nowrap;
   }
   .admin-badge.role-admin{background:var(--gradient-gold); color:var(--ink-on-gold);}
   .admin-badge.role-you{background:var(--info-bg); color:var(--info);}
   .admin-badge.deactivated{background:var(--negative-bg); color:var(--negative);}
   .audit-action{
     font-size:10px; text-transform:uppercase; letter-spacing:.05em; font-weight:700;
-    padding:2px 7px; border-radius:99px; white-space:nowrap; display:inline-block;
+    padding:2px 8px; border-radius:99px; white-space:nowrap; display:inline-block;
   }
   .audit-action.a-insert{background:var(--positive-bg); color:var(--positive);}
   .audit-action.a-update{background:var(--info-bg); color:var(--info);}
@@ -2395,7 +2628,7 @@
      draws a box inside the tab card; this was the one place in the console
      that framed itself, and it read as belonging to a different screen. */
   .admin-attention{
-    border-radius:var(--radius); background:var(--teal-50);
+    border-radius:var(--radius); background:var(--ink-50);
     padding:var(--space-3) var(--space-4); margin-bottom:6px;
   }
   .admin-attention h3{
@@ -2403,8 +2636,8 @@
     text-transform:uppercase; letter-spacing:.07em; color:var(--muted);
   }
   .attention-item{
-    display:flex; align-items:flex-start; gap:13px; flex-wrap:wrap;
-    padding:11px 0; border-top:1px solid var(--line-soft);
+    display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;
+    padding:12px 0; border-top:1px solid var(--line-soft);
   }
   .attention-count{
     font-family:var(--font-num); font-weight:700; font-size:16px;
@@ -2412,8 +2645,8 @@
   }
   .attention-count.is-clear{color:var(--positive);}
   .attention-body{flex:1 1 240px; min-width:0;}
-  .attention-title{font-size:13px; font-weight:600; color:var(--ink);}
-  .attention-note{font-size:11.5px; color:var(--muted-2); margin-top:3px; line-height:1.5;}
+  .attention-title{font-size:13px; font-weight:700; color:var(--ink);}
+  .attention-note{font-size:11.5px; color:var(--muted-2); margin-top:4px; line-height:1.5;}
   .attention-item .btn{flex-shrink:0;}
   .viewing-other-banner svg{color:var(--excused);}
   .viewing-other-banner .reminder-title{color:var(--excused);}
@@ -2426,15 +2659,15 @@
   }
   .team-month{display:flex; align-items:center; gap:6px;}
   .team-month-label{
-    font-family:var(--font-display); font-size:16px; font-weight:600; color:var(--ink);
+    font-family:var(--font-display); font-size:16px; font-weight:700; color:var(--ink);
     min-width:150px; text-align:center;
   }
   .icon-btn.small{
-    width:36px; height:36px; background:var(--input-bg); border:1px solid var(--line);
+    width:44px; height:44px; background:var(--input-bg); border:1px solid var(--line);
     color:var(--muted); border-radius:var(--radius-sm);
   }
   .icon-btn.small:disabled{opacity:.4; cursor:default; background:var(--input-bg); color:var(--muted-2);}
-  .team-controls{display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
+  .team-controls{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
   .team-controls input[type="search"]{width:auto; min-width:180px;}
   .team-controls select{width:auto; min-width:170px;}
 
@@ -2442,7 +2675,7 @@
      eight numbers up to answer "is the month on track" — five .stat-cards,
      the same component and alternating white/cream/gray surfaces Overview's
      own row uses, not a bespoke summary bar. */
-  .team-stats{margin-bottom:18px;}
+  .team-stats{margin-bottom:16px;}
 
   /* Sidebar sized to fit a name, a relative time and a short line of body
      text without wrapping every row — narrower and the activity feed reads
@@ -2480,8 +2713,8 @@
      comes from surface colour and shadow") — this one sits on the canvas
      alone rather than in a row, so shadow-sm alone does the separating. */
   .team-card{
-    display:flex; flex-direction:column; gap:9px; width:100%; text-align:left;
-    padding:13px 14px; border-radius:var(--radius-md);
+    display:flex; flex-direction:column; gap:8px; width:100%; text-align:left;
+    padding:12px 14px; border-radius:var(--radius-md);
     background:var(--card); box-shadow:var(--shadow-sm); cursor:pointer; font-family:inherit;
     transition:box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
@@ -2504,11 +2737,14 @@
   .team-card-figures .value.over{color:var(--positive);}
 
   /* Progress against that person's own target for the month. */
-  .team-bar{height:7px; border-radius:99px; background:var(--teal-50); overflow:hidden;}
-  .team-bar span{display:block; height:100%; border-radius:99px; background:var(--gradient-teal);}
+  .team-bar{height:7px; border-radius:99px; background:var(--ink-50); overflow:hidden;}
+  .team-bar span{display:block; height:100%; border-radius:99px; background:var(--gradient-ink);}
   .team-bar.is-met span{background:var(--positive);}
-  .team-bar.is-short span{background:var(--gold-deep);}
-  .team-bar-note{font-size:11px; color:var(--muted-2); margin-top:5px;}
+  /* Was --gold-deep: a lime standing in for "under target" opposite a green
+     "met", so the pair carried no hue relationship at all. Crimson is the
+     under-target hue everywhere else in the app. */
+  .team-bar.is-short span{background:var(--negative);}
+  .team-bar-note{font-size:11px; color:var(--muted-2); margin-top:6px;}
 
   /* No margin-left:auto. It existed to push this pill to the end of the card
      head; in the tag row it shoved the whole line right, so the first line of
@@ -2516,11 +2752,11 @@
      one row looking like two unrelated things. */
   .team-status{
     font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
-    padding:3px 8px; border-radius:99px; white-space:nowrap; flex-shrink:0;
+    padding:4px 8px; border-radius:99px; white-space:nowrap; flex-shrink:0;
   }
   .team-status.in{background:var(--positive-bg); color:var(--positive);}
   .team-status.done{background:var(--info-bg); color:var(--info);}
-  .team-status.off{background:var(--teal-50); color:var(--muted-2);}
+  .team-status.off{background:var(--ink-50); color:var(--muted-2);}
   .team-status.excused{background:var(--excused-bg); color:var(--excused);}
   .team-status.missing{background:var(--negative-bg); color:var(--negative);}
 
@@ -2534,7 +2770,7 @@
   .team-activity-list{display:flex; flex-direction:column;}
   .team-activity-empty{font-size:12.5px; color:var(--muted); margin:0;}
   .activity-row{
-    display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--line-soft);
+    display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--line-soft);
   }
   .activity-row:last-child{border-bottom:none; padding-bottom:0;}
   .activity-row:first-child{padding-top:0;}
@@ -2542,7 +2778,7 @@
   .activity-row-body{min-width:0; flex:1;}
   .activity-row-head{display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;}
   .activity-row-name{
-    font-size:12.5px; font-weight:600; color:var(--ink);
+    font-size:12.5px; font-weight:500; color:var(--ink);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .activity-row-time{font-size:10.5px; color:var(--muted-2); white-space:nowrap; margin-left:auto;}
@@ -2556,8 +2792,9 @@
      re-tab through the full header's 5+ interactive elements on every page. */
   .skip-link{
     position:absolute; left:12px; top:-48px; z-index:400;
-    background:var(--teal-900); color:#fff; padding:10px 16px;
-    border-radius:var(--radius-sm); font-size:13px; font-weight:600;
+    background:var(--ink-900); color:#fff; padding:10px 16px; min-height:44px;
+    display:inline-flex; align-items:center;
+    border-radius:var(--radius-sm); font-size:13px; font-weight:700;
     text-decoration:none; transition:top var(--dur-fast) var(--ease-snap);
   }
   .skip-link:focus{top:12px;}
@@ -2568,7 +2805,7 @@
      so a roster of mixed photo/no-photo people still lines up. */
   .avatar{
     position:relative; width:36px; height:36px; border-radius:50%; flex-shrink:0;
-    background:var(--teal-700); color:#fff; overflow:hidden;
+    background:var(--ink-700); color:#fff; overflow:hidden;
     display:flex; align-items:center; justify-content:center;
     font-family:var(--font-num); font-weight:700; font-size:13px; letter-spacing:.02em;
   }
@@ -2579,7 +2816,7 @@
      it breaks between words, not inside one. overflow-wrap:anywhere was here to
      stop a long unbroken string forcing the card wider; min-width:0 on the
      flex parent already does that. */
-  .team-name{font-size:13px; font-weight:600; color:var(--ink);}
+  .team-name{font-size:13px; font-weight:700; color:var(--ink);}
   /* An address gets one line and an ellipsis. Wrapped, it split mid-domain
      ("p1@example.co / m"), which reads as two broken strings rather than one
      truncated address — and an address you can't finish reading is no more
@@ -2590,7 +2827,7 @@
   }
   .admin-badge{
     font-size:10px; text-transform:uppercase; letter-spacing:.06em;
-    color:var(--excused); background:var(--excused-bg); padding:2px 7px; border-radius:99px;
+    color:var(--excused); background:var(--excused-bg); padding:2px 8px; border-radius:99px;
   }
 
   /* ---------- Role toggle (Admin tab People list) ----------
@@ -2599,15 +2836,16 @@
      the old rules are gone rather than left looking live. */
   .role-toggle{
     display:inline-flex; border:1px solid var(--line); border-radius:99px;
-    padding:2px; background:var(--teal-50); flex-shrink:0;
+    padding:2px; background:var(--ink-50); flex-shrink:0;
   }
   .role-btn{
-    border:none; background:none; cursor:pointer; padding:7px 15px; min-height:32px;
-    border-radius:99px; font-size:11.5px; font-weight:600; color:var(--muted);
+    border:none; background:none; cursor:pointer; padding:8px 16px; min-height:44px;
+    border-radius:99px; font-size:11.5px; font-weight:500; color:var(--muted);
     transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
-  .role-btn.active{background:var(--gradient-teal); color:#fff; box-shadow:0 1px 5px rgba(17,17,16,.28);}
+  .role-btn.active{background:var(--gradient-ink); color:#fff; box-shadow:0 1px 5px rgba(17,17,16,.28);}
   .role-btn:disabled{opacity:.5; cursor:default;}
+  @media (min-width:1100px){ .role-btn{min-height:32px;} }
   @media (max-width:480px){
     .role-toggle{width:100%;}
     .role-btn{flex:1;}
@@ -2635,14 +2873,15 @@
   .toast-icon{flex-shrink:0; margin-top:1px;}
   .toast-error .toast-icon{color:var(--negative);}
   .toast-success .toast-icon{color:var(--positive);}
-  .toast-info .toast-icon{color:var(--teal-600);}
+  .toast-info .toast-icon{color:var(--ink-600);}
   .toast-msg{flex:1; font-size:13px; line-height:1.45; color:var(--ink); white-space:pre-line;}
   .toast-close{
     flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--muted-2);
-    padding:6px; min-width:32px; min-height:32px; display:inline-flex;
+    padding:6px; min-width:44px; min-height:44px; display:inline-flex;
     align-items:center; justify-content:center;
     border-radius:var(--radius-xs); margin-top:-2px;
   }
+  @media (min-width:1100px){ .toast-close{min-width:32px; min-height:32px;} }
   @media (max-width:480px){
     .toast-stack{bottom:calc(12px + env(safe-area-inset-bottom)); padding:0 10px;}
     .toast{max-width:100%;}
@@ -2652,7 +2891,7 @@
        third of the screen before any attendance showed. The eyebrow is
        decorative and the seal repeats what the quick-clock card says, so both
        shrink or go. */
-    header.ledger-head{padding:12px 14px 11px;}
+    header.ledger-head{padding:12px 14px 12px;}
     .head-title{font-size:20px;}
     .head-inner{gap:10px;}
     .head-right{gap:8px;}
@@ -2670,7 +2909,7 @@
     /* Clear the home indicator on notched devices rather than sitting under it. */
     bottom:calc(14px + env(safe-area-inset-bottom)); z-index:120;
     align-items:center; justify-content:space-between; gap:12px;
-    background:var(--gradient-teal); border-radius:var(--radius); padding:10px 14px;
+    background:var(--gradient-ink); border-radius:var(--radius); padding:10px 14px;
     box-shadow:var(--shadow-lg);
     transform:translateY(90px); opacity:0;
     transition:transform var(--dur-slow) var(--ease-soft), opacity var(--dur-slow) var(--ease-soft);
@@ -2680,11 +2919,12 @@
      two buttons and three call sites — was inert at every viewport width. */
   .sticky-clock.show{display:flex; transform:translateY(0); opacity:1;}
   .sticky-clock-time{
-    font-family:var(--font-num); font-weight:600; font-size:15px; color:#fff;
+    font-family:var(--font-num); font-weight:700; font-size:15px; color:#fff;
     font-variant-numeric:tabular-nums; flex-shrink:0;
   }
   .sticky-clock-actions{display:flex; gap:8px;}
-  .sticky-clock .btn{padding:8px 14px; min-height:36px;}
+  .sticky-clock .btn{padding:8px 14px; min-height:44px;}
+  @media (min-width:1100px){ .sticky-clock .btn{min-height:36px;} }
   .sticky-clock .btn.qc-btn{background:var(--gradient-gold); border-color:var(--gold); color:var(--ink-on-gold);}
   .sticky-clock .btn.secondary.qc-btn{background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.22); color:#fff;}
   /* The bar is anchored to the viewport, but the rail owns the first 236px of
@@ -2703,7 +2943,7 @@
     display:none; position:fixed; left:0; right:0; bottom:0; z-index:150;
     background:var(--card); border-top:1px solid var(--line-soft);
     box-shadow:0 -6px 20px rgba(0,0,0,.07);
-    padding:7px 4px calc(7px + env(safe-area-inset-bottom));
+    padding:8px 4px calc(8px + env(safe-area-inset-bottom));
     align-items:flex-end;
   }
   /* Both sides get equal flex:1 width, and within each side every slot
@@ -2723,16 +2963,16 @@
   }
   .bn-spacer{visibility:hidden; pointer-events:none;}
   .bn-item{
-    gap:3px; background:none; border:none; cursor:pointer; color:var(--muted-2);
-    padding:5px 2px; border-radius:var(--radius-sm); min-height:48px;
+    gap:4px; background:none; border:none; cursor:pointer; color:var(--muted-2);
+    padding:6px 2px; border-radius:var(--radius-sm); min-height:48px;
     transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
   .bn-item span{
-    font-size:10px; font-weight:600; letter-spacing:.005em;
+    font-size:10px; font-weight:500; letter-spacing:.005em;
     max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .bn-item.active{color:var(--teal-700);}
-  .bn-item:active{background:var(--teal-50);}
+  .bn-item.active{color:var(--ink-700);}
+  .bn-item:active{background:var(--ink-50);}
   /* At the narrowest phones (down to 320px, the floor this app targets),
      six equal slots for an admin leaves very little room per label —
      a slightly smaller size gives longer words like "Calendar" and
@@ -2753,9 +2993,9 @@
     transition:transform var(--dur-fast) var(--ease-snap), background var(--dur-fast) var(--ease-snap);
   }
   .bn-clock:active{transform:scale(.96);}
-  .bn-clock.clocked-in{background:var(--gradient-teal); color:#fff; box-shadow:0 4px 14px rgba(20,92,87,.4);}
+  .bn-clock.clocked-in{background:var(--gradient-ink); color:#fff; box-shadow:0 4px 14px rgba(17,17,16,.4);}
   .bn-clock.disabled{opacity:.45; pointer-events:none;}
-  .bn-clock-label{font-size:10px; font-weight:600; color:var(--muted-2);}
+  .bn-clock-label{font-size:10px; font-weight:500; color:var(--muted-2);}
 
   @media (max-width:760px){
     .bottom-nav{display:flex;}
@@ -2778,16 +3018,16 @@
      but min-height still holds the 44px WCAG 2.5.5 touch-target floor; only
      the visual padding/icon/label shrink. */
   @media (max-width:920px) and (orientation:landscape) and (max-height:500px){
-    .bottom-nav{padding:3px 4px calc(3px + env(safe-area-inset-bottom));}
+    .bottom-nav{padding:4px 4px calc(4px + env(safe-area-inset-bottom));}
     .bn-item{min-height:44px; padding:2px;}
     .bn-item span{font-size:9px;}
     .bn-item svg{width:17px; height:17px;}
-    .bn-clock{width:44px; height:44px; margin-top:-18px;}
+    .bn-clock{width:44px; height:44px; margin-top:-16px;}
     .bn-clock svg{width:19px; height:19px;}
     .bn-clock-label{display:none;}
     body{padding-bottom:70px;}
     html{scroll-padding-bottom:70px;}
-    header.ledger-head{padding:11px 14px 10px;}
+    header.ledger-head{padding:12px 14px 10px;}
     .seal{display:none;}
   }
 
@@ -2808,7 +3048,7 @@
     overflow-y:auto; overscroll-behavior:contain;
     scrollbar-width:thin; scrollbar-color:var(--line) transparent;
     background:var(--card); border-radius:var(--radius);
-    box-shadow:var(--shadow-lg); padding:20px 22px 22px;
+    box-shadow:var(--shadow-lg); padding:20px 24px 24px;
     transform:translateY(8px) scale(.98); transition:transform var(--dur-slow) var(--ease-soft);
   }
   .entry-modal.show .entry-modal-card{transform:translateY(0) scale(1);}
@@ -2849,6 +3089,52 @@
     .modal-actions .btn{width:100%;}
   }
 
+  /* ---------- Photo crop modal ----------
+     Choosing a photo used to go straight to an automatic centre crop — the
+     one part of the frame nobody chose. A group shot, a face that isn't
+     centred, a landscape photo pressed into service: the app picked a square
+     for you and you never saw it before it uploaded. This is the same
+     drag-to-reposition, slide-to-zoom pattern every consumer avatar picker
+     uses, built on .modal-overlay/.modal-card rather than a new dialog
+     system — wider because a 300px stage needs the room a confirm dialog's
+     400px card doesn't leave. */
+  .crop-modal-card{max-width:420px;}
+  .crop-stage{
+    position:relative; width:300px; height:300px; max-width:100%;
+    margin:0 auto; border-radius:var(--radius-md); overflow:hidden;
+    background:var(--wash-soft); touch-action:none; cursor:grab;
+  }
+  .crop-stage.dragging{cursor:grabbing;}
+  .crop-stage img{
+    position:absolute; top:0; left:0; transform-origin:0 0;
+    -webkit-user-drag:none; user-select:none; pointer-events:none;
+    max-width:none;
+  }
+  /* The circle is the actual .avatar shape this photo will render into —
+     showing it during crop, not just after, is the whole point. A giant
+     spread box-shadow in the stage's own background colour dims everything
+     outside the circle without needing an SVG mask or clip-path, and
+     pointer-events:none lets drags on the image pass straight through it. */
+  .crop-mask{
+    position:absolute; inset:0; border-radius:50%; pointer-events:none;
+    box-shadow:0 0 0 9999px rgba(239,237,232,.92);
+  }
+  .crop-zoom-row{
+    display:flex; align-items:center; gap:10px; margin-top:16px;
+  }
+  .crop-zoom-row svg{flex-shrink:0; color:var(--muted-2);}
+  /* min-height, not height: a native range input centres its visual track
+     inside whatever box it is given, so this grows the touch target to the
+     44px floor (DESIGN.md's One Module) without inflating the thin track
+     itself or needing a below-1100px step-down the way a button does — a
+     drag control earns the full target at every width, not just on touch. */
+  .crop-zoom-row input[type="range"]{
+    flex:1; min-height:44px; accent-color:var(--gold-deep); cursor:pointer;
+  }
+  .crop-hint{
+    margin:10px 0 0; font-size:11.5px; color:var(--muted); text-align:center;
+  }
+
   /* ---------- Hover states (mouse/trackpad only) ----------
      Consolidated here instead of scattered per-component: on a touch
      device every :hover rule fires on tap and can stay "stuck" until
@@ -2866,29 +3152,29 @@
     input:hover, select:hover{border-color:var(--muted-2);}
     .btn:hover::before{transform:translateX(120%);}
     .btn:hover{transform:translateY(-1px); box-shadow:var(--shadow-md);}
-    .btn.secondary:hover{background:var(--teal-50);}
-    .btn.ghost:hover{border-color:var(--teal-600); color:var(--teal-600); background:var(--teal-50); transform:none; box-shadow:none;}
+    .btn.secondary:hover{background:var(--ink-50);}
+    .btn.ghost:hover{border-color:var(--ink-600); color:var(--ink-600); background:var(--ink-50); transform:none; box-shadow:none;}
     .btn.danger-ghost:hover{border-color:var(--negative); background:var(--negative-bg); transform:none; box-shadow:none;}
-    .daypicker label:hover{border-color:var(--teal-600); color:var(--teal-600);}
-    .accordion-head:hover{background:var(--teal-100);}
-    .check-row:hover{border-color:var(--teal-600);}
+    .daypicker label:hover{border-color:var(--ink-600); color:var(--ink-600);}
+    .accordion-head:hover{background:var(--ink-100);}
+    .check-row:hover{border-color:var(--ink-600);}
     .period-del:hover{background:var(--negative-bg); border-color:var(--negative);}
     .bulk-toolbar .btn.danger-ghost:hover{background:rgba(224,133,133,.18);}
     .bulk-toolbar .btn.ghost:hover{background:rgba(255,255,255,.16);}
-    .tab-btn:hover{color:var(--teal-600); background:var(--teal-50);}
+    .tab-btn:hover{color:var(--ink-600); background:var(--ink-50);}
     .cal-cell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm);}
     .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted-2);}
-    tbody tr:hover{background:var(--teal-100);}
+    tbody tr:hover{background:var(--ink-100);}
     tbody tr.row-under:hover{filter:brightness(0.97);}
     tbody tr.row-open:hover{filter:brightness(0.97);}
     tbody tr.row-excused:hover{filter:brightness(0.97);}
     tbody tr.row-over:hover{filter:brightness(0.97);}
-    .row-actions button:hover{color:var(--teal-600); background:var(--teal-50);}
+    .row-actions button:hover{color:var(--ink-600); background:var(--ink-50);}
     .period-card:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
-    .link-btn:hover{color:var(--teal-700);}
-    .icon-btn.small:hover{background:var(--teal-50); color:var(--teal-600); transform:none; box-shadow:none;}
+    .link-btn:hover{color:var(--ink-700);}
+    .icon-btn.small:hover{background:var(--ink-50); color:var(--ink-600); transform:none; box-shadow:none;}
     .team-card:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
-    .toast-close:hover{color:var(--ink); background:var(--teal-50);}
+    .toast-close:hover{color:var(--ink); background:var(--ink-50);}
     .btn.danger-solid:hover{filter:brightness(1.06);}
   }
 
@@ -3087,11 +3373,17 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
           <span>Admin</span>
         </button>
-        <button type="button" class="icon-btn" id="settingsBtn" title="Schedule settings" aria-label="Schedule settings">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21v-7M5 10V3M12 21v-11M12 6V3M19 21v-3M19 14V3"/><path d="M2.5 14h5M9.5 6h5M16.5 18h5"/></svg>
+        <!-- Labelled, not bare circles. This row only renders below 760px,
+             where the rail is gone — so on the phone these were three
+             unlabelled discs, one of them crimson and one tap from signing
+             out, with nothing on screen saying which was which. -->
+        <button type="button" class="head-action" id="settingsBtn" title="Schedule settings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21v-7M5 10V3M12 21v-11M12 6V3M19 21v-3M19 14V3"/><path d="M2.5 14h5M9.5 6h5M16.5 18h5"/></svg>
+          <span>Settings</span>
         </button>
-        <button type="button" class="icon-btn danger" id="logoutBtn" title="Sign out" aria-label="Sign out">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
+        <button type="button" class="head-action danger" id="logoutBtn" title="Sign out">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
+          <span>Sign out</span>
         </button>
       </div>
     </div>
@@ -3104,6 +3396,21 @@
        carry an inline style="display:none", which outranks any class selector —
        so .reminder.show{display:flex} could never take effect and the
        "you are editing someone else's record" warning below never rendered once. -->
+  <!-- The phone's answer to "where do I stand right now". The rail carries
+       this on a pointer, and the rail does not exist below 760px — so the one
+       device PRODUCT.md calls primary was the one that never showed whether
+       you were clocked in. Same two facts as the rail seal, same source
+       (renderTodayStatus), laid out for a screen that is read at arm's length. -->
+  <div class="today-line" id="todayLine" hidden>
+    <span class="today-line-label">Today</span>
+    <span class="today-line-value" id="todayLineValue">—</span>
+  </div>
+
+  <!-- One region, so a phone can show the first notice and count the rest.
+       At 393x852 these two stacked cost 132px + 150px and pushed the first
+       figure to y=438 — 51% of the screen gone before a number, on the device
+       PRODUCT.md calls the primary one. The same two cost 39px each at 1440. -->
+  <div class="notice-stack" id="noticeStack">
   <div class="reminder announcement-banner" id="announcementBanner">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
     <div class="reminder-body">
@@ -3139,6 +3446,11 @@
         <button type="button" class="btn ghost small" id="backupLaterBtn">Later</button>
       </div>
     </div>
+  </div>
+
+  <!-- Collapsed to the first notice on a phone; the rest are counted here and
+       open on tap. Rendered by syncNoticeStack() in app.js. -->
+  <button type="button" class="notice-more" id="noticeMore" hidden></button>
   </div>
 
 
@@ -3322,7 +3634,7 @@
       </button>
       <div class="search-field">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        <input type="text" id="searchInput" maxlength="100" dir="auto" placeholder="Search notes and day types…" autocomplete="off">
+        <input type="text" id="searchInput" maxlength="100" dir="auto" placeholder="Search notes and day types…" autocomplete="off" aria-label="Search notes and day types">
       </div>
       <button type="button" class="btn ghost small" id="advancedFiltersToggle">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
@@ -3352,6 +3664,7 @@
     </div>
 
     <div class="tab-panel" id="tab-log" role="tabpanel" aria-labelledby="tabbtn-log" tabindex="0">
+      <h2 class="sr-only">Log</h2>
       <div class="bulk-toolbar" id="bulkToolbar" style="display:none;">
         <label class="bulk-select-all">
           <input type="checkbox" id="bulkSelectAll">
@@ -3384,6 +3697,7 @@
     </div>
 
     <div class="tab-panel" id="tab-trends" role="tabpanel" aria-labelledby="tabbtn-trends" tabindex="0">
+      <h2 class="sr-only">Trends</h2>
       <div class="sub-tab-panel active" id="subtab-weekly">
         <div class="period-card">
           <div class="period-card-head">
@@ -3393,12 +3707,12 @@
           <div class="chart-holder" id="weeklyChart"></div>
           <div class="chart-legend">
             <span><i class="swatch line"></i>Avg / day</span>
-            <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
-            <span><i class="swatch" style="background:var(--negative)"></i>Below target</span>
+            <span data-legend="met"><i class="swatch" style="background:var(--positive)"></i>Met target</span>
+            <span data-legend="under"><i class="swatch" style="background:var(--negative)"></i>Below target</span>
             <span><i class="swatch target"></i>Daily target</span>
           </div>
         </div>
-        <div class="accordion-section" data-section="weekly-table">
+        <div class="accordion-section open" data-section="weekly-table">
           <button type="button" class="accordion-head">
             <span>Weekly totals</span>
             <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
@@ -3429,12 +3743,12 @@
           <div class="chart-holder" id="monthlyChart"></div>
           <div class="chart-legend">
             <span><i class="swatch line"></i>Avg / day</span>
-            <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
-            <span><i class="swatch" style="background:var(--negative)"></i>Below target</span>
+            <span data-legend="met"><i class="swatch" style="background:var(--positive)"></i>Met target</span>
+            <span data-legend="under"><i class="swatch" style="background:var(--negative)"></i>Below target</span>
             <span><i class="swatch target"></i>Daily target</span>
           </div>
         </div>
-        <div class="accordion-section" data-section="monthly-table">
+        <div class="accordion-section open" data-section="monthly-table">
           <button type="button" class="accordion-head">
             <span>Monthly totals</span>
             <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
@@ -3459,6 +3773,7 @@
     </div>
 
     <div class="tab-panel" id="tab-calendar" role="tabpanel" aria-labelledby="tabbtn-calendar" tabindex="0">
+      <h2 class="sr-only">Calendar</h2>
       <div class="calendar-nav">
         <button type="button" class="btn ghost small" id="calPrevBtn" aria-label="Previous month">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
@@ -3481,7 +3796,7 @@
            clock-out. -->
       <div class="weekline" id="weekLine" hidden></div>
       <div class="chart-legend" style="margin-top:14px;">
-        <span><i class="swatch" style="background:var(--positive)"></i>Met target</span>
+        <span data-legend="met"><i class="swatch" style="background:var(--positive)"></i>Met target</span>
         <span><i class="swatch" style="background:var(--negative)"></i>Under target</span>
         <span><i class="swatch" style="background:var(--gold)"></i>Leave / excused</span>
         <span><i class="swatch" style="background:var(--negative)"></i>Missing</span>
@@ -3491,10 +3806,11 @@
     </div>
 
     <div class="tab-panel" id="tab-punctuality" role="tabpanel" aria-labelledby="tabbtn-punctuality" tabindex="0">
+      <h2 class="sr-only">Shortfall</h2>
       <p class="punct-rule" id="punctRule"></p>
       <div class="stats-row punct-stats">
         <div class="stat-card">
-          <p class="stat-label">Target Met Rate</p>
+          <p class="stat-label">Target Hours Met</p>
           <p class="stat-value" id="pMetRate">—</p>
           <p class="stat-detail" id="pMetRateDetail">—</p>
         </div>
@@ -3523,11 +3839,11 @@
         <div class="chart-holder" id="punctChart"></div>
         <div class="chart-legend">
           <span><i class="swatch" style="background:var(--negative)"></i>Avg shortfall</span>
-          <span><i class="swatch" style="background:var(--line)"></i>No shortfall that month</span>
+          <span data-legend="none"><i class="swatch" style="background:var(--line)"></i>No shortfall that month</span>
         </div>
       </div>
 
-      <div class="accordion-section" data-section="punct-table">
+      <div class="accordion-section open" data-section="punct-table">
         <button type="button" class="accordion-head">
           <span>Flagged days</span>
           <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
@@ -3573,7 +3889,7 @@
             <option value="name">Sort: Name</option>
             <option value="worked">Sort: Hours worked</option>
             <option value="short">Sort: Furthest behind</option>
-            <option value="ontime">Sort: Target Met %</option>
+            <option value="ontime">Sort: Target hours met</option>
           </select>
         </div>
       </div>
@@ -3604,21 +3920,36 @@
     <div class="tab-panel" id="tab-settings" role="tabpanel" aria-labelledby="tabbtn-settings" tabindex="0">
       <div class="console-head">
         <h2>Settings &amp; Profile</h2>
-        <p class="settings-hint" id="settingsForLabel" style="margin:5px 0 0;"></p>
+        <p class="settings-hint" id="settingsForLabel" style="margin:6px 0 0;"></p>
       </div>
 
       <div class="console" id="settingsConsole">
         <div class="console-side">
-          <!-- Your photo. Stored in this browser only — see the profile-photo
-               block in app.js for why, and what that costs. It sits beside the
-               nav rather than in the pane: it names who every section below is
-               scoped to, and the side column has the room the pane does not. -->
+          <!-- Your photo and name. It sits beside the nav rather than in the
+               pane: it names who every section below is scoped to, and the
+               side column has the room the pane does not.
+
+               Both are shared with the team now — the photo lives in Supabase
+               Storage (migration 20260830153418), not this browser — so one
+               line covers both instead of the two captions this block used to
+               carry, back when they had opposite answers to "who sees this".
+               Own profile only for either: renaming or re-picturing a teammate
+               is not a thing this screen does, whatever RLS would allow an
+               admin. -->
           <div class="console-profile" id="photoRow">
             <div class="console-profile-id">
               <div class="avatar lg" id="settingsAvatar"></div>
               <p class="console-profile-name" id="settingsProfileName">Your profile</p>
             </div>
-            <p class="console-profile-sub">Saved on this device only — your team can't see it.</p>
+            <p class="console-profile-sub">Visible to your whole team.</p>
+            <form class="console-profile-name-form" id="displayNameForm" novalidate>
+              <label for="displayNameInput">Display name</label>
+              <div class="console-profile-name-row">
+                <input type="text" id="displayNameInput" maxlength="120" dir="auto"
+                       autocomplete="name" placeholder="Your name">
+                <button type="submit" class="btn secondary small" id="displayNameSave">Save</button>
+              </div>
+            </form>
             <div class="console-profile-actions">
               <button type="button" class="btn ghost small" id="photoChooseBtn">Choose photo</button>
               <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
@@ -3702,7 +4033,15 @@
               <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
             </div>
           </div>
-          <p class="settings-hint">Changes apply to all calculations, including past entries. "Remind after" flags a day when you've clocked in but not out for longer than this. "Grace period" is how late you can arrive before a day counts as a late arrival. "Annual Leave Days" is the yearly entitlement used to calculate the Leave Balance card.</p>
+          <!-- The retroactive warning was the fourth line of a grey paragraph
+               under the fields — the single most consequential fact on this
+               screen, in the least emphatic slot on it. It leads now, and the
+               field glossary follows as the reference it actually is. -->
+          <p class="settings-warn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+            <span>Saving recalculates every day already logged, not just days from here on.</span>
+          </p>
+          <p class="settings-hint">&ldquo;Remind after&rdquo; flags a day when you&rsquo;ve clocked in but not out for longer than this. &ldquo;Grace period&rdquo; is how late you can arrive before a day counts as a late arrival. &ldquo;Annual Leave Days&rdquo; is the yearly entitlement used to calculate the Leave Balance card.</p>
         </div>
       </div>
 
@@ -3787,7 +4126,7 @@
             <input type="checkbox" id="sApplyAll">
             <span>
               <strong>Apply to everyone</strong>
-              <em>Saves these settings for every team member, not just the person you're viewing.</em>
+              <em>Saves these settings for every team member, not just this one.</em>
             </span>
           </label>
           <div class="form-actions">
@@ -4175,7 +4514,7 @@
           <tbody id="adminTablesBody"></tbody>
         </table>
       </div>
-      <p class="settings-hint" id="adminStatsFooter" style="margin-bottom:26px;"></p>
+      <p class="settings-hint" id="adminStatsFooter" style="margin-bottom:24px;"></p>
         </div>
       </div>
         </div><!-- /.console-pane -->

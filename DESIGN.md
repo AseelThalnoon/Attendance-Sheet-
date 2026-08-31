@@ -5,6 +5,7 @@ colors:
   rail: "#111110"
   ink: "#111110"
   ink-950: "#0A0A09"
+  ink-900: "#111110"
   ink-800: "#1C1C1A"
   ink-700: "#2A2A27"
   ink-600: "#3D3D38"
@@ -68,10 +69,13 @@ spacing:
   "1": "4px"
   "1-5": "6px"
   "2": "8px"
+  "2-5": "10px"
   "3": "12px"
+  "3-5": "14px"
   "4": "16px"
   "5": "20px"
   "6": "24px"
+  "7": "28px"
   "8": "32px"
 components:
   button-primary:
@@ -136,6 +140,12 @@ explicit anti-reference. So is its multi-theme machinery.
 - **Rail / Ink** (`#111110`, `--rail`, `--ink`): the sidebar, primary text,
   event bars, filled check circles, the primary button. One token, because in
   Atrium the darkest surface and the darkest text are the same value.
+- **The ink ramp** (`--ink-950` … `--ink-50`): the neutral steps between that
+  near-black and the two page washes. This file described the ramp as `--ink-*`
+  from the start and the stylesheet spelled it `--teal-*` — names inherited from
+  Gilt Ledger, whose ramp really was teal — for 69 references, so the colour
+  contract named steps a grep could not find. The stylesheet now uses the names
+  this file declares.
 - **Canvas** (`#E9E7E2`, `--paper`): the warm greige page ground. Cards sit on
   it; it is never used for a card or for text.
 - **Card** (`#FFFFFF`, `--card`): the default card surface.
@@ -185,6 +195,16 @@ rigour: the first pass of this palette put `--muted` at `#6E6C66`, which cleared
 the floor on white and failed on canvas, cream and gray (3.87–4.49:1), and put
 `--positive` at `#1F7A57`, which failed on its own tint. Both were darkened.
 
+**The graphical half of that rule went unenforced for a while.** Text was
+measured; the non-text objects were not, and 1.4.11 applies to anything you have
+to *see* to read the interface. The calendar's entry dot, the format ring's edge
+and the "today" cell's border were all drawn in a light accent on the canvas, so
+the three marks that say *there is an entry here*, *this is the split* and *this
+is today* were each under 3:1. The dot moved to `--muted-2`, the ring edge to
+ink at 55%, and today's cell now carries an ink border with a second ink ring
+and a 900-weight day number. A mark that is the only carrier of a fact is held
+to the same floor as the sentence that would have said it.
+
 **One Dark Region.** The rail is the only large dark surface. The quick-clock
 panel is the single deliberate exception, because clocking in is the primary
 action and it earns the emphasis. A third would flatten both.
@@ -223,7 +243,7 @@ no-op in Switzer and a real fix if the stack ever falls back to a system face.
   the tab underneath it.
 - **Card heading** (700, 21px, `-.025em`): no rule beneath, no bullet.
 - **Body** (400, 13–14px).
-- **Label / kicker** (600, 9.5–10px, uppercase, `.08–.14em`): every stat label,
+- **Label / kicker** (500, 9.5–10px, uppercase, `.08–.14em`): every stat label,
   field label, nav item, meta line and status caption.
 
 ### Named Rule
@@ -231,6 +251,13 @@ no-op in Switzer and a real fix if the stack ever falls back to a system face.
 from a second family. A heading is 700 and tight; a figure is 900 and tighter; a
 label is 10px uppercase and wide. Introducing a display face to mark a heading
 means the scale stopped doing its job.
+
+**Four weights, and only the four that are loaded.** Switzer is served at
+400/500/700/900. Anything else in a stylesheet is a weight the browser resolves
+to one of those four, so the declaration says one thing and the screen shows
+another. There were 34 uses of 600 — resolving to 700 — and one of 800,
+resolving to 900; a designer reading the CSS would have counted six weights in a
+four-weight system. Every one of them now names the weight it actually renders.
 
 ## Layout
 
@@ -275,10 +302,24 @@ of entries arrived as "1 of 3", and the same machinery split the Settings form
 and the Admin sections across pages too. Reading a month should not be a
 navigation task.
 
+A tab with room left over spends it on its own content, not on canvas. Trends
+and Shortfall each kept their real numbers — the weekly, monthly and shortfall
+tables — behind a collapsed accordion, and ended in 234px and 165px of empty
+canvas at 1440x900 with nothing saying a click was owed. Those three open on
+arrival now. The chart above each still leads; the table is the same month in the
+form you can read one row out of. Closing one is still a click. An empty third of
+the frame is the opposite of the density this rule exists to produce.
+
 Scrolling is the fallback, in that order: shrink the chrome, thin the rows,
 and only then let the panel scroll. `tests/regression/one-screen.js` holds all
 three — the page and frame must not scroll, rows must stay under 34px, and the
-header plus its notices must stay under 130px.
+header plus its notices must stay under 155px.
+
+155 and not the 130 this file used to claim: a notice is a title, a sentence and
+its buttons, and below about 1400px that sentence needs a second line. 130 is
+reachable at 1440 and above and unreachable at 1280 without truncating away the
+part that says what to do. The ceiling is the one that holds at every width in
+`SIZES`, not the one that holds at the widest.
 
 The tab card hugs its content and shrinks to the frame when content exceeds it,
 rather than always stretching. Stretching turned every short tab into a white
@@ -325,10 +366,43 @@ its height back from cell padding instead. A pass once took Edit and Delete to
 21px and cited that same standard as the justification.
 `tests/regression/one-screen.js` asserts it rather than trusting the comment.
 
+**The 44px half of this rule was prose for a long time.** Twelve controls
+carried their *pointer* size as their base — a 30px sign-out disc, a 32px
+sub-tab, 36px row actions, a 30px "Back Up Now" — so the shrink applied at every
+width and a tablet at 1024px got the frame's density with none of the frame.
+The base is the touch size now and the frame is what steps it down. Two of the
+twelve were already written correctly inside the frame's step-down block and
+still rendered small, because the component's own base rule appears later in the
+stylesheet and wins at equal specificity: a step-down belongs next to the
+component it steps down, not gathered in a block above it. Reading the CSS said
+fixed, which is why `tests/mobile/touch-floor.js` measures it in a browser at
+393, 768, 1024 and 1099px, with real rows behind it — half the controls that
+drifted only exist once there is data, and a fixture without data passes
+vacuously. It asserts the step-down above 1100 too, or the rule could be
+"satisfied" by never shrinking anything.
+
+**One documented exception: the month grid.** Seven columns in a 393px viewport
+leave 41.6px of width per cell after the card, the grid padding and six gaps —
+320px leaves 33px — and the only routes to a 44px square are a horizontal
+scrollbar on a month or a week that does not fit on one line. Height is not
+constrained the same way, so below 480px the cell drops its square aspect and
+takes the full 44 vertically: 41.6x44 rather than 41.6x41.6. Comfortably past
+2.5.8's 24px AA floor, short of 2.5.5's AAA square on width alone, recorded here
+rather than rounded away.
+
 ### Named Rule
-**Spacing Is A Scale.** Base 4, from the `--space-*` tokens: 2, 4, 6, 8, 12, 16,
-20, 24, 32. Tight (6) inside a group that reads as one object, standard (12)
-between siblings, generous (16–24) between regions.
+**Spacing Is A Scale.** Base 4 with the even half-steps, from the `--space-*`
+tokens: 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32. Tight (6) inside a group
+that reads as one object, standard (12) between siblings, generous (16–24)
+between regions.
+
+10, 14 and 28 are on the scale because the stylesheet was already using them —
+10px is the single most common spacing value in the file, in 59 declarations —
+and a step 59 declarations need is a step, not a violation. What is banned is
+the value between the steps: every 7, 9, 11, 13, 15, 17 and 18 has been snapped
+to a neighbour, because those were the ones that carried no relationship to
+anything. None survive. A scale that half the file ignores is not enforcement,
+it is a second, undeclared scale.
 
 This file used to declare three steps and the stylesheet used thirty — every
 integer from 1 to 18 plus a dozen more. That is why nothing grouped: when the
@@ -365,14 +439,70 @@ Fixed to the bottom of the viewport, but starting after the rail
 (`left: calc(236px + 12px)` above 760px) — the rail owns the left 236px. Anchored
 at 12px it ran underneath the rail and put the user block behind a dark panel on
 every tab but the Overview, which is also a second dark mass laid across the one
-dark region this system allows. Every panel reserves clearance for it, not only
-the Overview; the others used to clear it by about 5px of luck.
+dark region this system allows.
+
+Every panel reserves clearance for it, not only the Overview. That reservation
+used to be 12px topped up by about 5px of luck — the tab card's bottom padding
+and the footer happened to cover the rest — and the luck ran out the first time
+something moved: snapping the footer's bottom padding from 18px to 16px put four
+tabs behind the bar at four widths, for 2px that were never the footer's to
+spend. The reservation is 20px now and carries itself, so the footer is free to
+change. The Overview sits 12px lower and still takes its own step (32px).
 
 ### Today's status
 A small dark card in the rail's foot: an uppercase label and one large figure.
 It replaces the old wax-seal badge, keeping the job (one glanceable number for
 today) and dropping the skeuomorphism. Over/under status shows as a coloured
 left edge, never a tinted panel.
+
+### The notice stack
+The reminder banners live in one `.notice-stack` wrapper rather than loose in
+`main`. On a pointer that changes nothing — it is the same row of the page. On a
+phone the second and further notices fold behind a counted button ("2 more
+notices"): two open notices were 282px of an 852px screen, and neither of them
+was what the person opened the app to do. Nothing is dismissed on their behalf;
+the count states exactly what is waiting and one tap brings it back.
+
+Wrapping them had a cost worth recording. Twelve rules were scoped
+`main > .reminder` and the wrapper orphaned every one of them, which put the
+chrome at 313px. A thirteenth — `main > .reminder.show:last-of-type` — had
+*never* matched, because main's last element child is a tab panel, so rescoping
+it woke a rule that had been dead since it was written and pushed 1280px windows
+to 160px against a 155px ceiling. A wrapper element is a selector change to
+everything that named the old parent.
+
+### Today's status line
+The same fact as the rail's status card, for the widths where the rail is not on
+screen: a dark line at the top of the content column with an uppercase label and
+one large figure, hidden above 760px so it is never the same number twice. It
+exists because the top of a phone screen was a greeting and two notices — the
+one figure the person opened the app for was below the fold on every tab, at
+`firstContentTop: 438` on an 852px screen.
+
+### The Overview grid
+Four figures across the top; the portrait, the month's shape and who is in today
+across the middle; the clock as a band along the bottom. Above 1100px it is a
+named-area grid whose middle row takes whatever the frame has left; below that
+the same sections stack in source order.
+
+**The person card stays on your own record.** Photos are device-local, so on
+your own Overview it is your photograph — the one image in the app, and the
+reason the card is a portrait rather than a header. A pass that judged it from a
+test fixture saw the monogram fallback instead, mistook the card for decoration,
+and cut it; it is here because what it renders for the person who owns the record
+is not a monogram.
+
+**The roster spans the middle row and the clock's**, so the clock is a band under
+the portrait and Day Types rather than the full width of the tab. A pass tried it
+the other way — roster in its row, clock full width — on the grounds that a card
+should be as tall as its content; it was rejected, and the tall roster is the
+committed shape. Which makes its empty state load-bearing:
+
+**The roster's empty state holds its card.** It is a card in a filled row, so
+"nobody yet" has to occupy the row the way a list of names would; one sentence
+pinned to the top read as something that had failed to load. Its error state
+takes the same shape and names both the problem and the way back, so a failure
+cannot be mistaken for an empty morning.
 
 ### Cards
 22px radius, no border, `--shadow-sm` at rest. Headings are 700/21px with no
@@ -386,17 +516,88 @@ ghost is transparent with a line border. Danger-solid uses its own fixed
 *text* colour and is too muted to carry white text as a fill. Pills (99px) for
 segmented controls and header actions.
 
+### The Settings identity strip
+Avatar, display name, photo — the block that names who every section below it is
+scoped to. Two controls with opposite answers to the same question, so each
+carries its own caption directly beneath it: the display name is shared with the
+team, the photo never leaves the device. A single caption above both said the
+wrong thing about one of them.
+
+**Display name is editable here and nowhere else.** It used to be settable only
+at sign-up, so an account created without one showed its email address in every
+place a name belongs — the portrait plate, the rail, the roster, the greeting.
+`profiles.full_name` is the one column the API grants an authenticated user on
+their own row (migration `20260815012052`; role, id and email are revoked at the
+grant and blocked again by a trigger), so the save is a one-column write that
+needs no client-side guard around the rest. Own profile only: the RLS policy
+would let an admin rename anyone, and this screen does not offer it.
+
 ### Avatar
 One component everywhere a person appears. A photo when there is one, initials
 on an ink tile when there is not — same size and shape either way, so a mixed
 roster still lines up.
 
-**Photos are device-local.** They are downscaled to a 256px square, stored as a
-data URL in `localStorage` keyed by user id, and never uploaded. That means: a
-teammate always renders as initials (their photo lives in their browser), a
-photo does not follow you to another device, and an admin cannot set anyone
-else's. This was a deliberate choice to consume no storage quota; the Settings
-copy states it plainly rather than letting someone assume otherwise.
+**Photos are shared, in a private Supabase Storage bucket** (migration
+`20260830153418`), not device-local. Earlier this was a deliberate localStorage
+choice — no upload, no storage quota, a teammate always rendered as initials —
+until the deliberate choice turned out to be the wrong one to have made: a
+picture nobody but you can ever see is not really a profile photo. Read is any
+signed-in user, matching the RLS-is-the-authority rule everywhere else in this
+app rather than a public URL; write is owner-only, enforced by the object's
+path rather than by the client's promise. `profiles.avatar_updated_at` is NULL
+for no photo and otherwise doubles as a cache key, so a replaced photo
+invalidates without any explicit cache-clearing logic.
+
+**Rendered in two passes, not one.** `avatarSlotHtml()` draws the initials box
+synchronously — nothing waits on the network — carrying lookup attributes only
+when the profile has a photo; `hydrateAvatars()` downloads and swaps in the
+`<img>` once it lands, deduplicated per id+version within a single pass so a
+30-person roster costs one request per distinct photo, not one per row. A
+photo you just uploaded skips the download entirely: the blob is already in
+hand, so it's seeded into the cache directly and appears without a round trip.
+
+**Existing localStorage photos migrate themselves once.** They cannot follow
+their owner to Storage on their own — the server has no way to learn about
+bytes that only ever lived in one browser — so the first sign-in after this
+shipped uploads whatever this browser was holding, silently, and clears the
+old key. Best-effort and non-blocking: a failure here just leaves the local
+copy in place for next time, it never holds up sign-in.
+
+### The crop modal
+Choosing a photo used to go straight to an automatic centred square — the one
+part of the picture nobody chose. A group shot, a face that isn't centred, a
+landscape photo pressed into service as a portrait: the app picked a crop for
+you and you never saw it before it uploaded. `showAvatarCropper()` opens on
+every photo choice: drag to reposition, a slider to zoom, a live circular
+preview that is the actual `.avatar` shape the photo will render into — not a
+square hint that leaves the final crop to the imagination.
+
+**The default framing on open is the old behaviour exactly** — a centred
+cover-fit square, zoom at its minimum. Choosing a photo and immediately
+confirming with no drag and no zoom reproduces the same result the automatic
+crop used to produce, so an unattended upload does not change; only a person
+who wants control over it now has some.
+
+**Zooming keeps the stage's centre fixed in image space**, not the image's own
+top-left corner — the standard "zoom toward what you're looking at" feel.
+Panning is clamped so the image can never be dragged to reveal empty space
+around itself: at 1×, a square source cover-fit to the square stage has zero
+slack to pan in either dimension by definition (both edges land flush), which
+is a property of the geometry, not a bug — zooming in is what creates room to
+reposition.
+
+**Confirm computes the exact inverse of the on-screen transform** — the source
+rectangle, in the original photo's own pixel coordinates, that the visible
+circle currently frames — and draws that through the same `AVATAR_PX` output
+canvas the old automatic crop used. Nothing about the upload, RLS, or the
+hydrate path changed; only how the source rectangle gets chosen did.
+
+Built on the same dialog chrome `showConfirm()` already established (focus
+trap, Escape, and a `history.pushState` so the phone/browser back gesture
+closes the dialog instead of backgrounding the app) rather than a new modal
+system — including the same fallback timer against `history.back()` never
+firing a `popstate`, whose absence in an early draft of this modal would have
+left an awaited crop hang forever with nothing on screen to explain why.
 
 ### Team roster
 A roster grid beside a narrow activity aside. The aside is 220–240px, not

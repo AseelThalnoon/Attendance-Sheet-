@@ -281,7 +281,11 @@ function ok(cond, name, detail){
       const rows = Array.from(document.querySelectorAll("#logBody tr"))
         .filter(tr => tr.style.display !== "none");
       const head = document.querySelector("header.ledger-head");
-      const banners = Array.from(document.querySelectorAll("main > .reminder"))
+      // The notices live in #noticeStack now, not loose in main: on a phone the
+      // first stays open and the rest fold behind a counted button, which needs
+      // them to be one region. Still every notice that is up, which is what the
+      // count below is actually asserting.
+      const banners = Array.from(document.querySelectorAll("#noticeStack > .reminder"))
         .filter(el => el.classList.contains("show"));
       const card = document.getElementById("tabContentCard");
       return {
@@ -351,7 +355,14 @@ function ok(cond, name, detail){
         // The other shape the same shrink bug takes: a sibling squeezed
         // below what IT needs spills out through overflow:visible instead of
         // clipping, and visually overlaps whatever comes after it.
-        const siblings = Array.from(panel.children).filter(el => el.getClientRects().length);
+        //
+        // In-flow children only. An .sr-only heading is position:absolute and
+        // sits wherever its static position landed — it cannot be flex-shrunk
+        // and it cannot be spilled into, so measuring it as a flex sibling
+        // reported a 113px "overlap" on Shortfall that no one can see.
+        const siblings = Array.from(panel.children).filter(el =>
+          el.getClientRects().length &&
+          !["absolute","fixed"].includes(getComputedStyle(el).position));
         let overlap = null;
         for(let i = 0; i < siblings.length - 1; i++){
           const gap = siblings[i+1].getBoundingClientRect().top - siblings[i].getBoundingClientRect().bottom;
@@ -482,6 +493,47 @@ function ok(cond, name, detail){
   await checkSections("punctuality (short)", ".tab-panel.active");
   await page.setViewportSize({width: 1440, height: 900});
   await page.waitForTimeout(250);
+
+  // ------------------------------------------------------- the month grid's rows
+  // The Calendar is the one tab drawn to the height it is given, so how that
+  // height is divided is the whole layout. The grid's first row is the seven
+  // SUN..SAT labels, and it has no grid-template-rows of its own — so
+  // grid-auto-rows:minmax(0,1fr) sized that 19px strip of text like a week:
+  // 97px, of which 77 were blank, banded across the top of the month while
+  // every row that holds actual dates was 16px shorter to pay for it.
+  await page.evaluate(() => document.querySelector('.tab-btn[data-tab="calendar"]').click());
+  await page.waitForTimeout(600);
+  {
+    const g = await page.evaluate(() => {
+      const grid = document.querySelector(".calendar-grid");
+      if(!grid) return null;
+      const rows = getComputedStyle(grid).gridTemplateRows.split(" ").map(parseFloat);
+      // Over the text itself, not the box: the box is what the grid stretched,
+      // so measuring it would report the bug as if it were the requirement.
+      const dow = Array.from(grid.querySelectorAll(".cal-dow")).reduce((m, e) => {
+        const r = document.createRange(); r.selectNodeContents(e);
+        return Math.max(m, r.getBoundingClientRect().height);
+      }, 0);
+      return {head: rows[0], weeks: rows.slice(1), dowContent: dow};
+    });
+    ok(g !== null, "the calendar grid is on screen to measure");
+    if(g){
+      // The labels get what they need and no more. 40px is generous for a 19px
+      // strip and still nowhere near a week row.
+      ok(g.head <= 40,
+        "the day-of-week row is sized to its labels, not to a week",
+        `header row is ${Math.round(g.head)}px for ${Math.round(g.dowContent)}px of label`);
+      // And the six week rows split what is left evenly between them.
+      const lo = Math.min(...g.weeks), hi = Math.max(...g.weeks);
+      ok(g.weeks.length === 6, "six week rows share the rest of the grid",
+        `${g.weeks.length} rows below the header`);
+      ok(hi - lo <= 2, "every week row is the same height",
+        `rows run ${Math.round(lo)}px to ${Math.round(hi)}px`);
+      // The bug's signature was a header row indistinguishable from a week.
+      ok(lo - g.head >= 40, "a week row is decisively taller than the header row",
+        `header ${Math.round(g.head)}px vs week ${Math.round(lo)}px`);
+    }
+  }
 
   // ---------------------------------------------------------------- a real roster
   // Two people fit anywhere. Thirty is the case the paging used to exist for:

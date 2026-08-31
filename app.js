@@ -957,10 +957,40 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       ? "Editing your own schedule."
       : "Editing the schedule for " + who + ".";
     document.getElementById("settingsProfileName").textContent = isOwnData ? "Your profile" : who;
+    // Own profile only. The RLS policy would let an admin rename anyone, but
+    // renaming a teammate is a different feature from setting your own name and
+    // this screen does not offer it.
+    var nameForm = document.getElementById("displayNameForm");
+    if(nameForm){
+      nameForm.hidden = !isOwnData;
+      var nameInput = document.getElementById("displayNameInput");
+      // Not while they are mid-edit: refreshSettingsPanel() runs on every
+      // repaint, and overwriting a half-typed name would be the panel fighting
+      // the person using it.
+      if(nameInput && document.activeElement !== nameInput){
+        nameInput.value = (currentProfile && currentProfile.full_name) || "";
+      }
+    }
     var applyAllRow = document.getElementById("sApplyAll").closest(".check-row");
     if(applyAllRow) applyAllRow.style.display = isAdmin ? "" : "none";
     document.getElementById("sApplyAll").checked = false;
+    syncApplyAllScope();
     fillSettingsForm();
+  }
+
+  // Scope belongs on the button that carries it out, not only on a checkbox
+  // above it. "Save Settings" reads the same whether it is about to write one
+  // row or thirty, so the button says which — and the confirm that follows is
+  // then a second reading of something already stated, rather than the first.
+  function syncApplyAllScope(){
+    var box = document.getElementById("sApplyAll");
+    var btn = document.getElementById("saveSettingsBtn");
+    if(!box || !btn || btn.disabled) return;
+    var n = allProfiles.length;
+    btn.textContent = (box.checked && n)
+      ? "Apply to " + n + " " + (n === 1 ? "person" : "people")
+      : "Save Settings";
+    btn.classList.toggle("danger", box.checked && !!n);
   }
 
   // Collapsible sections. The open/closed state was conveyed by a rotated
@@ -1336,21 +1366,38 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(!confirmed) return;
 
       btn.disabled = true;
-      var done = 0, failed = 0;
+      var done = 0, failed = 0, failedNames = [];
       for(var k=0;k<allProfiles.length;k++){
         try{
           await sbSaveSettings(allProfiles[k].id, updated);
           done++;
-        }catch(err){ failed++; }
+        }catch(err){
+          failed++;
+          failedNames.push(allProfiles[k].full_name || allProfiles[k].email);
+        }
         btn.textContent = "Applying " + (k+1) + " of " + allProfiles.length + "…";
       }
       btn.disabled = false;
-      btn.textContent = "Save Settings";
+
+      // Disarm. The handler used to return with the box still ticked, so the
+      // next ordinary edit — one field, one Save — reopened "Apply to 30"
+      // unprompted. The confirm caught it every time, which is why this stayed
+      // invisible, but the default state after one broadcast was broadcast.
+      document.getElementById("sApplyAll").checked = false;
+      syncApplyAllScope();
 
       if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = updated;
       renderAll();
+      // Naming who failed, because "2 failed" is a number you cannot act on:
+      // the whole point of the message is knowing whose schedule is now out of
+      // step with everyone else's.
       showToast(
-        "Applied to " + done + " of " + allProfiles.length + " team members." + (failed ? " " + failed + " failed." : ""),
+        failed === 0
+          ? "Applied to all " + done + " team members."
+          : "Applied to " + done + " of " + allProfiles.length + ". Failed: " +
+            failedNames.slice(0, 3).join(", ") +
+            (failedNames.length > 3 ? " and " + (failedNames.length - 3) + " more" : "") +
+            ". Try those again.",
         failed === 0 ? "success" : "error"
       );
       return;
@@ -1561,7 +1608,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // hasEntry, met}]. `met` (value >= that point's target) colors the point's
   // dot; set hasEntry:false for a gap the line breaks around instead of
   // drawing through, so a future or unlogged period never looks like a real
-  // zero. opts.accent overrides the line/area color (default --teal-600) —
+  // zero. opts.accent overrides the line/area color (default --ink-600) —
   // the Shortfall tab's chart passes --negative, since every point there is
   // already a bad-news number and green dots would say the opposite.
   function renderTrendChart(container, data, opts){
@@ -1666,7 +1713,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
         cLine = cssVar("--line"),
         cGold = cssVar("--gold-deep"), // see the .swatch.target note in index.html
-        cAccent = opts.accent || cssVar("--teal-600");
+        cAccent = opts.accent || cssVar("--ink-600");
 
     function valueText(mins){ return (opts.formatter || minutesToHoursStr)(mins); }
 
@@ -1803,6 +1850,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     svg += '</svg>';
     container.innerHTML = svg;
+    syncChartLegend(container);
 
     var callout = container.querySelector(".trend-callout");
     var calloutDate = callout.querySelector(".trend-callout-date");
@@ -1937,6 +1985,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.floor((ms.avgMin / targetPerDay) * 100))) : 0;
     var progressFill = document.getElementById("heroProgressFill");
     progressFill.style.transform = "scaleX(" + (progressPct / 100) + ")";
+    // Green once the month is actually at target, lime while it is still
+    // climbing — the same reading the Team bar and the Calendar dots give.
+    progressFill.closest(".hero-progress")
+      .classList.toggle("is-met", ms.loggedDays > 0 && progressPct >= 100);
     // Unclamped ratio for the Velocity cluster's tachometer, published here
     // so the gauge reads the figure this function already computed rather
     // than deriving its own. The bar above stays clamped to 100%; the gauge
@@ -2043,6 +2095,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // Short figures like "8h" get the big number treatment; longer status
     // words shrink so they never wrap inside the small circle.
     sealValue.classList.toggle("long", sealText.length > 6);
+
+    // Same two facts on the phone, where the rail this seal lives in is gone.
+    var todayLine = document.getElementById("todayLine");
+    if(todayLine){
+      todayLine.hidden = false;
+      todayLine.className = "today-line" + seal.className.replace(/^seal/, "");
+      document.getElementById("todayLineValue").textContent = sealText;
+    }
 
     renderBnClock(todayEntry);
 
@@ -2155,11 +2215,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // ---------- Log ----------
+  // A pill is an exception marker. "On target" is the default outcome of an
+  // ordinary day, and pilling it put fourteen identical chips down a column
+  // whose whole job is to surface the three days that are not ordinary — the
+  // exceptions were outvoted by the rule. On target is now a quiet mark with
+  // the status still on it for anyone not reading colour or shape.
   function pillFor(c){
     if(c.open) return '<span class="pill open">Open</span>';
     if(c.excused) return '<span class="pill excused">Excused</span>';
     if(c.diffMin === null) return "—";
-    if(Math.abs(c.diffMin) < 1) return '<span class="pill onit">On target</span>';
+    if(Math.abs(c.diffMin) < 1) return '<span class="on-target" title="On target">On target</span>';
     return c.diffMin > 0
       ? '<span class="pill over">'+signed(c.diffMin)+'</span>'
       : '<span class="pill under">'+minutesToHoursStr(c.diffMin)+'</span>';
@@ -2281,6 +2346,33 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // full-height bar chart repeated once per week, which meant a handful of
   // bars and a lot of empty chart padding, over and over, down the page.
   // Each week keeps its own day-by-day shape as an inline sparkline instead.
+  // The chart legends are static markup, so they advertised every series the
+  // chart CAN draw rather than the ones it just did: a month where nobody fell
+  // short still printed "Below target" with a crimson swatch, and Shortfall's
+  // "No shortfall that month" grey appeared beside a plot containing no grey.
+  // A legend that names absent series teaches the reader to look for something
+  // that is not there. Entries marked data-legend are conditional; the plain
+  // ones (the line itself, the target rule) always apply.
+  function syncChartLegend(holder){
+    if(!holder) return;
+    var legend = holder.parentElement && holder.parentElement.querySelector(".chart-legend");
+    var svg = holder.querySelector("svg");
+    if(!legend || !svg) return;
+    // What the plot actually painted, as resolved colours.
+    var painted = {};
+    svg.querySelectorAll("*").forEach(function(el){
+      var cs = getComputedStyle(el);
+      [cs.fill, cs.stroke, el.getAttribute("fill"), el.getAttribute("stroke")]
+        .forEach(function(v){ if(v && v !== "none") painted[v] = true; });
+    });
+    legend.querySelectorAll("[data-legend]").forEach(function(entry){
+      var sw = entry.querySelector(".swatch");
+      if(!sw) return;
+      var want = getComputedStyle(sw).backgroundColor;
+      entry.hidden = !painted[want];
+    });
+  }
+
   function renderWeekly(){
     var groups = groupBy(filteredEntries(), weekKey);
     // Only weeks with at least one Regular-type day are shown — a week that's
@@ -2731,11 +2823,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       ? "Across " + s.shortDays + " day" + (s.shortDays===1?"":"s")
       : "Nothing owed this period";
 
+    // At one short day the average IS the total, so showing both puts the same
+    // number on screen twice in crimson and makes one missed day look like
+    // three findings. The card still holds its place in the row — it just
+    // stops restating its neighbour.
     var avgShortEl = document.getElementById("pAvgShort");
-    avgShortEl.textContent = s.shortDays ? minutesToHoursStr(s.avgShortMin) : "—";
-    avgShortEl.className = shortCls;
+    var avgIsTotal = s.shortDays === 1;
+    avgShortEl.textContent = (s.shortDays && !avgIsTotal) ? minutesToHoursStr(s.avgShortMin) : "—";
+    avgShortEl.className = avgIsTotal ? "stat-value" : shortCls;
     document.getElementById("pAvgShortDetail").textContent = s.shortDays
-      ? "Per day that fell short"
+      ? (avgIsTotal ? "Only one short day this period" : "Per day that fell short")
       : "Nothing flagged";
 
     // Average shortfall per short day, by month. Follows the year filter but
@@ -3267,7 +3364,24 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var editId = btn.getAttribute("data-edit");
     var delId = btn.getAttribute("data-del");
     if(editId) loadEntryIntoForm(editId);
-    if(delId && await showConfirm("Delete this entry?", {danger:true, confirmText:"Delete"})){
+    // "Delete this entry?" named nothing, in an app with no undo and thirty-odd
+    // identical Delete links down one column — the trigger's own aria-label
+    // already carried the date, so the screen reader was better informed than
+    // the dialog. Say which day, and what is on it.
+    if(delId){
+      var victim = entries.find(function(e){ return e.id === delId; });
+      var what = "this entry";
+      if(victim){
+        var vc = computeEntry(victim);
+        var detail = vc.workedMin !== null ? minutesToHoursStr(vc.workedMin) : typeLabel(victim.type);
+        what = fmtDate(victim.date) + (detail ? " (" + detail + ")" : "");
+      }
+      if(!await showConfirm(
+        "Delete " + what + "? This can't be undone.",
+        {title:"Delete entry?", danger:true, confirmText:"Delete"}
+      )) return;
+    }
+    if(delId){
       if(editingId === delId) resetForm();
       try{
         await sbDeleteEntry(delId);
@@ -4449,7 +4563,76 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
+  // Below 760px the first visible notice stays open and the rest fold behind a
+  // counted button. Nothing is dismissed for the person: the count names how
+  // many are waiting and one tap opens them all. Above 760px the fold does not
+  // apply and this only has to keep the button hidden.
+  // Below 760px the first visible notice stays open and the rest fold behind a
+  // counted button. Nothing is dismissed for the person: the count names how
+  // many are waiting and one tap opens them all. Above 760px the fold does not
+  // apply and this only has to keep the button hidden.
+  //
+  // The observer is disconnected across our own writes. Watching class on this
+  // subtree while also writing .is-folded onto it re-queued the callback on
+  // every pass — classList still emits an attribute record when the class is
+  // already in the state you asked for — and the resulting microtask loop
+  // starved the main thread badly enough that the load event never fired.
+  var noticeObserver = null;
+  function syncNoticeStack(){
+    var stack = document.getElementById("noticeStack");
+    var more = document.getElementById("noticeMore");
+    if(!stack || !more) return;
+    if(noticeObserver) noticeObserver.disconnect();
+    try{
+      var shown = Array.prototype.filter.call(
+        stack.querySelectorAll(".reminder"),
+        function(n){ return n.classList.contains("show"); }
+      );
+      shown.forEach(function(n, i){ n.classList.toggle("is-folded", i > 0); });
+      var extra = Math.max(0, shown.length - 1);
+      more.hidden = extra === 0;
+      if(extra){
+        var open = stack.classList.contains("is-open");
+        more.textContent = open
+          ? "Show less"
+          : extra + (extra === 1 ? " more notice" : " more notices");
+        more.setAttribute("aria-expanded", open ? "true" : "false");
+      } else {
+        stack.classList.remove("is-open");
+      }
+    } finally {
+      if(noticeObserver) noticeObserver.observe(stack, {
+        subtree: true, attributes: true, attributeFilter: ["class"]
+      });
+    }
+  }
+
+  document.getElementById("noticeMore").addEventListener("click", function(){
+    document.getElementById("noticeStack").classList.toggle("is-open");
+    syncNoticeStack();
+  });
+
+  // The banners each toggle .show from their own render path, so rather than
+  // teaching every one of them to call back here, watch the region.
+  (function watchNotices(){
+    var stack = document.getElementById("noticeStack");
+    if(!stack || typeof MutationObserver === "undefined") return;
+    noticeObserver = new MutationObserver(syncNoticeStack);
+    syncNoticeStack();
+  })();
+
+  document.getElementById("sApplyAll").addEventListener("change", syncApplyAllScope);
+
+  // Sign out used to fire straight off an unlabelled crimson circle sitting a
+  // thumb's width from Settings, at the top of the phone screen someone opens
+  // one-handed on the way in. Getting it wrong costs an email and a password
+  // before you can clock in, so it asks first.
   document.getElementById("logoutBtn").addEventListener("click", async function(){
+    var ok = await showConfirm(
+      "You'll need your email and password to get back in.",
+      {title:"Sign out?", confirmText:"Sign out", danger:true}
+    );
+    if(!ok) return;
     await supabase.auth.signOut();
   });
   // The rail's sign-out control proxies to the real button above rather than
@@ -4465,30 +4648,64 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // switches to someone else it becomes them, which makes the target of every
   // edit concrete rather than leaving it to the banner alone.
   function renderPersonCard(){
-    var who = (!isOwnData && viewedProfile) ? viewedProfile : currentProfile;
-    if(!who) return;
-    var nameEl = document.getElementById("personName");
-    if(!nameEl) return;
-
-    nameEl.textContent = who.full_name || who.email;
-    document.getElementById("personRole").textContent =
-      (who.role === "admin" ? "Admin" : "Employee") + (isOwnData ? "" : " · viewing");
-
-    // Photos are device-local, so only your own can ever be shown here — for
-    // anyone else this always resolves to the monogram, which is why the
-    // monogram is styled as a portrait rather than as a missing one.
     var media = document.getElementById("portraitMedia");
-    var url = (currentUser && who.id === currentUser.id) ? localAvatar(who.id) : null;
-    media.innerHTML = url
-      ? '<img src="'+escapeAttr(url)+'" alt="">'
-      : '<span class="portrait-mono" aria-hidden="true">'+
-          escapeHtml(initialsOf(who.full_name || who.email))+'</span>';
+    if(!media) return;
 
-    var st = teamStatus(entries, settings);
+    // The portrait is the one card that must never render as an empty box, so
+    // this no longer bails when the profile is missing. It used to return early
+    // on a falsy `who`, and every early return and every throw below it left
+    // #portraitMedia with the empty innerHTML it ships with — which is exactly
+    // how it was found in the wild: a 363x332 hole where a face belongs, with
+    // no error to explain it. currentUser is enough to draw an initial, and
+    // this function is called from the sign-in bootstrap where the profile may
+    // legitimately not have landed yet.
+    var who = (!isOwnData && viewedProfile) ? viewedProfile : currentProfile;
+    if(!who) who = currentUser || null;
+
+    var label = (who && (who.full_name || who.email)) || "";
+
+    // The picture first, before anything that could throw. The status pill and
+    // the name below it are separate facts; a failure computing either must not
+    // be able to blank the photograph. Any teammate's photo can render here now
+    // (Storage is shared, not device-local) — an admin viewing someone else
+    // sees that person's real picture, not a placeholder.
+    var key = who ? avatarCacheKey(who) : null;
+    var cached = key ? avatarBlobCache[key] : null;
+    if(who && who.avatar_updated_at){
+      media.setAttribute("data-avatar-id", who.id);
+      media.setAttribute("data-avatar-v", String(who.avatar_updated_at));
+    } else {
+      media.removeAttribute("data-avatar-id");
+      media.removeAttribute("data-avatar-v");
+    }
+    media.innerHTML = cached
+      ? '<img src="'+escapeAttr(cached)+'" alt="">'
+      : '<span class="portrait-mono" aria-hidden="true">'+
+          escapeHtml(label ? initialsOf(label) : "—")+'</span>';
+    hydrateAvatars(media);
+
+    var nameEl = document.getElementById("personName");
+    if(nameEl) nameEl.textContent = label || "—";
+    var roleEl = document.getElementById("personRole");
+    if(roleEl){
+      roleEl.textContent = who && who.role
+        ? (who.role === "admin" ? "Admin" : "Employee") + (isOwnData ? "" : " · viewing")
+        : "";
+    }
+
     var pill = document.getElementById("personStatus");
-    pill.hidden = false;
-    pill.className = "team-status " + st.cls;
-    pill.textContent = st.label;
+    if(pill){
+      try{
+        var st = teamStatus(entries, settings);
+        pill.hidden = false;
+        pill.className = "team-status " + st.cls;
+        pill.textContent = st.label;
+      }catch(err){
+        // Today's status is the least important thing in this card; losing it
+        // must not cost the photo above it.
+        pill.hidden = true;
+      }
+    }
   }
 
   // ---------- Day types ----------
@@ -4505,7 +4722,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // requiring the palette to grow.
   var DAY_TYPE_COLORS = {
     regular:"var(--mint)", wfh:"var(--gold)", halfleave:"var(--gold-light)",
-    leave:"var(--blush)", sick:"var(--negative-solid)", trip:"var(--teal-600)",
+    leave:"var(--blush)", sick:"var(--negative-solid)", trip:"var(--ink-600)",
     training:"var(--warn)", holiday:"var(--positive)", other:"var(--muted-2)"
   };
 
@@ -4562,16 +4779,29 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // around it, not because the card lacked room but because the ring
     // wasn't using it.
     var C = 60, R = 48, SW = 14, circ = 2 * Math.PI * R;
+    // A divider between segments, so the boundary rather than the fill is what
+    // has to clear WCAG 1.4.11's 3:1 — see .format-ring-edge in the sheet. Only
+    // when there is more than one segment: a single type filling the ring has
+    // no neighbour to be told apart from, and a gap there would read as a
+    // missing slice. Held to a third of the smallest arc so a one-day sliver
+    // survives being trimmed.
+    var GAP = active.length > 1
+      ? Math.min(1.6, circ * Math.min.apply(null, active.map(function(b){ return b.count / total; })) / 3)
+      : 0;
     var cum = 0;
     var rings = '<circle class="format-ring-track" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'"/>' +
       active.map(function(b){
         var shown = circ * (b.count / total);
+        var drawn = Math.max(0.5, shown - GAP);
         var seg = '<circle class="format-ring" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'" ' +
-          'stroke="'+b.color+'" stroke-dasharray="'+shown.toFixed(2)+' '+(circ - shown).toFixed(2)+'" ' +
+          'stroke="'+b.color+'" stroke-dasharray="'+drawn.toFixed(2)+' '+(circ - drawn).toFixed(2)+'" ' +
           'stroke-dashoffset="'+(-cum).toFixed(2)+'"/>';
         cum += shown;
         return seg;
-      }).join("");
+      }).join("") +
+      // Inner and outer hairlines, drawn last so they sit over the fills.
+      '<circle class="format-ring-edge" cx="'+C+'" cy="'+C+'" r="'+(R + SW / 2).toFixed(2)+'" fill="none" stroke-width=".8"/>' +
+      '<circle class="format-ring-edge" cx="'+C+'" cy="'+C+'" r="'+(R - SW / 2).toFixed(2)+'" fill="none" stroke-width=".8"/>';
 
     // The centre readout is drawn inside the svg so it scales with the ring —
     // as an HTML overlay it kept a fixed size while the dial shrank with the
@@ -4675,7 +4905,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
       });
     }catch(err){
-      list.innerHTML = '<p class="tt-empty">Couldn\'t load today: '+escapeHtml(friendlyError(err))+'</p>';
+      // Names the problem and the way back, in the same shape as the empty
+      // state, so a failure does not read as "nobody is in today".
+      list.innerHTML = '<div class="tt-empty">'+
+        '<p class="tt-empty-head">Couldn\'t load today</p>'+
+        '<p class="tt-empty-sub">'+escapeHtml(friendlyError(err))+
+          ' Reload the page to try again.</p>'+
+        '</div>';
       if(countEl) countEl.textContent = "";
       return;
     }
@@ -4697,7 +4933,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
 
     if(!rows.length){
-      list.innerHTML = '<p class="tt-empty">No one has clocked in yet today.</p>';
+      list.innerHTML = '<div class="tt-empty">'+
+        '<p class="tt-empty-head">Nobody has clocked in yet</p>'+
+        '<p class="tt-empty-sub">Names appear here as people start their day.</p>'+
+        '</div>';
       if(countEl) countEl.textContent = "";
       return;
     }
@@ -4709,14 +4948,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
     list.innerHTML = rows.map(function(r){
       var name = r.p.full_name || r.p.email;
-      var url = (currentUser && r.p.id === currentUser.id) ? localAvatar(r.p.id) : null;
       // Filled for a settled day, lime while a shift is running, an open ring
       // for anything still outstanding.
       var checkCls = r.st.cls === "in" ? " is-in"
                    : (r.st.cls === "done" || r.st.cls === "excused" || r.st.cls === "off") ? " is-done" : "";
       return '<div class="tt-row">'+
-        (url ? '<div class="avatar"><img src="'+escapeAttr(url)+'" alt=""></div>'
-             : '<div class="avatar">'+escapeHtml(initialsOf(name))+'</div>')+
+        avatarSlotHtml(r.p)+
         '<span class="tt-name" dir="auto">'+escapeHtml(name)+'</span>'+
         '<span class="team-status '+r.st.cls+'">'+escapeHtml(r.st.label)+'</span>'+
         '<span class="tt-check'+checkCls+'" aria-hidden="true">'+
@@ -4724,6 +4961,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         '</span>'+
       '</div>';
     }).join("");
+    hydrateAvatars(list);
   }
 
   function updateViewingBanner(){
@@ -4753,7 +4991,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   async function loadAllProfilesForSwitcher(){
     try{
-      var res = await supabase.from("profiles").select("id,email,full_name,role").order("email");
+      var res = await supabase.from("profiles")
+        .select("id,email,full_name,role,avatar_updated_at").order("email");
       if(res.error) throw res.error;
       allProfiles = res.data || [];
     }catch(err){
@@ -4970,70 +5209,114 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
-  // ---------- Profile photo (device-local) ----------
-  // Deliberately NOT stored in Supabase: the photo lives in this browser only,
-  // so it costs no storage quota. The trade-offs were chosen knowingly and are
-  // worth stating, because they are surprising:
-  //
-  //   * Nobody else ever sees it. Teammates render as initials in the Team
-  //     roster and the admin People list, because their photos live in THEIR
-  //     browsers and are not transmitted anywhere.
-  //   * It does not follow you to another device or browser, and clearing site
-  //     data removes it.
-  //   * An admin cannot set someone else's photo.
-  //
-  // Keyed by user id so two people signing into the same browser (a shared
-  // office machine is exactly the scene this app is used in) never inherit
-  // each other's picture.
-  var AVATAR_PREFIX = "attendance_avatar_v1_";
+  // ---------- Profile photo (shared, Supabase Storage) ----------
+  // One object per user at "<id>/avatar.jpg" in the private "avatars" bucket
+  // (migration 20260830153418), overwritten on every re-upload rather than
+  // versioned. Read is any signed-in user — that is the point, a teammate's
+  // photo has to reach the roster and the rail, not just your own browser —
+  // write is owner-only, enforced by RLS on the object's path prefix rather
+  // than by anything the client promises. profiles.avatar_updated_at is the
+  // only other moving part: NULL means no photo, and its value is also the
+  // cache key below, so a replaced photo invalidates without any explicit
+  // cache-clearing logic.
+  var AVATAR_BUCKET = "avatars";
   var AVATAR_PX = 256;          // stored square edge
   var AVATAR_MAX_BYTES = 8 * 1024 * 1024; // reject before decoding
 
-  function avatarKey(userId){ return AVATAR_PREFIX + userId; }
+  function avatarPath(userId){ return userId + "/avatar.jpg"; }
 
-  function localAvatar(userId){
-    if(!userId) return null;
-    return safeGet(avatarKey(userId));
+  // userId:version -> object URL. Never explicitly evicted: a session holds at
+  // most a few dozen teammates' photos, each capped at AVATAR_PX square, and
+  // the tab closing reclaims it same as any other blob URL.
+  var avatarBlobCache = {};
+
+  function avatarCacheKey(profile){
+    return profile && profile.id ? profile.id + ":" + (profile.avatar_updated_at || "") : null;
   }
 
-  // Downscales to a square data URL before storing. localStorage holds ~5MB per
-  // origin and throws once full, so an untouched 4MB phone photo would both
-  // blow the quota and be 16x larger than anything the UI renders.
-  function fileToAvatarDataUrl(file){
+  // A small photo-or-initials box, rendered synchronously so nothing waits on
+  // the network. When the profile has a photo, the box carries the lookup
+  // attributes hydrateAvatars() below scans for; when it does not, the
+  // initials stand permanently and hydrateAvatars() has nothing to find here.
+  function avatarSlotHtml(profile, extraClass){
+    var name = (profile && (profile.full_name || profile.email)) || "?";
+    var cls  = "avatar" + (extraClass ? " " + extraClass : "");
+    var key  = avatarCacheKey(profile);
+    var attrs = (profile && profile.avatar_updated_at)
+      ? ' data-avatar-id="'+escapeAttr(profile.id)+'" data-avatar-v="'+escapeAttr(String(profile.avatar_updated_at))+'"'
+      : "";
+    var cached = key ? avatarBlobCache[key] : null;
+    return '<div class="'+cls+'"'+attrs+'>'+
+      (cached
+        ? '<img src="'+escapeAttr(cached)+'" alt="">'
+        : escapeHtml(initialsOf(name)))+
+      '</div>';
+  }
+
+  // Downloads whatever avatarSlotHtml() above could not fill in synchronously.
+  // Scoped to `root` so a repaint of one card doesn't re-scan the whole page;
+  // defaults to the document for the identity-chrome call sites that repaint
+  // in place. Downloaded rather than served from a public URL — the bucket is
+  // private, matching every other authority boundary in this app being RLS
+  // rather than an unguessable link — so this costs one authenticated request
+  // per distinct id:version, deduplicated within a single pass.
+  async function hydrateAvatars(root){
+    var scope = root || document;
+    // The slot IS the element carrying the attributes for the rail avatar and
+    // the Overview portrait (a single div, not a list), so querySelectorAll
+    // alone — descendants only — never matches the root itself. Every call
+    // site that only ever hydrates via renderAll()'s cousins, not through
+    // refreshAvatars()'s trailing document-wide pass, silently did nothing:
+    // switching the viewed person showed their initials forever, because the
+    // one hydrate call that could have fetched their photo was scoped to a
+    // node with no matching descendants.
+    var slots = Array.from(scope.querySelectorAll("[data-avatar-id]"));
+    if(scope.nodeType === 1 && scope.matches("[data-avatar-id]")) slots.push(scope);
+    if(!slots.length) return;
+    var byKey = {};
+    slots.forEach(function(el){
+      var key = el.getAttribute("data-avatar-id") + ":" + el.getAttribute("data-avatar-v");
+      (byKey[key] = byKey[key] || []).push(el);
+    });
+    await Promise.all(Object.keys(byKey).map(async function(key){
+      var url = avatarBlobCache[key];
+      if(!url){
+        var uid = key.slice(0, key.indexOf(":"));
+        try{
+          var res = await supabase.storage.from(AVATAR_BUCKET).download(avatarPath(uid));
+          if(res.error || !res.data) return;
+          url = URL.createObjectURL(res.data);
+          avatarBlobCache[key] = url;
+        }catch(err){ return; }
+      }
+      byKey[key].forEach(function(el){
+        // The slot may have been re-rendered out from under this await with a
+        // different (or no) version; only swap it if it still wants this one.
+        if(el.isConnected && el.getAttribute("data-avatar-id")+":"+el.getAttribute("data-avatar-v") === key){
+          el.innerHTML = '<img src="'+escapeAttr(url)+'" alt="">';
+        }
+      });
+    }));
+  }
+
+  // Type and size are checked before anything else touches the file — no
+  // point opening the crop modal for a file that is about to be rejected.
+  function validateAvatarFile(file){
+    if(!/^image\/(jpeg|png|webp)$/.test(file.type)){
+      throw new Error("Choose a JPEG, PNG or WebP image.");
+    }
+    if(file.size > AVATAR_MAX_BYTES){
+      throw new Error("That image is larger than 8MB. Choose a smaller one.");
+    }
+  }
+
+  function loadImageFromFile(file){
     return new Promise(function(resolve, reject){
-      if(!/^image\/(jpeg|png|webp)$/.test(file.type)){
-        reject(new Error("Choose a JPEG, PNG or WebP image."));
-        return;
-      }
-      if(file.size > AVATAR_MAX_BYTES){
-        reject(new Error("That image is larger than 8MB. Choose a smaller one."));
-        return;
-      }
-      // FileReader rather than URL.createObjectURL: an object URL is a blob:
-      // URL, and this page's CSP is `img-src 'self' data:`, so the <img> below
-      // would be blocked and every upload would fail as "not a readable image".
-      // Reading to a data: URL keeps the policy tight instead of widening it
-      // to blob: just to load a picture the user just picked.
       var reader = new FileReader();
       reader.onerror = function(){ reject(new Error("That file couldn't be read.")); };
       reader.onload = function(){
         var img = new Image();
-        img.onload = function(){
-          try{
-            // Cover-crop to a centred square so portraits and landscapes both
-            // fill the circle instead of being squashed to fit it.
-            var side = Math.min(img.width, img.height);
-            var sx = (img.width - side) / 2;
-            var sy = (img.height - side) / 2;
-            var canvas = document.createElement("canvas");
-            canvas.width = canvas.height = AVATAR_PX;
-            var ctx = canvas.getContext("2d");
-            ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
-            resolve(canvas.toDataURL("image/jpeg", 0.82));
-          }catch(err){
-            reject(new Error("That image couldn't be processed."));
-          }
-        };
+        img.onload = function(){ resolve(img); };
         img.onerror = function(){ reject(new Error("That file isn't a readable image.")); };
         img.src = reader.result;
       };
@@ -5041,21 +5324,354 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
   }
 
+  // Interactive drag-to-reposition, slide-to-zoom crop, opened on every photo
+  // choice. The previous version picked an automatic centred square and
+  // uploaded it — the one part of the picture nobody chose, and a group shot
+  // or an off-centre face had no way to fix what got cut. Resolves a Blob on
+  // "Use Photo", or null on Cancel/Escape/back — the caller treats null as
+  // "nothing changed", the same as if no file had been picked.
+  //
+  // The default framing on open is the OLD behaviour exactly (a centred
+  // cover-fit square, zoom at its minimum): choosing a photo and immediately
+  // confirming produces the same result this modal replaces, so nothing about
+  // an unattended upload changes — only that a person who wants control now
+  // has it.
+  var STAGE_PX = 300;
+  var MAX_ZOOM = 3;
+
+  function showAvatarCropper(file){
+    return new Promise(function(resolve){
+      var settled = false;
+      // finish() just enters the close sequence; close()'s own `closed`
+      // guard (below) is what makes a second call a no-op. A guard here too
+      // would race it: it would flip `settled` before close()'s async
+      // back()/popstate dance ever calls resolve(), and that dance's own
+      // settle() checks the very same flag — so the promise would never
+      // actually resolve.
+      function finish(result){ close(result, false); }
+
+      var overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      var mid = "crop" + Math.random().toString(36).slice(2, 8);
+      overlay.innerHTML =
+        '<div class="modal-card crop-modal-card" role="dialog" aria-modal="true" ' +
+             'aria-labelledby="' + mid + '-t">' +
+          '<h3 class="modal-title" id="' + mid + '-t">Adjust your photo</h3>' +
+          '<div class="crop-stage" id="' + mid + '-stage">' +
+            '<img id="' + mid + '-img" alt="" draggable="false">' +
+            '<div class="crop-mask"></div>' +
+          '</div>' +
+          '<div class="crop-zoom-row">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6.5"/><path d="M20 20l-4.8-4.8"/></svg>' +
+            '<input type="range" id="' + mid + '-zoom" min="1" max="' + MAX_ZOOM + '" step="0.01" value="1" aria-label="Zoom">' +
+            '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6.5"/><path d="M20 20l-4.8-4.8"/><path d="M10 7.5v5M7.5 10h5"/></svg>' +
+          '</div>' +
+          '<p class="crop-hint">Drag to reposition, slide to zoom.</p>' +
+          '<div class="modal-actions">' +
+            '<button type="button" class="btn ghost crop-cancel">Cancel</button>' +
+            '<button type="button" class="btn crop-confirm" disabled>Use Photo</button>' +
+          '</div>' +
+        '</div>';
+      dialogRoot().appendChild(overlay);
+      requestAnimationFrame(function(){ overlay.classList.add("show"); });
+
+      var bgRoot = document.getElementById("appShell").style.display !== "none"
+        ? document.getElementById("appShell") : document.getElementById("authScreen");
+      bgRoot.setAttribute("aria-hidden", "true");
+
+      var previouslyFocused = document.activeElement;
+      var card = overlay.querySelector(".modal-card");
+      var stage = overlay.querySelector(".crop-stage");
+      var imgEl = overlay.querySelector(".crop-stage img");
+      var zoomInput = overlay.querySelector('input[type="range"]');
+      var confirmBtn = overlay.querySelector(".crop-confirm");
+      var cancelBtn = overlay.querySelector(".crop-cancel");
+
+      // Natural size, base (cover-fit) scale, and the pan/zoom state the
+      // stage renders from. baseScale is the minimum scale at which the image
+      // fully covers the square stage — zoomInput's own 1..MAX_ZOOM range is
+      // a multiplier ON TOP of it, so the slider means the same thing
+      // regardless of the source photo's resolution.
+      var natW = 0, natH = 0, baseScale = 1, scale = 1, tx = 0, ty = 0;
+
+      function clampPan(){
+        var w = natW * scale, h = natH * scale;
+        var minX = Math.min(0, STAGE_PX - w), maxX = 0;
+        var minY = Math.min(0, STAGE_PX - h), maxY = 0;
+        tx = Math.max(minX, Math.min(maxX, tx));
+        ty = Math.max(minY, Math.min(maxY, ty));
+      }
+      function applyTransform(){
+        imgEl.style.transform = "translate(" + tx + "px," + ty + "px) scale(" + scale + ")";
+      }
+      // Keeps the point currently at the stage's centre fixed in image space
+      // while the zoom slider changes scale — without this, zooming in feels
+      // like it drags the photo toward a corner instead of toward whatever
+      // the person is actually looking at.
+      function setScale(nextScale){
+        var cx = (STAGE_PX / 2 - tx) / scale;
+        var cy = (STAGE_PX / 2 - ty) / scale;
+        scale = nextScale;
+        tx = STAGE_PX / 2 - cx * scale;
+        ty = STAGE_PX / 2 - cy * scale;
+        clampPan();
+        applyTransform();
+      }
+
+      loadImageFromFile(file).then(function(img){
+        natW = img.naturalWidth; natH = img.naturalHeight;
+        baseScale = STAGE_PX / Math.min(natW, natH);
+        imgEl.src = img.src;
+        imgEl.style.width = natW + "px";
+        imgEl.style.height = natH + "px";
+        scale = baseScale;
+        tx = (STAGE_PX - natW * scale) / 2;
+        ty = (STAGE_PX - natH * scale) / 2;
+        applyTransform();
+        confirmBtn.disabled = false;
+      }).catch(function(err){
+        showToast(err.message || "That image couldn't be used.", "error");
+        finish(null);
+      });
+
+      // Pointer Events cover mouse, touch and pen with one listener set —
+      // dragging to reposition on a phone is at least as likely as on desktop
+      // for a photo picker.
+      var dragging = false, startX = 0, startY = 0, startTx = 0, startTy = 0;
+      function onPointerDown(ev){
+        if(!confirmBtn || confirmBtn.disabled) return;
+        dragging = true;
+        stage.classList.add("dragging");
+        stage.setPointerCapture(ev.pointerId);
+        startX = ev.clientX; startY = ev.clientY; startTx = tx; startTy = ty;
+      }
+      function onPointerMove(ev){
+        if(!dragging) return;
+        tx = startTx + (ev.clientX - startX);
+        ty = startTy + (ev.clientY - startY);
+        clampPan();
+        applyTransform();
+      }
+      function onPointerUp(ev){
+        if(!dragging) return;
+        dragging = false;
+        stage.classList.remove("dragging");
+        try{ stage.releasePointerCapture(ev.pointerId); }catch(e){}
+      }
+      stage.addEventListener("pointerdown", onPointerDown);
+      stage.addEventListener("pointermove", onPointerMove);
+      stage.addEventListener("pointerup", onPointerUp);
+      stage.addEventListener("pointercancel", onPointerUp);
+
+      zoomInput.addEventListener("input", function(){
+        setScale(baseScale * parseFloat(zoomInput.value));
+      });
+
+      function focusable(){
+        return Array.from(card.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+          .filter(function(el){ return !el.disabled && el.offsetParent !== null; });
+      }
+
+      var closed = false;
+      history.pushState({ledgerModal:true}, "");
+      function onPopState(){ close(null, true); }
+      window.addEventListener("popstate", onPopState);
+
+      function close(result, fromPopState){
+        if(closed) return;
+        closed = true;
+        window.removeEventListener("popstate", onPopState);
+        document.removeEventListener("keydown", onKey);
+        bgRoot.removeAttribute("aria-hidden");
+        overlay.classList.remove("show");
+        setTimeout(function(){
+          overlay.remove();
+          if(previouslyFocused && typeof previouslyFocused.focus === "function"){
+            previouslyFocused.focus();
+          }
+        }, 180);
+        if(fromPopState){
+          settled = true;
+          resolve(result);
+        } else {
+          // history.back()'s popstate fires on a later task, not immediately.
+          // A fallback timer guards the case it never fires at all (this
+          // being the first entry in the tab's history is the real case;
+          // see the identical guard in showConfirm above). Without it, an
+          // awaited showAvatarCropper() call could simply hang forever.
+          function settle(){
+            if(settled) return;
+            settled = true;
+            window.removeEventListener("popstate", onOwnBack);
+            clearTimeout(fallback);
+            resolve(result);
+          }
+          function onOwnBack(){ settle(); }
+          window.addEventListener("popstate", onOwnBack);
+          var fallback = setTimeout(settle, 1000);
+          history.back();
+        }
+      }
+
+      function onKey(ev){
+        if(ev.key === "Escape"){ ev.preventDefault(); finish(null); return; }
+        if(ev.key === "Tab"){
+          var items = focusable();
+          if(!items.length) return;
+          var first = items[0], last = items[items.length - 1];
+          if(ev.shiftKey && document.activeElement === first){ ev.preventDefault(); last.focus(); }
+          else if(!ev.shiftKey && document.activeElement === last){ ev.preventDefault(); first.focus(); }
+        }
+      }
+      document.addEventListener("keydown", onKey);
+
+      cancelBtn.addEventListener("click", function(){ finish(null); });
+      overlay.addEventListener("click", function(ev){ if(ev.target === overlay) finish(null); });
+
+      confirmBtn.addEventListener("click", function(){
+        confirmBtn.disabled = true;
+        try{
+          // The exact inverse of the transform the stage is showing: the
+          // source rectangle, in the original photo's own pixel coordinates,
+          // that the visible circle currently frames.
+          var sx = -tx / scale, sy = -ty / scale, sSide = STAGE_PX / scale;
+          var canvas = document.createElement("canvas");
+          canvas.width = canvas.height = AVATAR_PX;
+          var ctx = canvas.getContext("2d");
+          ctx.drawImage(imgEl, sx, sy, sSide, sSide, 0, 0, AVATAR_PX, AVATAR_PX);
+          canvas.toBlob(function(blob){
+            if(!blob){
+              showToast("That image couldn't be processed.", "error");
+              confirmBtn.disabled = false;
+              return;
+            }
+            finish(blob);
+          }, "image/jpeg", 0.82);
+        }catch(err){
+          showToast("That image couldn't be processed.", "error");
+          confirmBtn.disabled = false;
+        }
+      });
+
+      // confirmBtn starts disabled (nothing has loaded yet), so it is not a
+      // valid initial focus target — Cancel is the first real one.
+      requestAnimationFrame(function(){ cancelBtn.focus(); });
+    });
+  }
+
+  // Existing localStorage photos predate this migration and cannot follow
+  // their owner to Storage on their own — the server has no way to learn
+  // about bytes that only ever lived in one browser. One-time, best-effort:
+  // if this account has no shared photo yet but this browser is holding the
+  // old local one, upload it once so the person who already set a photo
+  // doesn't appear to have lost it. Never blocks sign-in; a failure here
+  // just leaves the old local copy in place for next time.
+  async function migrateLocalAvatarIfAny(){
+    if(!currentProfile || currentProfile.avatar_updated_at) return;
+    var legacyKey = "attendance_avatar_v1_" + currentProfile.id;
+    var dataUrl = safeGet(legacyKey);
+    if(!dataUrl) return;
+    try{
+      var blob = await (await fetch(dataUrl)).blob();
+      var up = await supabase.storage.from(AVATAR_BUCKET)
+        .upload(avatarPath(currentProfile.id), blob, {upsert:true, contentType:"image/jpeg", cacheControl:"3600"});
+      if(up.error) return;
+      var stamp = new Date().toISOString();
+      var save = await supabase.from("profiles")
+        .update({avatar_updated_at: stamp}).eq("id", currentProfile.id);
+      if(save.error) return;
+      currentProfile.avatar_updated_at = stamp;
+      avatarBlobCache[currentProfile.id + ":" + stamp] = URL.createObjectURL(blob);
+      localStorage.removeItem(legacyKey);
+      refreshAvatars();
+    }catch(err){ /* best-effort; the local copy just stays for next time */ }
+  }
+
   // Repaints every surface that shows your face after the photo changes.
   function refreshAvatars(){
     renderIdentityChrome();
     var settingsAvatar = document.getElementById("settingsAvatar");
     if(settingsAvatar && currentProfile){
-      var url = localAvatar(currentProfile.id);
-      settingsAvatar.innerHTML = url
-        ? '<img src="'+escapeAttr(url)+'" alt="">'
-        : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+      var key = avatarCacheKey(currentProfile);
+      var cached = key ? avatarBlobCache[key] : null;
+      if(currentProfile.avatar_updated_at){
+        settingsAvatar.setAttribute("data-avatar-id", currentProfile.id);
+        settingsAvatar.setAttribute("data-avatar-v", String(currentProfile.avatar_updated_at));
+        settingsAvatar.innerHTML = cached
+          ? '<img src="'+escapeAttr(cached)+'" alt="">'
+          : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+      } else {
+        settingsAvatar.removeAttribute("data-avatar-id");
+        settingsAvatar.removeAttribute("data-avatar-v");
+        settingsAvatar.innerHTML = escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+      }
       var removeBtn = document.getElementById("photoRemoveBtn");
-      if(removeBtn) removeBtn.style.display = url ? "" : "none";
+      if(removeBtn) removeBtn.style.display = currentProfile.avatar_updated_at ? "" : "none";
     }
+    // The Overview portrait is the largest place a photo appears, and it was the
+    // one place this function did not reach: after saving, the header, the rail
+    // and the Settings preview all showed the new picture while the portrait
+    // kept the monogram until something else happened to repaint it.
+    renderPersonCard();
     // The Team roster draws your own card from the same store.
     if(document.querySelector('.tab-btn[data-tab="team"].active')) renderTeamCards();
+    hydrateAvatars();
   }
+
+  // Saving a display name. profiles.full_name is the only column the API grants
+  // an authenticated user on their own row (migration 20260815012052) — role,
+  // id and email are revoked at the grant and blocked again by a trigger — so
+  // this is a one-column write and nothing here needs to guard the rest.
+  document.getElementById("displayNameForm").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    if(!currentProfile || !currentUser) return;
+    var input = document.getElementById("displayNameInput");
+    var btn = document.getElementById("displayNameSave");
+    var name = input.value.trim().replace(/\s+/g, " ");
+
+    if(!name){
+      showToast("Enter a name, or your email address stands in for one.", "error");
+      input.focus();
+      return;
+    }
+    if(name === (currentProfile.full_name || "")){
+      showToast("That is already your name.", "info");
+      return;
+    }
+
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = "Saving…";
+    try{
+      var res = await supabase.from("profiles")
+        .update({full_name: name}).eq("id", currentUser.id);
+      if(res.error) throw res.error;
+      currentProfile.full_name = name;
+      // Every surface that renders a name off currentProfile, in one place: the
+      // greeting and rail block, the Overview portrait, the viewer switcher's
+      // own entry, and the roster if it is on screen. Missing one is how the
+      // photo ended up updating everywhere except the portrait.
+      renderIdentityChrome();
+      renderPersonCard();
+      refreshSettingsPanel();
+      // The switcher is built from allProfiles, which is a cache. Patch the one
+      // entry and its option rather than re-querying every profile to learn a
+      // name we just wrote ourselves.
+      var mine = allProfiles.find(function(p){ return p.id === currentUser.id; });
+      if(mine){
+        mine.full_name = name;
+        var opt = document.querySelector('#viewerSelect option[value="'+currentUser.id+'"]');
+        if(opt) opt.textContent = "Me — " + name + (mine.role === "admin" ? " (Admin)" : "");
+      }
+      if(document.querySelector('.tab-btn[data-tab="team"].active')) renderTeamCards();
+      showToast("Name updated.", "success");
+    }catch(err){
+      showToast(friendlyError(err) || "Couldn't save that name.", "error");
+    }finally{
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  });
 
   document.getElementById("photoChooseBtn").addEventListener("click", function(){
     document.getElementById("photoInput").click();
@@ -5065,33 +5681,68 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var file = this.files && this.files[0];
     // Reset immediately so re-picking the same file still fires a change event.
     this.value = "";
-    if(!file || !currentProfile) return;
+    if(!file || !currentProfile || !currentUser) return;
     try{
-      var dataUrl = await fileToAvatarDataUrl(file);
-      // safeSet reports its own failure; localStorage throws when the origin's
-      // quota is full, which a photo is far more likely to trigger than a
-      // settings blob, so a failed write must not look like a success.
-      if(!safeSet(avatarKey(currentProfile.id), dataUrl)){
-        showToast("Couldn't save the photo — this browser's storage is full or blocked.", "error");
-        return;
-      }
-      refreshAvatars();
-      showToast("Photo saved on this device.", "success");
+      validateAvatarFile(file);
     }catch(err){
-      showToast(err.message || "That image couldn't be used.", "error");
+      showToast(err.message, "error");
+      return;
+    }
+    // The crop modal, not an automatic centre crop — see showAvatarCropper()
+    // for why. null means Cancel/Escape/back; nothing changed, so nothing
+    // uploads and the button never even shows "Uploading…".
+    var blob = await showAvatarCropper(file);
+    if(!blob) return;
+    var btn = document.getElementById("photoChooseBtn");
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = "Uploading…";
+    try{
+      var up = await supabase.storage.from(AVATAR_BUCKET)
+        .upload(avatarPath(currentUser.id), blob, {upsert:true, contentType:"image/jpeg", cacheControl:"3600"});
+      if(up.error) throw up.error;
+      var stamp = new Date().toISOString();
+      var save = await supabase.from("profiles")
+        .update({avatar_updated_at: stamp}).eq("id", currentUser.id);
+      if(save.error) throw save.error;
+      currentProfile.avatar_updated_at = stamp;
+      // Seed the cache from the blob already in hand: the photo you just
+      // uploaded is the one image on the page that would otherwise pay for a
+      // download it does not need, since nothing else could have this bytes.
+      avatarBlobCache[currentUser.id + ":" + stamp] = URL.createObjectURL(blob);
+      var mine = allProfiles.find(function(p){ return p.id === currentUser.id; });
+      if(mine) mine.avatar_updated_at = stamp;
+      refreshAvatars();
+      showToast("Photo updated. Your team can see it.", "success");
+    }catch(err){
+      showToast(friendlyError(err) || err.message || "That image couldn't be used.", "error");
+    }finally{
+      btn.disabled = false;
+      btn.textContent = label;
     }
   });
 
   document.getElementById("photoRemoveBtn").addEventListener("click", async function(){
-    if(!currentProfile) return;
+    if(!currentProfile || !currentUser) return;
     var ok = await showConfirm(
-      "Remove your photo from this device? You'll go back to showing your initials.",
+      "Remove your photo? Your team will see your initials instead.",
       {title:"Remove photo?", confirmText:"Remove", danger:true}
     );
     if(!ok) return;
-    try{ localStorage.removeItem(avatarKey(currentProfile.id)); }catch(err){}
-    refreshAvatars();
-    showToast("Photo removed.", "success");
+    try{
+      var rm = await supabase.storage.from(AVATAR_BUCKET).remove([avatarPath(currentUser.id)]);
+      if(rm.error) throw rm.error;
+      var save = await supabase.from("profiles")
+        .update({avatar_updated_at: null}).eq("id", currentUser.id);
+      if(save.error) throw save.error;
+      currentProfile.avatar_updated_at = null;
+      var mine = allProfiles.find(function(p){ return p.id === currentUser.id; });
+      if(mine) mine.avatar_updated_at = null;
+      refreshAvatars();
+      showToast("Photo removed.", "success");
+    }catch(err){
+      showToast(friendlyError(err) || "Couldn't remove the photo.", "error");
+    }
   });
 
   // ---------- Identity chrome ----------
@@ -5105,21 +5756,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return name.split(/\s+/)[0];
   }
 
-  // Photo when there is one, initials when there is not — see .avatar in the
-  // stylesheet. Both branches render the same box so a mixed roster still
-  // lines up.
-  function avatarHtml(profile, extraClass){
-    var name = (profile && (profile.full_name || profile.email)) || "?";
-    var cls  = "avatar" + (extraClass ? " " + extraClass : "");
-    // Only the signed-in user can have a picture here: photos are device-local,
-    // so there is nothing to show for anyone else.
-    var url = profile && currentUser && profile.id === currentUser.id
-      ? localAvatar(profile.id) : null;
-    if(url){
-      return '<div class="'+cls+'"><img src="'+escapeAttr(url)+'" alt=""></div>';
-    }
-    return '<div class="'+cls+'">'+escapeHtml(initialsOf(name))+'</div>';
-  }
 
   function initialsOf(name){
     return String(name || "?").trim().split(/\s+/)
@@ -5133,10 +5769,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     var railAvatar = document.getElementById("railUserAvatar");
     if(railAvatar){
-      var url = localAvatar(currentProfile.id);
-      railAvatar.innerHTML = url
-        ? '<img src="'+escapeAttr(url)+'" alt="">'
+      var key = avatarCacheKey(currentProfile);
+      var cached = key ? avatarBlobCache[key] : null;
+      if(currentProfile.avatar_updated_at){
+        railAvatar.setAttribute("data-avatar-id", currentProfile.id);
+        railAvatar.setAttribute("data-avatar-v", String(currentProfile.avatar_updated_at));
+      } else {
+        railAvatar.removeAttribute("data-avatar-id");
+        railAvatar.removeAttribute("data-avatar-v");
+      }
+      railAvatar.innerHTML = cached
+        ? '<img src="'+escapeAttr(cached)+'" alt="">'
         : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+      hydrateAvatars(railAvatar);
     }
     var railName = document.getElementById("railUserName");
     if(railName) railName.textContent = currentProfile.full_name || currentProfile.email;
@@ -5352,7 +5997,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     list.innerHTML = events.map(function(ev){
       var p = ev.profile, e = ev.entry;
       var name = p.full_name || p.email;
-      var initials = name.trim().split(/\s+/).map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
       var c = computeEntryAs(ev.settings, e);
       var desc;
       if((e.type || "regular") !== "regular"){
@@ -5366,9 +6010,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         desc = "Logged " + fmtDateShort(e.date);
       }
       return '<div class="activity-row">'+
-        ((currentUser && p.id === currentUser.id && localAvatar(p.id))
-          ? '<div class="avatar"><img src="'+escapeAttr(localAvatar(p.id))+'" alt=""></div>'
-          : '<div class="avatar">'+escapeHtml(initials)+'</div>')+
+        avatarSlotHtml(p)+
         '<div class="activity-row-body">'+
           '<div class="activity-row-head">'+
             '<span class="activity-row-name" dir="auto">'+escapeHtml(name)+'</span>'+
@@ -5378,6 +6020,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         '</div>'+
       '</div>';
     }).join("");
+    hydrateAvatars(list);
   }
 
   // entering: true only when this call is drawing a genuinely new set of
@@ -5433,12 +6076,26 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         icon:'<circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/>',
         label:"Hours Worked", value:minutesToHoursStr(totals.worked), detail:"Of "+minutesToHoursStr(totals.target)+" target"
       },
-      // Same accomplishment reading as the Shortfall tab's Target Met Rate:
+      // Same accomplishment reading as the Shortfall tab's Target Hours Met:
       // share of target HOURS worked, not a day-count rate. Floored, not
-      // rounded — see the note by pMetRate above for why.
+      // rounded — see the note by pMetRate above for why. Both carry the same
+      // label, because they are the same figure over different populations —
+      // "Target Met Rate" read as "how often the target was met", which is a
+      // count of days and a different number entirely.
       {
         icon:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.3"/><circle cx="12" cy="12" r=".8" fill="currentColor"/>',
-        label:"Target Met", value:totals.target ? Math.floor((totals.worked/totals.target)*100)+"%" : "—", detail:"Team-wide"
+        // Not "Team-wide": targetSum only accumulates over people who logged
+        // something, so anyone with no entries leaves the denominator entirely
+        // and a roster of thirty where two logged reads "100% — Team-wide".
+        // Say who the figure actually covers.
+        label:"Target Hours Met", value:totals.target ? Math.floor((totals.worked/totals.target)*100)+"%" : "—",
+        detail:(function(){
+          var counted = teamRowsCache.filter(function(t){ return t.summary.targetSum > 0; }).length;
+          if(!totals.target) return "Nobody logged time yet";
+          return counted === teamRowsCache.length
+            ? "Across everyone"
+            : "Across the " + counted + " who logged time";
+        })()
       }
     ].map(function(c){
       return '<div class="stat-card">'+
@@ -5474,8 +6131,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     shown.forEach(function(t, i){
       var p = t.profile, s = t.summary;
-      var initials = (p.full_name || p.email || "?").trim().split(/\s+/)
-        .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
       var name = p.full_name || p.email;
       // Floored, not rounded, so a bar/figure a few minutes short of target
       // never reads as a full "100%" — see the note by pMetRate for why.
@@ -5497,12 +6152,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       card.setAttribute("aria-label", "Open " + name + "'s attendance for " + monthLabel(teamMonth));
       card.innerHTML =
         '<div class="team-card-head">'+
-          // Initials always: a teammate's photo lives in THEIR browser and is
-          // never transmitted, so there is nothing to render here but initials.
-          // Your own card is the one exception.
-          ((currentUser && p.id === currentUser.id && localAvatar(p.id))
-            ? '<div class="avatar"><img src="'+escapeAttr(localAvatar(p.id))+'" alt=""></div>'
-            : '<div class="avatar">'+escapeHtml(initials)+'</div>')+
+          avatarSlotHtml(p)+
           '<div class="team-info">'+
             // The badges used to sit inside this line. Being inline text they
             // wrapped with it, so at a card's width a two-word name broke
@@ -5533,11 +6183,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
           '<div><div class="label">Days</div><div class="value">'+s.loggedDays+'</div></div>'+
           '<div><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
-          '<div><div class="label">Target Met</div><div class="value">'+
+          '<div><div class="label">Target Hours Met</div><div class="value">'+
             (s.targetSum ? Math.floor((s.workedSum/s.targetSum)*100)+"%" : "—")+'</div></div>'+
         '</div>';
       list.appendChild(card);
     });
+    hydrateAvatars(list);
   }
 
   document.getElementById("teamList").addEventListener("click", function(ev){
@@ -6406,16 +7057,33 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       await new Promise(function(r){ setTimeout(r, 700); });
       try{
         var res2 = await supabase.from("profiles").select("*").eq("id", user.id).single();
+        // The retry has to check res2.error the way the first attempt checks
+        // res.error. supabase-js RESOLVES on a query error rather than
+        // rejecting — {data: null, error: {...}} — so a failed retry never
+        // reached this catch. It assigned null to currentProfile, and the next
+        // line threw "Cannot read properties of null (reading 'role')" out of
+        // handleSignedIn, before showApp() and before anything drew the person
+        // card. What the user saw was a signed-in app with a 363x332 empty box
+        // where their photo belongs and "—" for their name, with no error
+        // anywhere that named a cause.
+        if(res2.error) throw res2.error;
+        if(!res2.data) throw new Error("no profile row for " + user.id);
         currentProfile = res2.data;
       }catch(err2){
         currentProfile = {id:user.id, email:user.email, full_name:null, role:"user"};
       }
     }
+    // Belt and braces: nothing below may assume a profile object exists.
+    if(!currentProfile) currentProfile = {id:user.id, email:user.email, full_name:null, role:"user"};
 
     isAdmin = currentProfile.role === "admin";
     viewedUserId = currentUser.id;
     viewedProfile = currentProfile;
     refreshAvatars();
+    // Fire-and-forget: a one-time upload of whatever this browser was holding
+    // in localStorage before this migration, so a person who already set a
+    // photo does not appear to have lost it. Must not hold up sign-in.
+    migrateLocalAvatarIfAny().catch(function(){});
 
     if(isAdmin){
       await loadAllProfilesForSwitcher();
@@ -6468,8 +7136,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // ---------- Init ----------
-  var copyrightText = "© " + new Date().getFullYear() + " Aseel Thalnoon. All rights reserved.";
-  document.getElementById("copyrightLine").textContent = copyrightText;
+  // "All rights reserved" is a licence notice aimed at the public. This is an
+  // internal tool for one small team, and the line was occupying the last row
+  // of the one-screen budget on every tab to assert a claim against nobody.
+  // The sign-in screen keeps an attribution, where a person who does not yet
+  // have an account is the one audience that might wonder whose app this is.
+  var copyrightText = "© " + new Date().getFullYear() + " Aseel Thalnoon";
+  document.getElementById("copyrightLine").textContent = "";
   document.getElementById("copyrightLineAuth").textContent = copyrightText;
 
   // The clock and reminder timers used to run unconditionally from load — on the
