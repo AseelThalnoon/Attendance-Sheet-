@@ -53,8 +53,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   var DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   var DAY_FULL  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   var TYPE_LABELS = {
-    regular:"Regular", wfh:"WFH", halfleave:"Half Day Leave", leave:"Annual Leave",
-    sick:"Sick Leave", trip:"Business Trip", training:"Training", holiday:"Public Holiday", other:"Other"
+    // "WFH" here against "Work From Home" in the picker meant the day you
+    // chose and the day you later read back were named differently, in the
+    // only one of the nine types that disagreed with itself. The table has
+    // room — "Half Day Leave" and "Public Holiday" are the same length.
+    regular:"Regular", wfh:"Work From Home", halfleave:"Half Day Leave", leave:"Annual Leave",
+    sick:"Sick Leave", trip:"Business Trip", training:"Training", holiday:"Public Holiday",
+    // "Other" alone gave no clue that this is an EXCUSED absence — it reads as
+    // a shrug, and sat in a list where every other option states what it is.
+    // The stored value is untouched; this is the display label only, so the
+    // log, calendar, print report and audit history all relabel together.
+    other:"Other (Excused)"
   };
   // An entry's type can be anything the database holds. Indexing TYPE_LABELS
   // directly rendered the literal string "undefined" in the log, the calendar

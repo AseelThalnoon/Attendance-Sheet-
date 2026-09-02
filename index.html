@@ -1987,8 +1987,29 @@
      side by side — a native time control is intrinsically ~0.7px taller than
      the rest — without pinning any of them to a fixed height they might not
      fit into on another engine. */
-  .form-grid > div{min-width:0; display:flex; flex-direction:column;}
+  .form-grid > div, .form-grid > fieldset{min-width:0; display:flex; flex-direction:column;}
   .form-grid > div > input, .form-grid > div > select{flex:1 1 auto;}
+  /* Two inputs, one value. They used to be two separate cells labelled "Target
+     Hours" and "Target Minutes", which read as unrelated settings sitting next
+     to each other — and let someone change the hours and leave stale minutes
+     behind, because nothing said the second field was part of the first. A
+     fieldset is the element that actually says "these belong together", and it
+     keeps a real <label for> on each input rather than trading them for an
+     aria-labelledby that would be one rename away from lying. The legend takes
+     the same caption treatment every other label in the form has. */
+  .field-pair{border:0; padding:0; margin:0;}
+  .field-pair legend{
+    display:block; padding:0; font-size:10px; text-transform:uppercase;
+    letter-spacing:.08em; color:var(--muted); margin-bottom:6px;
+  }
+  .pair-row{display:flex; gap:var(--space-2); flex:1 1 auto; align-items:stretch;}
+  .pair-unit{display:flex; align-items:center; gap:6px; flex:1 1 0; min-width:0;}
+  /* basis 0, not auto: a number input's intrinsic width is ~150px, so two of
+     them plus their unit labels overflowed the 298px single-column track and
+     clipped the "min" label off the right edge. Zero basis makes the pair
+     share whatever is left after the labels have taken their width. */
+  .pair-unit input{min-width:0; flex:1 1 0; align-self:stretch;}
+  .pair-unit label{margin-bottom:0; flex-shrink:0;}
   .form-grid .full{grid-column:1 / -1;}
   label{display:block; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px;}
   /* type="search" is listed explicitly: it is not covered by any of the others,
@@ -3244,6 +3265,11 @@
   .auth-title{font-size:30px; color:var(--ink); margin:0 0 24px; font-weight:700; letter-spacing:-.03em;}
   .auth-form{display:flex; flex-direction:column; gap:14px;}
   .auth-form label{margin-bottom:6px;}
+  /* The 10-character rule is enforced twice (minlength on the input, and the
+     length check in the submit handler) but was stated nowhere — you found out
+     by being rejected. Same muted treatment as .settings-hint, which is the
+     established voice for "here is how this field works". */
+  .auth-hint{font-size:11.5px; color:var(--muted); margin:6px 0 0;}
   .auth-switch{
     display:flex; align-items:center; justify-content:center; gap:8px;
     font-size:12px; margin-top:2px; flex-wrap:wrap;
@@ -4042,7 +4068,8 @@
       </div>
       <div>
         <label for="regPassword">Password</label>
-        <input type="password" id="regPassword" autocomplete="new-password" required minlength="10">
+        <input type="password" id="regPassword" autocomplete="new-password" required minlength="10" aria-describedby="regPasswordHint">
+        <p class="auth-hint" id="regPasswordHint">At least 10 characters.</p>
       </div>
       <div>
         <label for="regPassword2">Confirm Password</label>
@@ -4060,7 +4087,8 @@
       <p style="margin:0;">Choose a new password for your account.</p>
       <div>
         <label for="newPassword">New Password</label>
-        <input type="password" id="newPassword" autocomplete="new-password" required minlength="10">
+        <input type="password" id="newPassword" autocomplete="new-password" required minlength="10" aria-describedby="newPasswordHint">
+        <p class="auth-hint" id="newPasswordHint">At least 10 characters.</p>
       </div>
       <div>
         <label for="newPassword2">Confirm New Password</label>
@@ -4848,14 +4876,13 @@
             <div class="daypicker" id="dayPicker"></div>
           </div>
           <div class="form-grid">
-            <div>
-              <label for="sTargetH">Target Hours</label>
-              <input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric">
-            </div>
-            <div>
-              <label for="sTargetM">Target Minutes</label>
-              <input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric">
-            </div>
+            <fieldset class="field-pair">
+              <legend>Daily Target</legend>
+              <div class="pair-row">
+                <span class="pair-unit"><input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric"><label for="sTargetH">hrs</label></span>
+                <span class="pair-unit"><input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric"><label for="sTargetM">min</label></span>
+              </div>
+            </fieldset>
             <div>
               <label for="sIn">Standard Start</label>
               <input type="time" id="sIn">
@@ -5274,14 +5301,13 @@
         <div class="daypicker" id="defaultsDayPicker" role="group" aria-labelledby="defaultsDaysLabel"></div>
       </div>
       <div class="form-grid" id="adminDefaultsGrid">
-        <div>
-          <label for="dTargetH">Target Hours</label>
-          <input type="number" id="dTargetH" min="0" max="24" step="1" inputmode="numeric">
-        </div>
-        <div>
-          <label for="dTargetM">Target Minutes</label>
-          <input type="number" id="dTargetM" min="0" max="59" step="1" inputmode="numeric">
-        </div>
+          <fieldset class="field-pair">
+            <legend>Daily Target</legend>
+            <div class="pair-row">
+              <span class="pair-unit"><input type="number" id="dTargetH" min="0" max="24" step="1" inputmode="numeric"><label for="dTargetH">hrs</label></span>
+              <span class="pair-unit"><input type="number" id="dTargetM" min="0" max="59" step="1" inputmode="numeric"><label for="dTargetM">min</label></span>
+            </div>
+          </fieldset>
         <div>
           <label for="dIn">Standard Start</label>
           <input type="time" id="dIn">
@@ -5352,7 +5378,7 @@
             <option value="leave">Annual Leave</option>
             <option value="sick">Sick Leave</option>
             <option value="training">Training</option>
-            <option value="other">Other</option>
+            <option value="other">Other (Excused)</option>
           </select>
         </div>
         <div class="full">
@@ -5594,7 +5620,7 @@
             <option value="trip">Business Trip</option>
             <option value="training">Training</option>
             <option value="holiday">Public Holiday</option>
-            <option value="other">Other</option>
+            <option value="other">Other (Excused)</option>
           </select>
         </div>
         <div class="full">
