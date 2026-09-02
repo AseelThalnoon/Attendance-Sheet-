@@ -43,6 +43,12 @@
       "skillPath": "skills/find-security-vulnerabilities-in-code/SKILL.md",
       "computedHash": "d6aaaf44bb35c4dedec775c47c7f814517356f534c374f15c884d94735b11d97"
     },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
+    },
     "fix-security-vulnerabilities-with-strix": {
       "source": "usestrix/strix",
       "sourceType": "github",
