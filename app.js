@@ -304,6 +304,171 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // and the log table while data is in flight, instead of letting the old
   // (possibly stale, possibly zeroed) values sit there or pop in abruptly
   // once the fetch resolves.
+  // ---------- Offline outbox ----------
+  // A punch is the one write this app cannot ask someone to repeat later: the
+  // whole value of a clock-in is the minute it happened, so "try again when
+  // you have signal" records the wrong time by definition. Everything else the
+  // app writes — a hand-entered day, a settings change, an admin action — can
+  // wait for a connection and be retyped unchanged. That asymmetry is why only
+  // punches are queued here, and why this is not the general sync layer the
+  // README rules out.
+  //
+  // The queue holds INTENTIONS ("clock out at 06:12 on this date"), not rows.
+  // Storing a whole row would freeze the rest of that day — its type, its note,
+  // the other half of the shift — at the moment the connection dropped, and
+  // uploading it an hour later would silently revert anything else that had
+  // changed meanwhile. On flush the current row is read and only the punched
+  // field is written over it.
+  var OUTBOX_KEY = "attendance.outbox";
+  var PENDING_PREFIX = "pending:";
+  // Thrown to take the offline path without spending a request first.
+  var OFFLINE = {offline:true};
+
+  var outbox = (function(){
+    try{
+      var raw = JSON.parse(safeGet(OUTBOX_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    }catch(err){ return []; }
+  })();
+
+  function persistOutbox(){ safeSet(OUTBOX_KEY, JSON.stringify(outbox)); }
+
+  // supabase-js surfaces a dropped connection as a TypeError out of fetch.
+  // These are the same signatures friendlyError() matches on, deliberately: a
+  // connection failure must be classified identically whether it is being
+  // explained to someone or being queued for retry.
+  function isNetworkError(err){
+    if(err === OFFLINE) return true;
+    var msg = (err && err.message) || String(err || "");
+    return /Failed to fetch|NetworkError|network|ERR_INTERNET|Load failed/i.test(msg);
+  }
+
+  function queuePunch(userId, date, field, time){
+    // One queued punch per day per field. Someone tapping clock-in three times
+    // with no signal meant to clock in once, and the server would have
+    // collapsed those to a single value anyway — last one wins here for the
+    // same reason it wins there.
+    outbox = outbox.filter(function(q){
+      return !(q.userId === userId && q.date === date && q.field === field);
+    });
+    outbox.push({userId:userId, date:date, field:field, time:time, queuedAt:Date.now()});
+    persistOutbox();
+  }
+
+  function pendingFor(userId){
+    return outbox.filter(function(q){ return q.userId === userId; });
+  }
+
+  // Lays the queue over whatever came back from the server. A punch that is
+  // recorded but not yet uploaded is still a punch that happened, and hiding it
+  // until it syncs would show "not clocked in" to someone who just clocked in —
+  // which invites them to do it again. The banner, not a missing row, is where
+  // "not uploaded yet" gets said.
+  function applyOutbox(list, userId){
+    var pending = pendingFor(userId);
+    if(!pending.length) return list;
+    var out = list.slice();
+    pending.forEach(function(q){
+      var i = out.findIndex(function(e){ return e.date === q.date; });
+      if(i === -1){
+        out.push({
+          id: PENDING_PREFIX + q.date, user_id: userId, date: q.date,
+          clockIn: "", clockOut: "", type: "regular", note: "", pending: true
+        });
+        i = out.length - 1;
+      } else {
+        out[i] = Object.assign({}, out[i], {pending: true});
+      }
+      out[i][q.field] = q.time;
+    });
+    return out;
+  }
+
+  var flushing = false;
+  async function flushOutbox(){
+    if(flushing || !currentUser || !supabaseConfigured) return;
+    if(navigator.onLine === false) return;
+    var mine = pendingFor(currentUser.id);
+    if(!mine.length) return;
+
+    flushing = true;
+    var uploaded = 0, stalled = false;
+    try{
+      // One read for the whole queue rather than one per punch: the queue is
+      // small and almost always spans a single day.
+      var current = await sbFetchEntries(currentUser.id);
+      for(var i = 0; i < mine.length; i++){
+        var q = mine[i];
+        var existing = current.find(function(e){ return e.date === q.date; });
+        var payload = existing
+          ? {date: q.date, clockIn: existing.clockIn, clockOut: existing.clockOut, type: existing.type, note: existing.note}
+          : {date: q.date, clockIn: "", clockOut: "", type: "regular", note: ""};
+        payload[q.field] = q.time;
+        try{
+          var saved = await sbUpsertEntry(currentUser.id, payload, existing ? existing.id : null);
+          // Keep the local copy in step, so a clock-in and clock-out queued for
+          // the same day update the row the first one just created instead of
+          // inserting a second and colliding on the date constraint.
+          if(existing) current[current.indexOf(existing)] = saved;
+          else current.push(saved);
+          outbox = outbox.filter(function(x){ return x !== q; });
+          uploaded++;
+        }catch(err){
+          if(isNetworkError(err)){
+            // The connection went again. Keep this and everything after it
+            // queued and stop — retrying the rest would just fail too.
+            stalled = true;
+            break;
+          }
+          // Anything else is a punch the server will never accept. Retrying it
+          // forever would wedge the queue and block every punch behind it, so
+          // it is dropped — loudly, because a dropped punch is a lost record
+          // and silence is how that becomes a payroll argument later.
+          outbox = outbox.filter(function(x){ return x !== q; });
+          showToast("A punch saved offline for " + fmtDate(q.date) +
+                    " couldn't be uploaded and was discarded: " + friendlyError(err), "error");
+        }
+      }
+      persistOutbox();
+    }catch(err){
+      // The read itself failed; nothing was dequeued, so there is nothing to
+      // repair. The banner stays up and the next trigger tries again.
+      stalled = true;
+    }finally{
+      flushing = false;
+    }
+
+    if(uploaded){
+      await loadDataForViewedUser();
+      showToast(uploaded === 1
+        ? "Uploaded the punch you made offline."
+        : "Uploaded " + uploaded + " punches you made offline.", "success");
+    } else {
+      renderOutbox();
+      if(stalled) showToast("Still no connection — your punch is safe on this device.", "error");
+    }
+  }
+
+  function renderOutbox(){
+    var banner = document.getElementById("outboxBanner");
+    if(!banner) return;
+    var mine = currentUser ? pendingFor(currentUser.id) : [];
+    if(!mine.length){ banner.classList.remove("show"); return; }
+
+    var oldest = mine.reduce(function(m, q){ return q.queuedAt < m.queuedAt ? q : m; }, mine[0]);
+    document.getElementById("outboxTitle").textContent = mine.length === 1
+      ? "A punch is waiting to upload"
+      : mine.length + " punches are waiting to upload";
+    document.getElementById("outboxText").textContent =
+      (mine.length === 1
+        ? "Clock-" + (oldest.field === "clockIn" ? "in" : "out") + " at " +
+          formatTime12(oldest.time) + " on " + fmtDate(oldest.date)
+        : "The oldest is " + fmtDate(oldest.date)) +
+      ". It's saved on this device and uploads by itself once you're back online — " +
+      "you don't need to punch again.";
+    banner.classList.add("show");
+  }
+
   function setLoadingSkeletons(on){
     var targets = [document.getElementById("formatCard"), document.getElementById("logTableWrap")]
       .concat(Array.prototype.slice.call(document.querySelectorAll("#statsRow .stat-card")));
@@ -326,6 +491,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       ]);
       entries = results[0];
       settings = results[1];
+      // Before any render sees it: a punch waiting to upload belongs in the
+      // day it was made, not in a holding pen the rest of the app can't see.
+      if(viewedUserId === currentUser.id) entries = applyOutbox(entries, currentUser.id);
     }catch(err){
       console.error(err);
       showToast("Couldn't load attendance data: " + friendlyError(err), "error");
@@ -383,6 +551,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
   function dateToStr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
   function todayStr(){ return dateToStr(new Date()); }
+  // Calendar-day arithmetic, not 24-hour arithmetic: dateFromStr builds a local
+  // midnight and setDate rolls the month and the DST boundary for us, where
+  // subtracting 86400000ms would land on the wrong day twice a year.
+  function dayBefore(dateStr){
+    var d = dateFromStr(dateStr);
+    d.setDate(d.getDate() - 1);
+    return dateToStr(d);
+  }
   function fmtDate(s){
     return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
   }
@@ -1027,6 +1203,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function initConsole(root){
     var items = Array.prototype.slice.call(root.querySelectorAll(".console-nav-item"));
     var sections = Array.prototype.slice.call(root.querySelectorAll(".console-section"));
+    var commits = Array.prototype.slice.call(root.querySelectorAll("[data-for-sections]"));
     if(!items.length) return null;
 
     function show(name, focusNav, silent){
@@ -1042,6 +1219,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(!matched) return false;
       sections.forEach(function(sec){
         sec.classList.toggle("active", sec.getAttribute("data-section") === name);
+      });
+      // Controls that live outside the sections but only belong to some of
+      // them — the Save/Apply-to-everyone pair, which commits the three
+      // schedule sections and nothing else. Declared in the markup so the
+      // console does not need to know which console it is.
+      commits.forEach(function(el){
+        var forSections = el.getAttribute("data-for-sections").split(/\s+/);
+        el.hidden = forSections.indexOf(name) === -1;
       });
       // Where "the section you picked" is depends on the layout. Side by side,
       // it is already beside the nav and the panel just needs to be back at the
@@ -1081,6 +1266,145 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
   initConsole(document.getElementById("settingsConsole"));
   initConsole(document.getElementById("adminConsole"));
+
+  // ---------- Appearance ----------
+  // Six palettes and a light/dark/system switch. The values live entirely in
+  // CSS (see the palette blocks in index.html); this only decides which two
+  // attributes sit on <html>, which is why adding a seventh palette is a
+  // stylesheet change plus one more tile in the markup, not a change here.
+  //
+  // The preference is DEVICE-local, deliberately, and the copy in the panel
+  // says so. It is not the same call the avatar made when it moved from
+  // localStorage to Storage: a photo is for other people to see, so keeping it
+  // in one browser made it useless, while a theme has no audience but the
+  // person looking at it. Dark at night on a phone and light at a desk is the
+  // common case, not a sync failure. It also keeps this off the settings blob
+  // and away from the Save button that owns it, so choosing a palette can be
+  // instant and cannot race a half-finished edit of the working-hours form.
+  var APPEARANCE_KEY = "attendance.appearance";
+  var PALETTE_IDS = ["atrium", "slate", "terracotta", "studio", "moss", "plum"];
+  var MODE_IDS = ["light", "dark", "system"];
+  var systemDark = null;
+  try{ systemDark = window.matchMedia("(prefers-color-scheme: dark)"); }catch(e){}
+
+  function readAppearance(){
+    var out = {palette:"atrium", mode:"system"};
+    // theme-boot.js already resolved and applied this before first paint; read
+    // its answer back off the DOM rather than re-parsing storage, so there is
+    // one place that decides and this one cannot disagree with what is on
+    // screen.
+    var root = document.documentElement;
+    var p = root.getAttribute("data-palette");
+    var m = root.getAttribute("data-theme-mode");
+    if(PALETTE_IDS.indexOf(p) !== -1) out.palette = p;
+    if(MODE_IDS.indexOf(m) !== -1) out.mode = m;
+    return out;
+  }
+
+  var appearance = readAppearance();
+
+  function resolveMode(mode){
+    if(mode === "light" || mode === "dark") return mode;
+    return (systemDark && systemDark.matches) ? "dark" : "light";
+  }
+
+  function applyAppearance(next, persist){
+    appearance = next;
+    var root = document.documentElement;
+    var resolved = resolveMode(next.mode);
+    root.setAttribute("data-palette", next.palette);
+    root.setAttribute("data-theme", resolved);
+    root.setAttribute("data-theme-mode", next.mode);
+    if(window.__applyThemeColor) window.__applyThemeColor();
+
+    if(persist){
+      // safeSet swallows a storage failure; a theme that will not persist is
+      // still worth applying for this session.
+      safeSet(APPEARANCE_KEY, JSON.stringify(next));
+    }
+    refreshAppearancePanel();
+
+    // The charts read their colours out of the cascade at draw time
+    // (see cssVar), so nothing already on screen repaints itself when the
+    // tokens change — an SVG stroke is an attribute, not a live var(). One
+    // repaint puts every chart back in the new palette.
+    renderCharts();
+  }
+
+  function refreshAppearancePanel(){
+    var resolved = resolveMode(appearance.mode);
+    var seg = document.getElementById("modeSeg");
+    if(seg){
+      Array.prototype.forEach.call(seg.querySelectorAll("[data-mode]"), function(btn){
+        var on = btn.getAttribute("data-mode") === appearance.mode;
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+        btn.tabIndex = on ? 0 : -1;
+      });
+    }
+    var hint = document.getElementById("modeHint");
+    if(hint){
+      hint.textContent = appearance.mode === "system"
+        ? "Following this device, which is currently " + resolved + "."
+        : "Always " + appearance.mode + ", whatever this device is set to.";
+    }
+    var grid = document.getElementById("paletteGrid");
+    if(grid){
+      Array.prototype.forEach.call(grid.querySelectorAll("[data-palette]"), function(btn){
+        if(!btn.classList.contains("palette-swatch")) return;
+        var on = btn.getAttribute("data-palette") === appearance.palette;
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+        btn.tabIndex = on ? 0 : -1;
+      });
+      // Each tile previews its palette in the mode you are actually in, so
+      // picking a palette while in dark shows you the dark composition rather
+      // than a light one you will never see.
+      Array.prototype.forEach.call(grid.querySelectorAll(".palette-mini"), function(mini){
+        mini.setAttribute("data-theme", resolved);
+      });
+    }
+  }
+
+  // A radiogroup, so arrow keys move the selection the way a radiogroup does.
+  function initRadioGroup(root, attr, onPick){
+    if(!root) return;
+    var items = Array.prototype.slice.call(root.querySelectorAll("[role='radio']"));
+    items.forEach(function(item, i){
+      item.addEventListener("click", function(){ onPick(item.getAttribute(attr)); });
+      item.addEventListener("keydown", function(e){
+        var next = null;
+        if(e.key === "ArrowDown" || e.key === "ArrowRight") next = items[(i + 1) % items.length];
+        else if(e.key === "ArrowUp" || e.key === "ArrowLeft") next = items[(i - 1 + items.length) % items.length];
+        else if(e.key === "Home") next = items[0];
+        else if(e.key === "End") next = items[items.length - 1];
+        if(!next) return;
+        e.preventDefault();
+        onPick(next.getAttribute(attr));
+        next.focus();
+      });
+    });
+  }
+
+  initRadioGroup(document.getElementById("modeSeg"), "data-mode", function(mode){
+    if(MODE_IDS.indexOf(mode) === -1) return;
+    applyAppearance({palette: appearance.palette, mode: mode}, true);
+  });
+  initRadioGroup(document.getElementById("paletteGrid"), "data-palette", function(palette){
+    if(PALETTE_IDS.indexOf(palette) === -1) return;
+    applyAppearance({palette: palette, mode: appearance.mode}, true);
+  });
+
+  // Only while following the system: an explicit Light or Dark is a decision
+  // this app made on the user's behalf to stop honouring the OS, and quietly
+  // overriding it the next time the OS flips would undo the choice.
+  if(systemDark){
+    var onSystemChange = function(){
+      if(appearance.mode === "system") applyAppearance(appearance, false);
+    };
+    if(systemDark.addEventListener) systemDark.addEventListener("change", onSystemChange);
+    else if(systemDark.addListener) systemDark.addListener(onSystemChange);
+  }
+
+  refreshAppearancePanel();
 
   // The period editor works on the DOM rows directly; nothing is committed to
   // settings until Save is pressed, so Close always discards edits.
@@ -2150,6 +2474,35 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // ---------- Reminder ----------
+  // The banner can only ever reach someone who has already opened the app,
+  // and syncTimers() stops the reminder interval the moment the tab hides —
+  // correctly, since a 60-second timer has no business running in a
+  // backgrounded PWA. That leaves the home-screen icon as the only surface
+  // that can carry an open shift to someone who is NOT looking at the app.
+  //
+  // The badge is set on the way out (see the visibilitychange handler) and it
+  // persists on the installed icon after the app is closed, so a forgotten
+  // clock-out is visible without a push subscription, a service worker
+  // wake-up, or a notification permission. It is not a substitute for a real
+  // scheduled reminder — that needs a server, and is tracked separately — but
+  // it is the whole of what the client can honestly do on its own.
+  function openShiftCount(){
+    return entries.filter(function(e){
+      return e.clockIn && !e.clockOut && EXCUSED_TYPES.indexOf(e.type) === -1;
+    }).length;
+  }
+
+  function updateAppBadge(){
+    // Unsupported nearly everywhere that isn't an installed PWA, and it
+    // rejects rather than returning false when it is unavailable. A badge is
+    // never worth an unhandled rejection in the console.
+    try{
+      var n = openShiftCount();
+      if(n > 0 && navigator.setAppBadge) navigator.setAppBadge(n).catch(function(){});
+      else if(navigator.clearAppBadge) navigator.clearAppBadge().catch(function(){});
+    }catch(e){ /* no badge on this platform */ }
+  }
+
   function renderReminder(){
     var banner = document.getElementById("reminderBanner");
     var today = todayStr();
@@ -2170,6 +2523,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         if(elapsed >= settings.remindAfterHours*60){ target = e; isPast = false; break; }
       }
     }
+
+    // Before the dismissal check, deliberately: dismissing the banner silences
+    // this screen, not the fact that a shift is still open. The badge tracks
+    // the record, not the reading of it.
+    updateAppBadge();
 
     if(!target || dismissedReminders[target.date]){
       banner.classList.remove("show");
@@ -2905,6 +3263,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderStats();
     renderReminder();
     renderBackupReminder();
+    renderOutbox();
     renderLog();
     renderCharts();
     renderPersonCard();
@@ -3175,6 +3534,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function loadEntryIntoForm(id){
     var e = entries.find(function(x){ return x.id === id; });
     if(!e) return;
+    // A queued punch has no server row to edit yet, and a day that has one is
+    // about to be written to by the flush — an edit made now would be
+    // overwritten by it without warning. Refuse rather than race.
+    if(e.pending){
+      showToast("That day has a punch that hasn't uploaded yet. It'll be editable once it syncs.", "error");
+      return;
+    }
     resetForm();
     document.getElementById("fDate").value = e.date;
     document.getElementById("fIn").value = e.clockIn || "";
@@ -3370,6 +3736,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // the dialog. Say which day, and what is on it.
     if(delId){
       var victim = entries.find(function(e){ return e.id === delId; });
+      // Same reason as the edit guard: there may be no server row to delete,
+      // and deleting one the flush is about to write to would resurrect it.
+      if(victim && victim.pending){
+        showToast("That day has a punch that hasn't uploaded yet. It'll be deletable once it syncs.", "error");
+        return;
+      }
       var what = "this entry";
       if(victim){
         var vc = computeEntry(victim);
@@ -3520,6 +3892,51 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // finally block runs.
   var punchInFlight = false;
 
+  // A shift that crosses midnight puts its clock-out on the calendar day AFTER
+  // its clock-in. punchClock writes to today, which for a night shift left
+  // yesterday open forever and stamped today with a clock-out and no clock-in —
+  // a shape computeEntry cannot score and the Log renders as a broken row.
+  //
+  // The model always supported the shift: computeEntry wraps a negative gross
+  // by 24h, and confirmLongShift talks about a shift "finishing the next
+  // morning". Manual entry could produce one; this entry point could not. That
+  // was the whole defect.
+  //
+  // Returns the date the clock-out belongs to, or null to abort the punch.
+  async function resolveOvernightTarget(today, timeNow){
+    var todayEntry = entries.find(function(x){ return x.date === today; });
+    // Today has a shift of its own open: nothing ambiguous to resolve.
+    if(todayEntry && todayEntry.clockIn) return today;
+
+    var yest = dayBefore(today);
+    var prev = entries.find(function(x){
+      return x.date === yest && x.clockIn && !x.clockOut &&
+             EXCUSED_TYPES.indexOf(x.type) === -1;
+    });
+    if(!prev) return today;
+
+    // How long the shift would have run, measured across the midnight boundary.
+    // Past the long-shift ceiling this is a forgotten clock-out rather than a
+    // night shift, and the reminder banner already owns that case — silently
+    // offering to backdate a 20-hour day would turn one missed punch into a
+    // wrong record, which is worse than the row it is trying to avoid.
+    var elapsed = (24*60 - timeToMinutes(prev.clockIn)) + timeToMinutes(timeNow);
+    if(elapsed >= LONG_SHIFT_MIN) return today;
+
+    var ok = await showConfirm(
+      "You clocked in on " + fmtDate(yest) + " at " + formatTime12(prev.clockIn) +
+      " and never clocked out. Recording it there makes a " +
+      minutesToHoursStr(elapsed) + " shift ending this morning.",
+      {title:"Close yesterday's shift?", confirmText:"Yes, close it", cancelText:"Go Back"}
+    );
+    if(ok) return yest;
+    // Deliberately nothing rather than falling back to today: a clock-out on a
+    // day with no clock-in is the exact row this function exists to prevent.
+    showToast("Nothing recorded. Use the reminder at the top of the page to fix " +
+              fmtDate(yest) + ", or edit the day directly.", "error");
+    return null;
+  }
+
   async function punchClock(kind){
     if(punchInFlight) return;
     if(!isOwnData){
@@ -3529,15 +3946,24 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var today = todayStr();
     var timeNow = nowTimeStr();
     var field = kind === "in" ? "clockIn" : "clockOut";
-    var existing = entries.find(function(x){ return x.date === today; });
+
+    // Which calendar day this punch belongs to. A clock-in always starts today;
+    // a clock-out may be closing a shift that began before midnight.
+    var targetDate = today;
+    if(kind === "out"){
+      targetDate = await resolveOvernightTarget(today, timeNow);
+      if(targetDate === null) return;
+    }
+    var isYesterday = targetDate !== today;
+    var existing = entries.find(function(x){ return x.date === targetDate; });
 
     if(existing && existing[field]){
-      if(!(await showConfirm("You already clocked "+kind+" today at "+formatTime12(existing[field])+". Replace it with "+formatTime12(timeNow)+"?", {confirmText:"Replace"}))) return;
+      if(!(await showConfirm("You already clocked "+kind+" "+(isYesterday ? "on "+fmtDate(targetDate) : "today")+" at "+formatTime12(existing[field])+". Replace it with "+formatTime12(timeNow)+"?", {confirmText:"Replace"}))) return;
     }
 
     var payload = existing
-      ? {date: today, clockIn: existing.clockIn, clockOut: existing.clockOut, type: existing.type, note: existing.note}
-      : {date: today, clockIn: "", clockOut: "", type: "regular", note: ""};
+      ? {date: targetDate, clockIn: existing.clockIn, clockOut: existing.clockOut, type: existing.type, note: existing.note}
+      : {date: targetDate, clockIn: "", clockOut: "", type: "regular", note: ""};
     payload[field] = timeNow;
 
     // Every clock control calls this same function — desktop quick-clock,
@@ -3556,12 +3982,23 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var bnClockBtnEl = document.getElementById("bnClockBtn");
     if(bnClockBtnEl) bnClockBtnEl.classList.add("disabled");
     try{
+      // navigator.onLine is only trustworthy in the negative: false means there
+      // is certainly no route out, true means only that an interface is up (a
+      // captive portal reports true). So it is used to skip a request that is
+      // guaranteed to fail — a punch should not wait out a fetch timeout — and
+      // never to conclude that one will succeed. That case is handled by
+      // catching the failure below.
+      if(navigator.onLine === false) throw OFFLINE;
       var saved = await sbUpsertEntry(currentUser.id, payload, existing ? existing.id : null);
-      if(kind === "in"){ delete dismissedReminders[today]; persistDismissals(); }
+      // Clearing on the way out as well as the way in: a day that has just been
+      // closed should not stay on the dismissed list, or re-opening it later
+      // (an edit that blanks the clock-out) would come back un-remindable.
+      delete dismissedReminders[targetDate];
+      persistDismissals();
 
       if(editingId === (existing && existing.id)){
         document.getElementById(kind === "in" ? "fIn" : "fOut").value = timeNow;
-      } else if(!editingId && document.getElementById("fDate").value === today){
+      } else if(!editingId && document.getElementById("fDate").value === targetDate){
         document.getElementById(kind === "in" ? "fIn" : "fOut").value = timeNow;
       }
 
@@ -3569,14 +4006,28 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       pulseSeal();
       pulseQuickClock();
 
-      var msg = "Clocked " + kind + " at " + formatTime12(timeNow) + " · " + fmtDate(today);
+      var msg = "Clocked " + kind + " at " + formatTime12(timeNow) + " · " + fmtDate(targetDate);
       if(kind === "out"){
         var c = computeEntry(saved);
         if(c.workedMin !== null) msg += " · " + minutesToHoursStr(c.workedMin) + " worked";
       }
       showQcNote(msg, true);
     }catch(err){
-      showToast("Couldn't record that: " + friendlyError(err), "error");
+      if(isNetworkError(err)){
+        queuePunch(currentUser.id, targetDate, field, timeNow);
+        // Shown exactly the way a saved punch is shown, because from the
+        // record's point of view it IS one — the time is captured and it is
+        // the upload that is outstanding. The banner carries that distinction;
+        // making the punch look like it failed would only get it repeated.
+        entries = applyOutbox(entries, currentUser.id);
+        renderAll();
+        pulseSeal();
+        pulseQuickClock();
+        showQcNote("Clocked " + kind + " at " + formatTime12(timeNow) + " · " +
+                   fmtDate(targetDate) + " · saved on this device, uploads when you're back online", true);
+      } else {
+        showToast("Couldn't record that: " + friendlyError(err), "error");
+      }
     }finally{
       punchInFlight = false;
       clockBtns.forEach(function(b){ b.disabled = false; });
@@ -5220,7 +5671,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // cache key below, so a replaced photo invalidates without any explicit
   // cache-clearing logic.
   var AVATAR_BUCKET = "avatars";
-  var AVATAR_PX = 256;          // stored square edge
+  var AVATAR_PX = 512;          // stored square edge
   var AVATAR_MAX_BYTES = 8 * 1024 * 1024; // reject before decoding
 
   function avatarPath(userId){ return userId + "/avatar.jpg"; }
@@ -6920,13 +7371,21 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   // null means the checks could not be run at all — say so rather than
   // reporting "all clear", which is the one wrong answer here.
+  //
+  // This used to have a line of its own in a card above the nav. That card was
+  // a heading repeating the heading above it in order to carry one button, so
+  // it went; the readout rides on the Overview nav row instead, which is the
+  // row you would click to see the checks themselves. Same move Seasonal Hours
+  // and Working Hours already make — a section the console is not showing says
+  // on its nav row what it holds.
   function setHealthSummary(needing){
-    var el = document.getElementById("adminHealthSummary");
+    var el = document.getElementById("cnavDescOverview");
     if(!el) return;
-    if(needing === null){ el.textContent = "Data checks couldn't run."; return; }
+    if(needing === null){ el.textContent = "Data checks couldn't run"; return; }
     el.textContent = needing === 0
-      ? "All data checks clear."
-      : needing === 1 ? "1 check needs attention." : needing + " checks need attention.";
+      ? "System figures · all data checks clear"
+      : needing === 1 ? "System figures · 1 check needs attention"
+                      : "System figures · " + needing + " checks need attention";
   }
 
   async function renderAdminHealth(){
@@ -7044,6 +7503,23 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     await renderAdminHealth();
   }
 
+  document.getElementById("outboxRetryBtn").addEventListener("click", function(){
+    flushOutbox();
+  });
+  document.getElementById("outboxDiscardBtn").addEventListener("click", async function(){
+    var mine = currentUser ? pendingFor(currentUser.id) : [];
+    if(!mine.length) return;
+    if(!await showConfirm(
+      mine.length === 1
+        ? "That punch will be lost. You'd have to add the time by hand."
+        : "Those " + mine.length + " punches will be lost. You'd have to add the times by hand.",
+      {title:"Discard the waiting punches?", danger:true, confirmText:"Discard"}
+    )) return;
+    outbox = outbox.filter(function(q){ return q.userId !== currentUser.id; });
+    persistOutbox();
+    await loadDataForViewedUser();
+  });
+
   // ---------- Sign-in / sign-out transitions ----------
   async function handleSignedIn(user){
     currentUser = {id:user.id, email:user.email};
@@ -7118,6 +7594,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // everyone, so this runs regardless of admin status.
     await loadAppSettings();
     setTimeout(updateTabsScrollHint, 0);
+    // Last, and deliberately not awaited: a punch queued on this device in an
+    // earlier session should upload itself now, but sign-in must not sit
+    // waiting on it.
+    flushOutbox();
   }
 
   function handleSignedOut(){
@@ -7127,6 +7607,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     allProfiles = []; isAdmin = false; isOwnData = true;
     entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
     dismissedReminders = {};
+    // entries is empty now, so this clears the icon. Leaving a badge behind
+    // after sign-out would advertise one person's open shift to whoever signs
+    // in next on a shared device.
+    updateAppBadge();
+    // The queue itself is deliberately NOT cleared: it is keyed by user id and
+    // an unsent punch is that person's record, not this session's state. It
+    // uploads when they sign back in.
+    renderOutbox();
     document.getElementById("signInForm").reset();
     document.getElementById("registerForm").reset();
     setAuthMsg("signInError", ""); setAuthMsg("registerError", ""); setAuthMsg("registerSuccess", "");
@@ -7165,13 +7653,25 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(document.visibilityState === "visible" && currentUser) startTimers();
     else stopTimers();
   }
+  // The browser saw the connection return. Not the only trigger — see the
+  // visibilitychange handler — because this event does not fire on a device
+  // that was asleep when the network came back.
+  window.addEventListener("online", function(){ flushOutbox(); });
+
   document.addEventListener("visibilitychange", function(){
     syncTimers();
+    // Last thing before the timers stop: whatever the badge says now is what
+    // the icon will carry for as long as the app stays closed.
+    if(document.visibilityState === "hidden" && currentUser) updateAppBadge();
     // Coming back after a long pause: the clock and any open-shift reminder
     // would otherwise show whatever they showed when the tab was hidden.
     if(document.visibilityState === "visible" && currentUser){
       updateLiveClock();
       renderReminder();
+      // Coming back to the app is the most common moment for a connection to
+      // have returned without an "online" event ever firing — a phone that
+      // slept through the reconnection reports no transition.
+      flushOutbox();
     }
   });
 

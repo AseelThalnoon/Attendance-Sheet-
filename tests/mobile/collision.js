@@ -12,7 +12,9 @@
 // native controls are sized, and a control that fits at 14px desktop may not
 // at the larger size mobile engines use.
 const { chromium, devices } = require("playwright");
-const PAGE_URL = process.env.ATTENDANCE_URL || "file:///workspaces/Attendance-Sheet-/index.html";
+const path = require("path");
+const PAGE_URL = process.env.ATTENDANCE_URL ||
+  "file://" + path.join(__dirname, "..", "..", "index.html");
 const { revealApp } = require("./fixtures");
 
 const WIDTHS = [430, 414, 393, 390, 375, 360, 320];

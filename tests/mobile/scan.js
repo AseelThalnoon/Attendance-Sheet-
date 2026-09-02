@@ -9,7 +9,9 @@
 // Run:  npm run test:mobile          (fails the run if anything is found)
 //       node mobile/scan.js --json   (machine-readable)
 const { chromium } = require("playwright");
-const PAGE_URL = process.env.ATTENDANCE_URL || "file:///workspaces/Attendance-Sheet-/index.html";
+const path = require("path");
+const PAGE_URL = process.env.ATTENDANCE_URL ||
+  "file://" + path.join(__dirname, "..", "..", "index.html");
 const { revealApp, showTab, listTabs, buildGallery } = require("./fixtures");
 
 const WIDTHS = [430, 393, 375, 360, 320];

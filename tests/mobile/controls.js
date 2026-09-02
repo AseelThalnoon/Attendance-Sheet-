@@ -11,7 +11,9 @@
 //    wrong makes the list invisible on desktop while mobile looks fine,
 //    because mobile uses the OS picker.
 const { chromium } = require("playwright");
-const PAGE_URL = process.env.ATTENDANCE_URL || "file:///workspaces/Attendance-Sheet-/index.html";
+const path = require("path");
+const PAGE_URL = process.env.ATTENDANCE_URL ||
+  "file://" + path.join(__dirname, "..", "..", "index.html");
 const { revealApp } = require("./fixtures");
 
 const WIDTHS = [1280, 900, 430, 375];

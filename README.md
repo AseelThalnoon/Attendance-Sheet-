@@ -14,10 +14,12 @@ build step — deployment is a file copy.
 |---|---|
 | `index.html` | Markup, styles, and the Content-Security-Policy. No inline script. |
 | `app.js` | The entire application. Extracted from `index.html` so the page can ship a real CSP (an inline module would force `script-src 'unsafe-inline'`). |
+| `theme-boot.js` | Reads the saved palette and light/dark choice and stamps them on `<html>`. Loaded **blocking, in `<head>`**, so the page never paints in the wrong theme first — and external for the same CSP reason as `app.js`. |
 | `vendor/supabase-js.min.js` | The one runtime dependency, pinned to **2.58.0** and committed. Built with esbuild from the npm package. |
 | `sw.js` | Service worker. Caches the app shell so an installed PWA can boot offline. |
 | `manifest.json`, `*.png` | PWA manifest and icons. |
 | `supabase/migrations/` | Database schema, policies, functions and triggers. |
+| `tools/` | Authoring aids, not shipped and not a build step. `palettes.mjs` generates the six palettes' CSS and measures every pair against WCAG AA; `apply-palettes.mjs` writes the result into `index.html`. |
 | `tests/` | Regression suites. See below. |
 
 ## Running locally
@@ -53,6 +55,33 @@ Both migrations are applied to the live project as of 2026-08-15. Each file's
 header records what it covers and how it was verified. Note that the second
 file keeps its original `pending_` name so that its filename matches the version
 recorded in the remote migration history — it is applied, not pending.
+
+## The outbox
+
+A punch is the one write that cannot be repeated later — the whole value of a
+clock-in is the minute it happened, so "try again when you have signal" records
+the wrong time by definition. Everything else the app writes can wait for a
+connection and be retyped unchanged. That asymmetry is the whole justification
+for the queue; it is not a general sync layer and should not grow into one.
+
+- The queue holds **intentions** (*clock out at 06:12 on this date*), not rows.
+  Storing a row would freeze that day's type, note and other half-shift at the
+  moment the connection dropped, and uploading it later would silently revert
+  whatever else had changed. On flush the current row is read and only the
+  punched field is written over it.
+- A queued punch is **shown in its day like any other**, because it is one — the
+  record exists, only the upload is outstanding. A banner says so. Hiding it
+  would show "not clocked in" to someone who just clocked in, and get them to
+  punch again.
+- The day is not editable or deletable while a punch on it is queued; the flush
+  is about to write to it, and an edit made now would be overwritten silently.
+- Flushes are triggered by the `online` event, by the app becoming visible (a
+  phone that slept through the reconnection fires no event), and at sign-in.
+- A punch the server *rejects* — as opposed to one it never received — is
+  dropped rather than retried forever, loudly, with a toast naming the day.
+  Retrying it would wedge every punch queued behind it.
+- The queue is keyed by user id and survives sign-out, since an unsent punch is
+  that person's record rather than this session's state.
 
 ## The Admin console
 
@@ -102,7 +131,7 @@ npm run test:regression   # just the audit regression suites
 |---|---|
 | `parsers` | CSV date/time/type parsing |
 | `modal` | Confirm dialog, focus trap, keyboard handling |
-| `clock` | Punch serialisation and button state under load |
+| `clock` | Punch serialisation and button state under load; which calendar day an overnight clock-out lands on; the offline outbox |
 | `regression/audit-logic` | Hours arithmetic, leave, streak, week start, long-shift guard |
 | `regression/audit-dom` | Boot failure, banner rendering, contrast, ARIA, CSP |
 | `regression/admin-tab` | Admin console: admin-only gating, people/roles, health checks, defaults, log |
@@ -124,8 +153,11 @@ ATTENDANCE_APP_SRC=/tmp/old-app.js npm run test:regression
 
 ## Known limitations
 
-- **Needs a connection.** There is no offline queue; a punch made offline is
-  lost. The service worker caches the shell, not the data.
+- **Offline covers punches only.** A clock-in or clock-out made with no
+  connection is queued on the device and uploads by itself when the connection
+  returns (see *The outbox* below). Nothing else is queued: a hand-entered day,
+  a settings change or an admin action still needs a connection. The service
+  worker caches the shell, not the data.
 - **No cross-tab sync.** Two open tabs hold independent state and will not see
   each other's edits.
 - **No optimistic concurrency.** Two admins editing the same day overwrite each

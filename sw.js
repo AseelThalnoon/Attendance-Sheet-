@@ -10,7 +10,7 @@
 // Attendance data itself still requires a connection — this does NOT implement
 // offline data access, which would need a sync/queue layer.
 
-const CACHE_NAME = "attendance-ledger-shell-v6";
+const CACHE_NAME = "attendance-ledger-shell-v7";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
@@ -30,6 +30,11 @@ const SHELL_FILES = [
   "./",
   "./index.html",
   "./app.js",
+  // Blocking, in <head>, and the reason an offline boot does not flash the
+  // default palette before settling on the chosen one. A miss here is not
+  // survivable the way a font miss is: the page would paint Atrium at someone
+  // who chose dark.
+  "./theme-boot.js",
   "./vendor/supabase-js.min.js",
   "./manifest.json",
   "./icon-192.png",

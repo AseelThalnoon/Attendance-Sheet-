@@ -514,7 +514,15 @@ function ok(cond, name, detail){
         const r = document.createRange(); r.selectNodeContents(e);
         return Math.max(m, r.getBoundingClientRect().height);
       }, 0);
-      return {head: rows[0], weeks: rows.slice(1), dowContent: dow};
+      // The grid renders whatever month is on screen when the suite runs, and
+      // a month spans 4-6 week rows depending on where its first and last days
+      // fall — the leading empty cells plus the day count, divided by 7 and
+      // rounded up. Asserting a fixed 6 made this test pass only in months
+      // that happened to need all six rows and fail in every other one.
+      const leading = Array.from(grid.querySelectorAll(".cal-empty")).length;
+      const dated = Array.from(grid.querySelectorAll(".cal-cell:not(.cal-empty)")).length;
+      const expectedWeeks = Math.ceil((leading + dated) / 7);
+      return {head: rows[0], weeks: rows.slice(1), dowContent: dow, expectedWeeks};
     });
     ok(g !== null, "the calendar grid is on screen to measure");
     if(g){
@@ -523,10 +531,11 @@ function ok(cond, name, detail){
       ok(g.head <= 40,
         "the day-of-week row is sized to its labels, not to a week",
         `header row is ${Math.round(g.head)}px for ${Math.round(g.dowContent)}px of label`);
-      // And the six week rows split what is left evenly between them.
+      // And the week rows for whichever month is on screen split what is left
+      // evenly between them — 4 to 6 of them, depending on the month.
       const lo = Math.min(...g.weeks), hi = Math.max(...g.weeks);
-      ok(g.weeks.length === 6, "six week rows share the rest of the grid",
-        `${g.weeks.length} rows below the header`);
+      ok(g.weeks.length === g.expectedWeeks, "the month's week rows share the rest of the grid",
+        `${g.weeks.length} rows below the header, expected ${g.expectedWeeks} for this month`);
       ok(hi - lo <= 2, "every week row is the same height",
         `rows run ${Math.round(lo)}px to ${Math.round(hi)}px`);
       // The bug's signature was a header row indistinguishable from a week.
