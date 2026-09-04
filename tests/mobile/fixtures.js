@@ -17,10 +17,19 @@ async function revealApp(page, theme){
     if(shell) shell.style.display = "";
     const auth = document.getElementById("authScreen");
     if(auth) auth.style.display = "none";
+    // Every non-Overview tab (Log, Trends, Calendar, Shortfall, Team, Admin,
+    // Settings) lives inside this shared card, which the real app leaves
+    // [hidden] until a tab activates it — showTab() below only ever toggles
+    // .active on the panel itself, so without this every one of those tabs'
+    // content would measure as invisible (getClientRects().length === 0)
+    // regardless of which panel is .active.
+    const tabCard = document.getElementById("tabContentCard");
+    if(tabCard) tabCard.hidden = false;
 
     document.querySelectorAll(".accordion-section").forEach(el => el.classList.add("open"));
-    // Schedule Settings is a panel toggled by .open, not a tab.
-    document.querySelectorAll(".settings-card").forEach(el => el.classList.add("open"));
+    // Settings and Admin show one console section at a time; the scans need
+    // every section's controls measurable, not just the selected one.
+    document.querySelectorAll(".console-section").forEach(el => el.classList.add("active"));
     document.querySelectorAll(".accordion-body").forEach(el => {
       el.style.maxHeight = "none";
       el.style.overflow = "visible";

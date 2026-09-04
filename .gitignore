@@ -32,3 +32,9 @@ index.live-dev.html
 CLAUDE.md
 agentdb.rvf
 agentdb.rvf.lock
+
+# Ruflo CLI install for the MCP server's local-bin resolution (installed by
+# `npm install ruflo`, not project content).
+node_modules/
+package.json
+package-lock.json

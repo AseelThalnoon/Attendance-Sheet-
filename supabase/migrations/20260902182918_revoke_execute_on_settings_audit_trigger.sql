@@ -1,0 +1,44 @@
+-- ===========================================================================
+-- Revokes EXECUTE on log_app_settings_change(), the one trigger function that
+-- never got it.
+--
+-- The 2026-08-15 hardening pass revoked EXECUTE from public/anon/authenticated
+-- on every trigger function in the schema — normalize_entry,
+-- handle_new_user, log_entry_change, log_profile_change,
+-- guard_profile_columns, set_updated_at. A trigger function has no business
+-- being reachable as an RPC: PostgREST exposes anything EXECUTE-able in the
+-- public schema at /rest/v1/rpc/<name>, and these are meant to be invoked by
+-- the trigger machinery and nothing else.
+--
+-- log_app_settings_change() was written four days after that pass
+-- (20260819180150) and revised again the day after (20260820184500), and both
+-- times the REVOKE was missed. So it has been callable by anon and by
+-- authenticated ever since, which is what Supabase's security advisor reports
+-- as anon_security_definer_function_executable.
+--
+-- The practical exposure is small: called outside a trigger, TG_OP and OLD/NEW
+-- are unset and the body raises before it can write anything, and it is
+-- wrapped in its own exception handler that swallows failures. This is closing
+-- an inconsistency in the schema's security surface rather than a live hole —
+-- but "small" is not a reason to leave one SECURITY DEFINER function reachable
+-- when the other six are not, in the one part of this app where the database
+-- is the entire authority.
+--
+-- Not touched, because each is deliberate and documented where it is defined:
+--   public_app_flags()  anon-callable on purpose, so the sign-in screen can
+--                       hide "Create an account" before anyone has signed in.
+--                       It exposes one boolean and no other column.
+--   is_admin(), admin_* revoked from anon, granted to authenticated on
+--                       purpose. Every one re-checks is_admin() in its own
+--                       body, so being callable is not being permitted.
+--
+-- Verified after applying with:
+--   select has_function_privilege('anon',          'public.log_app_settings_change()', 'execute'),
+--          has_function_privilege('authenticated', 'public.log_app_settings_change()', 'execute');
+--   -- both must be false
+--
+-- The trigger itself is unaffected: it runs as the table owner, which does not
+-- consult these grants.
+-- ===========================================================================
+
+REVOKE ALL ON FUNCTION public.log_app_settings_change() FROM public, anon, authenticated;

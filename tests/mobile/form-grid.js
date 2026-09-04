@@ -3,7 +3,9 @@
 // nothing on its own — the floor is enforced on the grid TRACK, which is what
 // a non-shrinking control (Safari/iOS) actually needs.
 const { chromium } = require("playwright");
-const PAGE_URL = process.env.ATTENDANCE_URL || "file:///workspaces/Attendance-Sheet-/index.html";
+const path = require("path");
+const PAGE_URL = process.env.ATTENDANCE_URL ||
+  "file://" + path.join(__dirname, "..", "..", "index.html");
 const { revealApp, showTab, listTabs } = require("./fixtures");
 
 const FLOOR = 170;

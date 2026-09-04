@@ -206,33 +206,56 @@ async function boot(browser, server, query){
   }
 
   // ------------------------------------------------------------ header
-  // Theme, schedule settings and sign-out were behind a "More" overflow menu.
-  // They are buttons on the bar now, and Admin sits with them rather than in the
-  // tab strip — so none of the old menu machinery may survive.
+  // Settings, sign-out and Admin now live in the rail on desktop (≥761px,
+  // this test's 1280px context) — #settingsBtn/#logoutBtn/#adminBtn stay in
+  // the DOM only as the mobile fallback below 760px, where the rail is gone,
+  // and #headRight is hidden here so they must not be the visible copy. The
+  // rail-item click handler proxies to these same buttons rather than
+  // duplicating their logic, so none of the old menu machinery may survive
+  // either.
   {
-    const s = await page.evaluate(() => ({
-      menu: !!document.getElementById("headMenu"),
-      menuBtn: !!document.getElementById("headMenuBtn"),
-      onBar: ["themeBtn","settingsBtn","logoutBtn","adminBtn"].map(id => {
-        const el = document.getElementById(id);
-        if(!el) return `${id}: MISSING`;
+    const s = await page.evaluate(() => {
+      const visibleNamed = el => {
+        if(!el) return false;
         const r = el.getBoundingClientRect();
-        const named = (el.getAttribute("aria-label") || el.textContent).trim();
-        return r.width > 0 && r.height > 0 && named ? null : `${id}: ${r.width}x${r.height} "${named}"`;
-      }).filter(Boolean),
-      adminInStrip: !!document.querySelector('.tab-btn[data-tab="admin"]'),
-      adminInBottomNav: !!document.querySelector('.bn-item[data-bn-tab="admin"]'),
-      strip: [...document.querySelectorAll(".tabs .tab-btn")].map(b => b.getAttribute("data-tab")),
-    }));
+        const named = (el.getAttribute("aria-label") || el.textContent || "").trim();
+        return r.width > 0 && r.height > 0 && !!named;
+      };
+      return {
+        menu: !!document.getElementById("headMenu"),
+        menuBtn: !!document.getElementById("headMenuBtn"),
+        userChipGone: !document.getElementById("userChip"),
+        headRightHidden: getComputedStyle(document.getElementById("headRight")).display === "none",
+        // Still real elements in the DOM — just not the visible copy at this
+        // width. They only need to exist here; a mobile-width check covers
+        // their fallback role.
+        fallbackButtons: ["settingsBtn","logoutBtn","adminBtn"].every(id => !!document.getElementById(id)),
+        viewerInRail: !!document.querySelector(".rail #viewerSwitchWrap"),
+        railAdmin: visibleNamed(document.querySelector('.rail-item[data-rail-action="admin"]')),
+        railSettings: visibleNamed(document.querySelector('.rail-item[data-rail-tab="settings"]')),
+        railLogout: visibleNamed(document.getElementById("railLogoutBtn")),
+        adminInStrip: !!document.querySelector('.tab-btn[data-tab="admin"]'),
+        adminInBottomNav: !!document.querySelector('.bn-item[data-bn-tab="admin"]'),
+        strip: [...document.querySelectorAll(".tabs .tab-btn")].map(b => b.getAttribute("data-tab")),
+      };
+    });
     ok(!s.menu && !s.menuBtn, "the header overflow menu is gone", JSON.stringify(s));
     const deskHeader = await page.evaluate(() => Math.round(
       document.querySelector("header.ledger-head").getBoundingClientRect().height));
     ok(deskHeader <= 130, "the header stays under 130px on a laptop", `${deskHeader}px`);
-    ok(s.onBar.length === 0, "theme, settings, sign out and admin are visible, named header buttons",
-      JSON.stringify(s.onBar));
+    ok(s.userChipGone, "the header name chip is gone — the rail already shows it", JSON.stringify(s));
+    ok(s.headRightHidden && s.fallbackButtons,
+      "settings, sign out and admin sit in the DOM as a mobile fallback, not visible on the desktop bar",
+      JSON.stringify(s));
+    ok(s.viewerInRail, "the viewer switcher moved into the rail", JSON.stringify(s));
+    ok(s.railAdmin && s.railSettings && s.railLogout,
+      "admin, settings and sign out are visible, named controls in the rail", JSON.stringify(s));
     ok(!s.adminInStrip, "Admin is no longer a tab", JSON.stringify(s.strip));
     ok(!s.adminInBottomNav, "Admin is no longer in the mobile bottom nav", JSON.stringify(s));
-    ok(s.strip.join(",") === "log,trends,calendar,punctuality,team",
+    // Overview leads and Settings closes the strip: both moved into tabs of
+    // their own so switching views replaces the screen instead of scrolling
+    // past the same cards, or expanding a panel that pushes them down.
+    ok(s.strip.join(",") === "overview,log,trends,calendar,punctuality,team,settings",
       "the tab strip keeps the attendance views", JSON.stringify(s.strip));
   }
   {
@@ -257,23 +280,25 @@ async function boot(browser, server, query){
     ok(s.stripSelected === 0, "no tab claims selection while Admin is open", JSON.stringify(s));
   }
   {
-    // Icon-only: the accessible name must describe the action and follow it.
-    const s = await page.evaluate(() => {
-      const b = document.getElementById("themeBtn");
-      const before = b.getAttribute("aria-label");
-      b.click();
-      const mid = {label: b.getAttribute("aria-label"), dark: document.body.classList.contains("dark")};
-      b.click();
-      return {before, mid, after: b.getAttribute("aria-label"),
-        light: !document.body.classList.contains("dark")};
-    });
-    ok(/dark/i.test(s.before) && s.mid.dark && /light/i.test(s.mid.label),
-      "the theme button toggles and renames itself to the next action", JSON.stringify(s));
-    ok(s.light && /dark/i.test(s.after), "toggling back restores light mode", JSON.stringify(s));
+    // The per-user light/dark toggle and the org-wide theme picker were both
+    // retired with the move to the Atrium design system: one committed look,
+    // no switch to keep in sync. Assert they stay gone rather than dropping
+    // the coverage — a reintroduced toggle is a regression, not a feature.
+    const s = await page.evaluate(() => ({
+      themeBtn: !!document.getElementById("themeBtn"),
+      themePicker: !!document.getElementById("setTheme"),
+      darkClass: document.body.classList.contains("dark"),
+      uiThemeAttr: document.body.getAttribute("data-ui-theme"),
+    }));
+    ok(!s.themeBtn && !s.themePicker, "the theme toggle and org theme picker are gone", JSON.stringify(s));
+    ok(!s.darkClass && s.uiThemeAttr === null, "no dark-mode class or theme attribute remains", JSON.stringify(s));
   }
   {
-    // At phone width the Admin label is hidden to save the bar, so the button
-    // must still carry a name for anyone who cannot see the icon.
+    // At phone width this row is the only way to reach Admin, Settings and
+    // Sign out — the rail is gone below 760px. The labels used to be hidden
+    // here to save the bar, which left three unlabelled discs with a crimson
+    // sign-out among them; they stay visible now. Either way the button has to
+    // carry a name, so that is what is asserted.
     await page.setViewportSize({width: 390, height: 850});
     await page.waitForTimeout(150);
     const s = await page.evaluate(() => {
@@ -281,11 +306,14 @@ async function boot(browser, server, query){
       const r = b.getBoundingClientRect();
       return {w: Math.round(r.width), h: Math.round(r.height),
         labelShown: getComputedStyle(b.querySelector("span")).display,
+        visibleText: (b.querySelector("span").textContent || "").trim(),
         name: (b.getAttribute("aria-label") || b.getAttribute("title") || "").trim()};
     });
     ok(s.w >= 40 && s.h >= 40, "the Admin button stays a 40px touch target on a phone", JSON.stringify(s));
-    ok(s.labelShown === "none" && s.name.length > 0,
-      "the collapsed Admin button keeps an accessible name", JSON.stringify(s));
+    ok(s.name.length > 0,
+      "the Admin button carries an accessible name on a phone", JSON.stringify(s));
+    ok(s.labelShown !== "none" && (s.visibleText || "").length > 0,
+      "the Admin button is labelled on screen, not icon-only", JSON.stringify(s));
 
     // The header was eating a third of a phone screen before any attendance
     // showed. These are the budgets it was trimmed to; they are the point of
@@ -299,49 +327,68 @@ async function boot(browser, server, query){
     await page.waitForTimeout(300);
   }
 
-  // ------------------------------------------------------------ collapsing
-  // Seven sections open at once was several thousand pixels of scrolling to
-  // reach the log. Collapsed, the console is one screen you can scan.
+  // ------------------------------------------------------------ the console
+  // Seven sections stacked as accordions was several thousand pixels of
+  // scrolling to reach the log, and every section you opened pushed the rest
+  // further down. The nav column makes each of them one click from anywhere,
+  // and the panel's height stops depending on what is open.
   {
     const s = await page.evaluate(() => {
-      const secs = [...document.querySelectorAll("#tab-admin .accordion-section")];
-      const head = s => s.querySelector(".accordion-head");
+      const root = document.getElementById("adminConsole");
+      const items = [...root.querySelectorAll(".console-nav-item")];
+      const secs = [...root.querySelectorAll(".console-section")];
       return {
-        count: secs.length,
-        open: secs.filter(x => x.classList.contains("open"))
-                  .map(x => x.getAttribute("data-section")),
-        panelHeight: Math.round(document.getElementById("tab-admin").getBoundingClientRect().height),
-        aria: secs.map(x => head(x).getAttribute("aria-expanded") ===
-                            (x.classList.contains("open") ? "true" : "false")).every(Boolean),
-        controls: secs.every(x => {
-          const id = head(x).getAttribute("aria-controls");
-          return id && x.querySelector(".accordion-body").id === id;
+        count: items.length,
+        sections: secs.length,
+        // Every nav row names a section that exists, and vice versa.
+        paired: items.every(i => root.querySelector(
+          '.console-section[data-section="' + i.getAttribute("data-console-target") + '"]')),
+        controls: items.every(i => {
+          const sec = document.getElementById(i.getAttribute("aria-controls"));
+          return sec && sec.getAttribute("data-section") === i.getAttribute("data-console-target");
         }),
+        // Exactly one showing, and it is the one the nav says is selected.
+        shown: secs.filter(x => x.classList.contains("active")).map(x => x.getAttribute("data-section")),
+        selected: items.filter(i => i.getAttribute("aria-selected") === "true")
+                       .map(i => i.getAttribute("data-console-target")),
+        // Every row carries a line saying what the section holds — that is what
+        // makes a section you are not looking at still worth reading.
+        described: items.every(i => (i.querySelector(".console-nav-desc")?.textContent || "").trim().length > 0),
+        panelHeight: Math.round(document.getElementById("tab-admin").getBoundingClientRect().height),
       };
     });
-    ok(s.count === 8, "the console is split into collapsible sections", JSON.stringify(s.count));
-    ok(s.open.join(",") === "admin-overview,admin-people",
-      "only the two everyday sections start open", JSON.stringify(s.open));
-    ok(s.panelHeight < 1800, "the collapsed console fits a scannable page", `${s.panelHeight}px`);
-    ok(s.aria, "each head reports its expanded state", JSON.stringify(s.aria));
-    ok(s.controls, "each head points at the body it controls", JSON.stringify(s.controls));
+    // 7 since "Themes & Layouts" was removed with the theme picker.
+    ok(s.count === 7, "the console is split into seven sections", JSON.stringify(s.count));
+    ok(s.sections === 7, "every nav row has a section behind it", JSON.stringify(s.sections));
+    ok(s.paired && s.controls, "each nav row points at the section it selects", JSON.stringify(s));
+    ok(s.shown.length === 1 && s.selected.length === 1 && s.shown[0] === s.selected[0],
+      "exactly one section shows, and the nav agrees which", JSON.stringify(s));
+    ok(s.described, "each nav row says what its section holds", JSON.stringify(s.described));
+    ok(s.panelHeight < 1800, "the console fits a scannable page", `${s.panelHeight}px`);
   }
   {
     const s = await page.evaluate(() => {
-      const sec = document.querySelector('#tab-admin [data-section="admin-audit"]');
-      const head = sec.querySelector(".accordion-head");
-      const body = sec.querySelector(".accordion-body");
-      const shut = getComputedStyle(body).display;
-      head.click();
-      const opened = {display: getComputedStyle(body).display, aria: head.getAttribute("aria-expanded")};
-      head.click();
-      return {shut, opened, reshut: getComputedStyle(body).display,
-        aria: head.getAttribute("aria-expanded")};
+      const root = document.getElementById("adminConsole");
+      const item = root.querySelector('.console-nav-item[data-console-target="admin-audit"]');
+      const sec = root.querySelector('.console-section[data-section="admin-audit"]');
+      const before = getComputedStyle(sec).display;
+      item.click();
+      const after = {display: getComputedStyle(sec).display, aria: item.getAttribute("aria-selected")};
+      // Arrow keys move between sections — a vertical list of mutually
+      // exclusive panels is a tablist, and is driven like one.
+      item.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+      const moved = {
+        audit: item.getAttribute("aria-selected"),
+        next: root.querySelector('.console-nav-item[data-console-target="admin-storage"]')
+                  .getAttribute("aria-selected")
+      };
+      return {before, after, moved};
     });
-    ok(s.shut === "none" && s.opened.display !== "none" && s.reshut === "none",
-      "a section opens and closes on its heading", JSON.stringify(s));
-    ok(s.opened.aria === "true" && s.aria === "false",
-      "the heading's expanded state follows it", JSON.stringify(s));
+    ok(s.before === "none" && s.after.display !== "none",
+      "picking a section from the nav shows it", JSON.stringify(s));
+    ok(s.after.aria === "true", "the nav row reports itself selected", JSON.stringify(s.after));
+    ok(s.moved.audit === "false" && s.moved.next === "true",
+      "an arrow key moves to the next section", JSON.stringify(s.moved));
   }
 
   // ------------------------------------------------------------ People
@@ -490,7 +537,11 @@ async function boot(browser, server, query){
       "cards are real buttons, reachable from a keyboard", JSON.stringify(s.tags));
     ok(s.named, "each card says whose record it opens", JSON.stringify(s.named));
     ok(s.nextDisabled, "the roster cannot walk into future months", JSON.stringify(s));
-    ok(/people/.test(s.summary) && /target met/.test(s.summary) && /target/.test(s.summary),
+    // "Target Hours Met", not "Target Met Rate": the figure is worked hours over
+    // target hours, and the old name read as a count of days that met target —
+    // a different number the same tab could plausibly have shown.
+    ok(/people/i.test(s.summary) && /hours worked/i.test(s.summary) &&
+       /target hours met/i.test(s.summary),
       "a team-wide summary sits above the cards", s.summary.slice(0, 120));
     ok(s.statuses.every(x => typeof x === "string" && x.length),
       "every card says what that person is doing today", JSON.stringify(s.statuses));

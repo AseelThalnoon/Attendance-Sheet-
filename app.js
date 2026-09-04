@@ -45,7 +45,63 @@ const supabaseConfigured =
   SUPABASE_URL.indexOf("YOUR_SUPABASE") === -1 &&
   SUPABASE_ANON_KEY.indexOf("YOUR_SUPABASE") === -1;
 
-const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+// A request that never answers — a stalled proxy, a dead connection that
+// never sends a TCP reset, a backend that accepted the socket and hung — is
+// not the same failure as one that answers with an error. Neither the browser
+// nor supabase-js times one out on its own: without this, loadDataForViewedUser
+// awaited the fetch forever, the loading skeleton stayed up forever, and
+// nothing on screen ever told the person to do anything. 20 seconds is long
+// enough for a genuinely slow mobile connection to still succeed and short
+// enough that "hung" turns into "failed, with a Try Again" instead of an
+// indefinite spinner.
+const REQUEST_TIMEOUT_MS = 20000;
+function fetchWithTimeout(input, init){
+  var controller = new AbortController();
+  var timer = setTimeout(function(){ controller.abort(); }, REQUEST_TIMEOUT_MS);
+  var signal = controller.signal;
+  // A caller-supplied signal (there isn't one today, but the option exists on
+  // the fetch surface supabase-js calls through) still has to be able to abort
+  // this request — just not the reverse.
+  if(init && init.signal){
+    init.signal.addEventListener("abort", function(){ controller.abort(); });
+  }
+  return fetch(input, Object.assign({}, init, { signal: signal }))
+    .catch(function(err){
+      if(controller.signal.aborted){
+        var e = new Error("The server took too long to respond.");
+        e.code = "TIMEOUT";
+        throw e;
+      }
+      throw err;
+    })
+    .finally(function(){ clearTimeout(timer); });
+}
+
+const supabase = supabaseConfigured
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: fetchWithTimeout } })
+  : null;
+
+// Opening a password-reset email link makes supabase-js detect the session in
+// the URL and fire a ONE-SHOT "PASSWORD_RECOVERY" event during its own async
+// init — which starts the instant createClient() above runs, before this
+// module's ~7800-line IIFE has executed far enough to reach the real
+// onAuthStateChange registration near the bottom of it. A listener added that
+// late does not miss the session itself (supabase-js resends the current
+// session to any newly-subscribed listener as "INITIAL_SESSION"), but it does
+// miss which KIND of session it was: INITIAL_SESSION carries no signal that
+// this came from a recovery link rather than an ordinary restored sign-in,
+// and the real handler's own "restore a session on load" branch would boot
+// straight into the dashboard on the visitor's OLD password, without ever
+// showing the "choose a new password" form — clicking the emailed link would
+// just silently sign them in and never reset anything.
+// This second, minimal listener exists solely to catch that one-shot event
+// early and remember it for the real handler to check.
+var __earlyRecoverySession = null;
+if(supabase){
+  supabase.auth.onAuthStateChange(function(event, session){
+    if(event === "PASSWORD_RECOVERY") __earlyRecoverySession = session;
+  });
+}
 
 (function(){
   "use strict";
@@ -53,8 +109,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   var DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   var DAY_FULL  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   var TYPE_LABELS = {
-    regular:"Regular", wfh:"WFH", halfleave:"Half Day Leave", leave:"Annual Leave",
-    sick:"Sick Leave", trip:"Business Trip", training:"Training", holiday:"Public Holiday", other:"Other"
+    // "WFH" here against "Work From Home" in the picker meant the day you
+    // chose and the day you later read back were named differently, in the
+    // only one of the nine types that disagreed with itself. The table has
+    // room — "Half Day Leave" and "Public Holiday" are the same length.
+    regular:"Regular", wfh:"Work From Home", halfleave:"Half Day Leave", leave:"Annual Leave",
+    sick:"Sick Leave", trip:"Business Trip", training:"Training", holiday:"Public Holiday",
+    // "Other" alone gave no clue that this is an EXCUSED absence — it reads as
+    // a shrug, and sat in a list where every other option states what it is.
+    // The stored value is untouched; this is the display label only, so the
+    // log, calendar, print report and audit history all relabel together.
+    other:"Other (Excused)"
   };
   // An entry's type can be anything the database holds. Indexing TYPE_LABELS
   // directly rendered the literal string "undefined" in the log, the calendar
@@ -90,7 +155,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // for, whatever gets logged and whether or not clock times are recorded.
   var NO_TARGET_TYPES = ["wfh","trip","training"];
 
-  var THEME_KEY    = "attendance_ledger_theme_v1";
   var DISMISS_KEY  = "attendance_ledger_dismissed_v1";
   var SNOOZE_KEY   = "attendance_ledger_backup_snooze_v1";
   var BACKUP_KEY   = "attendance_ledger_lastbackup_v1";
@@ -305,8 +369,173 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // and the log table while data is in flight, instead of letting the old
   // (possibly stale, possibly zeroed) values sit there or pop in abruptly
   // once the fetch resolves.
+  // ---------- Offline outbox ----------
+  // A punch is the one write this app cannot ask someone to repeat later: the
+  // whole value of a clock-in is the minute it happened, so "try again when
+  // you have signal" records the wrong time by definition. Everything else the
+  // app writes — a hand-entered day, a settings change, an admin action — can
+  // wait for a connection and be retyped unchanged. That asymmetry is why only
+  // punches are queued here, and why this is not the general sync layer the
+  // README rules out.
+  //
+  // The queue holds INTENTIONS ("clock out at 06:12 on this date"), not rows.
+  // Storing a whole row would freeze the rest of that day — its type, its note,
+  // the other half of the shift — at the moment the connection dropped, and
+  // uploading it an hour later would silently revert anything else that had
+  // changed meanwhile. On flush the current row is read and only the punched
+  // field is written over it.
+  var OUTBOX_KEY = "attendance.outbox";
+  var PENDING_PREFIX = "pending:";
+  // Thrown to take the offline path without spending a request first.
+  var OFFLINE = {offline:true};
+
+  var outbox = (function(){
+    try{
+      var raw = JSON.parse(safeGet(OUTBOX_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    }catch(err){ return []; }
+  })();
+
+  function persistOutbox(){ safeSet(OUTBOX_KEY, JSON.stringify(outbox)); }
+
+  // supabase-js surfaces a dropped connection as a TypeError out of fetch.
+  // These are the same signatures friendlyError() matches on, deliberately: a
+  // connection failure must be classified identically whether it is being
+  // explained to someone or being queued for retry.
+  function isNetworkError(err){
+    if(err === OFFLINE) return true;
+    var msg = (err && err.message) || String(err || "");
+    return /Failed to fetch|NetworkError|network|ERR_INTERNET|Load failed/i.test(msg);
+  }
+
+  function queuePunch(userId, date, field, time){
+    // One queued punch per day per field. Someone tapping clock-in three times
+    // with no signal meant to clock in once, and the server would have
+    // collapsed those to a single value anyway — last one wins here for the
+    // same reason it wins there.
+    outbox = outbox.filter(function(q){
+      return !(q.userId === userId && q.date === date && q.field === field);
+    });
+    outbox.push({userId:userId, date:date, field:field, time:time, queuedAt:Date.now()});
+    persistOutbox();
+  }
+
+  function pendingFor(userId){
+    return outbox.filter(function(q){ return q.userId === userId; });
+  }
+
+  // Lays the queue over whatever came back from the server. A punch that is
+  // recorded but not yet uploaded is still a punch that happened, and hiding it
+  // until it syncs would show "not clocked in" to someone who just clocked in —
+  // which invites them to do it again. The banner, not a missing row, is where
+  // "not uploaded yet" gets said.
+  function applyOutbox(list, userId){
+    var pending = pendingFor(userId);
+    if(!pending.length) return list;
+    var out = list.slice();
+    pending.forEach(function(q){
+      var i = out.findIndex(function(e){ return e.date === q.date; });
+      if(i === -1){
+        out.push({
+          id: PENDING_PREFIX + q.date, user_id: userId, date: q.date,
+          clockIn: "", clockOut: "", type: "regular", note: "", pending: true
+        });
+        i = out.length - 1;
+      } else {
+        out[i] = Object.assign({}, out[i], {pending: true});
+      }
+      out[i][q.field] = q.time;
+    });
+    return out;
+  }
+
+  var flushing = false;
+  async function flushOutbox(){
+    if(flushing || !currentUser || !supabaseConfigured) return;
+    if(navigator.onLine === false) return;
+    var mine = pendingFor(currentUser.id);
+    if(!mine.length) return;
+
+    flushing = true;
+    var uploaded = 0, stalled = false;
+    try{
+      // One read for the whole queue rather than one per punch: the queue is
+      // small and almost always spans a single day.
+      var current = await sbFetchEntries(currentUser.id);
+      for(var i = 0; i < mine.length; i++){
+        var q = mine[i];
+        var existing = current.find(function(e){ return e.date === q.date; });
+        var payload = existing
+          ? {date: q.date, clockIn: existing.clockIn, clockOut: existing.clockOut, type: existing.type, note: existing.note}
+          : {date: q.date, clockIn: "", clockOut: "", type: "regular", note: ""};
+        payload[q.field] = q.time;
+        try{
+          var saved = await sbUpsertEntry(currentUser.id, payload, existing ? existing.id : null);
+          // Keep the local copy in step, so a clock-in and clock-out queued for
+          // the same day update the row the first one just created instead of
+          // inserting a second and colliding on the date constraint.
+          if(existing) current[current.indexOf(existing)] = saved;
+          else current.push(saved);
+          outbox = outbox.filter(function(x){ return x !== q; });
+          uploaded++;
+        }catch(err){
+          if(isNetworkError(err)){
+            // The connection went again. Keep this and everything after it
+            // queued and stop — retrying the rest would just fail too.
+            stalled = true;
+            break;
+          }
+          // Anything else is a punch the server will never accept. Retrying it
+          // forever would wedge the queue and block every punch behind it, so
+          // it is dropped — loudly, because a dropped punch is a lost record
+          // and silence is how that becomes a payroll argument later.
+          outbox = outbox.filter(function(x){ return x !== q; });
+          showToast("A punch saved offline for " + fmtDate(q.date) +
+                    " couldn't be uploaded and was discarded: " + friendlyError(err), "error");
+        }
+      }
+      persistOutbox();
+    }catch(err){
+      // The read itself failed; nothing was dequeued, so there is nothing to
+      // repair. The banner stays up and the next trigger tries again.
+      stalled = true;
+    }finally{
+      flushing = false;
+    }
+
+    if(uploaded){
+      await loadDataForViewedUser();
+      showToast(uploaded === 1
+        ? "Uploaded the punch you made offline."
+        : "Uploaded " + uploaded + " punches you made offline.", "success");
+    } else {
+      renderOutbox();
+      if(stalled) showToast("Still no connection — your punch is safe on this device.", "error");
+    }
+  }
+
+  function renderOutbox(){
+    var banner = document.getElementById("outboxBanner");
+    if(!banner) return;
+    var mine = currentUser ? pendingFor(currentUser.id) : [];
+    if(!mine.length){ banner.classList.remove("show"); return; }
+
+    var oldest = mine.reduce(function(m, q){ return q.queuedAt < m.queuedAt ? q : m; }, mine[0]);
+    document.getElementById("outboxTitle").textContent = mine.length === 1
+      ? "A punch is waiting to upload"
+      : mine.length + " punches are waiting to upload";
+    document.getElementById("outboxText").textContent =
+      (mine.length === 1
+        ? "Clock-" + (oldest.field === "clockIn" ? "in" : "out") + " at " +
+          formatTime12(oldest.time) + " on " + fmtDate(oldest.date)
+        : "The oldest is " + fmtDate(oldest.date)) +
+      ". It's saved on this device and uploads by itself once you're back online — " +
+      "you don't need to punch again.";
+    banner.classList.add("show");
+  }
+
   function setLoadingSkeletons(on){
-    var targets = [document.getElementById("heroStat"), document.getElementById("logTableWrap")]
+    var targets = [document.getElementById("formatCard"), document.getElementById("logTableWrap")]
       .concat(Array.prototype.slice.call(document.querySelectorAll("#statsRow .stat-card")));
     targets.forEach(function(el){
       if(!el) return;
@@ -318,25 +547,81 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(live) live.textContent = on ? "Loading attendance data" : "Attendance data loaded";
   }
 
+  // Which load is still allowed to write to `entries`. An admin clicking down
+  // the viewer switcher fires one of these per click and they do not come back
+  // in order: a slow load for person A landing after a fast one for person B
+  // replaced B's data with A's, while the switcher, the viewing banner and
+  // every heading on the screen still said B. An admin was then reading one
+  // person's attendance under another person's name, with nothing to see. Only
+  // the load that started last may finish.
+  var loadGeneration = 0;
+
+  // The error from the most recent failed load, or null. Before this existed a
+  // failure assigned `entries = []` and reset `settings` to DEFAULT_SETTINGS,
+  // which renders as a brand-new account — 0h, "No attendance logged yet" —
+  // behind a toast that clears itself after seven seconds. Someone with four
+  // hundred days of history was left looking at a screen saying they had never
+  // logged a day, with nothing on it to say otherwise and nothing to press.
+  // Worse, the defaults it wrote into `settings` were live: the Settings form
+  // picked them up and offered them to its Save button, so one 500 and one
+  // ordinary click replaced a real Mon–Fri/6h30 schedule with Sun–Thu/8h.
+  var dataLoadError = null;
+  // Truthiness, not `!== null`: this is read from renderers that are declared
+  // above the `var` above and would see `undefined` if one ever ran before the
+  // module body reached it — and `undefined !== null` would report a failure
+  // that had not happened.
+  function dataLoadFailed(){ return !!dataLoadError; }
+
   async function loadDataForViewedUser(){
+    var gen = ++loadGeneration;
+    var forUserId = viewedUserId;
     setLoadingSkeletons(true);
     try{
       var results = await Promise.all([
-        sbFetchEntries(viewedUserId),
-        sbFetchSettings(viewedUserId)
+        sbFetchEntries(forUserId),
+        sbFetchSettings(forUserId)
       ]);
+      if(gen !== loadGeneration) return;   // a later switch already owns the screen
       entries = results[0];
       settings = results[1];
+      dataLoadError = null;
+      // Before any render sees it: a punch waiting to upload belongs in the
+      // day it was made, not in a holding pen the rest of the app can't see.
+      if(forUserId === currentUser.id) entries = applyOutbox(entries, currentUser.id);
     }catch(err){
+      if(gen !== loadGeneration) return;
       console.error(err);
       showToast("Couldn't load attendance data: " + friendlyError(err), "error");
+      // The renderers all read `settings`, so it still has to be an object —
+      // but nothing may treat it as this person's schedule. dataLoadError is
+      // what every screen that would otherwise present it as fact checks.
       entries = [];
       settings = Object.assign({}, DEFAULT_SETTINGS);
+      dataLoadError = err;
     }
-    isOwnData = viewedUserId === currentUser.id;
+    isOwnData = forUserId === currentUser.id;
     updateViewingBanner();
+    renderLoadFailure();
     renderAll();
     setLoadingSkeletons(false);
+  }
+
+  // The failure said out loud, and kept said. This is the same shape as the
+  // outbox banner — a persistent notice that names the problem and carries the
+  // one button that resolves it — rather than a toast, because a toast that
+  // expires leaves a screen that is quietly wrong.
+  function renderLoadFailure(){
+    var banner = document.getElementById("loadFailBanner");
+    if(!banner) return;
+    if(!dataLoadFailed()){ banner.classList.remove("show"); return; }
+    document.getElementById("loadFailTitle").textContent =
+      isOwnData || !viewedProfile
+        ? "Couldn't load your attendance"
+        : "Couldn't load " + (viewedProfile.full_name || viewedProfile.email) + "'s attendance";
+    document.getElementById("loadFailText").textContent =
+      friendlyError(dataLoadError) + " Nothing below is this record — it's what the app shows " +
+      "when it has no data at all.";
+    banner.classList.add("show");
   }
 
   // ---------- Helpers ----------
@@ -384,11 +669,25 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
   function dateToStr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
   function todayStr(){ return dateToStr(new Date()); }
+  // Calendar-day arithmetic, not 24-hour arithmetic: dateFromStr builds a local
+  // midnight and setDate rolls the month and the DST boundary for us, where
+  // subtracting 86400000ms would land on the wrong day twice a year.
+  function dayBefore(dateStr){
+    var d = dateFromStr(dateStr);
+    d.setDate(d.getDate() - 1);
+    return dateToStr(d);
+  }
   function fmtDate(s){
     return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
   }
   function fmtDateLong(s){
     return dateFromStr(s).toLocaleDateString(undefined,{weekday:"long", month:"long", day:"numeric", year:"numeric"});
+  }
+  // Weekday + month + day, no year — for lists already scoped to one month
+  // (the Team roster's recent-days lines, the activity feed), where the year
+  // and often the month too would just repeat what the toolbar already says.
+  function fmtDateShort(s){
+    return dateFromStr(s).toLocaleDateString(undefined,{weekday:"short", month:"short", day:"numeric"});
   }
   function isScheduled(dateStr){
     return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
@@ -590,6 +889,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return "That record no longer exists — try reloading the page.";
     if(code === "PGRST301" || /JWT|token is expired/i.test(msg))
       return "Your session expired. Sign in again to continue.";
+    if(code === "TIMEOUT")
+      return "The server took too long to respond. Check your connection and try again.";
     if(/Failed to fetch|NetworkError|network/i.test(msg))
       return "Couldn't reach the server. Check your connection and try again.";
     return msg;
@@ -887,26 +1188,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return out;
   }
 
-  // ---------- Theme ----------
-  var SUN_ICON = '<path d="M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4"/><circle cx="12" cy="12" r="4"/>';
-  var MOON_ICON = '<path d="M21 12.8A8.5 8.5 0 0 1 11.2 3a8.5 8.5 0 1 0 9.8 9.8z"/>';
-  function applyTheme(mode){
-    var dark = mode === "dark";
-    document.body.classList.toggle("dark", dark);
-    document.getElementById("themeIcon").innerHTML = dark ? SUN_ICON : MOON_ICON;
-    // The button is icon-only now, so the accessible name has to carry what the
-    // menu label used to say — and it must describe the action, not the state.
-    var themeBtn = document.getElementById("themeBtn");
-    themeBtn.title = dark ? "Light mode" : "Dark mode";
-    themeBtn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
-    safeSet(THEME_KEY, mode);
-  }
-  document.getElementById("themeBtn").addEventListener("click", function(){
-    var next = document.body.classList.contains("dark") ? "light" : "dark";
-    applyTheme(next);
-    renderCharts();
-  });
-
   // ---------- Header Admin button ----------
   // Not a tab: the tab strip is views of attendance, and this manages the
   // organisation. Employees never see the button, and renderAdmin() refuses to
@@ -940,18 +1221,84 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("sLateOnlyShort").checked = settings.lateOnlyIfShort;
     renderPeriodRows(settings.periods);
 
-    // Open sections that already have non-default content, so nothing
-    // configured gets hidden behind a collapsed accordion by surprise.
-    var seasonalSection = document.querySelector('.accordion-section[data-section="seasonal"]');
-    if(seasonalSection) seasonalSection.classList.toggle("open", settings.periods.length > 0);
-    var punctSection = document.querySelector('.accordion-section[data-section="punctuality"]');
-    if(punctSection) punctSection.classList.toggle("open", !settings.lateOnlyIfShort);
+    // A section the console isn't showing has to say on its nav row that it
+    // holds something, or a configured seasonal schedule is invisible until you
+    // happen to click it. This is what the collapsed accordion's count used to
+    // do; it now rides on the nav description instead of a heading.
+    var seasonalDesc = document.getElementById("cnavDescSeasonal");
+    if(seasonalDesc) seasonalDesc.textContent = settings.periods.length
+      ? settings.periods.length + (settings.periods.length === 1 ? " period set" : " periods set")
+      : "Reduced hours for Ramadan and other date ranges";
+    var punctDesc = document.getElementById("cnavDescPunctuality");
+    if(punctDesc) punctDesc.textContent = settings.lateOnlyIfShort
+      ? "When the Log marks a clock time red"
+      : "Marking every late arrival, hours or not";
+    var hoursDesc = document.getElementById("cnavDescHours");
+    if(hoursDesc) hoursDesc.textContent =
+      settings.workDays.length + " days · " + minutesToHoursStr(settings.targetMin) + " · from " + settings.standardIn;
+  }
+
+  // Keeps the Settings tab in step with WHO it's showing — the label, the
+  // admin-only "Apply to everyone" row, and the fields themselves. Called
+  // both when the tab is entered (activateTab) and, unconditionally, from
+  // renderAll() — the tab can be the one already on screen when the viewed
+  // person or role changes underneath it (the admin "Viewing" switcher, a
+  // role change), and it has to pick that up without being re-entered.
+  // Cheap (DOM field writes only, no network), so running it even while the
+  // tab isn't visible costs nothing — same reasoning as renderAll()'s other
+  // unconditional repaints.
+  function refreshSettingsPanel(){
+    var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user";
+    // The line above the form says what the form is. When the schedule never
+    // loaded, what the form is holding is DEFAULT_SETTINGS — so it says that,
+    // rather than presenting the defaults under "Editing your own schedule."
+    // and letting them read as the saved answer.
+    document.getElementById("settingsForLabel").textContent = dataLoadFailed()
+      ? "This schedule didn't load. The values below are the app's defaults, not "
+        + (isOwnData ? "yours" : who + "'s") + " — saving is blocked until it loads."
+      : (isOwnData
+          ? "Editing your own schedule."
+          : "Editing the schedule for " + who + ".");
+    document.getElementById("settingsProfileName").textContent = isOwnData ? "Your profile" : who;
+    // Own profile only. The RLS policy would let an admin rename anyone, but
+    // renaming a teammate is a different feature from setting your own name and
+    // this screen does not offer it.
+    var nameForm = document.getElementById("displayNameForm");
+    if(nameForm){
+      nameForm.hidden = !isOwnData;
+      var nameInput = document.getElementById("displayNameInput");
+      // Not while they are mid-edit: refreshSettingsPanel() runs on every
+      // repaint, and overwriting a half-typed name would be the panel fighting
+      // the person using it.
+      if(nameInput && document.activeElement !== nameInput){
+        nameInput.value = (currentProfile && currentProfile.full_name) || "";
+      }
+    }
+    var applyAllRow = document.getElementById("sApplyAll").closest(".check-row");
+    if(applyAllRow) applyAllRow.style.display = isAdmin ? "" : "none";
+    document.getElementById("sApplyAll").checked = false;
+    syncApplyAllScope();
+    fillSettingsForm();
+  }
+
+  // Scope belongs on the button that carries it out, not only on a checkbox
+  // above it. "Save Settings" reads the same whether it is about to write one
+  // row or thirty, so the button says which — and the confirm that follows is
+  // then a second reading of something already stated, rather than the first.
+  function syncApplyAllScope(){
+    var box = document.getElementById("sApplyAll");
+    var btn = document.getElementById("saveSettingsBtn");
+    if(!box || !btn || btn.disabled) return;
+    var n = allProfiles.length;
+    btn.textContent = (box.checked && n)
+      ? "Apply to " + n + " " + (n === 1 ? "person" : "people")
+      : "Save Settings";
+    btn.classList.toggle("danger", box.checked && !!n);
   }
 
   // Collapsible sections. The open/closed state was conveyed by a rotated
   // chevron alone, so a screen reader had no way to know whether a heading's
-  // content was showing — which matters more now the Admin console is eight of
-  // these stacked.
+  // content was showing.
   document.querySelectorAll(".accordion-head").forEach(function(head, i){
     var section = head.closest(".accordion-section");
     var body = section.querySelector(".accordion-body");
@@ -963,8 +1310,228 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     head.addEventListener("click", function(){
       var open = section.classList.toggle("open");
       head.setAttribute("aria-expanded", open ? "true" : "false");
+      // A section opening below the fold is the click reading as "nothing
+      // happened", so bring it into view — but only if it is actually out of
+      // sight, or every open jerks the panel.
+      if(open) section.scrollIntoView({block:"nearest", behavior:"smooth"});
     });
   });
+
+  // ---------- Settings / Admin console ----------
+  // Settings and Admin were stacks of accordions: seven headings to scroll past
+  // to reach Storage, and every section you opened pushed the rest further
+  // down. They are a directory now — a nav column on the left, one section
+  // showing on the right — so reaching any section is one click from anywhere,
+  // and the panel's height stops depending on what you have open.
+  //
+  // It is a real tablist (arrow keys move between sections, Home/End jump to
+  // the ends), because that is what a vertical list of mutually exclusive
+  // panels is, and it costs nothing to say so.
+  function initConsole(root){
+    var items = Array.prototype.slice.call(root.querySelectorAll(".console-nav-item"));
+    var sections = Array.prototype.slice.call(root.querySelectorAll(".console-section"));
+    var commits = Array.prototype.slice.call(root.querySelectorAll("[data-for-sections]"));
+    if(!items.length) return null;
+
+    function show(name, focusNav, silent){
+      var matched = false;
+      items.forEach(function(item){
+        var on = item.getAttribute("data-console-target") === name;
+        if(on) matched = true;
+        item.setAttribute("aria-selected", on ? "true" : "false");
+        // Only the selected row is in the tab order; arrow keys reach the rest.
+        item.tabIndex = on ? 0 : -1;
+        if(on && focusNav) item.focus();
+      });
+      if(!matched) return false;
+      sections.forEach(function(sec){
+        sec.classList.toggle("active", sec.getAttribute("data-section") === name);
+      });
+      // Controls that live outside the sections but only belong to some of
+      // them — the Save/Apply-to-everyone pair, which commits the three
+      // schedule sections and nothing else. Declared in the markup so the
+      // console does not need to know which console it is.
+      commits.forEach(function(el){
+        var forSections = el.getAttribute("data-for-sections").split(/\s+/);
+        el.hidden = forSections.indexOf(name) === -1;
+      });
+      // Where "the section you picked" is depends on the layout. Side by side,
+      // it is already beside the nav and the panel just needs to be back at the
+      // top. Stacked — a phone — it is *below* the whole nav, so resetting to
+      // the top would leave you looking at the list you just chose from.
+      var panel = root.closest(".tab-panel");
+      if(!panel || silent) return true;
+      if(window.matchMedia("(min-width:900px)").matches){
+        panel.scrollTop = 0;
+      }else{
+        var pane = root.querySelector(".console-pane");
+        if(pane) pane.scrollIntoView({block:"start", behavior:"smooth"});
+      }
+      return true;
+    }
+
+    items.forEach(function(item, i){
+      item.addEventListener("click", function(){
+        show(item.getAttribute("data-console-target"));
+      });
+      item.addEventListener("keydown", function(e){
+        var next = null;
+        if(e.key === "ArrowDown" || e.key === "ArrowRight") next = items[(i + 1) % items.length];
+        else if(e.key === "ArrowUp" || e.key === "ArrowLeft") next = items[(i - 1 + items.length) % items.length];
+        else if(e.key === "Home") next = items[0];
+        else if(e.key === "End") next = items[items.length - 1];
+        if(!next) return;
+        e.preventDefault();
+        show(next.getAttribute("data-console-target"), true);
+      });
+    });
+
+    // Silent: the panel is not on screen yet at boot, and scrolling anything
+    // to reach a section nobody asked for is how a page loads halfway down.
+    show(items[0].getAttribute("data-console-target"), false, true);
+    return show;
+  }
+  initConsole(document.getElementById("settingsConsole"));
+  initConsole(document.getElementById("adminConsole"));
+
+  // ---------- Appearance ----------
+  // Six palettes and a light/dark/system switch. The values live entirely in
+  // CSS (see the palette blocks in index.html); this only decides which two
+  // attributes sit on <html>, which is why adding a seventh palette is a
+  // stylesheet change plus one more tile in the markup, not a change here.
+  //
+  // The preference is DEVICE-local, deliberately, and the copy in the panel
+  // says so. It is not the same call the avatar made when it moved from
+  // localStorage to Storage: a photo is for other people to see, so keeping it
+  // in one browser made it useless, while a theme has no audience but the
+  // person looking at it. Dark at night on a phone and light at a desk is the
+  // common case, not a sync failure. It also keeps this off the settings blob
+  // and away from the Save button that owns it, so choosing a palette can be
+  // instant and cannot race a half-finished edit of the working-hours form.
+  var APPEARANCE_KEY = "attendance.appearance";
+  var PALETTE_IDS = ["atrium", "slate", "terracotta", "studio", "moss", "plum", "ledger"];
+  var MODE_IDS = ["light", "dark", "system"];
+  var systemDark = null;
+  try{ systemDark = window.matchMedia("(prefers-color-scheme: dark)"); }catch(e){}
+
+  function readAppearance(){
+    var out = {palette:"atrium", mode:"system"};
+    // theme-boot.js already resolved and applied this before first paint; read
+    // its answer back off the DOM rather than re-parsing storage, so there is
+    // one place that decides and this one cannot disagree with what is on
+    // screen.
+    var root = document.documentElement;
+    var p = root.getAttribute("data-palette");
+    var m = root.getAttribute("data-theme-mode");
+    if(PALETTE_IDS.indexOf(p) !== -1) out.palette = p;
+    if(MODE_IDS.indexOf(m) !== -1) out.mode = m;
+    return out;
+  }
+
+  var appearance = readAppearance();
+
+  function resolveMode(mode){
+    if(mode === "light" || mode === "dark") return mode;
+    return (systemDark && systemDark.matches) ? "dark" : "light";
+  }
+
+  function applyAppearance(next, persist){
+    appearance = next;
+    var root = document.documentElement;
+    var resolved = resolveMode(next.mode);
+    root.setAttribute("data-palette", next.palette);
+    root.setAttribute("data-theme", resolved);
+    root.setAttribute("data-theme-mode", next.mode);
+    if(window.__applyThemeColor) window.__applyThemeColor();
+
+    if(persist){
+      // safeSet swallows a storage failure; a theme that will not persist is
+      // still worth applying for this session.
+      safeSet(APPEARANCE_KEY, JSON.stringify(next));
+    }
+    refreshAppearancePanel();
+
+    // The charts read their colours out of the cascade at draw time
+    // (see cssVar), so nothing already on screen repaints itself when the
+    // tokens change — an SVG stroke is an attribute, not a live var(). One
+    // repaint puts every chart back in the new palette.
+    renderCharts();
+  }
+
+  function refreshAppearancePanel(){
+    var resolved = resolveMode(appearance.mode);
+    var seg = document.getElementById("modeSeg");
+    if(seg){
+      Array.prototype.forEach.call(seg.querySelectorAll("[data-mode]"), function(btn){
+        var on = btn.getAttribute("data-mode") === appearance.mode;
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+        btn.tabIndex = on ? 0 : -1;
+      });
+    }
+    var hint = document.getElementById("modeHint");
+    if(hint){
+      hint.textContent = appearance.mode === "system"
+        ? "Following this device, which is currently " + resolved + "."
+        : "Always " + appearance.mode + ", whatever this device is set to.";
+    }
+    var grid = document.getElementById("paletteGrid");
+    if(grid){
+      Array.prototype.forEach.call(grid.querySelectorAll("[data-palette]"), function(btn){
+        if(!btn.classList.contains("palette-swatch")) return;
+        var on = btn.getAttribute("data-palette") === appearance.palette;
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+        btn.tabIndex = on ? 0 : -1;
+      });
+      // Each tile previews its palette in the mode you are actually in, so
+      // picking a palette while in dark shows you the dark composition rather
+      // than a light one you will never see.
+      Array.prototype.forEach.call(grid.querySelectorAll(".palette-mini"), function(mini){
+        mini.setAttribute("data-theme", resolved);
+      });
+    }
+  }
+
+  // A radiogroup, so arrow keys move the selection the way a radiogroup does.
+  function initRadioGroup(root, attr, onPick){
+    if(!root) return;
+    var items = Array.prototype.slice.call(root.querySelectorAll("[role='radio']"));
+    items.forEach(function(item, i){
+      item.addEventListener("click", function(){ onPick(item.getAttribute(attr)); });
+      item.addEventListener("keydown", function(e){
+        var next = null;
+        if(e.key === "ArrowDown" || e.key === "ArrowRight") next = items[(i + 1) % items.length];
+        else if(e.key === "ArrowUp" || e.key === "ArrowLeft") next = items[(i - 1 + items.length) % items.length];
+        else if(e.key === "Home") next = items[0];
+        else if(e.key === "End") next = items[items.length - 1];
+        if(!next) return;
+        e.preventDefault();
+        onPick(next.getAttribute(attr));
+        next.focus();
+      });
+    });
+  }
+
+  initRadioGroup(document.getElementById("modeSeg"), "data-mode", function(mode){
+    if(MODE_IDS.indexOf(mode) === -1) return;
+    applyAppearance({palette: appearance.palette, mode: mode}, true);
+  });
+  initRadioGroup(document.getElementById("paletteGrid"), "data-palette", function(palette){
+    if(PALETTE_IDS.indexOf(palette) === -1) return;
+    applyAppearance({palette: palette, mode: appearance.mode}, true);
+  });
+
+  // Only while following the system: an explicit Light or Dark is a decision
+  // this app made on the user's behalf to stop honouring the OS, and quietly
+  // overriding it the next time the OS flips would undo the choice.
+  if(systemDark){
+    var onSystemChange = function(){
+      if(appearance.mode === "system") applyAppearance(appearance, false);
+    };
+    if(systemDark.addEventListener) systemDark.addEventListener("change", onSystemChange);
+    else if(systemDark.addListener) systemDark.addListener(onSystemChange);
+  }
+
+  refreshAppearancePanel();
 
   // The period editor works on the DOM rows directly; nothing is committed to
   // settings until Save is pressed, so Close always discards edits.
@@ -1169,26 +1736,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(idx !== -1) current.splice(idx, 1);
     renderPeriodRows(current, "defaultsPeriodsList");
   });
+  // Mobile fallback only — the rail's own Settings item reaches the tab
+  // directly. Same pattern as the header Admin button: click the real tab
+  // control, then bring #tabContentCard on screen, since this button lives
+  // up in the header rather than beside the content it's opening.
   document.getElementById("settingsBtn").addEventListener("click", function(){
-    var card = document.getElementById("settingsCard");
-    var opening = !card.classList.contains("open");
-    card.classList.toggle("open", opening);
-    if(opening){
-      document.getElementById("settingsForLabel").textContent = isOwnData
-        ? "Editing your own schedule."
-        : "Editing the schedule for " + (viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user") + ".";
-      // "Apply to everyone" is an admin-only bulk action.
-      var applyAllRow = document.getElementById("sApplyAll").closest(".check-row");
-      if(applyAllRow) applyAllRow.style.display = isAdmin ? "" : "none";
-      document.getElementById("sApplyAll").checked = false;
-      fillSettingsForm();
-      card.scrollIntoView({behavior:"smooth", block:"nearest"});
-    }
-    updateStickyClockVisibility();
-  });
-  document.getElementById("closeSettingsBtn").addEventListener("click", function(){
-    document.getElementById("settingsCard").classList.remove("open");
-    updateStickyClockVisibility();
+    document.querySelector('.tab-btn[data-tab="settings"]').click();
+    var card = document.getElementById("tabContentCard");
+    if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
     // You may always edit your own schedule; editing someone else's requires
@@ -1231,6 +1786,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return;
     }
 
+    // Nothing may be written on top of a schedule this app never managed to
+    // read. A failed load leaves the form holding DEFAULT_SETTINGS, which look
+    // exactly like a deliberate answer — one 500 and one ordinary Save replaced
+    // a real Mon–Fri/6h30 week with Sun–Thu/8h, silently, with the true values
+    // gone. The load has to succeed before the form is allowed to overwrite it.
+    if(dataLoadFailed()){
+      showToast("This schedule never loaded, so the form isn't showing the saved one. " +
+                "Use Try Again at the top of the screen first.", "error");
+      return;
+    }
+
     // Validate the seasonal rows before saving so mistakes surface immediately.
     var rawPeriods = readPeriodRows();
     var periodsErr = validatePeriods(rawPeriods);
@@ -1262,23 +1828,38 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       if(!confirmed) return;
 
       btn.disabled = true;
-      var done = 0, failed = 0;
+      var done = 0, failed = 0, failedNames = [];
       for(var k=0;k<allProfiles.length;k++){
         try{
           await sbSaveSettings(allProfiles[k].id, updated);
           done++;
-        }catch(err){ failed++; }
+        }catch(err){
+          failed++;
+          failedNames.push(allProfiles[k].full_name || allProfiles[k].email);
+        }
         btn.textContent = "Applying " + (k+1) + " of " + allProfiles.length + "…";
       }
       btn.disabled = false;
-      btn.textContent = "Save Settings";
+
+      // Disarm. The handler used to return with the box still ticked, so the
+      // next ordinary edit — one field, one Save — reopened "Apply to 30"
+      // unprompted. The confirm caught it every time, which is why this stayed
+      // invisible, but the default state after one broadcast was broadcast.
+      document.getElementById("sApplyAll").checked = false;
+      syncApplyAllScope();
 
       if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = updated;
-      document.getElementById("settingsCard").classList.remove("open");
-      updateStickyClockVisibility();
       renderAll();
+      // Naming who failed, because "2 failed" is a number you cannot act on:
+      // the whole point of the message is knowing whose schedule is now out of
+      // step with everyone else's.
       showToast(
-        "Applied to " + done + " of " + allProfiles.length + " team members." + (failed ? " " + failed + " failed." : ""),
+        failed === 0
+          ? "Applied to all " + done + " team members."
+          : "Applied to " + done + " of " + allProfiles.length + ". Failed: " +
+            failedNames.slice(0, 3).join(", ") +
+            (failedNames.length > 3 ? " and " + (failedNames.length - 3) + " more" : "") +
+            ". Try those again.",
         failed === 0 ? "success" : "error"
       );
       return;
@@ -1288,9 +1869,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     try{
       await sbSaveSettings(viewedUserId, updated);
       settings = updated;
-      document.getElementById("settingsCard").classList.remove("open");
-      updateStickyClockVisibility();
       renderAll();
+      showToast("Settings saved.", "success");
     }catch(err){
       showToast("Couldn't save settings: " + friendlyError(err), "error");
     }finally{
@@ -1300,7 +1880,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   // ---------- Filters ----------
   function getMonthFilter(){ return document.getElementById("monthFilterSelect").value; }
-  function getYearFilter(){ return document.getElementById("yearFilterSelect").value; }
   function getLogYearFilter(){ return document.getElementById("logYearSelect").value; }
   function getMonthlyYearFilter(){ return document.getElementById("monthlyYearSelect").value; }
 
@@ -1350,12 +1929,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     mySel.innerHTML = '<option value="all">All Years</option>' +
       allYearKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
     mySel.value = myPrev && (myPrev === "all" || allYearKeys.indexOf(myPrev) !== -1) ? myPrev : todayYear;
-
-    var ySel = document.getElementById("yearFilterSelect");
-    var yPrev = ySel.value;
-    var yKeys = allYearKeys.slice();
-    ySel.innerHTML = yKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    ySel.value = yKeys.indexOf(yPrev) !== -1 ? yPrev : (yKeys.indexOf(todayYear) !== -1 ? todayYear : yKeys[0]);
 
     // Every day type is always offered, even ones not used yet — otherwise
     // there's no way to filter for a type until at least one exists.
@@ -1466,112 +2039,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
   }
 
-  // ---------- Chart ----------
-  // data: [{label, value (minutes), targetMin, hasEntry, excused}]
-  function renderBarChart(container, data, opts){
-    if(!container) return;
-    opts = opts || {};
-    var h = opts.height || 150;
-    if(!data.length){ container.innerHTML = '<div class="empty-state">Nothing to chart yet.</div>'; return; }
-
-    var w = Math.max(container.clientWidth || 0, 260);
-    var padL = 10, padR = 10, padTop = 22;
-    var slot = (w - padL - padR) / data.length;
-    var barW = Math.max(6, Math.min(34, slot * 0.52));
-
-    // Scale label text with the available slot rather than dropping labels.
-    // "8h 30m" runs longer than a plain decimal, so this scales a notch
-    // smaller than the axis-label font at the same slot width to keep it fitting.
-    var valueFont = slot >= 46 ? 10.5 : (slot >= 36 ? 9.5 : (slot >= 28 ? 8.5 : (slot >= 20 ? 7 : 6)));
-    var axisFont  = slot >= 42 ? 10   : (slot >= 32 ? 9.5 : (slot >= 24 ? 8.5 : (slot >= 18 ? 7.5 : 6.5)));
-
-    // Rotate axis labels when the widest one wouldn't fit its slot horizontally.
-    var longest = data.reduce(function(m, d){ return Math.max(m, String(d.label).length); }, 0);
-    var estWidth = longest * axisFont * 0.55;
-    var rotate = estWidth > slot - 2;
-    var padBottom = rotate ? Math.min(estWidth * 0.72, 46) + 8 : 22;
-
-    // Fallback only — for a bucket without its own d.targetMin (e.g. seasonal
-    // periods weren't averaged in for it). Each bar's real reference is drawn
-    // as its own segment below, not this one flat number for the whole chart.
-    var targetMin = opts.targetMin != null ? opts.targetMin : targetMinPerDay();
-    var maxVal = Math.max(targetMin, 1);
-    data.forEach(function(d){
-      if(d.value) maxVal = Math.max(maxVal, d.value);
-      if(d.targetMin) maxVal = Math.max(maxVal, d.targetMin);
-    });
-    maxVal = maxVal * 1.12;
-    var scale = (h - padTop - padBottom) / maxVal;
-
-    var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
-        cLine = cssVar("--line"), cGold = cssVar("--gold");
-
-    function valueText(mins){
-      // Same "8h 2m" style used everywhere else on the page, so a chart label
-      // and its matching stat-card figure always read identically. Charts that
-      // plot something other than worked hours (e.g. minutes late) can pass
-      // their own opts.formatter instead.
-      return (opts.formatter || minutesToHoursStr)(mins);
-    }
-
-    // An accessible name plus a spoken summary of the series. role="img" with
-    // no name was announced as an unlabelled "image", making every chart opaque.
-    var chartName = opts.name || "Bar chart";
-    var described = data.map(function(d){ return d.label + " " + valueText(d.value || 0); }).join(", ");
-    var titleId = "cht" + Math.random().toString(36).slice(2,8);
-    var svg = '<svg class="chart-wrap" viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" ' +
-      'role="img" aria-labelledby="'+titleId+'">' +
-      '<title id="'+titleId+'">'+escapeHtml(chartName)+'</title>' +
-      '<desc>'+escapeHtml(described)+'</desc>';
-    // A step, not one flat line: each bar's own target (a seasonal period can
-    // put a 5h day right next to an 8h one) gets its own dashed segment,
-    // instead of implying a single constant target across the whole chart.
-    data.forEach(function(d, i){
-      var t = d.targetMin != null ? d.targetMin : targetMin;
-      if(t > 0){
-        var segL = padL + slot*i, segR = padL + slot*(i+1);
-        var ty = h - padBottom - t*scale;
-        svg += '<line x1="'+segL.toFixed(1)+'" y1="'+ty.toFixed(1)+'" x2="'+segR.toFixed(1)+'" y2="'+ty.toFixed(1)+'" stroke="'+cGold+'" stroke-width="1.2" stroke-dasharray="4 3"/>';
-      }
-    });
-    data.forEach(function(d, i){
-      var cx = padL + slot*i + slot/2;
-      var val = d.value || 0;
-      var barH = Math.max(val*scale, val > 0 ? 2 : 1);
-      var y = h - padBottom - barH;
-      var color = !d.hasEntry ? cLine : (val >= (d.targetMin != null ? d.targetMin : targetMin) ? cPos : cUnder);
-      // Capped stagger: a 30-bar yearly chart shouldn't take a full second to
-      // finish appearing, so the delay ramp stops growing past ~10 bars.
-      var delay = Math.min(i, 10) * 28;
-      var delayStyle = "animation-delay:" + delay + "ms;";
-
-      svg += '<rect x="'+(cx-barW/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+barH.toFixed(1)+'" fill="'+color+'" rx="2" class="bar-rect" style="'+delayStyle+'">'+
-             '<title>'+escapeHtml(d.label)+': '+valueText(val)+'</title></rect>';
-
-      // Value label: above the bar, or tucked inside when the bar reaches the top.
-      if(val > 0){
-        var above = y - 5 >= padTop;
-        var ty2 = above ? y - 5 : y + valueFont + 3;
-        var fill = above ? "" : ' fill="#fff"';
-        svg += '<text x="'+cx.toFixed(1)+'" y="'+ty2.toFixed(1)+'" text-anchor="middle" class="bar-value" '+
-               'style="font-size:'+valueFont+'px;'+delayStyle+'"'+fill+'>'+valueText(val)+'</text>';
-      } else {
-        svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-padBottom-6)+'" text-anchor="middle" class="bar-value bar-empty" '+
-               'style="font-size:'+valueFont+'px;'+delayStyle+'">–</text>';
-      }
-
-      if(rotate){
-        var lx = cx.toFixed(1), ly = (h - padBottom + 12).toFixed(1);
-        svg += '<text x="'+lx+'" y="'+ly+'" text-anchor="end" class="bar-label" '+
-               'transform="rotate(-45 '+lx+' '+ly+')" style="font-size:'+axisFont+'px;'+delayStyle+'">'+escapeHtml(d.label)+'</text>';
-      } else {
-        svg += '<text x="'+cx.toFixed(1)+'" y="'+(h-7)+'" text-anchor="middle" class="bar-label" '+
-               'style="font-size:'+axisFont+'px;'+delayStyle+'">'+escapeHtml(d.label)+'</text>';
-      }
-    });
-    svg += '</svg>';
-    container.innerHTML = svg;
-  }
+  // The bar chart that lived here drew one categorical comparison — the
+  // Year over Year card on Trends — and went with it. Trends draws
+  // trajectories (renderTrendChart below); the Day Types donut and the
+  // weekly sparklines each build their own SVG.
 
   // A gently-smoothed line through a series of points: each segment is a cubic
   // Bezier whose control points sit at the segment's horizontal midpoint, at
@@ -1595,12 +2066,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // A line/area chart for anything read as a trajectory over many points
   // (hours per day, by week/month) rather than a handful of categories to
   // compare — a bar repeated 12-30 times reads as noise, where a line reads
-  // as a shape. Categorical comparisons (Year over Year) still use
-  // renderBarChart above. data: [{label, value (minutes), targetMin,
+  // as a shape. data: [{label, value (minutes), targetMin,
   // hasEntry, met}]. `met` (value >= that point's target) colors the point's
   // dot; set hasEntry:false for a gap the line breaks around instead of
   // drawing through, so a future or unlogged period never looks like a real
-  // zero. opts.accent overrides the line/area color (default --teal-600) —
+  // zero. opts.accent overrides the line/area color (default --ink-600) —
   // the Shortfall tab's chart passes --negative, since every point there is
   // already a bad-news number and green dots would say the opposite.
   function renderTrendChart(container, data, opts){
@@ -1610,7 +2080,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!data.length){ container.innerHTML = '<div class="empty-state">Nothing to chart yet.</div>'; return; }
 
     var w = Math.max(container.clientWidth || 0, 260);
-    var padL = 12, padR = 12, padTop = 22;
+    // 44 on the left, not 12: the chart now carries a labelled y-axis, and
+    // the labels need a gutter to sit in. "8h 30m" at 9px is ~30px wide, plus
+    // 8px of air before the plot starts.
+    var padL = 44, padR = 12, padTop = 22;
     var slot = (w - padL - padR) / Math.max(data.length - 1, 1);
 
     var axisFont  = slot >= 42 ? 10 : (slot >= 32 ? 9.5 : (slot >= 24 ? 8.5 : (slot >= 18 ? 7.5 : 6.5)));
@@ -1628,19 +2101,81 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // real reference is drawn as its own segment below, not this one flat
     // number for the whole chart.
     var targetMin = opts.targetMin != null ? opts.targetMin : targetMinPerDay();
-    var maxVal = Math.max(targetMin, 1);
+
+    // ---- Vertical domain ----
+    // This used to be hard-anchored at zero: yOf() mapped 0 to the baseline
+    // and 1.15x the largest value to the top. That is right for a series that
+    // starts near zero — the Shortfall chart runs 1h to 4h and genuinely
+    // wants zero in frame — and useless for one that does not. The weekly
+    // hours chart sits at 8h against an 8h target, so every point landed at
+    // 87% of the height with the whole bottom of the card an empty gradient,
+    // and the week-to-week differences that are the entire point of a trend
+    // (8h 1m vs 8h) were a 0.2% wobble: a dead flat line, with the target
+    // line hidden underneath it.
+    //
+    // So: keep zero when the data reaches down toward it, and window the
+    // domain when the data lives in a band far above it. The lo >= 35% of hi
+    // test is what separates the two cases, and it keeps every existing
+    // zero-based chart exactly as it was.
+    var hi = Math.max(targetMin, 1), lo = Infinity, plotted = false;
     data.forEach(function(d){
-      if(d.value) maxVal = Math.max(maxVal, d.value);
-      if(d.targetMin) maxVal = Math.max(maxVal, d.targetMin);
+      if(d.hasEntry !== false && d.value != null){
+        hi = Math.max(hi, d.value); lo = Math.min(lo, d.value); plotted = true;
+      }
+      if(d.targetMin){ hi = Math.max(hi, d.targetMin); lo = Math.min(lo, d.targetMin); }
     });
-    maxVal = maxVal * 1.15;
-    var scale = (h - padTop - padBottom) / maxVal;
-    function yOf(val){ return h - padBottom - Math.max(val, 0) * scale; }
+    if(targetMin > 0) lo = Math.min(lo, targetMin);
+    if(!plotted || !isFinite(lo)) lo = 0;
+
+    var domLo = 0, domHi = hi * 1.15;
+    if(lo > 0 && lo >= hi * 0.35){
+      var span = hi - lo;
+      // A floor on the span, so windowing cannot turn noise into a mountain.
+      // Four weeks that differ by one minute are four weeks that are the
+      // same; blown up to fill the card they would read as a real swing, and
+      // a chart that lies in the flattering direction is worse than one that
+      // wastes space. 12% of the scale is enough that a genuine half-hour
+      // move is clearly visible while a one-minute move stays flat.
+      var minSpan = Math.max(hi * 0.12, 30);
+      if(span < minSpan){
+        var mid = (hi + lo) / 2;
+        lo = mid - minSpan / 2; hi = mid + minSpan / 2; span = minSpan;
+      }
+      domLo = Math.max(0, lo - span * 0.18);
+      domHi = hi + span * 0.18;
+    }
+    if(domHi - domLo < 1) domHi = domLo + 1;
+    // An area fill reads as "how much", and it can only mean that when the
+    // bottom of the plot is zero. On a windowed domain the fill would shade
+    // from the line down to 7h 33m and invite exactly the wrong reading, so
+    // the windowed case is a plain line and the zero-based case keeps its
+    // area. This is why the Shortfall chart still has one and the weekly
+    // hours chart no longer does.
+    var zeroBased = domLo === 0;
+
+    var plotH = h - padTop - padBottom;
+    function yOf(val){
+      var t = (Math.max(val, domLo) - domLo) / (domHi - domLo);
+      return h - padBottom - Math.min(Math.max(t, 0), 1) * plotH;
+    }
     function xOf(i){ return data.length === 1 ? padL + slot/2 : padL + slot*i; }
 
+    // ---- Gridline steps ----
+    // Minutes, so the "nice" numbers are the ones a clock actually has:
+    // quarter/half/whole hours, then multiples of an hour. A generic
+    // 1/2/5 x 10^n ladder would happily label a chart of hours at 250-minute
+    // intervals, which nobody reads as anything.
+    function niceStepMin(range, want){
+      var raw = range / Math.max(want, 1);
+      var steps = [5, 10, 15, 20, 30, 60, 90, 120, 180, 240, 360, 480, 720, 1440];
+      for(var s = 0; s < steps.length; s++){ if(steps[s] >= raw) return steps[s]; }
+      return steps[steps.length - 1];
+    }
+
     var cPos = cssVar("--positive"), cUnder = cssVar("--negative"),
-        cLine = cssVar("--line"), cGold = cssVar("--gold"),
-        cAccent = opts.accent || cssVar("--teal-600");
+        cLine = cssVar("--line"),
+        cGold = cssVar("--gold-deep"), // see the .swatch.target note in index.html
+        cAccent = opts.accent || cssVar("--ink-600");
 
     function valueText(mins){ return (opts.formatter || minutesToHoursStr)(mins); }
 
@@ -1657,6 +2192,24 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         '<stop offset="0%" stop-color="'+cAccent+'" stop-opacity=".22"/>' +
         '<stop offset="100%" stop-color="'+cAccent+'" stop-opacity="0"/>' +
       '</linearGradient></defs>';
+
+    // ---- Gridlines and the y-axis ----
+    // There was no vertical reference of any kind: a line floating in a
+    // gradient, with the only numbers in the chart printed on the points
+    // themselves. That reads as a shape but cannot be read as a quantity —
+    // you could see the line was flat, but not what it was flat AT, and the
+    // gold dashed target line had nothing to be measured against either.
+    // Drawn first so the area, the line and the dots all sit over them.
+    var gridStep = niceStepMin(domHi - domLo, h >= 150 ? 4 : 3);
+    var gridFont = Math.max(8, Math.min(9.5, axisFont));
+    for(var gv = Math.ceil(domLo / gridStep) * gridStep; gv <= domHi + 0.5; gv += gridStep){
+      var gy = yOf(gv);
+      if(gy < padTop - 2 || gy > h - padBottom + 0.5) continue;
+      svg += '<line x1="'+padL+'" y1="'+gy.toFixed(1)+'" x2="'+(w-padR)+'" y2="'+gy.toFixed(1)+'" ' +
+             'stroke="'+cLine+'" stroke-width="1" opacity=".6"/>';
+      svg += '<text x="'+(padL-8)+'" y="'+(gy + gridFont*0.35).toFixed(1)+'" text-anchor="end" ' +
+             'class="bar-label" style="font-size:'+gridFont+'px;">'+escapeHtml(valueText(gv))+'</text>';
+    }
 
     // A step, not one flat line: each point's own target (a seasonal period
     // can put a 5h week/month right next to an 8h one) gets its own dashed
@@ -1684,12 +2237,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
     runs.forEach(function(pts){
       if(pts.length > 1){
-        var areaD = smoothPathD(pts) +
-          " L" + pts[pts.length-1].x.toFixed(1) + "," + (h-padBottom).toFixed(1) +
-          " L" + pts[0].x.toFixed(1) + "," + (h-padBottom).toFixed(1) + " Z";
-        svg += '<path d="'+areaD+'" fill="url(#'+gradId+')" class="trend-area"/>';
+        if(zeroBased){
+          var areaD = smoothPathD(pts) +
+            " L" + pts[pts.length-1].x.toFixed(1) + "," + (h-padBottom).toFixed(1) +
+            " L" + pts[0].x.toFixed(1) + "," + (h-padBottom).toFixed(1) + " Z";
+          svg += '<path d="'+areaD+'" fill="url(#'+gradId+')" class="trend-area"/>';
+        }
+        // A soft glow in the line's own accent colour — hex+alpha, not a
+        // separate token, since the accent itself is already dynamic
+        // (opts.accent). Restrained on purpose: a blurred, low-alpha shadow
+        // the same hue as the stroke, not a neon halo.
         svg += '<path d="'+smoothPathD(pts)+'" fill="none" stroke="'+cAccent+'" stroke-width="2.25" ' +
-               'pathLength="1" stroke-linecap="round" stroke-linejoin="round" class="trend-line"/>';
+               'pathLength="1" stroke-linecap="round" stroke-linejoin="round" class="trend-line" ' +
+               'style="filter:drop-shadow(0 0 4px '+cAccent+'80)"/>';
       } else if(pts.length === 1 && data.length === 1){
         // One point, nothing to connect: still show the accent as a short
         // baseline tick so the chart doesn't read as broken.
@@ -1719,6 +2279,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         var ty2 = above ? cy - 8 : cy + valueFont + 8;
         svg += '<text x="'+cx.toFixed(1)+'" y="'+ty2.toFixed(1)+'" text-anchor="'+edgeAnchor+'" class="bar-value" '+
                'style="font-size:'+valueFont+'px;'+delayStyle+'">'+valueText(val)+'</text>';
+        // A generous invisible hit target, not the 4px dot itself — the dot
+        // is sized to look right on the line, not to be pointed at, and is
+        // especially too small to tap reliably.
+        svg += '<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="11" class="trend-hit" data-idx="'+i+'"/>';
       } else {
         svg += '<circle cx="'+cx.toFixed(1)+'" cy="'+(h-padBottom).toFixed(1)+'" r="3" fill="none" stroke="'+cLine+'" stroke-width="1.5" class="trend-dot" style="'+delayStyle+'">'+
                '<title>'+escapeHtml(d.label)+': no data</title></circle>';
@@ -1734,8 +2298,54 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       }
     });
 
+    // The floating value callout: hidden until a point is hovered (mouse) or
+    // tapped (touch), positioned in the same viewBox coordinate space as
+    // everything else so no separate HTML-overlay positioning math is
+    // needed. One shared <g>, moved and re-labelled per point rather than
+    // one per point, since only ever one is visible at a time.
+    var calloutW = 78, calloutH = 36;
+    svg += '<g class="trend-callout" aria-hidden="true">'+
+      '<rect class="trend-callout-bg" width="'+calloutW+'" height="'+calloutH+'" rx="8"/>'+
+      '<text class="trend-callout-date" x="'+(calloutW/2)+'" y="14" text-anchor="middle"></text>'+
+      '<text class="trend-callout-value" x="'+(calloutW/2)+'" y="27" text-anchor="middle"></text>'+
+    '</g>';
+
     svg += '</svg>';
     container.innerHTML = svg;
+    syncChartLegend(container);
+
+    var callout = container.querySelector(".trend-callout");
+    var calloutDate = callout.querySelector(".trend-callout-date");
+    var calloutValue = callout.querySelector(".trend-callout-value");
+    var activeHitIdx = null;
+
+    function positionCallout(i){
+      var d = data[i];
+      var cx = xOf(i), cy = yOf(d.value || 0);
+      var x = Math.min(Math.max(cx - calloutW/2, padL), w - padR - calloutW);
+      // Flips below the point instead of clipping past the chart's own top
+      // edge — only reachable for a point sitting right under the target
+      // line near the very top of the plot.
+      var above = cy - 14 - calloutH >= 0;
+      var y = above ? cy - 14 - calloutH : cy + 14;
+      callout.setAttribute("transform", "translate("+x.toFixed(1)+","+y.toFixed(1)+")");
+      calloutDate.textContent = d.label;
+      calloutValue.textContent = valueText(d.value || 0);
+    }
+    function showCallout(i){ positionCallout(i); callout.classList.add("show"); activeHitIdx = i; }
+    function hideCallout(){ callout.classList.remove("show"); activeHitIdx = null; }
+
+    container.querySelectorAll(".trend-hit").forEach(function(hit){
+      var i = +hit.getAttribute("data-idx");
+      // pointerenter/leave for a mouse, which can rest on a point without
+      // committing to a tap; click as the touch path, since touch has no
+      // hover to rest into. Both funnel into the same show/hideCallout.
+      hit.addEventListener("pointerenter", function(ev){ if(ev.pointerType !== "touch") showCallout(i); });
+      hit.addEventListener("pointerleave", function(ev){ if(ev.pointerType !== "touch") hideCallout(); });
+      hit.addEventListener("click", function(){
+        activeHitIdx === i ? hideCallout() : showCallout(i);
+      });
+    });
   }
 
   // A tiny inline sparkline for one week's seven days — small bars rather
@@ -1778,7 +2388,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // ---------- Stats ----------
   // Renders a neutral up/down/flat trend indicator into a stat card.
   // current/previous are in minutes; pass null when there's no prior period to compare.
-  function renderTrend(elId, current, previous, label, isSigned){
+  function renderTrend(elId, current, previous, label, isSigned, neutral){
     var el = document.getElementById(elId);
     if(!el) return;
     if(current === null || previous === null){
@@ -1793,7 +2403,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return;
     }
     var up = diff > 0;
-    el.className = "stat-trend " + (up ? "trend-up" : "trend-down");
+    // Raw hours-worked trends (e.g. Avg/Day) carry no good/bad judgement —
+    // more hours isn't inherently positive, and the mix of half days, WFH,
+    // etc. across the two periods can shift the average with no change in
+    // performance. Only a target-relative figure (like the overtime bank)
+    // earns the green/red treatment; this one stays neutral regardless of
+    // direction.
+    el.className = "stat-trend " + (neutral ? "trend-flat" : (up ? "trend-up" : "trend-down"));
     var arrowPath = up ? "M12 19V5M5 12l7-7 7 7" : "M12 5v14M5 12l7 7 7-7";
     var amount = isSigned ? signed(diff) : minutesToHoursStr(Math.abs(diff));
     el.innerHTML =
@@ -1801,19 +2417,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       amount + ' vs. ' + label;
   }
 
+  // Which streak count has already played its milestone-clause landing
+  // animation this session — renderStats() runs on every tab visit, punch
+  // and data reload, and without this the clause would replay every single
+  // time rather than once at the moment it's actually earned. null, not 0,
+  // so a genuine (if impossible) 0-length "milestone" isn't mistaken for
+  // "nothing announced yet".
+  var lastAnnouncedMilestoneStreak = null;
+
   function renderStats(){
     var today = todayStr();
-    var wk = weekKey(today), mk = monthKey(today);
+    var mk = monthKey(today);
 
-    var ws = summarize(entries.filter(function(e){ return weekKey(e.date) === wk; }));
     var ms = summarize(entries.filter(function(e){ return monthKey(e.date) === mk; }));
-
-    document.getElementById("weekAvg").textContent = ws.loggedDays ? minutesToHoursStr(ws.avgMin) : "0h";
-    // Clamp the denominator: logging an unscheduled day (a worked Saturday) used
-    // to produce "6 of 5 workdays logged".
-    document.getElementById("weekAvgDetail").textContent =
-      ws.loggedDays + " of " + Math.max(settings.workDays.length, ws.loggedDays) + " workdays logged" +
-      (ws.incompleteDays ? " · " + ws.incompleteDays + " incomplete" : "");
 
     document.getElementById("monthAvg").textContent = ms.loggedDays ? minutesToHoursStr(ms.avgMin) : "0h";
     document.getElementById("monthAvgDetail").textContent =
@@ -1831,6 +2447,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.floor((ms.avgMin / targetPerDay) * 100))) : 0;
     var progressFill = document.getElementById("heroProgressFill");
     progressFill.style.transform = "scaleX(" + (progressPct / 100) + ")";
+    // Green once the month is actually at target, lime while it is still
+    // climbing — the same reading the Team bar and the Calendar dots give.
+    progressFill.closest(".hero-progress")
+      .classList.toggle("is-met", ms.loggedDays > 0 && progressPct >= 100);
     // Unclamped ratio for the Velocity cluster's tachometer, published here
     // so the gauge reads the figure this function already computed rather
     // than deriving its own. The bar above stays clamped to 100%; the gauge
@@ -1851,16 +2471,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("otBankDetail").textContent =
       new Date().toLocaleDateString(undefined, {month:"long"}) + " vs. target";
 
-    // Trend vs. the previous week/month — purely informational, no "good/bad"
+    // Trend vs. the previous month — purely informational, no "good/bad"
     // judgement attached, since more hours isn't inherently positive.
-    var prevWeekStart = weekStartDate(today); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-    var pws = summarize(entries.filter(function(e){ return weekKey(e.date) === dateToStr(prevWeekStart); }));
-    renderTrend("weekTrend", ws.loggedDays ? ws.avgMin : null, pws.loggedDays ? pws.avgMin : null, "last week");
-
     var thisMonthDate = dateFromStr(today);
     var prevMonthDate = new Date(thisMonthDate.getFullYear(), thisMonthDate.getMonth()-1, 1);
     var pms = summarize(entries.filter(function(e){ return monthKey(e.date) === monthKey(dateToStr(prevMonthDate)); }));
-    renderTrend("monthTrend", ms.loggedDays ? ms.avgMin : null, pms.loggedDays ? pms.avgMin : null, "last month");
+    renderTrend("monthTrend", ms.loggedDays ? ms.avgMin : null, pms.loggedDays ? pms.avgMin : null, "last month", false, true);
     renderTrend("otBankTrend", ms.loggedDays ? ms.diffSum : null, pms.loggedDays ? pms.diffSum : null, "last month", true);
 
     // Streak: consecutive scheduled workdays with worked time logged.
@@ -1906,7 +2522,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       ? "Consecutive workdays logged"
       : "Consecutive workdays · clock out today to extend it";
     var milestone = STREAK_MILESTONES[streak];
-    streakDetailEl.textContent = milestone ? streakBase + " — " + milestone : streakBase;
+    if(milestone){
+      // Landing only fires the first time THIS streak count renders as a
+      // milestone — a revisit later the same day (or the same streak
+      // surviving a tab switch) shows the clause already settled, not
+      // replaying the beat.
+      var isNewLanding = lastAnnouncedMilestoneStreak !== streak;
+      lastAnnouncedMilestoneStreak = streak;
+      streakDetailEl.innerHTML = escapeHtml(streakBase) + ' <span class="milestone-clause' +
+        (isNewLanding ? " landing" : "") + '">— ' + escapeHtml(milestone) + '</span>';
+    } else {
+      streakDetailEl.textContent = streakBase;
+    }
     streakDetailEl.classList.toggle("milestone", !!milestone);
 
     var todayEntry = entries.find(function(e){ return e.date === today; });
@@ -1930,11 +2557,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // Short figures like "8h" get the big number treatment; longer status
     // words shrink so they never wrap inside the small circle.
     sealValue.classList.toggle("long", sealText.length > 6);
-    syncVelocitySpecs(); // keep the Velocity hero's spec strip in step
+
+    // Same two facts on the phone, where the rail this seal lives in is gone.
+    var todayLine = document.getElementById("todayLine");
+    if(todayLine){
+      todayLine.hidden = false;
+      todayLine.className = "today-line" + seal.className.replace(/^seal/, "");
+      document.getElementById("todayLineValue").textContent = sealText;
+    }
 
     renderBnClock(todayEntry);
 
-    document.getElementById("scheduleLine").textContent = scheduleSummary();
     renderLeaveBalance();
   }
 
@@ -1968,13 +2601,46 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       el.className = "stat-value negative";
     } else {
       el.textContent = fmtDays(remaining) + "d";
-      el.className = "stat-value";
+      // 2 days is arbitrary but reasonable: close enough to zero that
+      // running out without noticing is a real risk, on any entitlement
+      // this app is likely to see. remaining === 0 counts as low, not as
+      // "over" — that's what the negative branch above is for.
+      el.className = "stat-value" + (remaining <= 2 ? " warn" : "");
     }
     document.getElementById("leaveBalanceDetail").textContent =
       fmtDays(used) + " of " + fmtDays(entitlement) + " days used in " + year + " · working days only";
   }
 
   // ---------- Reminder ----------
+  // The banner can only ever reach someone who has already opened the app,
+  // and syncTimers() stops the reminder interval the moment the tab hides —
+  // correctly, since a 60-second timer has no business running in a
+  // backgrounded PWA. That leaves the home-screen icon as the only surface
+  // that can carry an open shift to someone who is NOT looking at the app.
+  //
+  // The badge is set on the way out (see the visibilitychange handler) and it
+  // persists on the installed icon after the app is closed, so a forgotten
+  // clock-out is visible without a push subscription, a service worker
+  // wake-up, or a notification permission. It is not a substitute for a real
+  // scheduled reminder — that needs a server, and is tracked separately — but
+  // it is the whole of what the client can honestly do on its own.
+  function openShiftCount(){
+    return entries.filter(function(e){
+      return e.clockIn && !e.clockOut && EXCUSED_TYPES.indexOf(e.type) === -1;
+    }).length;
+  }
+
+  function updateAppBadge(){
+    // Unsupported nearly everywhere that isn't an installed PWA, and it
+    // rejects rather than returning false when it is unavailable. A badge is
+    // never worth an unhandled rejection in the console.
+    try{
+      var n = openShiftCount();
+      if(n > 0 && navigator.setAppBadge) navigator.setAppBadge(n).catch(function(){});
+      else if(navigator.clearAppBadge) navigator.clearAppBadge().catch(function(){});
+    }catch(e){ /* no badge on this platform */ }
+  }
+
   function renderReminder(){
     var banner = document.getElementById("reminderBanner");
     var today = todayStr();
@@ -1995,6 +2661,11 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         if(elapsed >= settings.remindAfterHours*60){ target = e; isPast = false; break; }
       }
     }
+
+    // Before the dismissal check, deliberately: dismissing the banner silences
+    // this screen, not the fact that a shift is still open. The badge tracks
+    // the record, not the reading of it.
+    updateAppBadge();
 
     if(!target || dismissedReminders[target.date]){
       banner.classList.remove("show");
@@ -2040,33 +2711,70 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // ---------- Log ----------
+  // A pill is an exception marker. "On target" is the default outcome of an
+  // ordinary day, and pilling it put fourteen identical chips down a column
+  // whose whole job is to surface the three days that are not ordinary — the
+  // exceptions were outvoted by the rule. On target is now a quiet mark with
+  // the status still on it for anyone not reading colour or shape.
   function pillFor(c){
     if(c.open) return '<span class="pill open">Open</span>';
     if(c.excused) return '<span class="pill excused">Excused</span>';
     if(c.diffMin === null) return "—";
-    if(Math.abs(c.diffMin) < 1) return '<span class="pill onit">On target</span>';
+    if(Math.abs(c.diffMin) < 1) return '<span class="on-target" title="On target">On target</span>';
     return c.diffMin > 0
       ? '<span class="pill over">'+signed(c.diffMin)+'</span>'
       : '<span class="pill under">'+minutesToHoursStr(c.diffMin)+'</span>';
   }
 
-  // The log rendered every matching row as DOM. With the default current-month
-  // filter that's ~22 rows, but "All Years" on a long history built thousands of
-  // rows in a single synchronous loop and froze the tab. Render a page at a time.
-  var LOG_PAGE_SIZE = 200;
-  var logVisibleCount = LOG_PAGE_SIZE;
+  // ---------- The long lists ----------
+  // Every tab is one screen (see "One screen per tab" in index.html): the page
+  // frame never scrolls. A tab whose content outgrows the frame scrolls inside
+  // its own panel rather than being split across numbered pages — the rows are
+  // dense enough that most months land in one screenful, and a scrollbar on the
+  // few that don't beats hiding two thirds of the month behind "2 of 3".
+  //
+  // The Log is the one list with no ceiling: "All Years" on a long history is
+  // thousands of entries, and building every row at once is a synchronous loop
+  // that freezes the tab. So it renders a chunk at a time with a button for the
+  // next chunk, on every width.
+  var LOG_SCROLL_CHUNK = 200;
+  var logScrollLimit = LOG_SCROLL_CHUNK;
 
   function renderLog(){
     var body = document.getElementById("logBody");
     var allRows = searchedEntries().sort(function(a,b){ return b.date.localeCompare(a.date); });
-    var rows = allRows.slice(0, logVisibleCount);
+    var rows = allRows.slice(0, logScrollLimit);
     body.innerHTML = "";
 
     var empty = document.getElementById("logEmpty");
-    if(entries.length === 0){
+    if(dataLoadFailed()){
+      // Not "no attendance logged yet". That sentence, and the Clock In it
+      // invites, are what a failed load used to say to someone with four
+      // hundred days of history. The shape matches the roster's error state:
+      // same block, naming the problem and the way back.
       empty.innerHTML =
         '<div class="first-run-empty">' +
-          '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3.2 2"/></svg>' +
+          '<svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">' +
+            '<circle cx="24" cy="24" r="18" stroke="var(--line)" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>' +
+            '<path d="M24 15v11M24 31.5h.01" stroke="var(--negative)" stroke-width="2.6" stroke-linecap="round"/>' +
+          '</svg>' +
+          '<p class="first-run-title">Couldn\'t load this record</p>' +
+          '<p class="first-run-sub">' + escapeHtml(friendlyError(dataLoadError)) +
+            ' This is not an empty month — use <strong>Try Again</strong> at the top of the screen.</p>' +
+        '</div>';
+    } else if(entries.length === 0){
+      // The dashed ring echoes the Day Types donut on Overview — an "empty"
+      // version of that same ring, rather than a generic clock borrowed from
+      // nowhere in particular. The plus sits in --gold-deep, not --gold: a
+      // lime-family element carrying real meaning (invites the first tap)
+      // needs the accent that actually clears contrast (see DESIGN.md's
+      // Fill-Only Rule) — --gold alone measures 1.35:1 on white.
+      empty.innerHTML =
+        '<div class="first-run-empty">' +
+          '<svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">' +
+            '<circle cx="24" cy="24" r="18" stroke="var(--line)" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>' +
+            '<path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>' +
+          '</svg>' +
           '<p class="first-run-title">No attendance logged yet</p>' +
           '<p class="first-run-sub">Tap <strong>Clock In Now</strong> above to log today, or add a day by hand using the form.</p>' +
         '</div>';
@@ -2106,7 +2814,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
         "<td data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
         "<td data-label='In'><span class=\"cell-label\">In</span>"+inCell+"</td>"+
         "<td data-label='Out'><span class=\"cell-label\">Out</span>"+outCell+"</td>"+
-        "<td class='num' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
+        "<td class='num col-worked' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
         "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+(c.targetMin ? minutesToHoursStr(c.targetMin) : "—")+"</td>"+
         "<td class='num' data-label='Status'><span class=\"cell-label\">Status</span>"+pillFor(c)+"</td>"+
         "<td data-label='Type'><span class=\"cell-label\">Type</span>"+escapeHtml(typeLabel(e.type))+"</td>"+
@@ -2121,8 +2829,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       body.appendChild(tr);
     });
 
-    // Paging control. Uses a real table row so it sits inside the table and
-    // survives the mobile card layout.
+    // Uses a real table row so it sits inside the table and survives the
+    // mobile card layout.
     var remaining = allRows.length - rows.length;
     if(remaining > 0){
       var moreRow = document.createElement("tr");
@@ -2132,9 +2840,9 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var moreBtn = document.createElement("button");
       moreBtn.type = "button";
       moreBtn.className = "btn ghost small";
-      moreBtn.textContent = "Show " + Math.min(remaining, LOG_PAGE_SIZE) + " more (" + remaining + " remaining)";
+      moreBtn.textContent = "Show " + Math.min(remaining, LOG_SCROLL_CHUNK) + " more (" + remaining + " remaining)";
       moreBtn.addEventListener("click", function(){
-        logVisibleCount += LOG_PAGE_SIZE;
+        logScrollLimit += LOG_SCROLL_CHUNK;
         renderLog();
       });
       cell.appendChild(moreBtn);
@@ -2145,10 +2853,37 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   // ---------- Weekly ----------
   // One overview trend chart (avg hours/day, by week) plus a dense table —
-  // the same two-piece shape Monthly and Yearly already use. Used to be a
+  // the same two-piece shape Monthly also uses. Used to be a
   // full-height bar chart repeated once per week, which meant a handful of
   // bars and a lot of empty chart padding, over and over, down the page.
   // Each week keeps its own day-by-day shape as an inline sparkline instead.
+  // The chart legends are static markup, so they advertised every series the
+  // chart CAN draw rather than the ones it just did: a month where nobody fell
+  // short still printed "Below target" with a crimson swatch, and Shortfall's
+  // "No shortfall that month" grey appeared beside a plot containing no grey.
+  // A legend that names absent series teaches the reader to look for something
+  // that is not there. Entries marked data-legend are conditional; the plain
+  // ones (the line itself, the target rule) always apply.
+  function syncChartLegend(holder){
+    if(!holder) return;
+    var legend = holder.parentElement && holder.parentElement.querySelector(".chart-legend");
+    var svg = holder.querySelector("svg");
+    if(!legend || !svg) return;
+    // What the plot actually painted, as resolved colours.
+    var painted = {};
+    svg.querySelectorAll("*").forEach(function(el){
+      var cs = getComputedStyle(el);
+      [cs.fill, cs.stroke, el.getAttribute("fill"), el.getAttribute("stroke")]
+        .forEach(function(v){ if(v && v !== "none") painted[v] = true; });
+    });
+    legend.querySelectorAll("[data-legend]").forEach(function(entry){
+      var sw = entry.querySelector(".swatch");
+      if(!sw) return;
+      var want = getComputedStyle(sw).backgroundColor;
+      entry.hidden = !painted[want];
+    });
+  }
+
   function renderWeekly(){
     var groups = groupBy(filteredEntries(), weekKey);
     // Only weeks with at least one Regular-type day are shown — a week that's
@@ -2279,92 +3014,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     });
   }
 
-  // ---------- Yearly ----------
-  function yearStats(){
-    var groups = groupBy(entries, yearKey);
-    // Only years with at least one Regular-type day feed the year-over-year
-    // comparison — a year with none has no average to compare.
-    return Object.keys(groups).sort()
-      .map(function(k){
-        var s = summarize(groups[k]);
-        s.key = k;
-        return s;
-      })
-      .filter(function(s){ return s.loggedDays > 0; });
-  }
-
-  function renderYearly(){
-    var stats = yearStats();
-    var yearlyEmptyEl = document.getElementById("yearlyEmpty");
-    yearlyEmptyEl.textContent = entries.length ? "No regular workdays logged yet." : "No entries yet.";
-    yearlyEmptyEl.style.display = stats.length ? "none" : "block";
-
-    var yr = getYearFilter();
-    var yearEntries = entries.filter(function(e){ return yearKey(e.date) === yr; });
-    var ys = summarize(yearEntries);
-
-    document.getElementById("yearTitle").textContent = yr;
-    document.getElementById("yearMeta").textContent =
-      ys.loggedDays + " workday" + (ys.loggedDays===1?"":"s") + " logged" +
-      (ys.openDays ? " · " + ys.openDays + " open" : "");
-
-    document.getElementById("yearFigures").innerHTML =
-      '<div class="period-figure"><div class="label">Total Hours</div><div class="value">'+minutesToHoursStr(ys.workedSum)+'</div></div>'+
-      '<div class="period-figure"><div class="label">Avg / Day</div><div class="value">'+(ys.loggedDays?minutesToHoursStr(ys.avgMin):"—")+'</div></div>'+
-      '<div class="period-figure"><div class="label">Target</div><div class="value">'+minutesToHoursStr(ys.targetSum)+'</div></div>'+
-      '<div class="period-figure"><div class="label">Overtime / Under</div><div class="value" style="color:'+
-        (ys.diffSum>0?cssVar("--positive"):ys.diffSum<0?cssVar("--negative"):"inherit")+'">'+signed(ys.diffSum)+'</div></div>';
-
-    // Full 12 months so gaps in the year stay visible.
-    var byMonth = groupBy(yearEntries, monthKey);
-    var monthData = [];
-    for(var m=0;m<12;m++){
-      var k = yr+"-"+pad2(m+1);
-      var s = byMonth[k] ? summarize(byMonth[k]) : null;
-      monthData.push({
-        label: new Date(+yr, m, 1).toLocaleDateString(undefined,{month:"short"}),
-        value: s ? s.avgMin : 0,
-        hasEntry: !!(s && s.loggedDays),
-        targetMin: (s && s.loggedDays) ? (s.targetSum / s.loggedDays) : null
-      });
-    }
-    renderTrendChart(document.getElementById("yearChart"), monthData, {height:160, name:"Average hours per day in "+yr+", by month"});
-
-    // A single year has nothing to compare against — a lone bar reads as a
-    // broken chart, not a comparison — so the whole card sits out until
-    // there's a second year to set it against.
-    var yoyCard = document.getElementById("yoyCard");
-    yoyCard.style.display = stats.length > 1 ? "" : "none";
-    if(stats.length > 1){
-      renderBarChart(document.getElementById("yoyChart"), stats.map(function(y){
-        return {
-          label:y.key, value:y.avgMin, hasEntry:y.loggedDays > 0,
-          targetMin: y.loggedDays ? (y.targetSum / y.loggedDays) : null
-        };
-      }), {height:140, name:"Average hours per day, year over year"});
-    }
-
-    var body = document.getElementById("yearlyBody");
-    body.innerHTML = "";
-    stats.slice().reverse().forEach(function(y, idx, arr){
-      var prev = arr[idx+1]; // next in reversed list = previous year
-      var delta = (prev && prev.loggedDays && y.loggedDays) ? (y.avgMin - prev.avgMin) : null;
-      var deltaCell = delta === null
-        ? "—"
-        : "<span style='color:"+(delta>0?cssVar("--positive"):delta<0?cssVar("--negative"):"inherit")+"'>"+signed(delta)+" / day</span>";
-      var tr = document.createElement("tr");
-      tr.innerHTML =
-        "<td data-label='Year'><span class=\"cell-label\">Year</span>"+y.key+"</td>"+
-        "<td class='num' data-label='Days'><span class=\"cell-label\">Days</span>"+y.loggedDays+"</td>"+
-        "<td class='num' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(y.workedSum)+"</td>"+
-        "<td class='num' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(y.loggedDays?minutesToHoursStr(y.avgMin):"—")+"</td>"+
-        "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(y.targetSum)+"</td>"+
-        "<td class='num' data-label='Diff' style='color:"+(y.diffSum>0?cssVar("--positive"):y.diffSum<0?cssVar("--negative"):"inherit")+"'><span class=\"cell-label\">Diff</span>"+signed(y.diffSum)+"</td>"+
-        "<td class='num' data-label='vs. Prev Year'><span class=\"cell-label\">vs. Prev Year</span>"+deltaCell+"</td>";
-      body.appendChild(tr);
-    });
-  }
-
   // ---------- Calendar ----------
   var calendarViewDate = new Date(); // tracks which month is currently shown
 
@@ -2424,27 +3073,167 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("calendarGrid").innerHTML = html;
   }
 
-  document.getElementById("calPrevBtn").addEventListener("click", function(){
-    calendarViewDate.setMonth(calendarViewDate.getMonth() - 1);
-    renderCalendar();
+  // ---------- Week timeline ----------
+  // Month view answers "which days went well". This answers "when did I
+  // actually work", which a grid of coloured day cells cannot show: each entry
+  // is a bar spanning its real clock-in to clock-out.
+  var calMode = "month";               // "month" | "week"
+  var WL_DEFAULT_START = 6, WL_DEFAULT_END = 22;
+
+  function startOfWeek(d){
+    var out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    out.setDate(out.getDate() - out.getDay()); // Sunday-first, matching DAY_NAMES
+    return out;
+  }
+
+  function renderWeekLine(){
+    var host = document.getElementById("weekLine");
+    if(!host) return;
+    var start = startOfWeek(calendarViewDate);
+
+    var days = [];
+    for(var i=0;i<7;i++){
+      days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate()+i));
+    }
+    function dstr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
+
+    // The window adapts to the week's own data. A fixed 6am-10pm frame is right
+    // for office hours, but this app explicitly supports overnight shifts
+    // (computeEntry adds 24h to a negative span), and those would otherwise
+    // collapse into an unreadable sliver clamped against the bottom edge.
+    var WL_START_HOUR = WL_DEFAULT_START, WL_END_HOUR = WL_DEFAULT_END;
+    days.forEach(function(d){
+      var e = entries.find(function(x){ return x.date === dstr(d); });
+      if(!e || !e.clockIn) return;
+      var from = timeToMinutes(e.clockIn);
+      var to = e.clockOut ? timeToMinutes(e.clockOut) : from;
+      if(to < from) to += 24*60; // overnight
+      WL_START_HOUR = Math.min(WL_START_HOUR, Math.floor(from/60));
+      WL_END_HOUR   = Math.max(WL_END_HOUR, Math.ceil(to/60));
+    });
+    if(WL_END_HOUR - WL_START_HOUR > 24){ WL_START_HOUR = 0; WL_END_HOUR = 24; }
+    var span = (WL_END_HOUR - WL_START_HOUR) * 60;
+
+    var html = '<div class="wl-dayhead"></div>';
+    days.forEach(function(d){
+      var isToday = dstr(d) === todayStr();
+      html += '<div class="wl-dayhead'+(isToday?' is-today':'')+'">'+
+        DAY_NAMES[d.getDay()]+'<b>'+d.getDate()+'</b></div>';
+    });
+
+    // Hour axis. Labelled every two hours so the column does not become a
+    // stack of touching numerals on a phone.
+    var axis = '<div class="wl-axis" style="grid-row:2;">';
+    var tickStep = (WL_END_HOUR - WL_START_HOUR) > 18 ? 3 : 2;
+    for(var h=WL_START_HOUR; h<=WL_END_HOUR; h+=tickStep){
+      var pct = ((h - WL_START_HOUR) * 60 / span) * 100;
+      axis += '<span style="top:'+pct.toFixed(2)+'%">'+formatTime12(pad2(h)+":00")+'</span>';
+    }
+    html += axis + '</div>';
+
+    var any = false;
+    days.forEach(function(d){
+      var ds = dstr(d);
+      var isToday = ds === todayStr();
+      var cell = '<div class="wl-col'+(isToday?' is-today':'')+'" style="grid-row:2;">';
+      var entry = entries.find(function(e){ return e.date === ds; });
+      if(entry){
+        any = true;
+        var c = computeEntry(entry);
+        if(entry.clockIn){
+          var from = timeToMinutes(entry.clockIn);
+          // An open shift is still running: draw it to now, so the bar grows
+          // through the day instead of showing nothing until you clock out.
+          var toRaw = entry.clockOut ? timeToMinutes(entry.clockOut)
+                    : (isToday ? (new Date().getHours()*60 + new Date().getMinutes()) : from + 30);
+          // Overnight: match computeEntry's rule (a negative span means the
+          // shift crossed midnight) so the bar length equals the hours the
+          // rest of the app credits for that day.
+          if(toRaw < from) toRaw += 24*60;
+          var top = Math.max(0, Math.min(100, ((from - WL_START_HOUR*60) / span) * 100));
+          var bot = Math.max(0, Math.min(100, ((toRaw - WL_START_HOUR*60) / span) * 100));
+          var height = Math.max(2.2, bot - top);
+          var cls = c.open ? "is-open" : (c.diffMin !== null && c.diffMin >= 0 ? "is-met" : "is-under");
+          var label = formatTime12(entry.clockIn) + (entry.clockOut ? "–" + formatTime12(entry.clockOut) : "");
+          cell += '<div class="wl-bar '+cls+'" style="top:'+top.toFixed(2)+'%; height:'+height.toFixed(2)+'%" '+
+            'title="'+escapeAttr(typeLabel(entry.type)+" · "+label)+'">'+escapeHtml(label)+'</div>';
+        } else {
+          cell += '<div class="wl-chip" title="'+escapeAttr(typeLabel(entry.type))+'">'+
+            escapeHtml(typeLabel(entry.type))+'</div>';
+        }
+      }
+      cell += '</div>';
+      html += cell;
+    });
+
+    if(!any){
+      html += '<p class="wl-empty" style="grid-row:3;">Nothing logged this week yet.</p>';
+    }
+    host.innerHTML = html;
+  }
+
+  // One entry point so every caller (nav, Today, tab activation, data reload)
+  // paints whichever view is currently selected.
+  function renderCalendarView(){
+    var grid = document.getElementById("calendarGrid");
+    var week = document.getElementById("weekLine");
+    var label = document.getElementById("calMonthLabel");
+    if(calMode === "week"){
+      grid.hidden = true; grid.style.display = "none";
+      week.hidden = false;
+      renderWeekLine();
+      var s = startOfWeek(calendarViewDate);
+      var e = new Date(s.getFullYear(), s.getMonth(), s.getDate()+6);
+      var sameMonth = s.getMonth() === e.getMonth();
+      // Composed by hand: asking toLocaleDateString for {day, year} alone lets
+      // the runtime render "2026 (day: 22)", which is not a date range.
+      var left = s.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+      var right = sameMonth
+        ? String(e.getDate())
+        : e.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+      label.textContent = left + " – " + right + ", " + e.getFullYear();
+    } else {
+      week.hidden = true;
+      grid.hidden = false; grid.style.display = "";
+      renderCalendar();
+    }
+  }
+
+  document.querySelectorAll("[data-cal-mode]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      calMode = btn.getAttribute("data-cal-mode");
+      document.querySelectorAll("[data-cal-mode]").forEach(function(b){
+        var on = b === btn;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      renderCalendarView();
+    });
   });
-  document.getElementById("calNextBtn").addEventListener("click", function(){
-    calendarViewDate.setMonth(calendarViewDate.getMonth() + 1);
-    renderCalendar();
-  });
+
+  // Nav steps by whichever unit is on screen: a month at a time in month view,
+  // a week at a time in week view.
+  function stepCalendar(dir){
+    if(calMode === "week") calendarViewDate.setDate(calendarViewDate.getDate() + dir*7);
+    else calendarViewDate.setMonth(calendarViewDate.getMonth() + dir);
+    renderCalendarView();
+  }
+  document.getElementById("calPrevBtn").addEventListener("click", function(){ stepCalendar(-1); });
+  document.getElementById("calNextBtn").addEventListener("click", function(){ stepCalendar(1); });
   document.getElementById("calTodayBtn").addEventListener("click", function(){
     calendarViewDate = new Date();
-    renderCalendar();
+    renderCalendarView();
   });
 
   function openNewEntryForm(dateStr){
+    // resetForm() closes the dialog, so it has to run before the open — not
+    // after, or the dialog opens and immediately shuts again.
     resetForm();
     if(dateStr){
       document.getElementById("fDate").value = dateStr;
       document.getElementById("fToDate").value = dateStr;
     }
-    document.getElementById("entryFormSection").classList.add("open");
-    form.scrollIntoView({behavior:"smooth", block:"center"});
+    openEntryModal();
   }
 
   document.getElementById("calendarGrid").addEventListener("click", function(ev){
@@ -2488,7 +3277,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(isEditableTarget(ev.target)) return;
     if(document.querySelector(".modal-overlay")) return;
     ev.preventDefault();
-    document.querySelector('.tab-btn[data-tab="log"]').click();
+    document.querySelector('.tab-btn[data-tab="overview"]').click();
     openNewEntryForm();
     document.getElementById("fDate").focus();
   });
@@ -2524,21 +3313,37 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("pMetRateDetail").textContent = "No scheduled days yet";
     }
 
-    document.getElementById("pShortDays").textContent = s.shortDays;
+    // These three cards ARE the bad news pMetRate above only implies — so,
+    // like it, they carry --negative when there's something to flag rather
+    // than sitting in plain ink regardless of whether shortDays is 0 or 20.
+    var shortCls = "stat-value" + (s.shortDays ? " negative" : "");
+
+    var shortDaysEl = document.getElementById("pShortDays");
+    shortDaysEl.textContent = s.shortDays;
+    shortDaysEl.className = shortCls;
     document.getElementById("pShortDaysDetail").textContent = s.shortDays
       ? (s.missedDays
           ? s.missedDays + " with nothing logged at all"
           : "All partial — some hours were logged")
       : "Nothing flagged";
 
-    document.getElementById("pShortTotal").textContent = s.shortDays ? minutesToHoursStr(s.shortSum) : "—";
+    var shortTotalEl = document.getElementById("pShortTotal");
+    shortTotalEl.textContent = s.shortDays ? minutesToHoursStr(s.shortSum) : "—";
+    shortTotalEl.className = shortCls;
     document.getElementById("pShortTotalDetail").textContent = s.shortDays
       ? "Across " + s.shortDays + " day" + (s.shortDays===1?"":"s")
       : "Nothing owed this period";
 
-    document.getElementById("pAvgShort").textContent = s.shortDays ? minutesToHoursStr(s.avgShortMin) : "—";
+    // At one short day the average IS the total, so showing both puts the same
+    // number on screen twice in crimson and makes one missed day look like
+    // three findings. The card still holds its place in the row — it just
+    // stops restating its neighbour.
+    var avgShortEl = document.getElementById("pAvgShort");
+    var avgIsTotal = s.shortDays === 1;
+    avgShortEl.textContent = (s.shortDays && !avgIsTotal) ? minutesToHoursStr(s.avgShortMin) : "—";
+    avgShortEl.className = avgIsTotal ? "stat-value" : shortCls;
     document.getElementById("pAvgShortDetail").textContent = s.shortDays
-      ? "Per day that fell short"
+      ? (avgIsTotal ? "Only one short day this period" : "Per day that fell short")
       : "Nothing flagged";
 
     // Average shortfall per short day, by month. Follows the year filter but
@@ -2603,7 +3408,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function renderCharts(){
     renderWeekly();
     renderMonthly();
-    renderYearly();
     renderPunctuality();
   }
 
@@ -2612,8 +3416,24 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderStats();
     renderReminder();
     renderBackupReminder();
+    renderOutbox();
     renderLog();
     renderCharts();
+    renderPersonCard();
+    renderWorkingFormat();
+    // Fire-and-forget: it is one row-per-person query for today only, and a
+    // failure inside it must not stop the rest of the repaint. Non-admins
+    // return immediately without touching the network.
+    renderTodayTeam().catch(function(){});
+    // Unconditional, like renderPersonCard()/renderWorkingFormat() above —
+    // cheap field writes, not a network call — so the Settings tab stays
+    // correct even when it's the one already on screen and the viewed
+    // person or role just changed underneath it (see refreshSettingsPanel).
+    refreshSettingsPanel();
+    // Repaint the calendar only when it is the visible tab: it is not part of
+    // the default view, and rendering a hidden panel on every data change is
+    // work nobody sees.
+    if(document.querySelector('.tab-btn[data-tab="calendar"].active')) renderCalendarView();
   }
 
   // ---------- Backup reminder ----------
@@ -2666,20 +3486,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // suppressDialog is set when we're building in response to the browser's own
   // beforeprint — the print dialog is already opening, so calling window.print()
   // again would loop.
-  function buildPrintReport(period, suppressDialog){
-    var rows, title, subtitle;
-    if(period === "year"){
-      var yr = getYearFilter();
-      rows = entries.filter(function(e){ return yearKey(e.date) === yr; });
-      title = "Attendance Report — " + yr;
-      subtitle = "January 1 – December 31, " + yr;
-    } else {
-      var mf = getMonthFilter(), yf = getLogYearFilter();
-      rows = filteredEntries();
-      var scopeLabel = mf !== "all" ? monthLabel(mf) : (yf !== "all" ? yf : "");
-      title = "Attendance Report" + (scopeLabel ? " — " + scopeLabel : "");
-      subtitle = scopeLabel ? scopeLabel : "All recorded days";
-    }
+  // One scope now the Yearly view is gone: whatever the Log's own filters are
+  // showing, which is also what the reader sees on screen when they press it.
+  function buildPrintReport(suppressDialog){
+    var mf = getMonthFilter(), yf = getLogYearFilter();
+    var rows = filteredEntries();
+    var scopeLabel = mf !== "all" ? monthLabel(mf) : (yf !== "all" ? yf : "");
+    var title = "Attendance Report" + (scopeLabel ? " — " + scopeLabel : "");
+    var subtitle = scopeLabel ? scopeLabel : "All recorded days";
     rows = rows.slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
     var s = summarize(rows);
 
@@ -2746,8 +3560,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!suppressDialog) window.print();
   }
 
-  document.getElementById("printBtn").addEventListener("click", function(){ buildPrintReport("month"); });
-  document.getElementById("printYearBtn").addEventListener("click", function(){ buildPrintReport("year"); });
+  document.getElementById("printBtn").addEventListener("click", function(){ buildPrintReport(); });
 
   // The print stylesheet hides the header, main and footer unconditionally and
   // shows only #printArea, which was populated only by the buttons above. So
@@ -2759,7 +3572,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   window.addEventListener("beforeprint", function(){
     var area = document.getElementById("printArea");
     if(area && !area.innerHTML.trim()){
-      buildPrintReport("month", true);
+      buildPrintReport(true);
       printAreaBuilt = true;
     }
   });
@@ -2784,9 +3597,81 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("fOut").value = sched.standardOut;
   });
 
+  // ---------- Entry dialog ----------
+  // The add/edit form used to sit open on the Overview under the clock panel.
+  // It is a dialog now, opened from the + in the Log toolbar, from an Edit
+  // action in the log, and from an empty day in the calendar.
+  var entryModalReturn = null;
+  // The [hidden] flip is deferred until the fade-out finishes. Reopening
+  // inside that window — which every "reset then open" caller does — has to
+  // cancel the pending flip, or the dialog opens and then vanishes 180ms later
+  // when the stale timer lands.
+  var entryModalHideTimer = null;
+
+  function openEntryModal(focusId){
+    var modal = document.getElementById("entryModal");
+    if(!modal) return;
+    var wasOpen = !modal.hidden && modal.classList.contains("show");
+    clearTimeout(entryModalHideTimer);
+    entryModalHideTimer = null;
+    if(!wasOpen) entryModalReturn = document.activeElement;
+    modal.hidden = false;
+    requestAnimationFrame(function(){ modal.classList.add("show"); });
+    document.removeEventListener("keydown", onEntryModalKey);
+    document.addEventListener("keydown", onEntryModalKey);
+    // After the open transition, so focus doesn't land mid-flight and scroll
+    // the card while it is still being transformed.
+    setTimeout(function(){
+      var target = modal.querySelector("#" + (focusId || "fDate"));
+      if(target) target.focus();
+    }, 60);
+  }
+
+  function closeEntryModal(){
+    var modal = document.getElementById("entryModal");
+    if(!modal || modal.hidden) return;
+    modal.classList.remove("show");
+    document.removeEventListener("keydown", onEntryModalKey);
+    clearTimeout(entryModalHideTimer);
+    entryModalHideTimer = setTimeout(function(){ modal.hidden = true; }, 180);
+    if(entryModalReturn && typeof entryModalReturn.focus === "function") entryModalReturn.focus();
+    entryModalReturn = null;
+  }
+
+  function onEntryModalKey(ev){
+    // A confirm dialog opens ON TOP of this one ("replace it?", "is that shift
+    // right?") and installs its own document-level Escape handler. Both would
+    // fire, and this one first, closing the form out from under a confirmation
+    // the user was still answering.
+    if(document.querySelector(".modal-overlay")) return;
+    var modal = document.getElementById("entryModal");
+    if(!modal || modal.hidden) return;
+    if(ev.key === "Escape"){ closeEntryModal(); return; }
+    if(ev.key !== "Tab") return;
+    var els = Array.prototype.slice.call(modal.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter(function(el){ return !el.disabled && el.offsetParent !== null; });
+    if(!els.length) return;
+    var first = els[0], last = els[els.length - 1];
+    if(ev.shiftKey && document.activeElement === first){ ev.preventDefault(); last.focus(); }
+    else if(!ev.shiftKey && document.activeElement === last){ ev.preventDefault(); first.focus(); }
+    else if(!modal.contains(document.activeElement)){ ev.preventDefault(); first.focus(); }
+  }
+
+  document.getElementById("entryModal").addEventListener("click", function(ev){
+    if(ev.target === this) closeEntryModal();
+  });
+  document.getElementById("entryModalClose").addEventListener("click", closeEntryModal);
+  document.getElementById("addEntryBtn").addEventListener("click", function(){ openNewEntryForm(); });
+
   function resetForm(){
     form.reset();
     editingId = null;
+    // Every caller of resetForm() is a "this form is finished or no longer
+    // valid" moment — a successful save, Cancel Edit, or the entry being
+    // deleted underneath it — so all of them should dismiss the dialog.
+    closeEntryModal();
+    document.getElementById("entryModalTitle").textContent = "Add Entry";
     var today = todayStr();
     document.getElementById("fDate").value = today;
     document.getElementById("fToDate").value = today;
@@ -2802,6 +3687,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function loadEntryIntoForm(id){
     var e = entries.find(function(x){ return x.id === id; });
     if(!e) return;
+    // A queued punch has no server row to edit yet, and a day that has one is
+    // about to be written to by the flush — an edit made now would be
+    // overwritten by it without warning. Refuse rather than race.
+    if(e.pending){
+      showToast("That day has a punch that hasn't uploaded yet. It'll be editable once it syncs.", "error");
+      return;
+    }
+    resetForm();
     document.getElementById("fDate").value = e.date;
     document.getElementById("fIn").value = e.clockIn || "";
     document.getElementById("fOut").value = e.clockOut || "";
@@ -2815,9 +3708,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.getElementById("fToDateWrap").style.display = "none";
     document.getElementById("fRangeHint").style.display = "none";
     document.getElementById("fDateLabel").textContent = "Date";
-    document.getElementById("entryFormSection").classList.add("open");
-    form.scrollIntoView({behavior:"smooth", block:"center"});
-    document.getElementById("fOut").focus();
+    document.getElementById("entryModalTitle").textContent = "Edit Entry";
+    // Editing almost always means filling in the clock-out that was never
+    // recorded, so start there rather than on the date that is already right.
+    openEntryModal("fOut");
   }
 
   document.getElementById("fDate").addEventListener("change", function(){
@@ -2835,8 +3729,28 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(toDate.value && toDate.value < this.value) toDate.value = this.value;
   });
 
+  // Every other write control in this app (punchClock, Save Settings) disables
+  // its button before its first `await`, in the same synchronous tick as the
+  // click — this handler didn't, and both `confirmLongShift()` and
+  // `showConfirm()` are themselves async even on their fast, no-dialog path,
+  // which still yields to the microtask queue. A rapid flurry of clicks on
+  // Submit each ran the whole validation chain before the first one reached
+  // its own `btn.disabled = true`, so ten clicks fired ten overlapping inserts
+  // for the same date instead of one — the unique constraint on the table
+  // stops the database from ending up with duplicate rows, but the person
+  // watching the screen saw the button flicker and a stack of "There's
+  // already an entry for that date" errors for what was, from where they were
+  // sitting, one double-tap.
+  var entrySubmitInFlight = false;
   form.addEventListener("submit", async function(ev){
     ev.preventDefault();
+    if(entrySubmitInFlight) return;
+    entrySubmitInFlight = true;
+    try{ await handleEntrySubmit(); }
+    finally{ entrySubmitInFlight = false; }
+  });
+
+  async function handleEntrySubmit(){
     var date = document.getElementById("fDate").value;
     if(!date){ showToast("Pick a date first.", "error"); markFieldInvalid("fDate"); return; }
 
@@ -2890,7 +3804,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }finally{
       btn.disabled = false; btn.textContent = prevText;
     }
-  });
+  }
 
   // Applies one entry template across every scheduled workday in a date
   // range — the "week of planned leave in one go" case. Non-workdays in
@@ -2989,7 +3903,30 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var editId = btn.getAttribute("data-edit");
     var delId = btn.getAttribute("data-del");
     if(editId) loadEntryIntoForm(editId);
-    if(delId && await showConfirm("Delete this entry?", {danger:true, confirmText:"Delete"})){
+    // "Delete this entry?" named nothing, in an app with no undo and thirty-odd
+    // identical Delete links down one column — the trigger's own aria-label
+    // already carried the date, so the screen reader was better informed than
+    // the dialog. Say which day, and what is on it.
+    if(delId){
+      var victim = entries.find(function(e){ return e.id === delId; });
+      // Same reason as the edit guard: there may be no server row to delete,
+      // and deleting one the flush is about to write to would resurrect it.
+      if(victim && victim.pending){
+        showToast("That day has a punch that hasn't uploaded yet. It'll be deletable once it syncs.", "error");
+        return;
+      }
+      var what = "this entry";
+      if(victim){
+        var vc = computeEntry(victim);
+        var detail = vc.workedMin !== null ? minutesToHoursStr(vc.workedMin) : typeLabel(victim.type);
+        what = fmtDate(victim.date) + (detail ? " (" + detail + ")" : "");
+      }
+      if(!await showConfirm(
+        "Delete " + what + "? This can't be undone.",
+        {title:"Delete entry?", danger:true, confirmText:"Delete"}
+      )) return;
+    }
+    if(delId){
       if(editingId === delId) resetForm();
       try{
         await sbDeleteEntry(delId);
@@ -3110,6 +4047,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     seal.classList.add("punched");
   }
 
+  // Same one-shot retrigger technique as pulseSeal(), for the quick-clock
+  // panel's own glow bloom (see .quick-clock.punched in the stylesheet).
+  function pulseQuickClock(){
+    var panel = document.querySelector(".quick-clock");
+    if(!panel) return;
+    panel.classList.remove("punched");
+    void panel.offsetWidth;
+    panel.classList.add("punched");
+  }
+
   // Disabled buttons only stop taps, and punchClock is also reachable
   // programmatically (see the quick-clock dispatch further up). The buttons
   // are the visual affordance; this flag is the actual lock that serialises
@@ -3117,6 +4064,51 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // updateViewingBanner(), which re-enables every clock control before the
   // finally block runs.
   var punchInFlight = false;
+
+  // A shift that crosses midnight puts its clock-out on the calendar day AFTER
+  // its clock-in. punchClock writes to today, which for a night shift left
+  // yesterday open forever and stamped today with a clock-out and no clock-in —
+  // a shape computeEntry cannot score and the Log renders as a broken row.
+  //
+  // The model always supported the shift: computeEntry wraps a negative gross
+  // by 24h, and confirmLongShift talks about a shift "finishing the next
+  // morning". Manual entry could produce one; this entry point could not. That
+  // was the whole defect.
+  //
+  // Returns the date the clock-out belongs to, or null to abort the punch.
+  async function resolveOvernightTarget(today, timeNow){
+    var todayEntry = entries.find(function(x){ return x.date === today; });
+    // Today has a shift of its own open: nothing ambiguous to resolve.
+    if(todayEntry && todayEntry.clockIn) return today;
+
+    var yest = dayBefore(today);
+    var prev = entries.find(function(x){
+      return x.date === yest && x.clockIn && !x.clockOut &&
+             EXCUSED_TYPES.indexOf(x.type) === -1;
+    });
+    if(!prev) return today;
+
+    // How long the shift would have run, measured across the midnight boundary.
+    // Past the long-shift ceiling this is a forgotten clock-out rather than a
+    // night shift, and the reminder banner already owns that case — silently
+    // offering to backdate a 20-hour day would turn one missed punch into a
+    // wrong record, which is worse than the row it is trying to avoid.
+    var elapsed = (24*60 - timeToMinutes(prev.clockIn)) + timeToMinutes(timeNow);
+    if(elapsed >= LONG_SHIFT_MIN) return today;
+
+    var ok = await showConfirm(
+      "You clocked in on " + fmtDate(yest) + " at " + formatTime12(prev.clockIn) +
+      " and never clocked out. Recording it there makes a " +
+      minutesToHoursStr(elapsed) + " shift ending this morning.",
+      {title:"Close yesterday's shift?", confirmText:"Yes, close it", cancelText:"Go Back"}
+    );
+    if(ok) return yest;
+    // Deliberately nothing rather than falling back to today: a clock-out on a
+    // day with no clock-in is the exact row this function exists to prevent.
+    showToast("Nothing recorded. Use the reminder at the top of the page to fix " +
+              fmtDate(yest) + ", or edit the day directly.", "error");
+    return null;
+  }
 
   async function punchClock(kind){
     if(punchInFlight) return;
@@ -3127,15 +4119,24 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var today = todayStr();
     var timeNow = nowTimeStr();
     var field = kind === "in" ? "clockIn" : "clockOut";
-    var existing = entries.find(function(x){ return x.date === today; });
+
+    // Which calendar day this punch belongs to. A clock-in always starts today;
+    // a clock-out may be closing a shift that began before midnight.
+    var targetDate = today;
+    if(kind === "out"){
+      targetDate = await resolveOvernightTarget(today, timeNow);
+      if(targetDate === null) return;
+    }
+    var isYesterday = targetDate !== today;
+    var existing = entries.find(function(x){ return x.date === targetDate; });
 
     if(existing && existing[field]){
-      if(!(await showConfirm("You already clocked "+kind+" today at "+formatTime12(existing[field])+". Replace it with "+formatTime12(timeNow)+"?", {confirmText:"Replace"}))) return;
+      if(!(await showConfirm("You already clocked "+kind+" "+(isYesterday ? "on "+fmtDate(targetDate) : "today")+" at "+formatTime12(existing[field])+". Replace it with "+formatTime12(timeNow)+"?", {confirmText:"Replace"}))) return;
     }
 
     var payload = existing
-      ? {date: today, clockIn: existing.clockIn, clockOut: existing.clockOut, type: existing.type, note: existing.note}
-      : {date: today, clockIn: "", clockOut: "", type: "regular", note: ""};
+      ? {date: targetDate, clockIn: existing.clockIn, clockOut: existing.clockOut, type: existing.type, note: existing.note}
+      : {date: targetDate, clockIn: "", clockOut: "", type: "regular", note: ""};
     payload[field] = timeNow;
 
     // Every clock control calls this same function — desktop quick-clock,
@@ -3154,26 +4155,52 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var bnClockBtnEl = document.getElementById("bnClockBtn");
     if(bnClockBtnEl) bnClockBtnEl.classList.add("disabled");
     try{
+      // navigator.onLine is only trustworthy in the negative: false means there
+      // is certainly no route out, true means only that an interface is up (a
+      // captive portal reports true). So it is used to skip a request that is
+      // guaranteed to fail — a punch should not wait out a fetch timeout — and
+      // never to conclude that one will succeed. That case is handled by
+      // catching the failure below.
+      if(navigator.onLine === false) throw OFFLINE;
       var saved = await sbUpsertEntry(currentUser.id, payload, existing ? existing.id : null);
-      if(kind === "in"){ delete dismissedReminders[today]; persistDismissals(); }
+      // Clearing on the way out as well as the way in: a day that has just been
+      // closed should not stay on the dismissed list, or re-opening it later
+      // (an edit that blanks the clock-out) would come back un-remindable.
+      delete dismissedReminders[targetDate];
+      persistDismissals();
 
       if(editingId === (existing && existing.id)){
         document.getElementById(kind === "in" ? "fIn" : "fOut").value = timeNow;
-      } else if(!editingId && document.getElementById("fDate").value === today){
+      } else if(!editingId && document.getElementById("fDate").value === targetDate){
         document.getElementById(kind === "in" ? "fIn" : "fOut").value = timeNow;
       }
 
       await loadDataForViewedUser();
       pulseSeal();
+      pulseQuickClock();
 
-      var msg = "Clocked " + kind + " at " + formatTime12(timeNow) + " · " + fmtDate(today);
+      var msg = "Clocked " + kind + " at " + formatTime12(timeNow) + " · " + fmtDate(targetDate);
       if(kind === "out"){
         var c = computeEntry(saved);
         if(c.workedMin !== null) msg += " · " + minutesToHoursStr(c.workedMin) + " worked";
       }
       showQcNote(msg, true);
     }catch(err){
-      showToast("Couldn't record that: " + friendlyError(err), "error");
+      if(isNetworkError(err)){
+        queuePunch(currentUser.id, targetDate, field, timeNow);
+        // Shown exactly the way a saved punch is shown, because from the
+        // record's point of view it IS one — the time is captured and it is
+        // the upload that is outstanding. The banner carries that distinction;
+        // making the punch look like it failed would only get it repeated.
+        entries = applyOutbox(entries, currentUser.id);
+        renderAll();
+        pulseSeal();
+        pulseQuickClock();
+        showQcNote("Clocked " + kind + " at " + formatTime12(timeNow) + " · " +
+                   fmtDate(targetDate) + " · saved on this device, uploads when you're back online", true);
+      } else {
+        showToast("Couldn't record that: " + friendlyError(err), "error");
+      }
     }finally{
       punchInFlight = false;
       clockBtns.forEach(function(b){ b.disabled = false; });
@@ -3217,9 +4244,21 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   var stickyClockEl = document.getElementById("stickyClock");
   var mainQuickClockEl = document.querySelector(".quick-clock");
   var mainClockCurrentlyVisible = true;
+  // Driven purely by whether the real quick-clock panel (on Overview) is on
+  // screen — the same IntersectionObserver-based mechanism that already
+  // covers switching to Log, Trends, or any other tab. Settings used to be
+  // an inline card rather than a tab and needed an explicit exception here;
+  // now that it's a tab like the others, activating it hides Overview (and
+  // the observed panel with it) exactly the same way, so no special case is
+  // needed.
   function updateStickyClockVisibility(){
-    var settingsOpen = document.getElementById("settingsCard").classList.contains("open");
-    stickyClockEl.classList.toggle("show", !mainClockCurrentlyVisible && isOwnData && !settingsOpen);
+    var show = !mainClockCurrentlyVisible && isOwnData;
+    stickyClockEl.classList.toggle("show", show);
+    // The bar floats over the bottom of the viewport, and above 1100px the
+    // frame no longer scrolls out from under it — so the panel underneath has
+    // to leave room at the end of its scroll. Carried on <body> because the
+    // bar is a sibling of the shell, not of the panel that has to react.
+    document.body.classList.toggle("sticky-clock-up", show);
   }
   if(stickyClockEl && mainQuickClockEl && "IntersectionObserver" in window){
     var stickyObserver = new IntersectionObserver(function(entriesList){
@@ -3257,8 +4296,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
     document.getElementById("monthlyFilterWrap").style.display =
       (tab === "trends" && subtab === "monthly") ? "flex" : "none";
-    document.getElementById("yearFilterWrap").style.display =
-      (tab === "trends" && subtab === "yearly") ? "flex" : "none";
     document.getElementById("punctFilterWrap").style.display = (tab === "punctuality") ? "flex" : "none";
     document.getElementById("trendsSubTabs").style.display = (tab === "trends") ? "flex" : "none";
   }
@@ -3266,7 +4303,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   function renderSubtab(subtab){
     if(subtab === "weekly") renderWeekly();
     if(subtab === "monthly") renderMonthly();
-    if(subtab === "yearly") renderYearly();
   }
 
   document.querySelectorAll(".sub-tab-btn").forEach(function(btn){
@@ -3299,9 +4335,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.querySelectorAll("#bottomNav .bn-spacer").forEach(function(s){ s.remove(); });
 
     // Admin is deliberately absent: it moved to the header, which is on screen
-    // on phones too, and leaving it here would push the nav to six slots and
+    // on phones too, and leaving it here would push the nav past six slots and
     // knock the centred clock button off balance.
-    var order = ["log", "trends", "calendar", "punctuality"].concat(isAdmin ? ["team"] : []);
+    //
+    // Every tab is listed, including Overview, which now leads. That is six
+    // slots for an admin and the labels get tight at 320px — but the rail is
+    // hidden below 760px and the tab strip with it, so anything dropped here
+    // would be unreachable on a phone entirely rather than merely crowded.
+    var order = ["overview", "log", "trends", "calendar", "punctuality"]
+      .concat(isAdmin ? ["team"] : []);
 
     // Return anything no longer in scope to the hidden pool FIRST. Without this,
     // an admin who demoted themselves kept Team and Admin sitting in the visible
@@ -3335,6 +4377,42 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   }
 
+  // Slides the rail's one accent bar to whichever .rail-item is active,
+  // instead of a bar popping in on the new item while the old one just
+  // vanishes. Re-run on every tab change, on the role-based show/hide of the
+  // Team and Admin items (those shift every row below them), and on resize —
+  // the rail collapses to the bottom nav under 760px, so a stale transform
+  // computed at a wider width would land the bar in the wrong place if the
+  // window is later grown back past that breakpoint without a tab change.
+  function positionRailIndicator(){
+    var bar = document.getElementById("railNavIndicator");
+    var nav = document.getElementById("railNav");
+    if(!bar || !nav) return;
+    var active = nav.querySelector(".rail-item.active");
+    // offsetParent is null while the rail itself is display:none (mobile) or
+    // before the active item has ever been laid out — bail rather than
+    // transform to a meaningless 0,0.
+    if(!active || !active.offsetParent){ bar.classList.remove("on"); return; }
+    var navTop = nav.getBoundingClientRect().top;
+    var itemRect = active.getBoundingClientRect();
+    var y = itemRect.top - navTop + itemRect.height / 2 - bar.offsetHeight / 2;
+    bar.style.transform = "translateY(" + y + "px)";
+    bar.classList.add("on");
+  }
+  window.addEventListener("resize", positionRailIndicator);
+
+  // The one tab whose content is sized to its container rather than to itself:
+  // the month grid's cells stretch to whatever height the frame gives them, and
+  // a card that hugged would collapse them to a strip.
+  //
+  // Not the two chart tabs, despite the temptation. Their chart-holder is
+  // deliberately flex:0 1 auto — a four-point line stretched to fill a tall
+  // panel reads as a chart with something missing (see the note on
+  // #tab-trends .chart-holder in index.html) — so filling the frame there
+  // only moves the empty space from under the card to inside it. Hugging puts
+  // the card's edge right below the content, and the canvas takes the rest.
+  var CARD_FILLS_FRAME = ["calendar"];
+
   // One activation path for every control that can open a panel: the tab strip,
   // the mobile bottom nav, and the header's Admin button — which is not a tab at
   // all, since managing the organisation is not a view of your own attendance.
@@ -3352,26 +4430,81 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     document.querySelectorAll(".tab-panel").forEach(function(p){ p.classList.remove("active"); });
     panel.classList.add("active");
 
+
     // Admin lives outside the tablist, so its own trigger carries the state.
     var adminBtn = document.getElementById("adminBtn");
     if(adminBtn) adminBtn.setAttribute("aria-current", tab === "admin" ? "page" : "false");
 
+    // Overview lives outside #tabContentCard so its own cards sit on the
+    // canvas rather than nesting inside one big card. That means the card
+    // wrapper has to be hidden when Overview is the active tab, or an empty
+    // white panel is left standing under it.
+    var tabCard = document.getElementById("tabContentCard");
+    if(tabCard) tabCard.hidden = (tab === "overview");
+
+    // Above 1100px the card hugs its content, so a short tab no longer leaves a
+    // tall empty rectangle under it. These three are the exception: a chart and
+    // a month grid are drawn to whatever height they are given, so their card
+    // still takes the whole frame. See #tabContentCard.fill in index.html.
+    if(tabCard) tabCard.classList.toggle("fill", CARD_FILLS_FRAME.indexOf(tab) !== -1);
+
     applyFilterBarVisibility(tab, activeSubtab());
 
+    if(tab === "overview"){
+      renderStats();
+      renderPersonCard();
+      renderWorkingFormat();
+      renderTodayTeam().catch(function(){});
+    }
     if(tab === "trends") renderSubtab(activeSubtab());
-    if(tab === "calendar") renderCalendar();
+    if(tab === "calendar") renderCalendarView();
     if(tab === "punctuality") renderPunctuality();
     if(tab === "team") renderTeam();
     if(tab === "admin") renderAdmin();
+    if(tab === "settings") refreshSettingsPanel();
 
     document.querySelectorAll(".bn-item").forEach(function(b){
       b.classList.toggle("active", b.getAttribute("data-bn-tab") === tab);
     });
+    // The rail mirrors the same active state. Admin is not a tab, so it is
+    // matched on its action attribute rather than data-rail-tab. aria-current
+    // carries the state to assistive tech: the rail is a plain <nav>, not a
+    // tablist, and the real tab strip it delegates to is display:none, so the
+    // active class alone would be invisible to a screen reader.
+    document.querySelectorAll(".rail-item").forEach(function(b){
+      var isTab = b.getAttribute("data-rail-tab") === tab;
+      var isAdmin = b.getAttribute("data-rail-action") === "admin" && tab === "admin";
+      var on = isTab || isAdmin;
+      b.classList.toggle("active", on);
+      if(on) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
+    });
+    positionRailIndicator();
+
+    // A tab you come back to opens at the top of its list, not wherever you
+    // had scrolled it to on the last visit.
+    if(panel) panel.scrollTop = 0;
   }
 
   document.querySelectorAll(".tab-btn").forEach(function(btn){
     btn.addEventListener("click", function(){
       activateTab(btn.getAttribute("data-tab"));
+    });
+  });
+
+  // The rail is the same thin layer over the real controls that the bottom nav
+  // is: a tab item clicks its .tab-btn, and Admin — the one destination that
+  // isn't a tab — clicks its own existing header button, so its admin guard
+  // and scroll behaviour aren't duplicated here.
+  document.querySelectorAll(".rail-item").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var action = btn.getAttribute("data-rail-action");
+      if(action === "admin"){
+        document.getElementById("adminBtn").click();
+        return;
+      }
+      var realTab = document.querySelector('.tab-btn[data-tab="'+btn.getAttribute("data-rail-tab")+'"]');
+      if(realTab) realTab.click();
     });
   });
 
@@ -3390,6 +4523,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       // during that time whatever content is scrolling past visibly slides
       // behind the fixed nav. A tab switch should feel immediate.
       var target = document.getElementById("tabContentCard");
+      if(target && target.hidden) target = document.getElementById("tab-overview");
       if(target){
         var top = target.getBoundingClientRect().top + window.scrollY - 12;
         window.scrollTo(0, Math.max(0, top));
@@ -3420,7 +4554,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   ["searchInput","typeFilterSelect","fromDate","toDate"].forEach(function(id){
     var el = document.getElementById(id);
     el.addEventListener(id === "searchInput" ? "input" : "change", function(){
-      logVisibleCount = LOG_PAGE_SIZE;
+      // Back to the first chunk: this is a different list now.
+      logScrollLimit = LOG_SCROLL_CHUNK;
       renderLog();
       updateAdvancedFilterBadge();
     });
@@ -3455,7 +4590,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     renderWeekly();
     updateAdvancedFilterBadge();
   });
-  document.getElementById("yearFilterSelect").addEventListener("change", renderYearly);
 
   // ---------- Export / import ----------
   function download(filename, content, mime){
@@ -4053,11 +5187,407 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
+  // Below 760px the first visible notice stays open and the rest fold behind a
+  // counted button. Nothing is dismissed for the person: the count names how
+  // many are waiting and one tap opens them all. Above 760px the fold does not
+  // apply and this only has to keep the button hidden.
+  // Below 760px the first visible notice stays open and the rest fold behind a
+  // counted button. Nothing is dismissed for the person: the count names how
+  // many are waiting and one tap opens them all. Above 760px the fold does not
+  // apply and this only has to keep the button hidden.
+  //
+  // The observer is disconnected across our own writes. Watching class on this
+  // subtree while also writing .is-folded onto it re-queued the callback on
+  // every pass — classList still emits an attribute record when the class is
+  // already in the state you asked for — and the resulting microtask loop
+  // starved the main thread badly enough that the load event never fired.
+  var noticeObserver = null;
+  function syncNoticeStack(){
+    var stack = document.getElementById("noticeStack");
+    var more = document.getElementById("noticeMore");
+    if(!stack || !more) return;
+    if(noticeObserver) noticeObserver.disconnect();
+    try{
+      var shown = Array.prototype.filter.call(
+        stack.querySelectorAll(".reminder"),
+        function(n){ return n.classList.contains("show"); }
+      );
+      shown.forEach(function(n, i){ n.classList.toggle("is-folded", i > 0); });
+      var extra = Math.max(0, shown.length - 1);
+      more.hidden = extra === 0;
+      if(extra){
+        var open = stack.classList.contains("is-open");
+        more.textContent = open
+          ? "Show less"
+          : extra + (extra === 1 ? " more notice" : " more notices");
+        more.setAttribute("aria-expanded", open ? "true" : "false");
+      } else {
+        stack.classList.remove("is-open");
+      }
+    } finally {
+      if(noticeObserver) noticeObserver.observe(stack, {
+        subtree: true, attributes: true, attributeFilter: ["class"]
+      });
+    }
+  }
+
+  document.getElementById("noticeMore").addEventListener("click", function(){
+    document.getElementById("noticeStack").classList.toggle("is-open");
+    syncNoticeStack();
+  });
+
+  // The banners each toggle .show from their own render path, so rather than
+  // teaching every one of them to call back here, watch the region.
+  (function watchNotices(){
+    var stack = document.getElementById("noticeStack");
+    if(!stack || typeof MutationObserver === "undefined") return;
+    noticeObserver = new MutationObserver(syncNoticeStack);
+    syncNoticeStack();
+  })();
+
+  document.getElementById("sApplyAll").addEventListener("change", syncApplyAllScope);
+
+  // Sign out used to fire straight off an unlabelled crimson circle sitting a
+  // thumb's width from Settings, at the top of the phone screen someone opens
+  // one-handed on the way in. Getting it wrong costs an email and a password
+  // before you can clock in, so it asks first.
   document.getElementById("logoutBtn").addEventListener("click", async function(){
+    var ok = await showConfirm(
+      "You'll need your email and password to get back in.",
+      {title:"Sign out?", confirmText:"Sign out", danger:true}
+    );
+    if(!ok) return;
     await supabase.auth.signOut();
+  });
+  // The rail's sign-out control proxies to the real button above rather than
+  // duplicating its logic — the same pattern .rail-item already uses for
+  // Admin and Settings.
+  document.getElementById("railLogoutBtn").addEventListener("click", function(){
+    document.getElementById("logoutBtn").click();
   });
 
   // ---------- Admin: viewer switcher + Team tab ----------
+  // ---------- Person card ----------
+  // Whose record is on screen. For your own data that is you; when an admin
+  // switches to someone else it becomes them, which makes the target of every
+  // edit concrete rather than leaving it to the banner alone.
+  function renderPersonCard(){
+    var media = document.getElementById("portraitMedia");
+    if(!media) return;
+
+    // The portrait is the one card that must never render as an empty box, so
+    // this no longer bails when the profile is missing. It used to return early
+    // on a falsy `who`, and every early return and every throw below it left
+    // #portraitMedia with the empty innerHTML it ships with — which is exactly
+    // how it was found in the wild: a 363x332 hole where a face belongs, with
+    // no error to explain it. currentUser is enough to draw an initial, and
+    // this function is called from the sign-in bootstrap where the profile may
+    // legitimately not have landed yet.
+    var who = (!isOwnData && viewedProfile) ? viewedProfile : currentProfile;
+    if(!who) who = currentUser || null;
+
+    var label = (who && (who.full_name || who.email)) || "";
+
+    // The picture first, before anything that could throw. The status pill and
+    // the name below it are separate facts; a failure computing either must not
+    // be able to blank the photograph. Any teammate's photo can render here now
+    // (Storage is shared, not device-local) — an admin viewing someone else
+    // sees that person's real picture, not a placeholder.
+    var key = who ? avatarCacheKey(who) : null;
+    var cached = key ? avatarBlobCache[key] : null;
+    if(who && who.avatar_updated_at){
+      media.setAttribute("data-avatar-id", who.id);
+      media.setAttribute("data-avatar-v", String(who.avatar_updated_at));
+    } else {
+      media.removeAttribute("data-avatar-id");
+      media.removeAttribute("data-avatar-v");
+    }
+    media.innerHTML = cached
+      ? '<img src="'+escapeAttr(cached)+'" alt="">'
+      : '<span class="portrait-mono" aria-hidden="true">'+
+          escapeHtml(label ? initialsOf(label) : "—")+'</span>';
+    hydrateAvatars(media);
+
+    var nameEl = document.getElementById("personName");
+    if(nameEl) nameEl.textContent = label || "—";
+    var roleEl = document.getElementById("personRole");
+    if(roleEl){
+      roleEl.textContent = who && who.role
+        ? (who.role === "admin" ? "Admin" : "Employee") + (isOwnData ? "" : " · viewing")
+        : "";
+    }
+
+    var pill = document.getElementById("personStatus");
+    if(pill){
+      try{
+        var st = teamStatus(entries, settings);
+        pill.hidden = false;
+        pill.className = "team-status " + st.cls;
+        pill.textContent = st.label;
+      }catch(err){
+        // Today's status is the least important thing in this card; losing it
+        // must not cost the photo above it.
+        pill.hidden = true;
+      }
+    }
+  }
+
+  // ---------- Day types ----------
+  // Every day type logged this month — Regular through Other, whatever
+  // actually occurs — rather than the three worked-only buckets (Office/
+  // Remote/Off-site) this replaced. A month of annual leave now shows as
+  // 100% Annual Leave instead of reading as no data.
+  //
+  // One fixed colour per type, keyed off TYPE_LABELS so a legend entry is
+  // never left unlabelled. Reuses existing tokens rather than inventing a
+  // wider accent set: the three Fill-Only accents (mint/gold/blush) for the
+  // types the old buckets already covered, then the status hues for the
+  // rest, which read as loosely on-theme (sick=red, holiday=green) without
+  // requiring the palette to grow.
+  var DAY_TYPE_COLORS = {
+    regular:"var(--mint)", wfh:"var(--gold)", halfleave:"var(--gold-light)",
+    leave:"var(--blush)", sick:"var(--negative-solid)", trip:"var(--ink-600)",
+    training:"var(--warn)", holiday:"var(--positive)", other:"var(--muted-2)"
+  };
+
+  // Largest-remainder rounding, so the shares always total 100. Rounding each
+  // independently produced legends reading 34/33/34 and 33/33/33 for the very
+  // same split, depending only on where the fractions fell.
+  function pctSplit(counts, total){
+    var raw = counts.map(function(c){ return (c / total) * 100; });
+    var out = raw.map(function(v){ return Math.floor(v); });
+    var short = 100 - out.reduce(function(a, b){ return a + b; }, 0);
+    raw.map(function(v, i){ return {i:i, rem:v - Math.floor(v)}; })
+       .sort(function(a, b){ return b.rem - a.rem; })
+       .slice(0, Math.max(0, short))
+       .forEach(function(x){ out[x.i] += 1; });
+    return out;
+  }
+
+  function renderWorkingFormat(){
+    var dial = document.getElementById("formatDial");
+    var legend = document.getElementById("formatLegend");
+    var period = document.getElementById("heroMonthLabel");
+    if(!dial || !legend) return;
+    if(period){
+      period.textContent = new Date().toLocaleDateString(undefined, {month:"long", year:"numeric"});
+    }
+
+    var mk = monthKey(todayStr());
+    var month = entries.filter(function(e){ return monthKey(e.date) === mk; });
+    // Canonical TYPE_LABELS order, but only the types that actually occurred —
+    // an entry-less type would just be a zero-percent legend row nobody needs.
+    var active = Object.keys(TYPE_LABELS).map(function(type){
+      return {type:type, label:TYPE_LABELS[type], color:DAY_TYPE_COLORS[type],
+        count:month.filter(function(e){ return (e.type || "regular") === type; }).length};
+    }).filter(function(b){ return b.count > 0; });
+    var total = active.reduce(function(sum, b){ return sum + b.count; }, 0);
+    dial.closest(".format-card").classList.toggle("no-days", !total);
+
+    if(!total){
+      dial.innerHTML = '<p class="format-empty">No days logged this month yet.</p>';
+      legend.innerHTML = "";
+      updateFormatLegendScrollHint();
+      return;
+    }
+
+    var pcts = pctSplit(active.map(function(b){ return b.count; }), total);
+    // One ring, segments stacked end to end rather than the old concentric
+    // rings — those only read cleanly for a fixed 3-way split; day types can
+    // run to 9. Each segment is its own circle at a shared radius, advanced by
+    // the running total of arc-length already drawn. Rotated -90° on the group
+    // so the stack starts at twelve o'clock, same as before.
+    // R/SW sized to fill more of the 120-unit viewBox: outer edge at 110 of
+    // 120 units (5-unit margin each side), vs. the previous 44/13's 101 —
+    // the ring was reading as small inside a card with a lot of open space
+    // around it, not because the card lacked room but because the ring
+    // wasn't using it.
+    var C = 60, R = 48, SW = 14, circ = 2 * Math.PI * R;
+    // A divider between segments, so the boundary rather than the fill is what
+    // has to clear WCAG 1.4.11's 3:1 — see .format-ring-edge in the sheet. Only
+    // when there is more than one segment: a single type filling the ring has
+    // no neighbour to be told apart from, and a gap there would read as a
+    // missing slice. Held to a third of the smallest arc so a one-day sliver
+    // survives being trimmed.
+    var GAP = active.length > 1
+      ? Math.min(1.6, circ * Math.min.apply(null, active.map(function(b){ return b.count / total; })) / 3)
+      : 0;
+    var cum = 0;
+    var rings = '<circle class="format-ring-track" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'"/>' +
+      active.map(function(b){
+        var shown = circ * (b.count / total);
+        var drawn = Math.max(0.5, shown - GAP);
+        var seg = '<circle class="format-ring" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'" ' +
+          'stroke="'+b.color+'" stroke-dasharray="'+drawn.toFixed(2)+' '+(circ - drawn).toFixed(2)+'" ' +
+          'stroke-dashoffset="'+(-cum).toFixed(2)+'"/>';
+        cum += shown;
+        return seg;
+      }).join("") +
+      // Inner and outer hairlines, drawn last so they sit over the fills.
+      '<circle class="format-ring-edge" cx="'+C+'" cy="'+C+'" r="'+(R + SW / 2).toFixed(2)+'" fill="none" stroke-width=".8"/>' +
+      '<circle class="format-ring-edge" cx="'+C+'" cy="'+C+'" r="'+(R - SW / 2).toFixed(2)+'" fill="none" stroke-width=".8"/>';
+
+    // The centre readout is drawn inside the svg so it scales with the ring —
+    // as an HTML overlay it kept a fixed size while the dial shrank with the
+    // row, and spilled out of the hole on a short viewport.
+    var summary = total + " days: " +
+      active.map(function(b, i){ return pcts[i] + "% " + b.label; }).join(", ");
+    dial.innerHTML =
+      '<svg viewBox="0 0 120 120" role="img" aria-label="'+escapeAttr(summary)+'">'+
+        '<g transform="rotate(-90 '+C+' '+C+')">'+rings+'</g>'+
+        '<text class="format-count" x="'+C+'" y="'+(C + 1)+'" '+
+          'text-anchor="middle" dominant-baseline="middle">'+total+'</text>'+
+        '<text class="format-count-label" x="'+C+'" y="'+(C + 12)+'" '+
+          'text-anchor="middle" dominant-baseline="middle">DAYS</text>'+
+      '</svg>';
+
+    // Every other chart in the app (bar, trend line, sparkline) draws its
+    // data in on render; this ring popped in fully formed because its
+    // dasharray/dashoffset already encode real data rather than a 0-1 draw
+    // fraction like .trend-line's pathLength trick, so it can't be a plain
+    // CSS keyframe — each segment's start and length are per-render values.
+    // Growing stroke-dasharray's first number from 0 up to its real length,
+    // with stroke-dashoffset left untouched, sweeps each segment out from its
+    // true starting angle to its true end angle: never a wrong intermediate
+    // shape, just an incomplete one. Web Animations API, not CSS, because the
+    // target value is dynamic per segment — and NOT covered by the sheet's
+    // blanket prefers-reduced-motion override (that only intercepts CSS
+    // transition/animation durations), so it's gated here explicitly.
+    if(!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)){
+      dial.querySelectorAll(".format-ring").forEach(function(ring, i){
+        var full = ring.getAttribute("stroke-dasharray");
+        ring.animate(
+          [{strokeDasharray: "0 " + circ.toFixed(2)}, {strokeDasharray: full}],
+          {duration: 520, delay: i * 70, easing: "cubic-bezier(.22,1,.36,1)", fill: "backwards"}
+        );
+      });
+    }
+
+    legend.innerHTML = active.map(function(b, i){
+      return '<div class="format-leg">'+
+        '<div class="format-leg-top">'+
+          '<i class="format-leg-dot" style="background:'+b.color+'"></i>'+
+          '<span class="format-leg-pct">'+pcts[i]+'%</span>'+
+        '</div>'+
+        '<span class="format-leg-label">'+escapeHtml(b.label)+'</span>'+
+      '</div>';
+    }).join("");
+    updateFormatLegendScrollHint();
+  }
+
+  // A legend cut short read identically to one that just... ended — nothing
+  // told you the card's edge wasn't the last day type. Same fix as the tab
+  // strip's edge fade (updateTabsScrollHint above): fade in only once there
+  // is genuinely more to scroll to, so a legend that fits gets no fade.
+  function updateFormatLegendScrollHint(){
+    var legend = document.getElementById("formatLegend");
+    var card = legend && legend.closest(".format-card");
+    if(!legend || !card) return;
+    card.classList.toggle("can-scroll-legend",
+      legend.scrollHeight - legend.scrollTop - legend.clientHeight > 4);
+  }
+
+  // The Overview used to measure its own height here (fitOverview wrote an
+  // --ov-chrome custom property on every resize) because the page was a
+  // scrolling document and the chrome around the panel moved. The shell is a
+  // fixed frame above 1100px now — see "One screen per tab" in index.html — so
+  // the panel gets its height from the flex layout and no measurement is left
+  // to keep in sync.
+  window.addEventListener("resize", updateFormatLegendScrollHint);
+  var formatLegendEl = document.getElementById("formatLegend");
+  if(formatLegendEl) formatLegendEl.addEventListener("scroll", updateFormatLegendScrollHint);
+
+  // ---------- Today's team ----------
+  // Admin-only "who is in today". Deliberately its own one-day query rather
+  // than reusing the Team tab's cache: that cache is built by renderTeam(),
+  // which pulls a whole month for every user, and this panel is on the default
+  // screen where that would be the heaviest thing on the page.
+  async function renderTodayTeam(){
+    var card = document.getElementById("todayTeamCard");
+    // .solo drops the Overview grid to two columns; without it the roster's
+    // column would stay behind as dead space for every non-admin.
+    var panel = document.getElementById("tab-overview");
+    if(!card) return;
+    if(!isAdmin){
+      card.hidden = true;
+      if(panel) panel.classList.add("solo");
+      return;
+    }
+    card.hidden = false;
+    if(panel) panel.classList.remove("solo");
+
+    var list = document.getElementById("todayTeamList");
+    var countEl = document.getElementById("todayTeamCount");
+    var today = todayStr();
+    var byUser = {};
+    try{
+      var res = await supabase.from("entries")
+        .select("user_id,date,clock_in,clock_out,type")
+        .eq("date", today);
+      if(res.error) throw res.error;
+      (res.data || []).forEach(function(row){
+        (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
+      });
+    }catch(err){
+      // Names the problem and the way back, in the same shape as the empty
+      // state, so a failure does not read as "nobody is in today".
+      list.innerHTML = '<div class="tt-empty">'+
+        '<p class="tt-empty-head">Couldn\'t load today</p>'+
+        '<p class="tt-empty-sub">'+escapeHtml(friendlyError(err))+
+          ' Reload the page to try again.</p>'+
+        '</div>';
+      if(countEl) countEl.textContent = "";
+      return;
+    }
+
+    var settingsByUser = await loadTeamSettings();
+    // Only people who actually punched in today — not the whole roster with
+    // its day-offs and not-yet-arriveds cluttering the list. Still-in first,
+    // then whoever's already done, alphabetically within each.
+    var rows = allProfiles
+      .map(function(p){
+        var own = settingsByUser[p.id] || normalizeSettings({});
+        return {p: p, st: teamStatus(byUser[p.id] || [], own)};
+      })
+      .filter(function(r){ return r.st.cls === "in" || r.st.cls === "done"; });
+    var order = {in:0, done:1};
+    rows.sort(function(a,b){
+      var d = (order[a.st.cls] || 9) - (order[b.st.cls] || 9);
+      return d || (a.p.full_name || a.p.email).localeCompare(b.p.full_name || b.p.email);
+    });
+
+    if(!rows.length){
+      list.innerHTML = '<div class="tt-empty">'+
+        '<p class="tt-empty-head">Nobody has clocked in yet</p>'+
+        '<p class="tt-empty-sub">Names appear here as people start their day.</p>'+
+        '</div>';
+      if(countEl) countEl.textContent = "";
+      return;
+    }
+    if(countEl){
+      var inNow = rows.filter(function(r){ return r.st.cls === "in"; }).length;
+      countEl.textContent = inNow
+        ? inNow + " in now"
+        : rows.length + " clocked in today";
+    }
+    list.innerHTML = rows.map(function(r){
+      var name = r.p.full_name || r.p.email;
+      // Filled for a settled day, lime while a shift is running, an open ring
+      // for anything still outstanding.
+      var checkCls = r.st.cls === "in" ? " is-in"
+                   : (r.st.cls === "done" || r.st.cls === "excused" || r.st.cls === "off") ? " is-done" : "";
+      return '<div class="tt-row">'+
+        avatarSlotHtml(r.p)+
+        '<span class="tt-name" dir="auto">'+escapeHtml(name)+'</span>'+
+        '<span class="team-status '+r.st.cls+'">'+escapeHtml(r.st.label)+'</span>'+
+        '<span class="tt-check'+checkCls+'" aria-hidden="true">'+
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'+
+        '</span>'+
+      '</div>';
+    }).join("");
+    hydrateAvatars(list);
+  }
+
   function updateViewingBanner(){
     var banner = document.getElementById("viewingOtherBanner");
     var qc = document.querySelector(".quick-clock");
@@ -4085,7 +5615,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   async function loadAllProfilesForSwitcher(){
     try{
-      var res = await supabase.from("profiles").select("id,email,full_name,role").order("email");
+      var res = await supabase.from("profiles")
+        .select("id,email,full_name,role,avatar_updated_at").order("email");
       if(res.error) throw res.error;
       allProfiles = res.data || [];
     }catch(err){
@@ -4107,7 +5638,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     viewedUserId = newId;
     viewedProfile = allProfiles.find(function(p){ return p.id === newId; }) || null;
     resetForm();
-    document.getElementById("settingsCard").classList.remove("open");
+    // No explicit Settings refresh needed here: loadDataForViewedUser()
+    // calls renderAll(), which refreshes the Settings tab unconditionally
+    // (see refreshSettingsPanel) — including its "editing X's schedule"
+    // label and admin-only row, in case it's the tab already on screen.
     await loadDataForViewedUser();
   });
 
@@ -4299,6 +5833,602 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
   });
 
+  // ---------- Profile photo (shared, Supabase Storage) ----------
+  // One object per user at "<id>/avatar.jpg" in the private "avatars" bucket
+  // (migration 20260830153418), overwritten on every re-upload rather than
+  // versioned. Read is any signed-in user — that is the point, a teammate's
+  // photo has to reach the roster and the rail, not just your own browser —
+  // write is owner-only, enforced by RLS on the object's path prefix rather
+  // than by anything the client promises. profiles.avatar_updated_at is the
+  // only other moving part: NULL means no photo, and its value is also the
+  // cache key below, so a replaced photo invalidates without any explicit
+  // cache-clearing logic.
+  var AVATAR_BUCKET = "avatars";
+  var AVATAR_PX = 512;          // stored square edge
+  var AVATAR_MAX_BYTES = 8 * 1024 * 1024; // reject before decoding
+
+  function avatarPath(userId){ return userId + "/avatar.jpg"; }
+
+  // userId:version -> object URL. Never explicitly evicted: a session holds at
+  // most a few dozen teammates' photos, each capped at AVATAR_PX square, and
+  // the tab closing reclaims it same as any other blob URL.
+  var avatarBlobCache = {};
+
+  function avatarCacheKey(profile){
+    return profile && profile.id ? profile.id + ":" + (profile.avatar_updated_at || "") : null;
+  }
+
+  // A small photo-or-initials box, rendered synchronously so nothing waits on
+  // the network. When the profile has a photo, the box carries the lookup
+  // attributes hydrateAvatars() below scans for; when it does not, the
+  // initials stand permanently and hydrateAvatars() has nothing to find here.
+  function avatarSlotHtml(profile, extraClass){
+    var name = (profile && (profile.full_name || profile.email)) || "?";
+    var cls  = "avatar" + (extraClass ? " " + extraClass : "");
+    var key  = avatarCacheKey(profile);
+    var attrs = (profile && profile.avatar_updated_at)
+      ? ' data-avatar-id="'+escapeAttr(profile.id)+'" data-avatar-v="'+escapeAttr(String(profile.avatar_updated_at))+'"'
+      : "";
+    var cached = key ? avatarBlobCache[key] : null;
+    return '<div class="'+cls+'"'+attrs+'>'+
+      (cached
+        ? '<img src="'+escapeAttr(cached)+'" alt="">'
+        : escapeHtml(initialsOf(name)))+
+      '</div>';
+  }
+
+  // Downloads whatever avatarSlotHtml() above could not fill in synchronously.
+  // Scoped to `root` so a repaint of one card doesn't re-scan the whole page;
+  // defaults to the document for the identity-chrome call sites that repaint
+  // in place. Downloaded rather than served from a public URL — the bucket is
+  // private, matching every other authority boundary in this app being RLS
+  // rather than an unguessable link — so this costs one authenticated request
+  // per distinct id:version, deduplicated within a single pass.
+  async function hydrateAvatars(root){
+    var scope = root || document;
+    // The slot IS the element carrying the attributes for the rail avatar and
+    // the Overview portrait (a single div, not a list), so querySelectorAll
+    // alone — descendants only — never matches the root itself. Every call
+    // site that only ever hydrates via renderAll()'s cousins, not through
+    // refreshAvatars()'s trailing document-wide pass, silently did nothing:
+    // switching the viewed person showed their initials forever, because the
+    // one hydrate call that could have fetched their photo was scoped to a
+    // node with no matching descendants.
+    var slots = Array.from(scope.querySelectorAll("[data-avatar-id]"));
+    if(scope.nodeType === 1 && scope.matches("[data-avatar-id]")) slots.push(scope);
+    if(!slots.length) return;
+    var byKey = {};
+    slots.forEach(function(el){
+      var key = el.getAttribute("data-avatar-id") + ":" + el.getAttribute("data-avatar-v");
+      (byKey[key] = byKey[key] || []).push(el);
+    });
+    await Promise.all(Object.keys(byKey).map(async function(key){
+      var url = avatarBlobCache[key];
+      if(!url){
+        var uid = key.slice(0, key.indexOf(":"));
+        try{
+          var res = await supabase.storage.from(AVATAR_BUCKET).download(avatarPath(uid));
+          if(res.error || !res.data) return;
+          url = URL.createObjectURL(res.data);
+          avatarBlobCache[key] = url;
+        }catch(err){ return; }
+      }
+      byKey[key].forEach(function(el){
+        // The slot may have been re-rendered out from under this await with a
+        // different (or no) version; only swap it if it still wants this one.
+        if(el.isConnected && el.getAttribute("data-avatar-id")+":"+el.getAttribute("data-avatar-v") === key){
+          el.innerHTML = '<img src="'+escapeAttr(url)+'" alt="">';
+        }
+      });
+    }));
+  }
+
+  // Type and size are checked before anything else touches the file — no
+  // point opening the crop modal for a file that is about to be rejected.
+  function validateAvatarFile(file){
+    if(!/^image\/(jpeg|png|webp)$/.test(file.type)){
+      throw new Error("Choose a JPEG, PNG or WebP image.");
+    }
+    if(file.size > AVATAR_MAX_BYTES){
+      throw new Error("That image is larger than 8MB. Choose a smaller one.");
+    }
+  }
+
+  function loadImageFromFile(file){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onerror = function(){ reject(new Error("That file couldn't be read.")); };
+      reader.onload = function(){
+        var img = new Image();
+        img.onload = function(){ resolve(img); };
+        img.onerror = function(){ reject(new Error("That file isn't a readable image.")); };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Interactive drag-to-reposition, slide-to-zoom crop, opened on every photo
+  // choice. The previous version picked an automatic centred square and
+  // uploaded it — the one part of the picture nobody chose, and a group shot
+  // or an off-centre face had no way to fix what got cut. Resolves a Blob on
+  // "Use Photo", or null on Cancel/Escape/back — the caller treats null as
+  // "nothing changed", the same as if no file had been picked.
+  //
+  // The default framing on open is the OLD behaviour exactly (a centred
+  // cover-fit square, zoom at its minimum): choosing a photo and immediately
+  // confirming produces the same result this modal replaces, so nothing about
+  // an unattended upload changes — only that a person who wants control now
+  // has it.
+  var STAGE_PX = 300;
+  var MAX_ZOOM = 3;
+
+  function showAvatarCropper(file){
+    return new Promise(function(resolve){
+      var settled = false;
+      // finish() just enters the close sequence; close()'s own `closed`
+      // guard (below) is what makes a second call a no-op. A guard here too
+      // would race it: it would flip `settled` before close()'s async
+      // back()/popstate dance ever calls resolve(), and that dance's own
+      // settle() checks the very same flag — so the promise would never
+      // actually resolve.
+      function finish(result){ close(result, false); }
+
+      var overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      var mid = "crop" + Math.random().toString(36).slice(2, 8);
+      overlay.innerHTML =
+        '<div class="modal-card crop-modal-card" role="dialog" aria-modal="true" ' +
+             'aria-labelledby="' + mid + '-t">' +
+          '<h3 class="modal-title" id="' + mid + '-t">Adjust your photo</h3>' +
+          '<div class="crop-stage" id="' + mid + '-stage">' +
+            '<img id="' + mid + '-img" alt="" draggable="false">' +
+            '<div class="crop-mask"></div>' +
+          '</div>' +
+          '<div class="crop-zoom-row">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6.5"/><path d="M20 20l-4.8-4.8"/></svg>' +
+            '<input type="range" id="' + mid + '-zoom" min="1" max="' + MAX_ZOOM + '" step="0.01" value="1" aria-label="Zoom">' +
+            '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6.5"/><path d="M20 20l-4.8-4.8"/><path d="M10 7.5v5M7.5 10h5"/></svg>' +
+          '</div>' +
+          '<p class="crop-hint">Drag to reposition, slide to zoom.</p>' +
+          '<div class="modal-actions">' +
+            '<button type="button" class="btn ghost crop-cancel">Cancel</button>' +
+            '<button type="button" class="btn crop-confirm" disabled>Use Photo</button>' +
+          '</div>' +
+        '</div>';
+      dialogRoot().appendChild(overlay);
+      requestAnimationFrame(function(){ overlay.classList.add("show"); });
+
+      var bgRoot = document.getElementById("appShell").style.display !== "none"
+        ? document.getElementById("appShell") : document.getElementById("authScreen");
+      bgRoot.setAttribute("aria-hidden", "true");
+
+      var previouslyFocused = document.activeElement;
+      var card = overlay.querySelector(".modal-card");
+      var stage = overlay.querySelector(".crop-stage");
+      var imgEl = overlay.querySelector(".crop-stage img");
+      var zoomInput = overlay.querySelector('input[type="range"]');
+      var confirmBtn = overlay.querySelector(".crop-confirm");
+      var cancelBtn = overlay.querySelector(".crop-cancel");
+
+      // Natural size, base (cover-fit) scale, and the pan/zoom state the
+      // stage renders from. baseScale is the minimum scale at which the image
+      // fully covers the square stage — zoomInput's own 1..MAX_ZOOM range is
+      // a multiplier ON TOP of it, so the slider means the same thing
+      // regardless of the source photo's resolution.
+      var natW = 0, natH = 0, baseScale = 1, scale = 1, tx = 0, ty = 0;
+
+      function clampPan(){
+        var w = natW * scale, h = natH * scale;
+        var minX = Math.min(0, STAGE_PX - w), maxX = 0;
+        var minY = Math.min(0, STAGE_PX - h), maxY = 0;
+        tx = Math.max(minX, Math.min(maxX, tx));
+        ty = Math.max(minY, Math.min(maxY, ty));
+      }
+      function applyTransform(){
+        imgEl.style.transform = "translate(" + tx + "px," + ty + "px) scale(" + scale + ")";
+      }
+      // Keeps the point currently at the stage's centre fixed in image space
+      // while the zoom slider changes scale — without this, zooming in feels
+      // like it drags the photo toward a corner instead of toward whatever
+      // the person is actually looking at.
+      function setScale(nextScale){
+        var cx = (STAGE_PX / 2 - tx) / scale;
+        var cy = (STAGE_PX / 2 - ty) / scale;
+        scale = nextScale;
+        tx = STAGE_PX / 2 - cx * scale;
+        ty = STAGE_PX / 2 - cy * scale;
+        clampPan();
+        applyTransform();
+      }
+
+      loadImageFromFile(file).then(function(img){
+        natW = img.naturalWidth; natH = img.naturalHeight;
+        baseScale = STAGE_PX / Math.min(natW, natH);
+        imgEl.src = img.src;
+        imgEl.style.width = natW + "px";
+        imgEl.style.height = natH + "px";
+        scale = baseScale;
+        tx = (STAGE_PX - natW * scale) / 2;
+        ty = (STAGE_PX - natH * scale) / 2;
+        applyTransform();
+        confirmBtn.disabled = false;
+      }).catch(function(err){
+        showToast(err.message || "That image couldn't be used.", "error");
+        finish(null);
+      });
+
+      // Pointer Events cover mouse, touch and pen with one listener set —
+      // dragging to reposition on a phone is at least as likely as on desktop
+      // for a photo picker.
+      var dragging = false, startX = 0, startY = 0, startTx = 0, startTy = 0;
+      function onPointerDown(ev){
+        if(!confirmBtn || confirmBtn.disabled) return;
+        dragging = true;
+        stage.classList.add("dragging");
+        stage.setPointerCapture(ev.pointerId);
+        startX = ev.clientX; startY = ev.clientY; startTx = tx; startTy = ty;
+      }
+      function onPointerMove(ev){
+        if(!dragging) return;
+        tx = startTx + (ev.clientX - startX);
+        ty = startTy + (ev.clientY - startY);
+        clampPan();
+        applyTransform();
+      }
+      function onPointerUp(ev){
+        if(!dragging) return;
+        dragging = false;
+        stage.classList.remove("dragging");
+        try{ stage.releasePointerCapture(ev.pointerId); }catch(e){}
+      }
+      stage.addEventListener("pointerdown", onPointerDown);
+      stage.addEventListener("pointermove", onPointerMove);
+      stage.addEventListener("pointerup", onPointerUp);
+      stage.addEventListener("pointercancel", onPointerUp);
+
+      zoomInput.addEventListener("input", function(){
+        setScale(baseScale * parseFloat(zoomInput.value));
+      });
+
+      function focusable(){
+        return Array.from(card.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+          .filter(function(el){ return !el.disabled && el.offsetParent !== null; });
+      }
+
+      var closed = false;
+      history.pushState({ledgerModal:true}, "");
+      function onPopState(){ close(null, true); }
+      window.addEventListener("popstate", onPopState);
+
+      function close(result, fromPopState){
+        if(closed) return;
+        closed = true;
+        window.removeEventListener("popstate", onPopState);
+        document.removeEventListener("keydown", onKey);
+        bgRoot.removeAttribute("aria-hidden");
+        overlay.classList.remove("show");
+        setTimeout(function(){
+          overlay.remove();
+          if(previouslyFocused && typeof previouslyFocused.focus === "function"){
+            previouslyFocused.focus();
+          }
+        }, 180);
+        if(fromPopState){
+          settled = true;
+          resolve(result);
+        } else {
+          // history.back()'s popstate fires on a later task, not immediately.
+          // A fallback timer guards the case it never fires at all (this
+          // being the first entry in the tab's history is the real case;
+          // see the identical guard in showConfirm above). Without it, an
+          // awaited showAvatarCropper() call could simply hang forever.
+          function settle(){
+            if(settled) return;
+            settled = true;
+            window.removeEventListener("popstate", onOwnBack);
+            clearTimeout(fallback);
+            resolve(result);
+          }
+          function onOwnBack(){ settle(); }
+          window.addEventListener("popstate", onOwnBack);
+          var fallback = setTimeout(settle, 1000);
+          history.back();
+        }
+      }
+
+      function onKey(ev){
+        if(ev.key === "Escape"){ ev.preventDefault(); finish(null); return; }
+        if(ev.key === "Tab"){
+          var items = focusable();
+          if(!items.length) return;
+          var first = items[0], last = items[items.length - 1];
+          if(ev.shiftKey && document.activeElement === first){ ev.preventDefault(); last.focus(); }
+          else if(!ev.shiftKey && document.activeElement === last){ ev.preventDefault(); first.focus(); }
+        }
+      }
+      document.addEventListener("keydown", onKey);
+
+      cancelBtn.addEventListener("click", function(){ finish(null); });
+      overlay.addEventListener("click", function(ev){ if(ev.target === overlay) finish(null); });
+
+      confirmBtn.addEventListener("click", function(){
+        confirmBtn.disabled = true;
+        try{
+          // The exact inverse of the transform the stage is showing: the
+          // source rectangle, in the original photo's own pixel coordinates,
+          // that the visible circle currently frames.
+          var sx = -tx / scale, sy = -ty / scale, sSide = STAGE_PX / scale;
+          var canvas = document.createElement("canvas");
+          canvas.width = canvas.height = AVATAR_PX;
+          var ctx = canvas.getContext("2d");
+          ctx.drawImage(imgEl, sx, sy, sSide, sSide, 0, 0, AVATAR_PX, AVATAR_PX);
+          canvas.toBlob(function(blob){
+            if(!blob){
+              showToast("That image couldn't be processed.", "error");
+              confirmBtn.disabled = false;
+              return;
+            }
+            finish(blob);
+          }, "image/jpeg", 0.82);
+        }catch(err){
+          showToast("That image couldn't be processed.", "error");
+          confirmBtn.disabled = false;
+        }
+      });
+
+      // confirmBtn starts disabled (nothing has loaded yet), so it is not a
+      // valid initial focus target — Cancel is the first real one.
+      requestAnimationFrame(function(){ cancelBtn.focus(); });
+    });
+  }
+
+  // Existing localStorage photos predate this migration and cannot follow
+  // their owner to Storage on their own — the server has no way to learn
+  // about bytes that only ever lived in one browser. One-time, best-effort:
+  // if this account has no shared photo yet but this browser is holding the
+  // old local one, upload it once so the person who already set a photo
+  // doesn't appear to have lost it. Never blocks sign-in; a failure here
+  // just leaves the old local copy in place for next time.
+  async function migrateLocalAvatarIfAny(){
+    if(!currentProfile || currentProfile.avatar_updated_at) return;
+    var legacyKey = "attendance_avatar_v1_" + currentProfile.id;
+    var dataUrl = safeGet(legacyKey);
+    if(!dataUrl) return;
+    try{
+      var blob = await (await fetch(dataUrl)).blob();
+      var up = await supabase.storage.from(AVATAR_BUCKET)
+        .upload(avatarPath(currentProfile.id), blob, {upsert:true, contentType:"image/jpeg", cacheControl:"3600"});
+      if(up.error) return;
+      var stamp = new Date().toISOString();
+      var save = await supabase.from("profiles")
+        .update({avatar_updated_at: stamp}).eq("id", currentProfile.id);
+      if(save.error) return;
+      currentProfile.avatar_updated_at = stamp;
+      avatarBlobCache[currentProfile.id + ":" + stamp] = URL.createObjectURL(blob);
+      localStorage.removeItem(legacyKey);
+      refreshAvatars();
+    }catch(err){ /* best-effort; the local copy just stays for next time */ }
+  }
+
+  // Repaints every surface that shows your face after the photo changes.
+  function refreshAvatars(){
+    renderIdentityChrome();
+    var settingsAvatar = document.getElementById("settingsAvatar");
+    if(settingsAvatar && currentProfile){
+      var key = avatarCacheKey(currentProfile);
+      var cached = key ? avatarBlobCache[key] : null;
+      if(currentProfile.avatar_updated_at){
+        settingsAvatar.setAttribute("data-avatar-id", currentProfile.id);
+        settingsAvatar.setAttribute("data-avatar-v", String(currentProfile.avatar_updated_at));
+        settingsAvatar.innerHTML = cached
+          ? '<img src="'+escapeAttr(cached)+'" alt="">'
+          : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+      } else {
+        settingsAvatar.removeAttribute("data-avatar-id");
+        settingsAvatar.removeAttribute("data-avatar-v");
+        settingsAvatar.innerHTML = escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+      }
+      var removeBtn = document.getElementById("photoRemoveBtn");
+      if(removeBtn) removeBtn.style.display = currentProfile.avatar_updated_at ? "" : "none";
+    }
+    // The Overview portrait is the largest place a photo appears, and it was the
+    // one place this function did not reach: after saving, the header, the rail
+    // and the Settings preview all showed the new picture while the portrait
+    // kept the monogram until something else happened to repaint it.
+    renderPersonCard();
+    // The Team roster draws your own card from the same store.
+    if(document.querySelector('.tab-btn[data-tab="team"].active')) renderTeamCards();
+    hydrateAvatars();
+  }
+
+  // Saving a display name. profiles.full_name is the only column the API grants
+  // an authenticated user on their own row (migration 20260815012052) — role,
+  // id and email are revoked at the grant and blocked again by a trigger — so
+  // this is a one-column write and nothing here needs to guard the rest.
+  document.getElementById("displayNameForm").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    if(!currentProfile || !currentUser) return;
+    var input = document.getElementById("displayNameInput");
+    var btn = document.getElementById("displayNameSave");
+    var name = input.value.trim().replace(/\s+/g, " ");
+
+    if(!name){
+      showToast("Enter a name, or your email address stands in for one.", "error");
+      input.focus();
+      return;
+    }
+    if(name === (currentProfile.full_name || "")){
+      showToast("That is already your name.", "info");
+      return;
+    }
+
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = "Saving…";
+    try{
+      var res = await supabase.from("profiles")
+        .update({full_name: name}).eq("id", currentUser.id);
+      if(res.error) throw res.error;
+      currentProfile.full_name = name;
+      // Every surface that renders a name off currentProfile, in one place: the
+      // greeting and rail block, the Overview portrait, the viewer switcher's
+      // own entry, and the roster if it is on screen. Missing one is how the
+      // photo ended up updating everywhere except the portrait.
+      renderIdentityChrome();
+      renderPersonCard();
+      refreshSettingsPanel();
+      // The switcher is built from allProfiles, which is a cache. Patch the one
+      // entry and its option rather than re-querying every profile to learn a
+      // name we just wrote ourselves.
+      var mine = allProfiles.find(function(p){ return p.id === currentUser.id; });
+      if(mine){
+        mine.full_name = name;
+        var opt = document.querySelector('#viewerSelect option[value="'+currentUser.id+'"]');
+        if(opt) opt.textContent = "Me — " + name + (mine.role === "admin" ? " (Admin)" : "");
+      }
+      if(document.querySelector('.tab-btn[data-tab="team"].active')) renderTeamCards();
+      showToast("Name updated.", "success");
+    }catch(err){
+      showToast(friendlyError(err) || "Couldn't save that name.", "error");
+    }finally{
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  });
+
+  document.getElementById("photoChooseBtn").addEventListener("click", function(){
+    document.getElementById("photoInput").click();
+  });
+
+  document.getElementById("photoInput").addEventListener("change", async function(){
+    var file = this.files && this.files[0];
+    // Reset immediately so re-picking the same file still fires a change event.
+    this.value = "";
+    if(!file || !currentProfile || !currentUser) return;
+    try{
+      validateAvatarFile(file);
+    }catch(err){
+      showToast(err.message, "error");
+      return;
+    }
+    // The crop modal, not an automatic centre crop — see showAvatarCropper()
+    // for why. null means Cancel/Escape/back; nothing changed, so nothing
+    // uploads and the button never even shows "Uploading…".
+    var blob = await showAvatarCropper(file);
+    if(!blob) return;
+    var btn = document.getElementById("photoChooseBtn");
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = "Uploading…";
+    try{
+      var up = await supabase.storage.from(AVATAR_BUCKET)
+        .upload(avatarPath(currentUser.id), blob, {upsert:true, contentType:"image/jpeg", cacheControl:"3600"});
+      if(up.error) throw up.error;
+      var stamp = new Date().toISOString();
+      var save = await supabase.from("profiles")
+        .update({avatar_updated_at: stamp}).eq("id", currentUser.id);
+      if(save.error) throw save.error;
+      currentProfile.avatar_updated_at = stamp;
+      // Seed the cache from the blob already in hand: the photo you just
+      // uploaded is the one image on the page that would otherwise pay for a
+      // download it does not need, since nothing else could have this bytes.
+      avatarBlobCache[currentUser.id + ":" + stamp] = URL.createObjectURL(blob);
+      var mine = allProfiles.find(function(p){ return p.id === currentUser.id; });
+      if(mine) mine.avatar_updated_at = stamp;
+      refreshAvatars();
+      showToast("Photo updated. Your team can see it.", "success");
+    }catch(err){
+      showToast(friendlyError(err) || err.message || "That image couldn't be used.", "error");
+    }finally{
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  });
+
+  document.getElementById("photoRemoveBtn").addEventListener("click", async function(){
+    if(!currentProfile || !currentUser) return;
+    var ok = await showConfirm(
+      "Remove your photo? Your team will see your initials instead.",
+      {title:"Remove photo?", confirmText:"Remove", danger:true}
+    );
+    if(!ok) return;
+    try{
+      var rm = await supabase.storage.from(AVATAR_BUCKET).remove([avatarPath(currentUser.id)]);
+      if(rm.error) throw rm.error;
+      var save = await supabase.from("profiles")
+        .update({avatar_updated_at: null}).eq("id", currentUser.id);
+      if(save.error) throw save.error;
+      currentProfile.avatar_updated_at = null;
+      var mine = allProfiles.find(function(p){ return p.id === currentUser.id; });
+      if(mine) mine.avatar_updated_at = null;
+      refreshAvatars();
+      showToast("Photo removed.", "success");
+    }catch(err){
+      showToast(friendlyError(err) || "Couldn't remove the photo.", "error");
+    }
+  });
+
+  // ---------- Identity chrome ----------
+  // Everything that shows who is signed in: the header greeting, the rail's
+  // user block, and the two rail destinations only an admin may see. Called
+  // from both the cold-start path and the role-refresh path so the two can
+  // never drift apart.
+  function firstNameOf(profile){
+    var name = (profile && profile.full_name || "").trim();
+    if(!name) return (profile && profile.email || "").split("@")[0];
+    return name.split(/\s+/)[0];
+  }
+
+
+  // w[0] indexes by UTF-16 code unit, not character. Every emoji outside the
+  // Basic Multilingual Plane is two code units (a surrogate pair) — a name
+  // starting with one produced a lone, unpaired high surrogate as the
+  // "initial", which renders as U+FFFD or nothing depending on the font,
+  // wherever an avatar falls back to initials. Array.from splits on code
+  // points instead, so the pair stays whole; the result may itself be an
+  // emoji rather than a letter, which is what "the first character of the
+  // name" actually is for a name that starts with one.
+  function initialsOf(name){
+    return String(name || "?").trim().split(/\s+/)
+      .map(function(w){ return Array.from(w)[0] || ""; }).slice(0,2).join("").toUpperCase();
+  }
+
+  function renderIdentityChrome(){
+    if(!currentProfile) return;
+    var greeting = document.getElementById("headGreeting");
+    if(greeting) greeting.textContent = "Hello " + firstNameOf(currentProfile);
+
+    var railAvatar = document.getElementById("railUserAvatar");
+    if(railAvatar){
+      var key = avatarCacheKey(currentProfile);
+      var cached = key ? avatarBlobCache[key] : null;
+      if(currentProfile.avatar_updated_at){
+        railAvatar.setAttribute("data-avatar-id", currentProfile.id);
+        railAvatar.setAttribute("data-avatar-v", String(currentProfile.avatar_updated_at));
+      } else {
+        railAvatar.removeAttribute("data-avatar-id");
+        railAvatar.removeAttribute("data-avatar-v");
+      }
+      railAvatar.innerHTML = cached
+        ? '<img src="'+escapeAttr(cached)+'" alt="">'
+        : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
+      hydrateAvatars(railAvatar);
+    }
+    var railName = document.getElementById("railUserName");
+    if(railName) railName.textContent = currentProfile.full_name || currentProfile.email;
+    var railRole = document.getElementById("railUserRole");
+    if(railRole) railRole.textContent = isAdmin ? "Admin" : "Employee";
+
+    var railTeam = document.getElementById("railTeamBtn");
+    if(railTeam) railTeam.style.display = isAdmin ? "" : "none";
+    var railAdmin = document.getElementById("railAdminBtn");
+    if(railAdmin) railAdmin.style.display = isAdmin ? "" : "none";
+    // Showing/hiding Team and Admin shifts every rail-item below them, so the
+    // shared indicator bar needs to catch up even when no tab switch fired.
+    positionRailIndicator();
+  }
+
   // Re-syncs UI after the signed-in user's own role changes (e.g. self-demotion),
   // without requiring a full sign-out/sign-in.
   async function refreshCurrentProfile(){
@@ -4309,9 +6439,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }catch(err){ return; }
 
     isAdmin = currentProfile.role === "admin";
-    var chip = document.getElementById("userChip");
-    chip.textContent = currentProfile.full_name || currentProfile.email;
-    chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
+    refreshAvatars();
 
     if(isAdmin){
       document.getElementById("viewerSwitchWrap").style.display = "flex";
@@ -4323,11 +6451,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("teamTabBtn").style.display = "none";
       document.getElementById("adminBtn").style.display = "none";
       layoutBottomNav();
-      document.getElementById("settingsCard").classList.remove("open");
       if(viewedUserId !== currentUser.id){
         viewedUserId = currentUser.id;
         viewedProfile = currentProfile;
         await loadDataForViewedUser();
+      } else {
+        // loadDataForViewedUser() (and the renderAll() it calls) only run
+        // above when the viewed person actually changes — but a
+        // self-demotion while already viewing yourself still changes
+        // isAdmin, which the Settings tab's "Apply to everyone" row depends
+        // on, so it needs its own refresh here.
+        refreshSettingsPanel();
       }
       // Leave any admin-only tab the demoted user is standing on. Hiding the
       // button alone would leave the panel — roles, the audit log, everyone's
@@ -4383,6 +6517,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     try { return isScheduled(dateStr); }
     finally { settings = saved; }
   }
+  function computeEntryAs(personSettings, entry){
+    var saved = settings;
+    settings = personSettings;
+    try { return computeEntry(entry); }
+    finally { settings = saved; }
+  }
 
   // What that person is doing today — the question a roster is actually opened
   // to answer, and one the old three-number row could not answer at all.
@@ -4421,13 +6561,18 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var monthStart = teamMonth + "-01";
       var mp = teamMonth.split("-");
       var monthEnd = dateToStr(new Date(+mp[0], +mp[1], 0)); // last day of month
+      // updated_at powers the activity sidebar below — added to this same
+      // query rather than a second one, since it's already scoped to exactly
+      // the entries that feed it.
       var res = await supabase.from("entries")
-        .select("user_id,date,clock_in,clock_out,type")
+        .select("user_id,date,clock_in,clock_out,type,updated_at")
         .gte("date", monthStart).lte("date", monthEnd);
       if(res.error) throw res.error;
       (res.data || []).forEach(function(row){
         if(!byUser[row.user_id]) byUser[row.user_id] = [];
-        byUser[row.user_id].push(rowToEntry(row));
+        var entry = rowToEntry(row);
+        entry.updatedAt = row.updated_at;
+        byUser[row.user_id].push(entry);
       });
     }catch(err){
       list.innerHTML = "";
@@ -4451,10 +6596,71 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       };
     });
 
-    renderTeamCards();
+    renderTeamCards(true);
+    renderTeamActivity();
   }
 
-  function renderTeamCards(){
+  // Who did what most recently, across the whole team for the displayed
+  // month — every logged/updated entry, flattened across teamRowsCache and
+  // sorted by updated_at, newest first. Unaffected by the roster's own
+  // search/sort (this answers a different question), so it lives in
+  // renderTeam() rather than renderTeamCards().
+  function renderTeamActivity(){
+    var list = document.getElementById("teamActivityList");
+    var empty = document.getElementById("teamActivityEmpty");
+    if(!list || !empty) return;
+
+    var events = [];
+    teamRowsCache.forEach(function(t){
+      t.rows.forEach(function(e){
+        if(!e.updatedAt) return;
+        events.push({profile: t.profile, entry: e, settings: t.settings});
+      });
+    });
+    events.sort(function(a, b){ return new Date(b.entry.updatedAt) - new Date(a.entry.updatedAt); });
+    events = events.slice(0, 8);
+
+    empty.style.display = events.length ? "none" : "block";
+    // With nothing to show, the rail was a 240px column standing empty beside
+    // the full height of the roster. The roster takes the width back and the
+    // card drops below it, where one line of "nothing yet" costs nothing.
+    var layout = document.querySelector(".team-layout");
+    if(layout) layout.classList.toggle("no-activity", !events.length);
+    list.innerHTML = events.map(function(ev){
+      var p = ev.profile, e = ev.entry;
+      var name = p.full_name || p.email;
+      var c = computeEntryAs(ev.settings, e);
+      var desc;
+      if((e.type || "regular") !== "regular"){
+        desc = "Logged " + typeLabel(e.type);
+      } else if(e.clockIn && e.clockOut){
+        desc = "Clocked out at " + formatTime12(e.clockOut) +
+          (c.workedMin !== null ? " · " + minutesToHoursStr(c.workedMin) + " worked" : "");
+      } else if(e.clockIn){
+        desc = "Clocked in at " + formatTime12(e.clockIn);
+      } else {
+        desc = "Logged " + fmtDateShort(e.date);
+      }
+      return '<div class="activity-row">'+
+        avatarSlotHtml(p)+
+        '<div class="activity-row-body">'+
+          '<div class="activity-row-head">'+
+            '<span class="activity-row-name" dir="auto">'+escapeHtml(name)+'</span>'+
+            '<span class="activity-row-time">'+fmtRelative(e.updatedAt)+'</span>'+
+          '</div>'+
+          '<p class="activity-row-desc">'+escapeHtml(desc)+'</p>'+
+        '</div>'+
+      '</div>';
+    }).join("");
+    hydrateAvatars(list);
+  }
+
+  // entering: true only when this call is drawing a genuinely new set of
+  // people to look at — a month change or a sort change — not the search
+  // box, which calls this on every keystroke. Re-playing a stagger entrance
+  // on every keystroke would turn typing into a flicker; a changed month or
+  // sort order is infrequent enough, and different enough data, to earn one.
+  function renderTeamCards(entering){
     var list = document.getElementById("teamList");
     var empty = document.getElementById("teamEmpty");
     var summaryEl = document.getElementById("teamSummary");
@@ -4479,17 +6685,57 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return a;
     }, {worked:0, target:0, days:0, inNow:0});
 
+    // Same figures the flat summary bar showed, but as the stat-card Overview
+    // itself leads with — icon + label, a tabular-nums headline, one detail
+    // line. Two of the five reuse Overview's own icons (the calendar for a
+    // day count, the ledger circle for a worked-vs-target total) on purpose:
+    // it is the same kind of number, so it earns the same glyph.
     summaryEl.hidden = false;
     summaryEl.innerHTML = [
-      ['<span class="ts-value">'+teamRowsCache.length+'</span><span class="ts-label">people</span>'],
-      ['<span class="ts-value">'+totals.inNow+'</span><span class="ts-label">clocked in now</span>'],
-      ['<span class="ts-value">'+totals.days+'</span><span class="ts-label">days logged</span>'],
-      ['<span class="ts-value">'+minutesToHoursStr(totals.worked)+'</span><span class="ts-label">of '+minutesToHoursStr(totals.target)+' target</span>'],
-      // Same accomplishment reading as the Shortfall tab's Target Met Rate:
+      {
+        icon:'<circle cx="8.5" cy="8.5" r="3"/><path d="M3.5 20c0-3.5 2.2-6 5-6s5 2.5 5 6"/><circle cx="16" cy="9" r="2.3"/><path d="M14.7 14.2c2.2.5 3.8 2.5 3.8 5.8"/>',
+        label:"People", value:String(teamRowsCache.length), detail:"On the roster"
+      },
+      {
+        icon:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3.5 2"/>',
+        label:"Clocked In Now", value:String(totals.inNow), detail:totals.inNow ? "Right now" : "Nobody right now"
+      },
+      {
+        icon:'<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/>',
+        label:"Days Logged", value:String(totals.days), detail:"Across the team"
+      },
+      {
+        icon:'<circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/>',
+        label:"Hours Worked", value:minutesToHoursStr(totals.worked), detail:"Of "+minutesToHoursStr(totals.target)+" target"
+      },
+      // Same accomplishment reading as the Shortfall tab's Target Hours Met:
       // share of target HOURS worked, not a day-count rate. Floored, not
-      // rounded — see the note by pMetRate above for why.
-      ['<span class="ts-value">'+(totals.target ? Math.floor((totals.worked/totals.target)*100)+"%" : "—")+'</span><span class="ts-label">target met</span>']
-    ].map(function(x){ return '<div class="ts-item">'+x+'</div>'; }).join("");
+      // rounded — see the note by pMetRate above for why. Both carry the same
+      // label, because they are the same figure over different populations —
+      // "Target Met Rate" read as "how often the target was met", which is a
+      // count of days and a different number entirely.
+      {
+        icon:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.3"/><circle cx="12" cy="12" r=".8" fill="currentColor"/>',
+        // Not "Team-wide": targetSum only accumulates over people who logged
+        // something, so anyone with no entries leaves the denominator entirely
+        // and a roster of thirty where two logged reads "100% — Team-wide".
+        // Say who the figure actually covers.
+        label:"Target Hours Met", value:totals.target ? Math.floor((totals.worked/totals.target)*100)+"%" : "—",
+        detail:(function(){
+          var counted = teamRowsCache.filter(function(t){ return t.summary.targetSum > 0; }).length;
+          if(!totals.target) return "Nobody logged time yet";
+          return counted === teamRowsCache.length
+            ? "Across everyone"
+            : "Across the " + counted + " who logged time";
+        })()
+      }
+    ].map(function(c){
+      return '<div class="stat-card">'+
+        '<p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+c.icon+'</svg>'+c.label+'</p>'+
+        '<p class="stat-value">'+c.value+'</p>'+
+        '<p class="stat-detail">'+c.detail+'</p>'+
+      '</div>';
+    }).join("");
 
     var shown = teamRowsCache.filter(function(t){
       if(!term) return true;
@@ -4515,10 +6761,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(!shown.length) empty.textContent = "Nobody matches that search.";
     list.innerHTML = "";
 
-    shown.forEach(function(t){
+    shown.forEach(function(t, i){
       var p = t.profile, s = t.summary;
-      var initials = (p.full_name || p.email || "?").trim().split(/\s+/)
-        .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
       var name = p.full_name || p.email;
       // Floored, not rounded, so a bar/figure a few minutes short of target
       // never reads as a full "100%" — see the note by pMetRate for why.
@@ -4530,19 +6774,33 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var card = document.createElement("button");
       card.type = "button";
       card.className = "team-card";
+      if(entering){
+        // Capped at 8 steps so a long roster still finishes inside ~0.6s
+        // rather than stacking indefinitely — see .team-card.entering below.
+        card.classList.add("entering");
+        card.style.animationDelay = (Math.min(i, 8) * 35) + "ms";
+      }
       card.setAttribute("data-uid", p.id);
       card.setAttribute("aria-label", "Open " + name + "'s attendance for " + monthLabel(teamMonth));
       card.innerHTML =
         '<div class="team-card-head">'+
-          '<div class="team-avatar">'+escapeHtml(initials)+'</div>'+
+          avatarSlotHtml(p)+
           '<div class="team-info">'+
-            '<div class="team-name" dir="auto">'+escapeHtml(name)+
-              (p.role === "admin" ? ' <span class="admin-badge">Admin</span>' : '')+
-              (t.configured ? '' : ' <span class="admin-badge unconfigured">No schedule</span>')+
-            '</div>'+
-            '<div class="team-email" dir="auto">'+escapeHtml(p.email)+'</div>'+
+            // The badges used to sit inside this line. Being inline text they
+            // wrapped with it, so at a card's width a two-word name broke
+            // across lines with a pill wedged into the middle of it, and the
+            // email lost most of its characters to whatever was left. Name and
+            // address get the full width; the pills have their own row below.
+            '<div class="team-name" dir="auto">'+escapeHtml(name)+'</div>'+
+            // title, because .team-email truncates to one line: the full
+            // address has to stay reachable on hover and to assistive tech.
+            '<div class="team-email" dir="auto" title="'+escapeAttr(p.email)+'">'+escapeHtml(p.email)+'</div>'+
           '</div>'+
+        '</div>'+
+        '<div class="team-tags">'+
           '<span class="team-status '+t.status.cls+'">'+escapeHtml(t.status.label)+'</span>'+
+          (p.role === "admin" ? '<span class="admin-badge">Admin</span>' : '')+
+          (t.configured ? '' : '<span class="admin-badge unconfigured">No schedule</span>')+
         '</div>'+
         '<div>'+
           '<div class="team-bar'+barCls+'"><span style="width:'+pct+'%"></span></div>'+
@@ -4550,18 +6808,19 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
             (s.targetSum
               ? minutesToHoursStr(s.workedSum)+' of '+minutesToHoursStr(s.targetSum)+' target'+
                 (s.incompleteDays ? ' · '+s.incompleteDays+' incomplete' : '')
-              : 'No scheduled days this month')+
+              : 'No scheduled days')+
           '</div>'+
         '</div>'+
         '<div class="team-card-figures">'+
           '<div><div class="label">Days</div><div class="value">'+s.loggedDays+'</div></div>'+
           '<div><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
-          '<div><div class="label">Target Met</div><div class="value">'+
+          '<div><div class="label">Target Hours Met</div><div class="value">'+
             (s.targetSum ? Math.floor((s.workedSum/s.targetSum)*100)+"%" : "—")+'</div></div>'+
         '</div>';
       list.appendChild(card);
     });
+    hydrateAvatars(list);
   }
 
   document.getElementById("teamList").addEventListener("click", function(ev){
@@ -4572,8 +6831,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     sel.dispatchEvent(new Event("change"));
     activateTab("log");
   });
-  document.getElementById("teamSearch").addEventListener("input", renderTeamCards);
-  document.getElementById("teamSort").addEventListener("change", renderTeamCards);
+  // Wrapped, not passed directly: renderTeamCards's entering param would
+  // otherwise receive the raw Event object from these listeners (always
+  // truthy) and stagger-animate on every keystroke — the one case it's
+  // meant to skip. Sort explicitly opts in; search explicitly does not.
+  document.getElementById("teamSearch").addEventListener("input", function(){ renderTeamCards(); });
+  document.getElementById("teamSort").addEventListener("change", function(){ renderTeamCards(true); });
   document.getElementById("teamPrevMonth").addEventListener("click", function(){
     teamMonth = shiftMonth(teamMonth || monthKey(todayStr()), -1);
     renderTeam();
@@ -4901,9 +7164,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return bits.length ? bits.join(" · ") : "No visible change";
   }
 
+  // `theme` is no longer a setting — the org-wide theme picker was retired with
+  // the move to Atrium. The label stays because audit_log is append-only: rows
+  // written while the picker existed still carry a theme diff, and without the
+  // label those historical entries would render as a bare key or vanish.
   var APP_SETTINGS_LABELS = {
     announcement: "Announcement", announcement_active: "Announcement banner",
-    allow_registration: "Allow registrations", theme: "Theme",
+    allow_registration: "Allow registrations", theme: "Theme (retired)",
     default_settings: "Organisation defaults"
   };
   function appSettingsDiff(oldV, newV){
@@ -5064,260 +7331,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     return '"' + s.replace(/"/g, '""') + '"';
   }
 
-  // ---------- Org-wide UI theme ----------
-  // app_settings.theme: one visual theme an admin picks for the whole
-  // organisation. Deliberately NOT the same thing as applyTheme() further up,
-  // which is each person's own light/dark preference in localStorage. The two
-  // are independent and compose — Kinetic in dark mode is a valid combination.
-  var UI_THEMES = {
-    ledger: {
-      hint: "The classic look, exactly as documented in the design system. No scroll motion."
-    },
-    kinetic: {
-      hint: "Sections lift and sharpen into focus as you scroll to them. Automatically skipped for anyone whose device asks for reduced motion."
-    },
-    velocity: {
-      hint: "A full redesign: the app as a driver's instrument cluster — carbon surfaces, a tachometer that reads this month against your daily target, and seven-segment figures. Ignores the ledger design system by design. Motion is skipped for anyone whose device asks for reduced motion."
-    }
-  };
-  var DEFAULT_UI_THEME = "ledger";
-
-  // The Velocity theme's instrument cluster.
-  //
-  // This replaces the pointer-tracked car of the previous Velocity world,
-  // which ran a global mousemove listener and a requestAnimationFrame loop
-  // for as long as the theme was on — every frame, whether or not anything
-  // had changed. The cluster needs neither: the needle only moves when the
-  // underlying figures move, so the whole theme is now idle at rest.
-  var velocityMotion = (function(){
-    // Sweep geometry, kept here and matching the SVG in index.html: a 250°
-    // sweep whose arc length at r=100 is 436.33 units. The needle is drawn
-    // pointing straight up, so its travel is -125° to +125°.
-    var SWEEP_DEG = 250, ARC_LEN = 436.33, NEEDLE_START = -125;
-    // Full deflection is 130% of target, which puts the 100% mark at 0.769
-    // of the sweep — exactly where the redline band starts. That is what
-    // makes the redline mean "over target" rather than being decoration.
-    var FULL_SCALE = 1.3;
-    var armed = false, t1 = null, t2 = null;
-
-    function reduced(){
-      return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    }
-
-    // The ignition self-test: the needle drops to zero, swings to full
-    // deflection, then settles on the real figure — what every analogue
-    // cluster does when the ignition is turned on.
-    //
-    // Driven by stepping the same inline transform the value sync writes,
-    // and letting the needle's CSS transition interpolate between steps. A
-    // keyframe animation cannot do this: any fill mode that holds its last
-    // frame outranks an inline style, so the needle would park at the
-    // keyframe's angle rather than at the value it is reporting. One writer
-    // for the angle, always.
-    function start(){
-      if(armed) return;
-      armed = true;
-      var n = document.getElementById("vNeedle");
-      // Reduced motion still gets a correct needle — it is placed by the
-      // value sync, it simply doesn't perform the sweep on the way there.
-      if(!n || reduced()) return;
-      n.style.transform = "rotate(" + NEEDLE_START + "deg)";
-      t1 = setTimeout(function(){
-        n.style.transform = "rotate(" + (NEEDLE_START + SWEEP_DEG) + "deg)";
-      }, 60);
-      t2 = setTimeout(syncVelocitySpecs, 760);
-    }
-
-    function stop(){
-      if(!armed) return;
-      armed = false;
-      // Clear pending steps so a sweep can't land after the theme changed
-      // and leave a needle behind in a theme that no longer shows one.
-      if(t1){ clearTimeout(t1); t1 = null; }
-      if(t2){ clearTimeout(t2); t2 = null; }
-    }
-
-    return {
-      start:start, stop:stop,
-      SWEEP_DEG:SWEEP_DEG, ARC_LEN:ARC_LEN,
-      NEEDLE_START:NEEDLE_START, FULL_SCALE:FULL_SCALE
-    };
-  })();
-
-  // Mirrors the real stat values into the cluster. The cluster is
-  // aria-hidden, so everything here is a visual echo of numbers already
-  // announced once from the actual stat cards — never a second source of
-  // truth, and never a figure this function computes for itself.
-  function syncVelocitySpecs(){
-    if(document.body.getAttribute("data-ui-theme") !== "velocity") return;
-
-    var pairs = [
-      ["vSpecAvg","monthAvg"],   ["vSpecStreak","streak"], ["vSpecOt","otBank"],
-      ["vRoWeek","weekAvg"],     ["vGaugeVal","monthAvg"], ["vSecPeriod","heroMonthLabel"]
-    ];
-    pairs.forEach(function(p){
-      var dest = document.getElementById(p[0]), src = document.getElementById(p[1]);
-      if(dest && src) dest.textContent = src.textContent;
-    });
-
-    // Mirrors the same weighted target renderStats() published on the
-    // progress bar (data-target-min) rather than recomputing it from a flat
-    // constant, which would show 8h during a 5h seasonal period.
-    var tgtEl = document.getElementById("vRoTarget");
-    if(tgtEl){
-      var fillForTarget = document.getElementById("heroProgressFill");
-      var tgtMin = fillForTarget ? parseFloat(fillForTarget.getAttribute("data-target-min")) : NaN;
-      tgtEl.textContent = minutesToHoursStr(isFinite(tgtMin) ? tgtMin : targetMinPerDay());
-    }
-
-    // Needle, arc and state all derive from the one ratio renderStats()
-    // publishes on the progress bar, so the cluster can never disagree with
-    // the hero it sits above.
-    var fill = document.getElementById("heroProgressFill");
-    var ratio = fill ? parseFloat(fill.getAttribute("data-ratio")) : 0;
-    if(!isFinite(ratio) || ratio < 0) ratio = 0;
-    var f = Math.min(ratio / velocityMotion.FULL_SCALE, 1);
-
-    var needle = document.getElementById("vNeedle");
-    if(needle){
-      needle.style.transform =
-        "rotate(" + (velocityMotion.NEEDLE_START + f * velocityMotion.SWEEP_DEG).toFixed(2) + "deg)";
-    }
-    var arc = document.getElementById("vGaugeArc");
-    if(arc) arc.setAttribute("stroke-dashoffset", (velocityMotion.ARC_LEN * (1 - f)).toFixed(2));
-
-    // Floored, not rounded — same reason as pMetRate/progressPct: 99.6%
-    // rounding up to "100%" would claim the target was fully met when it's
-    // still short.
-    var metEl = document.getElementById("vSecMet");
-    if(metEl) metEl.textContent = ratio ? Math.floor(ratio * 100) + "%" : "—";
-
-    // Over / on / under, from the same ratio. Hidden entirely rather than
-    // showing a state for a month with nothing logged in it yet.
-    var state = document.getElementById("vGaugeState");
-    if(state){
-      if(!ratio){
-        state.hidden = true;
-      }else{
-        state.hidden = false;
-        state.textContent = ratio >= 1 ? "Over Target"
-          : (ratio >= 0.98 ? "On Target" : "Under Target");
-      }
-    }
-  }
-
-  // Scroll-driven reveal for the Kinetic theme — fallback path only.
-  // Engines with CSS scroll-driven timelines (animation-timeline:view()) run
-  // this entirely in CSS, off the main thread; see the matching block in
-  // index.html. This branch covers the ones that don't. It adds the
-  // `reveal-ready` gate class itself, so if the script is blocked or throws
-  // before this runs, the CSS never hides anything and the page renders fully
-  // visible instead of blank.
-  var scrollReveal = (function(){
-    // Keep in sync with the @supports (animation-timeline: view()) selector
-    // list in index.html — both paths must cover the same elements.
-    var REVEAL_SELECTOR = ".hero-stat, .stats-row .stat-card, " +
-      "main > .card:not(.settings-card), .period-card, .team-card";
-    var io = null, mo = null, queued = false;
-
-    // True when the CSS path already handles it, or the browser lacks the
-    // observers this fallback is built on.
-    var cssHandlesIt = !!(window.CSS && CSS.supports && CSS.supports("animation-timeline: view()"));
-    var noObservers = !("IntersectionObserver" in window) || !("MutationObserver" in window);
-
-    function scan(){
-      if(!io) return;
-      document.querySelectorAll(REVEAL_SELECTOR).forEach(function(el){
-        if(el.classList.contains("reveal")) return;
-        el.classList.add("reveal");
-        io.observe(el);
-      });
-    }
-
-    function start(){
-      if(cssHandlesIt || noObservers || io) return;
-      if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      document.body.classList.add("reveal-ready");
-      io = new IntersectionObserver(function(entries){
-        entries.forEach(function(entry){
-          if(!entry.isIntersecting) return;
-          entry.target.classList.add("revealed");
-          io.unobserve(entry.target); // one-shot: never re-hides on scroll back up
-        });
-      }, { rootMargin:"0px 0px -6% 0px", threshold:0.05 });
-      scan();
-      // Trends and Team cards are built after data loads, and the log
-      // re-renders on every filter change, so rescan on DOM changes rather
-      // than reaching into each render function. Coalesced to one pass per
-      // frame so a burst of mutations can't re-run the query dozens of times.
-      mo = new MutationObserver(function(){
-        if(queued) return;
-        queued = true;
-        requestAnimationFrame(function(){ queued = false; scan(); });
-      });
-      mo.observe(document.body, { childList:true, subtree:true });
-    }
-
-    function stop(){
-      if(io){ io.disconnect(); io = null; }
-      if(mo){ mo.disconnect(); mo = null; }
-      document.body.classList.remove("reveal-ready");
-      // Drop per-element state too, so switching back to Kinetic later starts
-      // clean rather than finding everything already marked revealed.
-      document.querySelectorAll(".reveal").forEach(function(el){
-        el.classList.remove("reveal", "revealed");
-      });
-    }
-
-    return { start:start, stop:stop };
-  })();
-
-  // Applies to everyone, admin or not. Returns the theme actually applied.
-  function applyUiTheme(name){
-    // Anything unrecognised falls back rather than leaving the page in a
-    // half-styled state — e.g. an older client meeting a newer stored theme.
-    var theme = Object.prototype.hasOwnProperty.call(UI_THEMES, name) ? name : DEFAULT_UI_THEME;
-    document.body.setAttribute("data-ui-theme", theme);
-    // Kinetic and Velocity both reveal on scroll; only Velocity adds pointer
-    // depth. Always stop the one that isn't wanted so switching themes at
-    // runtime tears down cleanly instead of leaving observers attached.
-    if(theme === "kinetic" || theme === "velocity") scrollReveal.start(); else scrollReveal.stop();
-    // Sync before arming: the sync places the needle at its real value, and
-    // the sweep then deliberately overrides it to run zero -> full -> value.
-    // Arming first would let the sync land on top of the sweep's first step
-    // and the needle would never visit zero.
-    syncVelocitySpecs();
-    if(theme === "velocity") velocityMotion.start(); else velocityMotion.stop();
-    // Charts bake their colours in at render time (cssVar() reads --gold,
-    // --positive, --negative and --line when the SVG string is built), so a
-    // theme switch has to redraw them or they keep the previous theme's
-    // palette until something else happens to re-render them. This was
-    // already true of the light/dark toggle, which calls renderCharts() for
-    // the same reason; the org-theme switch was missing it.
-    renderCharts();
-    return theme;
-  }
-
-  function updateThemeHint(unsaved){
-    var sel = document.getElementById("setTheme");
-    var hint = document.getElementById("setThemeHint");
-    if(!sel || !hint) return;
-    var t = UI_THEMES[sel.value] || UI_THEMES[DEFAULT_UI_THEME];
-    hint.textContent = unsaved
-      ? t.hint + " Previewing for you only — press Save App Settings to apply it for everyone."
-      : t.hint;
-  }
-
-  // Preview the theme the moment it's picked, so an admin can see it before
-  // committing it to the whole organisation. Nothing is persisted until Save.
-  var setThemeEl = document.getElementById("setTheme");
-  if(setThemeEl){
-    setThemeEl.addEventListener("change", function(){
-      applyUiTheme(this.value);
-      updateThemeHint(true);
-    });
-  }
-
   async function loadAppSettings(){
     try{
       var res = await supabase.from("app_settings").select("*").eq("id", 1).maybeSingle();
@@ -5328,12 +7341,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       document.getElementById("setAnnouncement").value = s.announcement || "";
       fillDefaultsForm(s.default_settings);
       applyAppSettings(s);
-      // Reflect the theme that actually rendered, not the raw column — if the
-      // stored value is one this client doesn't know, the picker should show
-      // the fallback it's really displaying rather than sitting blank.
-      var themeSel = document.getElementById("setTheme");
-      if(themeSel) themeSel.value = document.body.getAttribute("data-ui-theme");
-      updateThemeHint(false);
     }catch(err){
       // Non-fatal: the app works without org settings. Surfaced rather than
       // swallowed so a misconfigured announcement isn't invisible.
@@ -5352,7 +7359,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
     var regBtn = document.getElementById("showRegisterBtn");
     if(regBtn) regBtn.style.display = (s && s.allow_registration === false) ? "none" : "";
-    applyUiTheme(s && s.theme);
   }
 
   // ---------- Organisation defaults ----------
@@ -5510,7 +7516,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       allow_registration: document.getElementById("setAllowRegistration").checked,
       announcement_active: document.getElementById("setAnnouncementActive").checked,
       announcement: document.getElementById("setAnnouncement").value.trim(),
-      theme: document.getElementById("setTheme").value,
       updated_at: new Date().toISOString(),
       updated_by: currentUser.id
     };
@@ -5523,7 +7528,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       var res = await supabase.from("app_settings").update(payload).eq("id", 1);
       if(res.error) throw res.error;
       applyAppSettings(payload);
-      updateThemeHint(false); // no longer a local preview — it's everyone's now
       showToast(successMsg, "success");
     }catch(err){
       showToast("Couldn't save app settings: " + friendlyError(err), "error");
@@ -5533,9 +7537,6 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   document.getElementById("saveAppSettingsBtn").addEventListener("click", function(){
     saveAppSettings(this, "App settings saved.");
-  });
-  document.getElementById("saveThemeBtn").addEventListener("click", function(){
-    saveAppSettings(this, "Theme saved.");
   });
 
   // ---------- Data health ----------
@@ -5547,6 +7548,25 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     var res = await build(q);
     if(res.error) throw res.error;
     return res.count || 0;
+  }
+
+  // null means the checks could not be run at all — say so rather than
+  // reporting "all clear", which is the one wrong answer here.
+  //
+  // This used to have a line of its own in a card above the nav. That card was
+  // a heading repeating the heading above it in order to carry one button, so
+  // it went; the readout rides on the Overview nav row instead, which is the
+  // row you would click to see the checks themselves. Same move Seasonal Hours
+  // and Working Hours already make — a section the console is not showing says
+  // on its nav row what it holds.
+  function setHealthSummary(needing){
+    var el = document.getElementById("cnavDescOverview");
+    if(!el) return;
+    if(needing === null){ el.textContent = "Data checks couldn't run"; return; }
+    el.textContent = needing === 0
+      ? "System figures · all data checks clear"
+      : needing === 1 ? "System figures · 1 check needs attention"
+                      : "System figures · " + needing + " checks need attention";
   }
 
   async function renderAdminHealth(){
@@ -5601,18 +7621,22 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       findings.push({
         count: results[2],
         title: results[2] === 1 ? "1 entry dated far in the future" : results[2] + " entries dated far in the future",
-        note: "More than 400 days ahead. These distort the year filter and the year-over-year chart.",
+        note: "More than 400 days ahead. These distort the Log's year filter and every monthly total.",
         clear: "No implausible dates."
       });
     }catch(err){
       wrap.innerHTML = '<p class="settings-hint" style="margin:0;">Couldn\'t run the data checks: ' +
         escapeHtml(friendlyError(err)) + '</p>';
+      setHealthSummary(null);
       return;
     }
 
     // Worst first, but clean checks are still listed — an admin needs to see
     // that a check ran and passed, not be left guessing whether it ran at all.
     findings.sort(function(a, b){ return b.count - a.count; });
+    // The side card says the same thing in one line, so the state of the data
+    // is readable from every section rather than only from Overview.
+    setHealthSummary(findings.filter(function(f){ return f.count; }).length);
     wrap.innerHTML = findings.map(function(f){
       return '<div class="attention-item" role="listitem">'+
         '<span class="attention-count'+(f.count ? '' : ' is-clear')+'">'+(f.count ? f.count : '✓')+'</span>'+
@@ -5660,6 +7684,29 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     await renderAdminHealth();
   }
 
+  document.getElementById("outboxRetryBtn").addEventListener("click", function(){
+    flushOutbox();
+  });
+  document.getElementById("loadFailRetryBtn").addEventListener("click", async function(){
+    var btn = this;
+    btn.disabled = true; btn.textContent = "Trying…";
+    try{ await loadDataForViewedUser(); }
+    finally{ btn.disabled = false; btn.textContent = "Try Again"; }
+  });
+  document.getElementById("outboxDiscardBtn").addEventListener("click", async function(){
+    var mine = currentUser ? pendingFor(currentUser.id) : [];
+    if(!mine.length) return;
+    if(!await showConfirm(
+      mine.length === 1
+        ? "That punch will be lost. You'd have to add the time by hand."
+        : "Those " + mine.length + " punches will be lost. You'd have to add the times by hand.",
+      {title:"Discard the waiting punches?", danger:true, confirmText:"Discard"}
+    )) return;
+    outbox = outbox.filter(function(q){ return q.userId !== currentUser.id; });
+    persistOutbox();
+    await loadDataForViewedUser();
+  });
+
   // ---------- Sign-in / sign-out transitions ----------
   async function handleSignedIn(user){
     currentUser = {id:user.id, email:user.email};
@@ -5673,19 +7720,33 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       await new Promise(function(r){ setTimeout(r, 700); });
       try{
         var res2 = await supabase.from("profiles").select("*").eq("id", user.id).single();
+        // The retry has to check res2.error the way the first attempt checks
+        // res.error. supabase-js RESOLVES on a query error rather than
+        // rejecting — {data: null, error: {...}} — so a failed retry never
+        // reached this catch. It assigned null to currentProfile, and the next
+        // line threw "Cannot read properties of null (reading 'role')" out of
+        // handleSignedIn, before showApp() and before anything drew the person
+        // card. What the user saw was a signed-in app with a 363x332 empty box
+        // where their photo belongs and "—" for their name, with no error
+        // anywhere that named a cause.
+        if(res2.error) throw res2.error;
+        if(!res2.data) throw new Error("no profile row for " + user.id);
         currentProfile = res2.data;
       }catch(err2){
         currentProfile = {id:user.id, email:user.email, full_name:null, role:"user"};
       }
     }
+    // Belt and braces: nothing below may assume a profile object exists.
+    if(!currentProfile) currentProfile = {id:user.id, email:user.email, full_name:null, role:"user"};
 
     isAdmin = currentProfile.role === "admin";
     viewedUserId = currentUser.id;
     viewedProfile = currentProfile;
-
-    var chip = document.getElementById("userChip");
-    chip.textContent = currentProfile.full_name || currentProfile.email;
-    chip.title = currentProfile.email + (isAdmin ? " · Admin" : "");
+    refreshAvatars();
+    // Fire-and-forget: a one-time upload of whatever this browser was holding
+    // in localStorage before this migration, so a person who already set a
+    // photo does not appear to have lost it. Must not hold up sign-in.
+    migrateLocalAvatarIfAny().catch(function(){});
 
     if(isAdmin){
       await loadAllProfilesForSwitcher();
@@ -5701,11 +7762,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }
 
     showApp();
+    // Overview is already .active in the markup, so no activateTab() call
+    // runs on a fresh sign-in to trigger the indicator's own reposition —
+    // and it could not have measured anything correctly before this anyway,
+    // with the rail still display:none.
+    positionRailIndicator();
     buildDayPicker();
     // Built before loadAppSettings() below, which fills it from
     // app_settings.default_settings.
     buildDefaultsDayPicker();
-    applyTheme(safeGet(THEME_KEY) === "dark" ? "dark" : "light");
     document.getElementById("fDate").value = todayStr();
     document.getElementById("fToDate").value = todayStr();
     updateLiveClock();
@@ -5716,6 +7781,10 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     // everyone, so this runs regardless of admin status.
     await loadAppSettings();
     setTimeout(updateTabsScrollHint, 0);
+    // Last, and deliberately not awaited: a punch queued on this device in an
+    // earlier session should upload itself now, but sign-in must not sit
+    // waiting on it.
+    flushOutbox();
   }
 
   function handleSignedOut(){
@@ -5725,6 +7794,14 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     allProfiles = []; isAdmin = false; isOwnData = true;
     entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
     dismissedReminders = {};
+    // entries is empty now, so this clears the icon. Leaving a badge behind
+    // after sign-out would advertise one person's open shift to whoever signs
+    // in next on a shared device.
+    updateAppBadge();
+    // The queue itself is deliberately NOT cleared: it is keyed by user id and
+    // an unsent punch is that person's record, not this session's state. It
+    // uploads when they sign back in.
+    renderOutbox();
     document.getElementById("signInForm").reset();
     document.getElementById("registerForm").reset();
     setAuthMsg("signInError", ""); setAuthMsg("registerError", ""); setAuthMsg("registerSuccess", "");
@@ -5734,8 +7811,13 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
   // ---------- Init ----------
-  var copyrightText = "© " + new Date().getFullYear() + " Aseel Thalnoon. All rights reserved.";
-  document.getElementById("copyrightLine").textContent = copyrightText;
+  // "All rights reserved" is a licence notice aimed at the public. This is an
+  // internal tool for one small team, and the line was occupying the last row
+  // of the one-screen budget on every tab to assert a claim against nobody.
+  // The sign-in screen keeps an attribution, where a person who does not yet
+  // have an account is the one audience that might wonder whose app this is.
+  var copyrightText = "© " + new Date().getFullYear() + " Aseel Thalnoon";
+  document.getElementById("copyrightLine").textContent = "";
   document.getElementById("copyrightLineAuth").textContent = copyrightText;
 
   // The clock and reminder timers used to run unconditionally from load — on the
@@ -5758,17 +7840,28 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(document.visibilityState === "visible" && currentUser) startTimers();
     else stopTimers();
   }
+  // The browser saw the connection return. Not the only trigger — see the
+  // visibilitychange handler — because this event does not fire on a device
+  // that was asleep when the network came back.
+  window.addEventListener("online", function(){ flushOutbox(); });
+
   document.addEventListener("visibilitychange", function(){
     syncTimers();
+    // Last thing before the timers stop: whatever the badge says now is what
+    // the icon will carry for as long as the app stays closed.
+    if(document.visibilityState === "hidden" && currentUser) updateAppBadge();
     // Coming back after a long pause: the clock and any open-shift reminder
     // would otherwise show whatever they showed when the tab was hidden.
     if(document.visibilityState === "visible" && currentUser){
       updateLiveClock();
       renderReminder();
+      // Coming back to the app is the most common moment for a connection to
+      // have returned without an "online" event ever firing — a phone that
+      // slept through the reconnection reports no transition.
+      flushOutbox();
     }
   });
 
-  applyTheme(safeGet(THEME_KEY) === "dark" ? "dark" : "light");
   updateLiveClock();
 
   var resizeTimer;
@@ -5786,8 +7879,15 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       // instead of falling through to handleSignedIn() below, which would
       // otherwise silently drop the visitor straight into the dashboard on
       // their old password without ever prompting them to set a new one.
-      if(event === "PASSWORD_RECOVERY"){
-        recoverySessionUser = session && session.user;
+      //
+      // That one-shot event can already have fired and gone to nobody by the
+      // time this listener registers (see __earlyRecoverySession's own
+      // comment, above createClient()) — in which case it arrives here
+      // relabelled INITIAL_SESSION, indistinguishable from an ordinary
+      // restored session, unless the early listener already caught it.
+      if(event === "PASSWORD_RECOVERY" || (event === "INITIAL_SESSION" && __earlyRecoverySession)){
+        recoverySessionUser = (session && session.user) || (__earlyRecoverySession && __earlyRecoverySession.user);
+        __earlyRecoverySession = null;
         showResetPasswordScreen();
         return;
       }
