@@ -81,6 +81,28 @@ const supabase = supabaseConfigured
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: fetchWithTimeout } })
   : null;
 
+// Opening a password-reset email link makes supabase-js detect the session in
+// the URL and fire a ONE-SHOT "PASSWORD_RECOVERY" event during its own async
+// init — which starts the instant createClient() above runs, before this
+// module's ~7800-line IIFE has executed far enough to reach the real
+// onAuthStateChange registration near the bottom of it. A listener added that
+// late does not miss the session itself (supabase-js resends the current
+// session to any newly-subscribed listener as "INITIAL_SESSION"), but it does
+// miss which KIND of session it was: INITIAL_SESSION carries no signal that
+// this came from a recovery link rather than an ordinary restored sign-in,
+// and the real handler's own "restore a session on load" branch would boot
+// straight into the dashboard on the visitor's OLD password, without ever
+// showing the "choose a new password" form — clicking the emailed link would
+// just silently sign them in and never reset anything.
+// This second, minimal listener exists solely to catch that one-shot event
+// early and remember it for the real handler to check.
+var __earlyRecoverySession = null;
+if(supabase){
+  supabase.auth.onAuthStateChange(function(event, session){
+    if(event === "PASSWORD_RECOVERY") __earlyRecoverySession = session;
+  });
+}
+
 (function(){
   "use strict";
 
@@ -7857,8 +7879,15 @@ const supabase = supabaseConfigured
       // instead of falling through to handleSignedIn() below, which would
       // otherwise silently drop the visitor straight into the dashboard on
       // their old password without ever prompting them to set a new one.
-      if(event === "PASSWORD_RECOVERY"){
-        recoverySessionUser = session && session.user;
+      //
+      // That one-shot event can already have fired and gone to nobody by the
+      // time this listener registers (see __earlyRecoverySession's own
+      // comment, above createClient()) — in which case it arrives here
+      // relabelled INITIAL_SESSION, indistinguishable from an ordinary
+      // restored session, unless the early listener already caught it.
+      if(event === "PASSWORD_RECOVERY" || (event === "INITIAL_SESSION" && __earlyRecoverySession)){
+        recoverySessionUser = (session && session.user) || (__earlyRecoverySession && __earlyRecoverySession.user);
+        __earlyRecoverySession = null;
         showResetPasswordScreen();
         return;
       }
