@@ -66,7 +66,7 @@ function blocksFor(mode){
   return out;
 }
 
-const PALETTES = ["atrium", "slate", "terracotta", "studio", "moss", "plum"];
+const PALETTES = ["atrium", "slate", "terracotta", "studio", "moss", "plum", "ledger"];
 const light = blocksFor("light");
 const dark = blocksFor("dark");
 

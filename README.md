@@ -19,7 +19,7 @@ build step — deployment is a file copy.
 | `sw.js` | Service worker. Caches the app shell so an installed PWA can boot offline. |
 | `manifest.json`, `*.png` | PWA manifest and icons. |
 | `supabase/migrations/` | Database schema, policies, functions and triggers. |
-| `tools/` | Authoring aids, not shipped and not a build step. `palettes.mjs` generates the six palettes' CSS and measures every pair against WCAG AA; `apply-palettes.mjs` writes the result into `index.html`. |
+| `tools/` | Authoring aids, not shipped and not a build step. `palettes.mjs` generates the seven palettes' CSS and measures every pair against WCAG AA; `apply-palettes.mjs` writes the result into `index.html`. |
 | `tests/` | Regression suites. See below. |
 
 ## Running locally
@@ -168,6 +168,12 @@ ATTENDANCE_APP_SRC=/tmp/old-app.js npm run test:regression
   department boundary in the schema.
 - **English only.** No RTL layout. User-authored text is bidi-isolated with
   `dir="auto"`, but the interface itself is not translated.
+- **Ledger is the only pre-redesign world brought back.** The old codebase
+  also shipped Kinetic (scroll-reveal motion) and Velocity (a full dark/3D
+  alternate world with its own fonts) alongside it, switched by an
+  admin-wide `app_settings.theme` column — deliberately not revived; see
+  DESIGN.md's **Palettes and modes** for why Ledger runs through the same
+  personal, per-browser mechanism as the other six instead.
 
 ## Audit
 

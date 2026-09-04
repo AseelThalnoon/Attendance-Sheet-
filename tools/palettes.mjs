@@ -300,6 +300,135 @@ const PALETTES = [
       onAccent:"#2A1304", neutralHue:310, neutralChroma:0.018, accentHue:58, accentChroma:0.12,
       iris:"linear-gradient(135deg, #392E26 0%, #322C3E 38%, #293834 68%, #3A2C37 100%)"
     }
+  },
+  {
+    id: "ledger",
+    name: "Ledger",
+    blurb: "The original ledger. Teal ink, antique gold, warm cream paper.",
+    // A revival, not a new composition: these are the values that shipped on
+    // main before the Atrium redesign replaced them (see DESIGN.md's own
+    // "confirmed rejection" of this identity as an anti-reference — reversed
+    // on request, the same way the six-palette switch itself reversed an
+    // earlier "one committed look" decision). Kept verbatim for the same
+    // reason Atrium's own light composition is verbatim: re-solving an
+    // already-shipped identity through this file's algorithm would produce a
+    // plausible teal theme, not the one that actually existed. Kinetic
+    // (scroll-reveal motion) and Velocity (a full dark/3D alternate world)
+    // existed alongside this one on main and are not revived — Ledger is the
+    // pre-redesign base the other two varied from, and the only one asked
+    // for. Unlike the other six, this one also carries its own type and
+    // shape character (see the trailing keys below) rather than sharing
+    // Atrium's Switzer/radius/shadow system — that fidelity was the point of
+    // asking for "full character" over a same-shape recolour.
+    light: {
+      verbatim: {
+        "ink-950":"#062825", "ink-900":"#0A3634", "ink-800":"#0E4A46", "ink-700":"#145C57",
+        "ink-600":"#1B726B", "ink-100":"#E6EFEC", "ink-50":"#F2F7F5",
+        rail:"#0A3634", paper:"#F6F2E8", card:"#FFFFFE",
+        // main never had a third/fourth card surface — that's an Atrium-era
+        // idea (DESIGN.md: "the second and third cards take the cream and
+        // gray surfaces"). Derived in OKLCH at the same lightness/chroma
+        // offset from this palette's own paper that Atrium's cream/gray sit
+        // at from ITS paper, so a stat row reads as four tiles here too.
+        "surface-cream":"#FDF5E0", "surface-gray":"#ECE8DF",
+        gold:"#AD8332", "gold-deep":"#75581D", "gold-light":"#E3CB8F",
+        // Also new since main: the met/under-target rings on the week
+        // timeline. Kept inside the teal/negative hue families already in
+        // this palette rather than borrowed from Atrium's lime world.
+        mint:"#9CC9BE", blush:"#E8B4B0",
+        ink:"#1B2422",
+        // #68766F, main's own shipped value, measured 4.26:1 on this exact
+        // paper — under the 4.5:1 floor every other palette here is held to,
+        // despite a comment on main claiming it had already been fixed (it
+        // had, from a worse #8B968F; paper's own hex moved afterward and this
+        // was never re-measured against the new value). Darkened four hex
+        // steps, the same size correction Atrium's own first draft needed —
+        // visually the same colour, now actually clearing the floor.
+        // #637069 (one step darker than main's own #68766F) still measured
+        // 4.24:1 against this palette's own surface-gray, which main never
+        // had to clear since that surface didn't exist yet. One more step.
+        muted:"#5E6A64", "muted-2":"#5F6B65",
+        line:"#DDD3BB", "line-soft":"#EAE3D0",
+        positive:"#256B42", "positive-bg":"#E3F1E7",
+        info:"#145C57", "info-bg":"#E6EFEC",
+        negative:"#AE3B3B", "negative-bg":"#F7E9E7",
+        excused:"#755B14", "excused-bg":"#F2E9D2",
+        warn:"#8A5F12", "warn-bg":"#FBF1DC", "warn-line":"#E4CB92",
+        "input-bg":"#FFFFFF", rule:"rgba(173,131,50,.05)",
+        "ink-on-gold":"#20180A", "muted-on-dark":"#C6D6D2",
+        "positive-on-dark":"#9FD8A8", "negative-on-dark":"#E0A5A5",
+        "negative-solid":"#C24A4A", "negative-deep":"#9C3434",
+        "shadow-sm":"0 1px 2px rgba(10,54,52,.06), 0 1px 1px rgba(10,54,52,.04)",
+        "shadow-md":"0 6px 20px rgba(10,54,52,.08), 0 2px 6px rgba(10,54,52,.05)",
+        "shadow-lg":"0 16px 40px rgba(10,54,52,.14), 0 4px 12px rgba(10,54,52,.08)",
+        "shadow-glow":"0 0 0 1px rgba(173,131,50,.14), 0 8px 28px rgba(173,131,50,.16)",
+        "gradient-gold":"linear-gradient(135deg, #C7A155 0%, #AD8332 55%, #75581D 100%)",
+        "gradient-ink":"linear-gradient(135deg, #145C57 0%, #0A3634 100%)",
+        // The one decorative highlight surface Atrium reserves for the hero
+        // stat (see DESIGN.md's "iridescent tile"). No equivalent on main —
+        // authored here in the same warm-cream/gold/teal family as the rest
+        // of this palette rather than left to fall back to Atrium's lime one.
+        iris:"linear-gradient(135deg, #F2E4C8 0%, #E3CB8F 38%, #E6EFEC 68%, #F2E4C8 100%)",
+        // Character beyond colour. Radius: main's own four-step scale, tighter
+        // than Atrium's soft-cornered system throughout. Type: main's own
+        // three-family split (a serif display face is exactly what Atrium's
+        // Weight Rule forbids itself — Ledger is not bound by a rule written
+        // for a different world). Both are system-font stacks, matching how
+        // main actually shipped rather than substituting a self-hosted face
+        // it never had.
+        "radius-xs":"6px", "radius-sm":"8px", "radius-md":"10px", "radius-lg":"14px",
+        "font-display":'"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif',
+        "font-num":'Calibri,"Segoe UI",Candara,Optima,"Trebuchet MS",sans-serif'
+      }
+    },
+    dark: {
+      verbatim: {
+        "ink-950":"#04201E", "ink-900":"#0B2E2C", "ink-800":"#124440", "ink-700":"#1A5B55",
+        // Main's own --teal-600 (#2A8079) filled this ramp step, but main
+        // never held it to being independently legible as a foreground the
+        // way Atrium's ink-600 is (DESIGN.md: eleven color: uses, seven
+        // border-color: ones) — it measured 2.36:1 on the ink-100 wash,
+        // a wash this exact composition didn't exist against on main. Same
+        // hue, lightened until it clears everywhere ink-600 has to.
+        "ink-600":"#3DBAAF", "ink-100":"#1A423D", "ink-50":"#163831",
+        rail:"#0B2E2C", paper:"#0B1917", card:"#152C29",
+        // Darkened toward paper from main's #1D2B27, which measured only
+        // 1.002:1 against card — indistinguishable, since main never carried
+        // a third dark surface for this step to separate from.
+        "surface-cream":"#2A2415", "surface-gray":"#17332C",
+        gold:"#C79E4C",
+        // Main's own #A8823A (the same hex used as the light-mode gold-deep,
+        // reused rather than re-tuned for dark) measured 3.13:1 against the
+        // ink-100 wash — a surface old Ledger's dark mode had no equivalent
+        // of. Lightened until it clears; still reads as a deeper gold than
+        // the fill above it.
+        "gold-deep":"#CFA047", "gold-light":"#E7D3A0",
+        mint:"#6FA898", blush:"#D99B94",
+        ink:"#E8EDEA", muted:"#9DACA6",
+        // Already correct on main — its own comment records fixing this one
+        // (#7D8D87 at 4.14:1) before Ledger was ever retired.
+        "muted-2":"#A9B7B1",
+        line:"#35564F", "line-soft":"#2A4A44",
+        positive:"#6BC08D", "positive-bg":"#183A28",
+        info:"#7FD0C6", "info-bg":"#1A423D",
+        // Main's #E08585 measured 4.16:1 against ink-100, the same
+        // never-existed-on-main surface gold-deep just missed on. Lightened.
+        negative:"#ED8D8D", "negative-bg":"#3C1F1F",
+        excused:"#D9BC72", "excused-bg":"#38301A",
+        warn:"#E0BE73", "warn-bg":"#33290F", "warn-line":"#5C4A20",
+        "input-bg":"#0E201E", rule:"rgba(199,158,76,.05)",
+        "ink-on-gold":"#20180A", "muted-on-dark":"#9DACA6",
+        "positive-on-dark":"#6BC08D", "negative-on-dark":"#ED8D8D",
+        "negative-solid":"#C24A4A", "negative-deep":"#9C3434",
+        "shadow-sm":"0 1px 2px rgba(0,0,0,.45), 0 0 0 1px rgba(199,158,76,.04)",
+        "shadow-md":"0 6px 20px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4), 0 0 0 1px rgba(199,158,76,.05)",
+        "shadow-lg":"0 18px 44px rgba(0,0,0,.6), 0 6px 16px rgba(0,0,0,.45), 0 0 0 1px rgba(199,158,76,.06)",
+        "shadow-glow":"0 0 0 1px rgba(199,158,76,.28), 0 8px 30px rgba(199,158,76,.18)",
+        "gradient-gold":"linear-gradient(135deg, #DDBB72 0%, #C79E4C 55%, #A8823A 100%)",
+        "gradient-ink":"linear-gradient(135deg, #1A5B55 0%, #04201E 100%)",
+        iris:"linear-gradient(135deg, #2E2A1C 0%, #3A3220 38%, #16302B 68%, #2E2A1C 100%)"
+      }
+    }
   }
 ];
 
@@ -481,7 +610,15 @@ const ORDER = ["ink-950","ink-900","ink-800","ink-700","ink-600","ink-100","ink-
   "info","info-bg","negative","negative-bg","excused","excused-bg","warn","warn-bg",
   "warn-line","input-bg","rule","ink-on-gold","muted-on-dark","positive-on-dark",
   "negative-on-dark","negative-solid","negative-deep","shadow-sm","shadow-md",
-  "shadow-lg","shadow-glow","gradient-gold","gradient-ink","gradient-iris"];
+  "shadow-lg","shadow-glow","gradient-gold","gradient-ink","gradient-iris",
+  // Character tokens beyond colour: only Ledger's verbatim block populates
+  // these (see its own comment), so they emit nothing for the other six —
+  // block() skips any key a palette doesn't set. Light-only is deliberate:
+  // both selectors match the same <html> element at once, and a custom
+  // property a later (dark) rule doesn't redeclare keeps whatever an earlier
+  // (light) matching rule set, so these survive into dark mode without
+  // needing a second copy.
+  "radius-xs","radius-sm","radius-md","radius-lg","font-display","font-num"];
 
 export function build(){
   const out = {};
@@ -489,18 +626,28 @@ export function build(){
     out[p.id] = {
       name: p.name, blurb: p.blurb,
       light: p.light.verbatim
-        ? { ...p.light.verbatim,
-            "shadow-sm":`0 1px 2px rgba(17,17,16,.04), 0 1px 3px rgba(17,17,16,.03)`,
-            "shadow-md":`0 8px 24px rgba(17,17,16,.07), 0 2px 8px rgba(17,17,16,.04)`,
-            "shadow-lg":`0 20px 48px rgba(17,17,16,.13), 0 6px 16px rgba(17,17,16,.08)`,
-            "shadow-glow":`0 0 0 1px rgba(214,232,92,.55), 0 8px 28px rgba(214,232,92,.22)`,
-            "gradient-gold":`linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 55%, #B9CF3E 100%)`,
-            "gradient-ink":`linear-gradient(135deg, var(--ink-700) 0%, var(--ink-900) 100%)`,
-            "gradient-iris": p.light.verbatim.iris }
+        ? (p.id === "atrium"
+            ? { ...p.light.verbatim,
+                "shadow-sm":`0 1px 2px rgba(17,17,16,.04), 0 1px 3px rgba(17,17,16,.03)`,
+                "shadow-md":`0 8px 24px rgba(17,17,16,.07), 0 2px 8px rgba(17,17,16,.04)`,
+                "shadow-lg":`0 20px 48px rgba(17,17,16,.13), 0 6px 16px rgba(17,17,16,.08)`,
+                "shadow-glow":`0 0 0 1px rgba(214,232,92,.55), 0 8px 28px rgba(214,232,92,.22)`,
+                "gradient-gold":`linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 55%, #B9CF3E 100%)`,
+                "gradient-ink":`linear-gradient(135deg, var(--ink-700) 0%, var(--ink-900) 100%)`,
+                "gradient-iris": p.light.verbatim.iris }
+            : { ...p.light.verbatim, "gradient-iris": p.light.verbatim.iris })
         : compose(p.light, "light"),
-      dark: compose(p.dark, "dark")
+      // Ledger's dark composition is a second verbatim block, not solved: it
+      // is a real, previously-shipped design (main's body.dark) with its own
+      // already-correct contrast decisions (its own comment records fixing
+      // --muted-2 the same way), and re-deriving it through compose() would
+      // produce a plausible teal theme rather than the one that actually
+      // existed. The other five palettes have no dark.verbatim, so this is a
+      // no-op for them.
+      dark: p.dark.verbatim ? p.dark.verbatim : compose(p.dark, "dark")
     };
     delete out[p.id].light.iris;
+    if(out[p.id].dark.iris) delete out[p.id].dark.iris;
   }
   return out;
 }

@@ -1387,7 +1387,7 @@ const supabase = supabaseConfigured
   // and away from the Save button that owns it, so choosing a palette can be
   // instant and cannot race a half-finished edit of the working-hours form.
   var APPEARANCE_KEY = "attendance.appearance";
-  var PALETTE_IDS = ["atrium", "slate", "terracotta", "studio", "moss", "plum"];
+  var PALETTE_IDS = ["atrium", "slate", "terracotta", "studio", "moss", "plum", "ledger"];
   var MODE_IDS = ["light", "dark", "system"];
   var systemDark = null;
   try{ systemDark = window.matchMedia("(prefers-color-scheme: dark)"); }catch(e){}

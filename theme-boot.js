@@ -15,7 +15,7 @@
   "use strict";
 
   var KEY = "attendance.appearance";
-  var PALETTES = ["atrium", "slate", "terracotta", "studio", "moss", "plum"];
+  var PALETTES = ["atrium", "slate", "terracotta", "studio", "moss", "plum", "ledger"];
   var MODES = ["light", "dark", "system"];
 
   var palette = "atrium";

@@ -269,23 +269,36 @@ headings from numbers, Atrium separates them by weight and size alone.
 - Large radii (22px cards, 99px pills) and soft, neutral, ambient shadows.
 - One typeface, four weights, no serif.
 
-**Confirmed rejection:** the previous "Gilt Ledger" world (teal ink, antique
-gold trim, wax-seal ornament, ruled-paper texture, a serif display face) is the
-explicit anti-reference.
+**Gilt Ledger was the anti-reference for Atrium's own identity, and stays one.**
+Atrium's rail-and-canvas structure, one typeface, and fill-only accents were
+designed against everything Gilt Ledger was — teal ink, antique gold trim, a
+serif display face — and that contrast is still exactly right for judging
+whether a new piece of Atrium has drifted toward it.
 
-**Atrium is now one of six worlds, and still the default.** This file used to
-reject the multi-theme machinery along with Gilt Ledger itself, and to say in
-as many words that a theme switch and a dark mode were deliberately retired
-because "one committed look is the point". That was reversed on request: the
-app ships six palettes and a light/dark/system switch. What the old rejection
-was actually right about is worth keeping, because it is what makes this
-version different from the one that was thrown away — Gilt Ledger's machinery
-was a `app_settings.theme` column that let an administrator impose a look on
-everybody, and a set of separate stylesheets that each drifted from the others.
-This is neither. It is one token contract with twelve fillings of it, generated
-from a single file and measured by a test, and the choice belongs to the person
-looking at the screen rather than to whoever administers them. See **Palettes
-and modes** below.
+**It is also, since then, one of seven worlds — revived as "Ledger," not
+un-rejected.** This file used to reject the multi-theme machinery along with
+Gilt Ledger itself, and to say in as many words that a theme switch and a dark
+mode were deliberately retired because "one committed look is the point". That
+was reversed once already, on request, to ship six palettes and a light/dark/
+system switch; it was reversed a second time, on request, to bring the old
+identity itself back as a seventh — the pre-Atrium design this repository ran
+before the redesign, wanted back specifically rather than approximated. What
+the first reversal was careful to keep is exactly what makes this different
+from just undoing the redesign: Gilt Ledger's *machinery* was a
+`app_settings.theme` column that let an administrator impose a look on
+everybody, and a set of separate stylesheets that each drifted from the
+others and were never measured against WCAG AA. Ledger runs through neither.
+It is the same personal, localStorage choice as the other six, generated from
+the same file, and measured by the same test — one shipped value
+(`--muted` at 4.26:1 on its own paper) failed that measurement and was
+corrected the same way Atrium's own first draft was. What *is* deliberately
+different is character: Ledger is the one composition in this file that also
+carries its own type and shape — a serif display face, its own tighter radius
+scale — because the ask was specifically for the old world's full character,
+not a recolour of this one. See **Palettes and modes** below, and `ledger`'s
+own entry in `tools/palettes.mjs` for exactly what carries over unmeasured
+(the type and radius, which have no contrast requirement) versus what was
+re-verified (every colour).
 
 ## Colors
 
@@ -598,16 +611,17 @@ between planes lands near 1.2:1, and the edge carries the rest.
 
 ## Palettes and modes
 
-Six palettes, each authored twice — **Atrium** (default), **Slate**,
-**Terracotta**, **Studio**, **Moss**, **Plum**. Atrium's light composition is
-byte-for-byte what shipped before, so anyone who never opens the picker sees no
-change.
+Seven palettes, each authored twice — **Atrium** (default), **Slate**,
+**Terracotta**, **Studio**, **Moss**, **Plum**, and **Ledger**. Atrium's light
+composition is byte-for-byte what shipped before, so anyone who never opens
+the picker sees no change.
 
 `theme-boot.js` stamps `data-palette` and `data-theme` on `<html>` before first
 paint; every palette is a block of the same token contract, and `:root` holds
 Atrium-light as the no-JS fallback. Nothing in the app reads a palette name —
-components only ever read tokens — which is why adding a seventh is a
-stylesheet change plus one tile of markup.
+components only ever read tokens — which is why adding a seventh really was
+just a stylesheet change plus one tile of markup, exactly as this line used to
+promise before there was a seventh to prove it against.
 
 ### Authored, then solved
 `tools/palettes.mjs` generates every block. It authors by hand exactly what
@@ -625,6 +639,19 @@ steps — imperceptible, and now the rule the file states is the rule it keeps.
 
 `tests/regression/palette-contrast.js` measures what actually ships in
 `index.html` rather than asking the generator whether the generator was right.
+
+**Ledger is authored, not solved — like Atrium's own light composition, and
+for the same reason.** Both are revivals of a real, already-shipped design
+rather than a new point of view being expressed for the first time, and
+re-deriving either through the OKLCH solver would produce a plausible
+approximation, not the identity that actually existed. Every value is still
+run through the same measurement as the six solved worlds; where a shipped
+value failed it, it was hand-corrected the same size step Atrium's own
+`--gold-deep`/`--excused` were, not re-solved. Ledger's `light.verbatim` and
+`dark.verbatim` also carry `radius-*` and `font-*` keys none of the other six
+set — the one place this file's token contract extends past colour, because
+type and shape are exactly what "full character" meant for a revival and
+they carry no contrast requirement to violate.
 
 ### Dark is composed, not inverted
 Elevation runs the same direction in both modes — a card is lighter than the
@@ -934,7 +961,10 @@ layer; only their palette, radii and type moved.
   exist.
 - **Don't** set text in an accent fill (lime, mint, blush and their equivalents)
   on a light ground.
-- **Don't** reintroduce a second typeface to distinguish headings or numerals.
+- **Don't** reintroduce a second typeface to distinguish headings or numerals
+  *within Atrium*. Ledger's own serif display face and numeral stack are the
+  one documented exception (see **Palettes and modes**) — a revived world
+  keeping its own history, not this rule being quietly abandoned.
 - **Don't** hand-edit the generated palette blocks in `index.html`. The values
   carry a contrast guarantee that only the generator can restate.
 - **Don't** invert the ink ramp for dark mode. Only `--ink-600` flips; see
