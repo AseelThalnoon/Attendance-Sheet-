@@ -136,6 +136,7 @@ npm run test:regression   # just the audit regression suites
 | `regression/audit-dom` | Boot failure, banner rendering, contrast, ARIA, CSP |
 | `regression/admin-tab` | Admin console: admin-only gating, people/roles, health checks, defaults, log |
 | `mobile/*` | Responsive grid, control sizing, collision scanning |
+| `hostile/hostile` | Boots the real app against a scripted Supabase (`hostile/backend.js`) to check what the golden path never exercises: a viewer-switch race, a failed/hung load left readable (not presented as an empty account, and not writable over), double-submit guards, hostile names (unbroken strings, emoji, RTL, CJK) not breaking layout, and PWA-specific cases — the offline outbox still queuing alongside a failing background load, and every portrait-width breakpoint of the header/sign-in screen reserving `env(safe-area-inset-top)` for an installed app's notch/Dynamic Island. `hostile/scan.js` is the exploratory sweep this suite's cases were found with, not an assertion suite itself — run it by hand (`npm run scan:hostile`) when hunting for more. |
 
 Suites extract their subject **verbatim from the shipping source at run time**
 rather than reimplementing it (see `tests/extract.js`). Anchors are matched

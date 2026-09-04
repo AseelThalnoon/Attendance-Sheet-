@@ -45,7 +45,41 @@ const supabaseConfigured =
   SUPABASE_URL.indexOf("YOUR_SUPABASE") === -1 &&
   SUPABASE_ANON_KEY.indexOf("YOUR_SUPABASE") === -1;
 
-const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+// A request that never answers — a stalled proxy, a dead connection that
+// never sends a TCP reset, a backend that accepted the socket and hung — is
+// not the same failure as one that answers with an error. Neither the browser
+// nor supabase-js times one out on its own: without this, loadDataForViewedUser
+// awaited the fetch forever, the loading skeleton stayed up forever, and
+// nothing on screen ever told the person to do anything. 20 seconds is long
+// enough for a genuinely slow mobile connection to still succeed and short
+// enough that "hung" turns into "failed, with a Try Again" instead of an
+// indefinite spinner.
+const REQUEST_TIMEOUT_MS = 20000;
+function fetchWithTimeout(input, init){
+  var controller = new AbortController();
+  var timer = setTimeout(function(){ controller.abort(); }, REQUEST_TIMEOUT_MS);
+  var signal = controller.signal;
+  // A caller-supplied signal (there isn't one today, but the option exists on
+  // the fetch surface supabase-js calls through) still has to be able to abort
+  // this request — just not the reverse.
+  if(init && init.signal){
+    init.signal.addEventListener("abort", function(){ controller.abort(); });
+  }
+  return fetch(input, Object.assign({}, init, { signal: signal }))
+    .catch(function(err){
+      if(controller.signal.aborted){
+        var e = new Error("The server took too long to respond.");
+        e.code = "TIMEOUT";
+        throw e;
+      }
+      throw err;
+    })
+    .finally(function(){ clearTimeout(timer); });
+}
+
+const supabase = supabaseConfigured
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: fetchWithTimeout } })
+  : null;
 
 (function(){
   "use strict";
@@ -491,28 +525,81 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(live) live.textContent = on ? "Loading attendance data" : "Attendance data loaded";
   }
 
+  // Which load is still allowed to write to `entries`. An admin clicking down
+  // the viewer switcher fires one of these per click and they do not come back
+  // in order: a slow load for person A landing after a fast one for person B
+  // replaced B's data with A's, while the switcher, the viewing banner and
+  // every heading on the screen still said B. An admin was then reading one
+  // person's attendance under another person's name, with nothing to see. Only
+  // the load that started last may finish.
+  var loadGeneration = 0;
+
+  // The error from the most recent failed load, or null. Before this existed a
+  // failure assigned `entries = []` and reset `settings` to DEFAULT_SETTINGS,
+  // which renders as a brand-new account — 0h, "No attendance logged yet" —
+  // behind a toast that clears itself after seven seconds. Someone with four
+  // hundred days of history was left looking at a screen saying they had never
+  // logged a day, with nothing on it to say otherwise and nothing to press.
+  // Worse, the defaults it wrote into `settings` were live: the Settings form
+  // picked them up and offered them to its Save button, so one 500 and one
+  // ordinary click replaced a real Mon–Fri/6h30 schedule with Sun–Thu/8h.
+  var dataLoadError = null;
+  // Truthiness, not `!== null`: this is read from renderers that are declared
+  // above the `var` above and would see `undefined` if one ever ran before the
+  // module body reached it — and `undefined !== null` would report a failure
+  // that had not happened.
+  function dataLoadFailed(){ return !!dataLoadError; }
+
   async function loadDataForViewedUser(){
+    var gen = ++loadGeneration;
+    var forUserId = viewedUserId;
     setLoadingSkeletons(true);
     try{
       var results = await Promise.all([
-        sbFetchEntries(viewedUserId),
-        sbFetchSettings(viewedUserId)
+        sbFetchEntries(forUserId),
+        sbFetchSettings(forUserId)
       ]);
+      if(gen !== loadGeneration) return;   // a later switch already owns the screen
       entries = results[0];
       settings = results[1];
+      dataLoadError = null;
       // Before any render sees it: a punch waiting to upload belongs in the
       // day it was made, not in a holding pen the rest of the app can't see.
-      if(viewedUserId === currentUser.id) entries = applyOutbox(entries, currentUser.id);
+      if(forUserId === currentUser.id) entries = applyOutbox(entries, currentUser.id);
     }catch(err){
+      if(gen !== loadGeneration) return;
       console.error(err);
       showToast("Couldn't load attendance data: " + friendlyError(err), "error");
+      // The renderers all read `settings`, so it still has to be an object —
+      // but nothing may treat it as this person's schedule. dataLoadError is
+      // what every screen that would otherwise present it as fact checks.
       entries = [];
       settings = Object.assign({}, DEFAULT_SETTINGS);
+      dataLoadError = err;
     }
-    isOwnData = viewedUserId === currentUser.id;
+    isOwnData = forUserId === currentUser.id;
     updateViewingBanner();
+    renderLoadFailure();
     renderAll();
     setLoadingSkeletons(false);
+  }
+
+  // The failure said out loud, and kept said. This is the same shape as the
+  // outbox banner — a persistent notice that names the problem and carries the
+  // one button that resolves it — rather than a toast, because a toast that
+  // expires leaves a screen that is quietly wrong.
+  function renderLoadFailure(){
+    var banner = document.getElementById("loadFailBanner");
+    if(!banner) return;
+    if(!dataLoadFailed()){ banner.classList.remove("show"); return; }
+    document.getElementById("loadFailTitle").textContent =
+      isOwnData || !viewedProfile
+        ? "Couldn't load your attendance"
+        : "Couldn't load " + (viewedProfile.full_name || viewedProfile.email) + "'s attendance";
+    document.getElementById("loadFailText").textContent =
+      friendlyError(dataLoadError) + " Nothing below is this record — it's what the app shows " +
+      "when it has no data at all.";
+    banner.classList.add("show");
   }
 
   // ---------- Helpers ----------
@@ -780,6 +867,8 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
       return "That record no longer exists — try reloading the page.";
     if(code === "PGRST301" || /JWT|token is expired/i.test(msg))
       return "Your session expired. Sign in again to continue.";
+    if(code === "TIMEOUT")
+      return "The server took too long to respond. Check your connection and try again.";
     if(/Failed to fetch|NetworkError|network/i.test(msg))
       return "Couldn't reach the server. Check your connection and try again.";
     return msg;
@@ -1138,9 +1227,16 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   // unconditional repaints.
   function refreshSettingsPanel(){
     var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user";
-    document.getElementById("settingsForLabel").textContent = isOwnData
-      ? "Editing your own schedule."
-      : "Editing the schedule for " + who + ".";
+    // The line above the form says what the form is. When the schedule never
+    // loaded, what the form is holding is DEFAULT_SETTINGS — so it says that,
+    // rather than presenting the defaults under "Editing your own schedule."
+    // and letting them read as the saved answer.
+    document.getElementById("settingsForLabel").textContent = dataLoadFailed()
+      ? "This schedule didn't load. The values below are the app's defaults, not "
+        + (isOwnData ? "yours" : who + "'s") + " — saving is blocked until it loads."
+      : (isOwnData
+          ? "Editing your own schedule."
+          : "Editing the schedule for " + who + ".");
     document.getElementById("settingsProfileName").textContent = isOwnData ? "Your profile" : who;
     // Own profile only. The RLS policy would let an admin rename anyone, but
     // renaming a teammate is a different feature from setting your own name and
@@ -1665,6 +1761,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(isNaN(leaveDays) || leaveDays < 0 || leaveDays > 365){
       showToast("Annual leave days must be between 0 and 365.", "error");
       markFieldInvalid("sLeaveDays");
+      return;
+    }
+
+    // Nothing may be written on top of a schedule this app never managed to
+    // read. A failed load leaves the form holding DEFAULT_SETTINGS, which look
+    // exactly like a deliberate answer — one 500 and one ordinary Save replaced
+    // a real Mon–Fri/6h30 week with Sun–Thu/8h, silently, with the true values
+    // gone. The load has to succeed before the form is allowed to overwrite it.
+    if(dataLoadFailed()){
+      showToast("This schedule never loaded, so the form isn't showing the saved one. " +
+                "Use Try Again at the top of the screen first.", "error");
       return;
     }
 
@@ -2618,7 +2725,22 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     body.innerHTML = "";
 
     var empty = document.getElementById("logEmpty");
-    if(entries.length === 0){
+    if(dataLoadFailed()){
+      // Not "no attendance logged yet". That sentence, and the Clock In it
+      // invites, are what a failed load used to say to someone with four
+      // hundred days of history. The shape matches the roster's error state:
+      // same block, naming the problem and the way back.
+      empty.innerHTML =
+        '<div class="first-run-empty">' +
+          '<svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">' +
+            '<circle cx="24" cy="24" r="18" stroke="var(--line)" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>' +
+            '<path d="M24 15v11M24 31.5h.01" stroke="var(--negative)" stroke-width="2.6" stroke-linecap="round"/>' +
+          '</svg>' +
+          '<p class="first-run-title">Couldn\'t load this record</p>' +
+          '<p class="first-run-sub">' + escapeHtml(friendlyError(dataLoadError)) +
+            ' This is not an empty month — use <strong>Try Again</strong> at the top of the screen.</p>' +
+        '</div>';
+    } else if(entries.length === 0){
       // The dashed ring echoes the Day Types donut on Overview — an "empty"
       // version of that same ring, rather than a generic clock borrowed from
       // nowhere in particular. The plus sits in --gold-deep, not --gold: a
@@ -3585,8 +3707,28 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     if(toDate.value && toDate.value < this.value) toDate.value = this.value;
   });
 
+  // Every other write control in this app (punchClock, Save Settings) disables
+  // its button before its first `await`, in the same synchronous tick as the
+  // click — this handler didn't, and both `confirmLongShift()` and
+  // `showConfirm()` are themselves async even on their fast, no-dialog path,
+  // which still yields to the microtask queue. A rapid flurry of clicks on
+  // Submit each ran the whole validation chain before the first one reached
+  // its own `btn.disabled = true`, so ten clicks fired ten overlapping inserts
+  // for the same date instead of one — the unique constraint on the table
+  // stops the database from ending up with duplicate rows, but the person
+  // watching the screen saw the button flicker and a stack of "There's
+  // already an entry for that date" errors for what was, from where they were
+  // sitting, one double-tap.
+  var entrySubmitInFlight = false;
   form.addEventListener("submit", async function(ev){
     ev.preventDefault();
+    if(entrySubmitInFlight) return;
+    entrySubmitInFlight = true;
+    try{ await handleEntrySubmit(); }
+    finally{ entrySubmitInFlight = false; }
+  });
+
+  async function handleEntrySubmit(){
     var date = document.getElementById("fDate").value;
     if(!date){ showToast("Pick a date first.", "error"); markFieldInvalid("fDate"); return; }
 
@@ -3640,7 +3782,7 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
     }finally{
       btn.disabled = false; btn.textContent = prevText;
     }
-  });
+  }
 
   // Applies one entry template across every scheduled workday in a date
   // range — the "week of planned leave in one go" case. Non-workdays in
@@ -6217,9 +6359,17 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
   }
 
 
+  // w[0] indexes by UTF-16 code unit, not character. Every emoji outside the
+  // Basic Multilingual Plane is two code units (a surrogate pair) — a name
+  // starting with one produced a lone, unpaired high surrogate as the
+  // "initial", which renders as U+FFFD or nothing depending on the font,
+  // wherever an avatar falls back to initials. Array.from splits on code
+  // points instead, so the pair stays whole; the result may itself be an
+  // emoji rather than a letter, which is what "the first character of the
+  // name" actually is for a name that starts with one.
   function initialsOf(name){
     return String(name || "?").trim().split(/\s+/)
-      .map(function(w){ return w[0]; }).slice(0,2).join("").toUpperCase();
+      .map(function(w){ return Array.from(w)[0] || ""; }).slice(0,2).join("").toUpperCase();
   }
 
   function renderIdentityChrome(){
@@ -7514,6 +7664,12 @@ const supabase = supabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_K
 
   document.getElementById("outboxRetryBtn").addEventListener("click", function(){
     flushOutbox();
+  });
+  document.getElementById("loadFailRetryBtn").addEventListener("click", async function(){
+    var btn = this;
+    btn.disabled = true; btn.textContent = "Trying…";
+    try{ await loadDataForViewedUser(); }
+    finally{ btn.disabled = false; btn.textContent = "Try Again"; }
   });
   document.getElementById("outboxDiscardBtn").addEventListener("click", async function(){
     var mine = currentUser ? pendingFor(currentUser.id) : [];
