@@ -256,7 +256,7 @@ rule is what lets the palette be pastel without being illegible.
 
 Typography is one geometric grotesk doing every job: Switzer, self-hosted, at
 four weights. Headings are heavy and tightly tracked; figures are heavier still;
-labels are 10px uppercase with wide letter-spacing. There is no serif anywhere,
+labels are 11px uppercase with wide letter-spacing. There is no serif anywhere,
 and no second family — where the previous system used three faces to separate
 headings from numbers, Atrium separates them by weight and size alone.
 
@@ -408,14 +408,33 @@ no-op in Switzer and a real fix if the stack ever falls back to a system face.
   desktop frame, where the header is one compact line and the pixels belong to
   the tab underneath it.
 - **Card heading** (700, 21px, `-.025em`): no rule beneath, no bullet.
-- **Body** (400, 13–14px).
-- **Label / kicker** (500, 9.5–10px, uppercase, `.08–.14em`): every stat label,
+- **Body** (400, 13–14px). Also covers the short explanatory sentence under a
+  field or stat — a password rule, a settings hint, a section's own
+  description — which used to run at 11.5px as an unnamed fourth size between
+  Body and Label. It reads as continuous prose, not a glanceable label, so it
+  belongs on the Body floor rather than its own smaller one.
+- **Label / kicker** (500, 11px, uppercase, `.08–.14em`): every stat label,
   field label, nav item, meta line and status caption.
+
+### Named Rule
+**The 11px Floor.** Interactive and content-bearing text — labels, nav items,
+table headers, form fields, timecodes — does not go below 11px, full stop.
+Label/kicker shipped at 9.5–10px, and the bottom nav's narrowest-phone
+breakpoint at 9px on top of that: defensible as "the label role," indefensible
+as text a person has to read. The floor doesn't bend for a tight box either —
+where 11px genuinely does not fit (the bottom nav's "Overview" and "Calendar"
+in a ~43px column at 320px), the fix is a soft hyphen and a second line
+(`Over&shy;view`, `Calen&shy;dar`), not a smaller font. The one exemption is
+non-interactive legal smallprint — `.copyright` stays at 11px, which is the
+softer floor that role gets, not an oversight. `node
+.claude/skills/impeccable/scripts/detect.mjs --scope type` is what catches a
+regression here; being on this file's own size ramp was never a defense
+against it.
 
 ### Named Rule
 **The Weight Rule.** Hierarchy comes from weight, size and letter-spacing, not
 from a second family. A heading is 700 and tight; a figure is 900 and tighter; a
-label is 10px uppercase and wide. Introducing a display face to mark a heading
+label is 11px uppercase and wide. Introducing a display face to mark a heading
 means the scale stopped doing its job.
 
 **Four weights, and only the four that are loaded.** Switzer is served at
