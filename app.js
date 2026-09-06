@@ -721,15 +721,19 @@ if(supabase){
     };
   }
 
-  function scheduleSummary(){
-    var days = settings.workDays.slice().sort(function(a,b){return a-b;});
-    var label;
+  // Shared by the Settings summary line and the audit log's schedule diff,
+  // so "Sun–Thu" means the same thing and is spelled the same way in both.
+  function workDaysLabel(days){
+    days = days.slice().sort(function(a,b){return a-b;});
     // Show as a range when the days are contiguous, otherwise list them.
     var contiguous = days.every(function(d,i){ return i === 0 || d === days[i-1]+1; });
-    if(days.length === 1) label = DAY_FULL[days[0]];
-    else if(contiguous) label = DAY_NAMES[days[0]] + "–" + DAY_NAMES[days[days.length-1]];
-    else label = days.map(function(d){ return DAY_NAMES[d]; }).join(", ");
+    if(days.length === 1) return DAY_FULL[days[0]];
+    if(contiguous) return DAY_NAMES[days[0]] + "–" + DAY_NAMES[days[days.length-1]];
+    return days.map(function(d){ return DAY_NAMES[d]; }).join(", ");
+  }
 
+  function scheduleSummary(){
+    var label = workDaysLabel(settings.workDays);
     var today = scheduleFor(todayStr());
     var base = formatTime12(today.standardIn) + "–" + formatTime12(today.standardOut) +
                " · " + label + " · Target " + minutesToHoursStr(today.targetMin) + "/day";
@@ -7157,11 +7161,11 @@ if(supabase){
     insert:"Added", update:"Edited", delete:"Deleted",
     role_change:"Role changed", user_created:"User created",
     user_deactivated:"Deactivated", user_reactivated:"Reactivated", user_deleted:"User deleted",
-    app_settings_change:"Org settings changed"
+    app_settings_change:"Org settings changed", schedule_change:"Schedule changed"
   };
   function auditActionClass(action){
     if(action === "insert") return "a-insert";
-    if(action === "update" || action === "app_settings_change") return "a-update";
+    if(action === "update" || action === "app_settings_change" || action === "schedule_change") return "a-update";
     if(action === "delete" || action === "user_deleted") return "a-delete";
     return "a-admin";
   }
@@ -7217,7 +7221,41 @@ if(supabase){
     return bits.length ? bits.join(" · ") : "Settings saved";
   }
 
+  // old_values is NULL on the very first save (the row didn't exist yet), so
+  // this doubles as "here's the schedule someone started on" for that case —
+  // every field reads as new-in-place-of-nothing rather than a real diff.
+  function scheduleDiff(oldV, newV){
+    var isNew = !oldV;
+    oldV = normalizeSettings(oldV || {});
+    newV = normalizeSettings(newV || {});
+    var bits = [];
+    if(isNew || oldV.workDays.join(",") !== newV.workDays.join(",")){
+      bits.push(isNew ? "Work days: " + workDaysLabel(newV.workDays)
+                       : fieldDiff("Work days", workDaysLabel(oldV.workDays), workDaysLabel(newV.workDays)));
+    }
+    [
+      ["Start", "standardIn", formatTime12],
+      ["End", "standardOut", formatTime12],
+      ["Target", "targetMin", minutesToHoursStr],
+      ["Grace", "graceMin", function(v){ return v + "m"; }],
+      ["Remind after", "remindAfterHours", function(v){ return v + "h"; }],
+      ["Annual leave", "annualLeaveDays", function(v){ return v + "d"; }],
+      ["Late only if short", "lateOnlyIfShort", function(v){ return v ? "on" : "off"; }]
+    ].forEach(function(f){
+      var d = isNew ? f[0] + ": " + f[2](newV[f[1]]) : fieldDiff(f[0], oldV[f[1]], newV[f[1]], f[2]);
+      if(d) bits.push(d);
+    });
+    if(JSON.stringify(oldV.periods || []) !== JSON.stringify(newV.periods || [])){
+      bits.push("Seasonal hours " + (isNew ? "set" : "updated"));
+    }
+    return bits.length ? bits.join(" · ") : "Schedule saved";
+  }
+
   function auditDetail(row){
+    if(row.action === "user_created"){
+      var role = row.new_values && row.new_values.role;
+      return "Joined as " + (role || "user");
+    }
     if(row.action === "role_change"){
       var oldRole = row.old_values && row.old_values.role;
       var newRole = row.new_values && row.new_values.role;
@@ -7229,6 +7267,7 @@ if(supabase){
       return n != null ? n + " entries removed" : "Account removed";
     }
     if(row.action === "app_settings_change") return appSettingsDiff(row.old_values, row.new_values);
+    if(row.action === "schedule_change") return scheduleDiff(row.old_values, row.new_values);
     if(row.entry_date){
       if(row.action === "update") return entryDiff(row.old_values, row.new_values);
       var src = row.new_values || row.old_values || {};
