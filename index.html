@@ -1597,15 +1597,6 @@
     .overview-panel > .today-team{grid-area:roster;}
     .overview-panel > .quick-clock{grid-area:clock;}
     .overview-panel > .stats-row{grid-area:stats;}
-    /* Without a roster the third column is dead space, so the two cards above
-       the clock take the row instead. Set by renderTodayTeam() rather than by
-       :has(), which older mobile Safari and Firefox do not support — and whose
-       failure mode here is a dangling empty column, not a graceful one. */
-    .tab-panel.overview-panel.active.solo{
-      grid-template-columns:minmax(0,.9fr) minmax(0,1fr);
-      grid-template-areas:"stats stats" "portrait format" "clock clock";
-    }
-
     /* auto-fit reflowed the figures to 2x2 inside the grid, costing height the
        fold cannot spare. Four across is explicit here. */
     /* The grid row supplies .format-body's height here, so it may shrink well
@@ -1664,9 +1655,6 @@
   @media (min-width:1400px){
     .tab-panel.overview-panel.active{
       grid-template-columns:minmax(0,.95fr) minmax(0,.84fr) minmax(0,1.1fr);
-    }
-    .tab-panel.overview-panel.active.solo{
-      grid-template-columns:minmax(0,1.16fr) minmax(0,.84fr);
     }
   }
 

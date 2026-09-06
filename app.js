@@ -5498,36 +5498,62 @@ if(supabase){
   if(formatLegendEl) formatLegendEl.addEventListener("scroll", updateFormatLegendScrollHint);
 
   // ---------- Today's team ----------
-  // Admin-only "who is in today". Deliberately its own one-day query rather
-  // than reusing the Team tab's cache: that cache is built by renderTeam(),
-  // which pulls a whole month for every user, and this panel is on the default
-  // screen where that would be the heaviest thing on the page.
+  // "Who is in today", for everyone, not just admins — entries/profiles both
+  // gate SELECT to own_or_admin, so a non-admin's own version of the admin
+  // query below would silently return just themself; list_today_presence()
+  // is a narrow SECURITY DEFINER function (migration
+  // 20260906120000_list_today_presence_for_all_users.sql) that hands back
+  // exactly what this panel needs — name, avatar, today's clock_in/clock_out/
+  // type — for today only, without widening what entries/profiles themselves
+  // allow a non-admin to read.
+  //
+  // Admins keep the direct-table path rather than switching everyone onto the
+  // RPC: it's already the query this panel was built and tested against, and
+  // routing every admin visit through the same narrow function they don't
+  // need would be a change with no upside. Deliberately its own one-day query
+  // rather than reusing the Team tab's cache: that cache is built by
+  // renderTeam(), which pulls a whole month for every user, and this panel is
+  // on the default screen where that would be the heaviest thing on the page.
   async function renderTodayTeam(){
     var card = document.getElementById("todayTeamCard");
-    // .solo drops the Overview grid to two columns; without it the roster's
-    // column would stay behind as dead space for every non-admin.
     var panel = document.getElementById("tab-overview");
     if(!card) return;
-    if(!isAdmin){
-      card.hidden = true;
-      if(panel) panel.classList.add("solo");
-      return;
-    }
     card.hidden = false;
     if(panel) panel.classList.remove("solo");
 
     var list = document.getElementById("todayTeamList");
     var countEl = document.getElementById("todayTeamCount");
     var today = todayStr();
-    var byUser = {};
+    var rows;
     try{
-      var res = await supabase.from("entries")
-        .select("user_id,date,clock_in,clock_out,type")
-        .eq("date", today);
-      if(res.error) throw res.error;
-      (res.data || []).forEach(function(row){
-        (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
-      });
+      if(isAdmin){
+        var byUser = {};
+        var res = await supabase.from("entries")
+          .select("user_id,date,clock_in,clock_out,type")
+          .eq("date", today);
+        if(res.error) throw res.error;
+        (res.data || []).forEach(function(row){
+          (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
+        });
+        var settingsByUser = await loadTeamSettings();
+        rows = allProfiles.map(function(p){
+          var own = settingsByUser[p.id] || normalizeSettings({});
+          return {p: p, st: teamStatus(byUser[p.id] || [], own)};
+        });
+      } else {
+        var rpcRes = await supabase.rpc("list_today_presence", {p_date: today});
+        if(rpcRes.error) throw rpcRes.error;
+        // scheduledFor()/the "off" branch of teamStatus() never applies here
+        // (see below), so there's no need for that person's own working-hours
+        // settings — the RPC doesn't expose them, and this doesn't ask for them.
+        rows = (rpcRes.data || []).map(function(row){
+          var p = {id: row.user_id, full_name: row.full_name, email: row.email,
+            avatar_updated_at: row.avatar_updated_at};
+          var entry = rowToEntry({user_id: row.user_id, date: today,
+            clock_in: row.clock_in, clock_out: row.clock_out, type: row.type});
+          return {p: p, st: teamStatus([entry], normalizeSettings({}))};
+        });
+      }
     }catch(err){
       // Names the problem and the way back, in the same shape as the empty
       // state, so a failure does not read as "nobody is in today".
@@ -5540,16 +5566,14 @@ if(supabase){
       return;
     }
 
-    var settingsByUser = await loadTeamSettings();
     // Only people who actually punched in today — not the whole roster with
     // its day-offs and not-yet-arriveds cluttering the list. Still-in first,
-    // then whoever's already done, alphabetically within each.
-    var rows = allProfiles
-      .map(function(p){
-        var own = settingsByUser[p.id] || normalizeSettings({});
-        return {p: p, st: teamStatus(byUser[p.id] || [], own)};
-      })
-      .filter(function(r){ return r.st.cls === "in" || r.st.cls === "done"; });
+    // then whoever's already done, alphabetically within each. (Both the
+    // admin and non-admin paths above only ever produce "in"/"done"/"excused"/
+    // "off"/"missing" via the same teamStatus(), so this filter behaves
+    // identically either way — "excused" is deliberately left out here too,
+    // same as it always was.)
+    rows = rows.filter(function(r){ return r.st.cls === "in" || r.st.cls === "done"; });
     var order = {in:0, done:1};
     rows.sort(function(a,b){
       var d = (order[a.st.cls] || 9) - (order[b.st.cls] || 9);
