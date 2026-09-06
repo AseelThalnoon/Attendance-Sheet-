@@ -718,6 +718,26 @@ Wordmark, uppercase nav items with icons, today's status card, and a user block
 (avatar, name, role). The active item turns lime and grows a lime bar pinned to
 the left edge with a soft glow — the rail's one flash of colour.
 
+**The mark.** The wordmark carries a symbol now, not just text: two leaning
+rounded bars forming the legs of an "A", with a small lime circle nested in
+the gap at their apex. The dot is the same device as the accent-coloured
+period that already ends "Attendance." in the wordmark — one accent, read
+twice, as a letterform and as a mark. Source SVG lives at
+`brandkit/logo/attendance-mark.svg`; the rail lockup inlines the same paths
+with `fill="currentColor"` on the bars (so it follows the rail's white text
+in every palette) and `fill="var(--gold)"` on the dot (so it follows the
+active accent, the same token the wordmark's own period already used).
+
+**The app icon is the same mark, not a second design.** Favicon, apple-touch
+icon, and the 192/512 PWA icons all render the identical geometry — ink bars
+in `#F1EFE8` (the mark itself has no theme to follow off-screen, so it's
+fixed to Atrium's own light-on-dark values rather than a CSS token) on a
+solid `#111110` tile, scaled to 82% and re-centred on its own bounding box so
+the silhouette clears a maskable icon's centred safe-zone circle with margin.
+This replaced a leftover teal/gold clock medallion from the pre-Atrium
+identity that had survived every redesign pass since — the favicon was still
+Gilt Ledger's after the app itself no longer was.
+
 ### The sticky clock bar
 Fixed to the bottom of the viewport, but starting after the rail
 (`left: calc(236px + 12px)` above 760px) — the rail owns the left 236px. Anchored
