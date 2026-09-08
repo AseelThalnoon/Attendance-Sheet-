@@ -11,7 +11,7 @@
 -- the trigger machinery and nothing else.
 --
 -- log_app_settings_change() was written four days after that pass
--- (20260819180150) and revised again the day after (20260820184500), and both
+-- (20260819180150) and revised again the day after (20260908150601), and both
 -- times the REVOKE was missed. So it has been callable by anon and by
 -- authenticated ever since, which is what Supabase's security advisor reports
 -- as anon_security_definer_function_executable.

@@ -869,7 +869,7 @@ on an ink tile when there is not — same size and shape either way, so a mixed
 roster still lines up.
 
 **Photos are shared, in a private Supabase Storage bucket** (migration
-`20260830153418`), not device-local. Earlier this was a deliberate localStorage
+`20260830153507`), not device-local. Earlier this was a deliberate localStorage
 choice — no upload, no storage quota, a teammate always rendered as initials —
 until the deliberate choice turned out to be the wrong one to have made: a
 picture nobody but you can ever see is not really a profile photo. Read is any
