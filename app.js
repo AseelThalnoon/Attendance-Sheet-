@@ -779,15 +779,19 @@ if(supabase){
     };
   }
 
-  function scheduleSummary(){
-    var days = settings.workDays.slice().sort(function(a,b){return a-b;});
-    var label;
+  // Shared by the Settings summary line and the audit log's schedule diff,
+  // so "Sun–Thu" means the same thing and is spelled the same way in both.
+  function workDaysLabel(days){
+    days = days.slice().sort(function(a,b){return a-b;});
     // Show as a range when the days are contiguous, otherwise list them.
     var contiguous = days.every(function(d,i){ return i === 0 || d === days[i-1]+1; });
-    if(days.length === 1) label = DAY_FULL[days[0]];
-    else if(contiguous) label = DAY_NAMES[days[0]] + "–" + DAY_NAMES[days[days.length-1]];
-    else label = days.map(function(d){ return DAY_NAMES[d]; }).join(", ");
+    if(days.length === 1) return DAY_FULL[days[0]];
+    if(contiguous) return DAY_NAMES[days[0]] + "–" + DAY_NAMES[days[days.length-1]];
+    return days.map(function(d){ return DAY_NAMES[d]; }).join(", ");
+  }
 
+  function scheduleSummary(){
+    var label = workDaysLabel(settings.workDays);
     var today = scheduleFor(todayStr());
     var base = formatTime12(today.standardIn) + "–" + formatTime12(today.standardOut) +
                " · " + label + " · Target " + minutesToHoursStr(today.targetMin) + "/day";
@@ -5757,36 +5761,62 @@ if(supabase){
   if(formatLegendEl) formatLegendEl.addEventListener("scroll", updateFormatLegendScrollHint);
 
   // ---------- Today's team ----------
-  // Admin-only "who is in today". Deliberately its own one-day query rather
-  // than reusing the Team tab's cache: that cache is built by renderTeam(),
-  // which pulls a whole month for every user, and this panel is on the default
-  // screen where that would be the heaviest thing on the page.
+  // "Who is in today", for everyone, not just admins — entries/profiles both
+  // gate SELECT to own_or_admin, so a non-admin's own version of the admin
+  // query below would silently return just themself; list_today_presence()
+  // is a narrow SECURITY DEFINER function (migration
+  // 20260906120000_list_today_presence_for_all_users.sql) that hands back
+  // exactly what this panel needs — name, avatar, today's clock_in/clock_out/
+  // type — for today only, without widening what entries/profiles themselves
+  // allow a non-admin to read.
+  //
+  // Admins keep the direct-table path rather than switching everyone onto the
+  // RPC: it's already the query this panel was built and tested against, and
+  // routing every admin visit through the same narrow function they don't
+  // need would be a change with no upside. Deliberately its own one-day query
+  // rather than reusing the Team tab's cache: that cache is built by
+  // renderTeam(), which pulls a whole month for every user, and this panel is
+  // on the default screen where that would be the heaviest thing on the page.
   async function renderTodayTeam(){
     var card = document.getElementById("todayTeamCard");
-    // .solo drops the Overview grid to two columns; without it the roster's
-    // column would stay behind as dead space for every non-admin.
     var panel = document.getElementById("tab-overview");
     if(!card) return;
-    if(!isAdmin){
-      card.hidden = true;
-      if(panel) panel.classList.add("solo");
-      return;
-    }
     card.hidden = false;
     if(panel) panel.classList.remove("solo");
 
     var list = document.getElementById("todayTeamList");
     var countEl = document.getElementById("todayTeamCount");
     var today = todayStr();
-    var byUser = {};
+    var rows;
     try{
-      var res = await supabase.from("entries")
-        .select("user_id,date,clock_in,clock_out,type")
-        .eq("date", today);
-      if(res.error) throw res.error;
-      (res.data || []).forEach(function(row){
-        (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
-      });
+      if(isAdmin){
+        var byUser = {};
+        var res = await supabase.from("entries")
+          .select("user_id,date,clock_in,clock_out,type")
+          .eq("date", today);
+        if(res.error) throw res.error;
+        (res.data || []).forEach(function(row){
+          (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
+        });
+        var settingsByUser = await loadTeamSettings();
+        rows = allProfiles.map(function(p){
+          var own = settingsByUser[p.id] || normalizeSettings({});
+          return {p: p, st: teamStatus(byUser[p.id] || [], own)};
+        });
+      } else {
+        var rpcRes = await supabase.rpc("list_today_presence", {p_date: today});
+        if(rpcRes.error) throw rpcRes.error;
+        // scheduledFor()/the "off" branch of teamStatus() never applies here
+        // (see below), so there's no need for that person's own working-hours
+        // settings — the RPC doesn't expose them, and this doesn't ask for them.
+        rows = (rpcRes.data || []).map(function(row){
+          var p = {id: row.user_id, full_name: row.full_name, email: row.email,
+            avatar_updated_at: row.avatar_updated_at};
+          var entry = rowToEntry({user_id: row.user_id, date: today,
+            clock_in: row.clock_in, clock_out: row.clock_out, type: row.type});
+          return {p: p, st: teamStatus([entry], normalizeSettings({}))};
+        });
+      }
     }catch(err){
       // Names the problem and the way back, in the same shape as the empty
       // state, so a failure does not read as "nobody is in today".
@@ -5799,16 +5829,14 @@ if(supabase){
       return;
     }
 
-    var settingsByUser = await loadTeamSettings();
     // Only people who actually punched in today — not the whole roster with
     // its day-offs and not-yet-arriveds cluttering the list. Still-in first,
-    // then whoever's already done, alphabetically within each.
-    var rows = allProfiles
-      .map(function(p){
-        var own = settingsByUser[p.id] || normalizeSettings({});
-        return {p: p, st: teamStatus(byUser[p.id] || [], own)};
-      })
-      .filter(function(r){ return r.st.cls === "in" || r.st.cls === "done"; });
+    // then whoever's already done, alphabetically within each. (Both the
+    // admin and non-admin paths above only ever produce "in"/"done"/"excused"/
+    // "off"/"missing" via the same teamStatus(), so this filter behaves
+    // identically either way — "excused" is deliberately left out here too,
+    // same as it always was.)
+    rows = rows.filter(function(r){ return r.st.cls === "in" || r.st.cls === "done"; });
     var order = {in:0, done:1};
     rows.sort(function(a,b){
       var d = (order[a.st.cls] || 9) - (order[b.st.cls] || 9);
@@ -7398,11 +7426,12 @@ if(supabase){
     insert:"Added", update:"Edited", delete:"Deleted",
     role_change:"Role changed", user_created:"User created",
     user_deactivated:"Deactivated", user_reactivated:"Reactivated", user_deleted:"User deleted",
-    app_settings_change:"Org settings changed", notification_sent:"Notification sent"
+    app_settings_change:"Org settings changed", notification_sent:"Notification sent",
+    schedule_change:"Schedule changed"
   };
   function auditActionClass(action){
     if(action === "insert" || action === "notification_sent") return "a-insert";
-    if(action === "update" || action === "app_settings_change") return "a-update";
+    if(action === "update" || action === "app_settings_change" || action === "schedule_change") return "a-update";
     if(action === "delete" || action === "user_deleted") return "a-delete";
     return "a-admin";
   }
@@ -7458,7 +7487,41 @@ if(supabase){
     return bits.length ? bits.join(" · ") : "Settings saved";
   }
 
+  // old_values is NULL on the very first save (the row didn't exist yet), so
+  // this doubles as "here's the schedule someone started on" for that case —
+  // every field reads as new-in-place-of-nothing rather than a real diff.
+  function scheduleDiff(oldV, newV){
+    var isNew = !oldV;
+    oldV = normalizeSettings(oldV || {});
+    newV = normalizeSettings(newV || {});
+    var bits = [];
+    if(isNew || oldV.workDays.join(",") !== newV.workDays.join(",")){
+      bits.push(isNew ? "Work days: " + workDaysLabel(newV.workDays)
+                       : fieldDiff("Work days", workDaysLabel(oldV.workDays), workDaysLabel(newV.workDays)));
+    }
+    [
+      ["Start", "standardIn", formatTime12],
+      ["End", "standardOut", formatTime12],
+      ["Target", "targetMin", minutesToHoursStr],
+      ["Grace", "graceMin", function(v){ return v + "m"; }],
+      ["Remind after", "remindAfterHours", function(v){ return v + "h"; }],
+      ["Annual leave", "annualLeaveDays", function(v){ return v + "d"; }],
+      ["Late only if short", "lateOnlyIfShort", function(v){ return v ? "on" : "off"; }]
+    ].forEach(function(f){
+      var d = isNew ? f[0] + ": " + f[2](newV[f[1]]) : fieldDiff(f[0], oldV[f[1]], newV[f[1]], f[2]);
+      if(d) bits.push(d);
+    });
+    if(JSON.stringify(oldV.periods || []) !== JSON.stringify(newV.periods || [])){
+      bits.push("Seasonal hours " + (isNew ? "set" : "updated"));
+    }
+    return bits.length ? bits.join(" · ") : "Schedule saved";
+  }
+
   function auditDetail(row){
+    if(row.action === "user_created"){
+      var role = row.new_values && row.new_values.role;
+      return "Joined as " + (role || "user");
+    }
     if(row.action === "role_change"){
       var oldRole = row.old_values && row.old_values.role;
       var newRole = row.new_values && row.new_values.role;
@@ -7476,6 +7539,7 @@ if(supabase){
       return '"' + (nv.title || "") + '" to ' + who + ' · ' + (nv.recipient_count || 0) + ' delivered' +
         (nv.failure_count ? ', ' + nv.failure_count + ' failed' : '');
     }
+    if(row.action === "schedule_change") return scheduleDiff(row.old_values, row.new_values);
     if(row.entry_date){
       if(row.action === "update") return entryDiff(row.old_values, row.new_values);
       var src = row.new_values || row.old_values || {};
