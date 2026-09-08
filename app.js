@@ -6952,11 +6952,7 @@ if(supabase){
     // walk into empty months.
     document.getElementById("teamNextMonth").disabled = teamMonth >= monthKey(todayStr());
 
-    // A skeleton shaped like the real row list, not a spinner — see the
-    // #tab-team-scoped .tt-skeleton/.tt-skel-* rules in index.html.
-    list.innerHTML = '<div class="tt-skeleton" aria-hidden="true">' +
-      '<div class="tt-skel-row"><span class="tt-skel tt-skel-avatar"></span><span class="tt-skel tt-skel-line"></span><span class="tt-skel tt-skel-pill"></span></div>'.repeat(4) +
-      '</div>';
+    list.innerHTML = '<p class="empty-state" style="padding:24px 0;">Loading team…</p>';
     empty.style.display = "none";
     document.getElementById("teamSummary").hidden = true;
 

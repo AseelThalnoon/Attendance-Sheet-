@@ -3729,146 +3729,31 @@
   .viewing-other-banner svg{color:var(--excused);}
   .viewing-other-banner .reminder-title{color:var(--excused);}
 
-  /* ---------- Team tab (admin) : a self-contained visual identity ----------
-     Deliberately its own look, on explicit request, rather than a refinement
-     of Atrium: its own token set, its own type/motion/density decisions,
-     accepted as inconsistent with the rest of the app. Every rule below is
-     scoped under #tab-team so it can never leak into another tab, and every
-     shared component this tab still uses (.team-status, .admin-badge,
-     .icon-btn.small, .avatar) is overridden here at #tab-team specificity
-     rather than edited at its own definition, so nothing outside this tab
-     changes. This tab does not follow the palette/theme picker for the same
-     reason DESIGN.md's own tokens don't apply here; the light/dark pair below
-     is hand-verified at 4.5:1 against these exact surfaces (see the contrast
-     check run before writing them in), not inherited from a measurement made
-     against a different canvas.
-
-     Every overflow-prevention property the hardening pass established for
-     this tab (min-width:0 propagation, overflow-wrap:anywhere on names,
-     ellipsis+nowrap on the email/activity name, nowrap on the activity
-     timestamp) is carried forward unchanged here — restyled, not re-broken. */
-  #tab-team{
-    --tt-bg:#F6F6F5; --tt-surface:#FFFFFF; --tt-line:#E4E5E8;
-    --tt-ink:#17181B; --tt-ink-soft:#55585E; --tt-muted:#6C6F75;
-    --tt-accent:#3A63D8; --tt-accent-soft:#EAF0FE; --tt-on-accent:#FFFFFF;
-    --tt-positive:#157A4C; --tt-positive-soft:#E3F5EC;
-    --tt-negative:#B23B55; --tt-negative-soft:#FBE7EC;
-    --tt-excused:#8A5A0A; --tt-excused-soft:#FBF0DC;
-    --tt-mono:ui-monospace,"SF Mono","Cascadia Code","Roboto Mono",Consolas,monospace;
-    --tt-ease:cubic-bezier(.16,1,.3,1);
-  }
-  @media (prefers-color-scheme:dark){
-    #tab-team:not([data-theme="light"]){
-      --tt-bg:#101113; --tt-surface:#17181B; --tt-line:#2A2C30;
-      --tt-ink:#F2F2F1; --tt-ink-soft:#B8BABF; --tt-muted:#8B8E94;
-      --tt-accent:#6D93FF; --tt-accent-soft:#17233F; --tt-on-accent:#101113;
-      --tt-positive:#4FD8A0; --tt-positive-soft:#113325;
-      --tt-negative:#F090A8; --tt-negative-soft:#3A1620;
-      --tt-excused:#E0B45C; --tt-excused-soft:#3A2E0E;
-    }
-  }
-  html[data-theme="dark"] #tab-team{
-    --tt-bg:#101113; --tt-surface:#17181B; --tt-line:#2A2C30;
-    --tt-ink:#F2F2F1; --tt-ink-soft:#B8BABF; --tt-muted:#8B8E94;
-    --tt-accent:#6D93FF; --tt-accent-soft:#17233F; --tt-on-accent:#101113;
-    --tt-positive:#4FD8A0; --tt-positive-soft:#113325;
-    --tt-negative:#F090A8; --tt-negative-soft:#3A1620;
-    --tt-excused:#E0B45C; --tt-excused-soft:#3A2E0E;
-  }
-
-  /* Left-aligned, not centered (DESIGN_VARIANCE anti-center-bias) — a kicker
-     over a tight-tracked title, the weight and tracking doing the hierarchy
-     work rather than a shouting oversized H1. */
-  .team-head{margin:-4px 0 18px;}
-  .tt-kicker{
-    font:600 11px/1 var(--font-display); text-transform:uppercase; letter-spacing:.14em;
-    color:var(--tt-accent); margin:0 0 4px;
-  }
-  .tt-title{
-    font-family:var(--font-display); font-weight:700; font-size:30px;
-    letter-spacing:-.03em; line-height:1; color:var(--tt-ink); margin:0;
-  }
-
+  /* ---------- Team tab (admin) ---------- */
+  /* ---------- Team roster ---------- */
   .team-toolbar{
     display:flex; align-items:center; justify-content:space-between; gap:12px;
-    flex-wrap:wrap; margin:0 0 16px;
+    flex-wrap:wrap; margin:-4px 0 14px;
   }
-  .team-month{display:flex; align-items:center; gap:2px; background:var(--tt-surface);
-    border:1px solid var(--tt-line); border-radius:99px; padding:3px;}
+  .team-month{display:flex; align-items:center; gap:6px;}
   .team-month-label{
-    font-family:var(--tt-mono); font-size:13px; font-weight:600; color:var(--tt-ink);
-    min-width:132px; text-align:center;
-  }
-  /* The 44px touch floor is the base, same as .icon-btn.small's own shared
-     rule — only the pointer-density step-down at 1100px+ (below) differs
-     from it, matching the "One Module" contract the rest of the app holds
-     itself to (see DESIGN.md and tests/mobile/touch-floor.js). A flat 32px
-     here failed that test at every width under 1100px. */
-  #tab-team .icon-btn.small{
-    background:transparent; border:0; color:var(--tt-muted); border-radius:99px;
-  }
-  #tab-team .icon-btn.small:hover{background:var(--tt-bg); color:var(--tt-ink); box-shadow:none; transform:none;}
-  #tab-team .icon-btn.small:disabled{opacity:.35; cursor:default; background:transparent; color:var(--tt-muted);}
-  #tab-team .icon-btn.small:active{transform:scale(.92);}
-  @media (min-width:1100px){
-    #tab-team .icon-btn.small{width:32px; height:32px;}
+    font-family:var(--font-display); font-size:16px; font-weight:700; color:var(--ink);
+    min-width:150px; text-align:center;
   }
   .icon-btn.small{
     width:44px; height:44px; background:var(--input-bg); border:1px solid var(--line);
     color:var(--muted); border-radius:var(--radius-sm);
   }
   .icon-btn.small:disabled{opacity:.4; cursor:default; background:var(--input-bg); color:var(--muted-2);}
-  .team-controls{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
-  .team-controls input[type="search"]{
-    width:auto; min-width:180px; background:var(--tt-surface); border:1px solid var(--tt-line);
-    color:var(--tt-ink); border-radius:10px;
-  }
-  .team-controls select{
-    width:auto; min-width:170px; background:var(--tt-surface); border:1px solid var(--tt-line);
-    color:var(--tt-ink); border-radius:10px;
-  }
-  .team-controls input[type="search"]::placeholder{color:var(--tt-muted);}
+  .team-controls{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .team-controls input[type="search"]{width:auto; min-width:180px;}
+  .team-controls select{width:auto; min-width:170px;}
 
-  /* Hero + cluster bento instead of five equal .stat-cards in a row — the
-     generic uniform card row this design system's rules ban. "Clocked In
-     Now" (the 2nd stat app.js emits) is the featured tile: the one figure
-     on this tab that changes while you're looking at it, so it gets the
-     size and the live pulse. The other four fill a tight 2x2 beside it.
-     Placement is by nth-child, not by changing app.js's emit order or
-     markup — the DOM contract tests/hostile.js and admin-tab.js hold
-     (#teamSummary .stat-card > .stat-label/.stat-value) is untouched. */
-  .team-stats{
-    display:grid; grid-template-columns:1.5fr 1fr 1fr; grid-auto-rows:1fr; gap:1px;
-    background:var(--tt-line); border:1px solid var(--tt-line); border-radius:20px;
-    overflow:hidden; margin-bottom:20px;
-  }
-  #teamSummary.stats-row{box-shadow:none;}
-  #teamSummary .stat-card{
-    background:var(--tt-surface); box-shadow:none; border-radius:0; padding:16px 18px;
-    display:flex; flex-direction:column; justify-content:center; gap:4px;
-  }
-  #teamSummary .stat-card:nth-child(1){grid-column:2; grid-row:1;}
-  #teamSummary .stat-card:nth-child(2){
-    grid-column:1; grid-row:1/3; position:relative; background:var(--tt-accent-soft);
-  }
-  #teamSummary .stat-card:nth-child(3){grid-column:3; grid-row:1;}
-  #teamSummary .stat-card:nth-child(4){grid-column:2; grid-row:2;}
-  #teamSummary .stat-card:nth-child(5){grid-column:3; grid-row:2;}
-  #teamSummary .stat-card:nth-child(2)::after{
-    content:""; position:absolute; top:16px; right:16px; width:7px; height:7px;
-    border-radius:50%; background:var(--tt-accent); animation:ttDotPulse 1.8s ease-in-out infinite;
-  }
-  #teamSummary .stat-label{
-    font:600 10.5px/1 var(--font-display); text-transform:uppercase; letter-spacing:.08em;
-    color:var(--tt-muted); margin:0; display:flex; align-items:center; gap:6px;
-  }
-  #teamSummary .stat-label svg{width:12px; height:12px;}
-  #teamSummary .stat-value{
-    font-family:var(--tt-mono); font-weight:700; font-size:21px; letter-spacing:-.01em;
-    color:var(--tt-ink); margin:2px 0 0;
-  }
-  #teamSummary .stat-card:nth-child(2) .stat-value{font-size:38px; color:var(--tt-accent);}
-  #teamSummary .stat-detail{font-size:11px; color:var(--tt-ink-soft); margin:1px 0 0;}
+  /* The team-wide figures above the roster, so a manager does not have to add
+     eight numbers up to answer "is the month on track" — five .stat-cards,
+     the same component and alternating white/cream/gray surfaces Overview's
+     own row uses, not a bespoke summary bar. */
+  .team-stats{margin-bottom:16px;}
 
   /* Sidebar sized to fit a name, a relative time and a short line of body
      text without wrapping every row — narrower and the activity feed reads
@@ -3881,10 +3766,7 @@
      panel scrolled three screens, alongside a 300px column that was empty for
      2,500 of them. Narrowing it here is what lets .team-grid below fit three
      cards at the 268px they are designed for, rather than three squeezed to
-     248px where the name and status line start truncating. Still true here:
-     the roster switched from a card grid to a row list (below), which no
-     longer needs a column floor to defend, but the aside-width reasoning that
-     keeps it from crowding the roster is unrelated to that and still holds. */
+     248px where the name and status line start truncating. */
   .team-layout{display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,240px); gap:16px; align-items:start;}
   /* The roster is what scrolls; the team-wide feed beside it is context for all
      of it, so it should not scroll away with the first screenful of people. */
@@ -3895,148 +3777,96 @@
   .team-layout.no-activity .team-activity{position:static;}
   @media (max-width:920px){
     .team-layout{grid-template-columns:1fr;}
-    .team-stats{grid-template-columns:1fr 1fr;}
-    #teamSummary .stat-card:nth-child(2){grid-column:1/3; grid-row:1;}
-    #teamSummary .stat-card:nth-child(1){grid-column:1; grid-row:2;}
-    #teamSummary .stat-card:nth-child(3){grid-column:2; grid-row:2;}
-    #teamSummary .stat-card:nth-child(4){grid-column:1; grid-row:3;}
-    #teamSummary .stat-card:nth-child(5){grid-column:2; grid-row:3;}
   }
   .team-main{min-width:0;}
 
-  /* Anti-card-overuse (Rule 4): a divide-y row list, not a grid of boxed
-     cards — one bordered module with hairline seams between rows rather
-     than a shadow per person. Each .team-card is still exactly the same
-     element (a real <button>, same data-uid, same children) the DOM
-     contract in tests/regression/admin-tab.js and shared-avatars.js holds;
-     only the arrangement of its existing children changed, via named grid
-     areas instead of the old stacked-flex-column, so no markup or JS moved. */
-  .team-grid{
-    display:flex; flex-direction:column; background:var(--tt-surface);
-    border:1px solid var(--tt-line); border-radius:20px; overflow:hidden;
+  /* 240px is the floor auto-fit measures against, not the width a card ends up
+     at: with the narrowed aside above, three of them land at 268px. Left at
+     268px the floor itself blocked the third column, so the same width the
+     cards want was the reason they could not have it. */
+  .team-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:var(--space-3);}
+  /* .team-layout collapsing to one column above (max-width:920px) does not,
+     on its own, stop .team-grid from still computing two of its own 240px
+     tracks: with .team-layout's single track sized through .team-main's
+     content rather than handed down as a hard cap, repeat(auto-fit,
+     minmax(240px, 1fr)) resolved against that ambiguous size as if 555px
+     were available and laid out two 277.5px columns — inside a 331px-wide
+     phone screen, stretching .team-main, .team-list and every .team-card to
+     match and pushing the whole page into horizontal scroll. min-width:0 on
+     .team-main stops it from refusing to shrink below its own content's
+     size; it does nothing about an explicit 240px floor two levels further
+     down naming its own minimum. This rule has to come after the base one
+     above — an earlier copy of it inside the (max-width:920px) block up with
+     .team-layout was silently overridden by this same-specificity rule
+     appearing later in the file, which is the ordinary cascade working
+     exactly as written and still the wrong answer. */
+  @media (max-width:920px){
+    .team-grid{grid-template-columns:1fr;}
   }
+  /* A real button, not a div with a click handler: the old rows could not be
+     reached or activated from a keyboard at all. No border, matching every
+     other card in the system (DESIGN.md: "Cards have no border — separation
+     comes from surface colour and shadow") — this one sits on the canvas
+     alone rather than in a row, so shadow-sm alone does the separating. */
   .team-card{
-    display:grid; width:100%; min-width:0; text-align:left; cursor:pointer; font-family:inherit;
-    grid-template-columns:minmax(160px,1.6fr) minmax(120px,1fr) auto;
-    grid-template-areas:"head tags figures" "head numbers figures";
-    align-items:center; column-gap:18px; row-gap:3px;
-    padding:14px 18px; border:0; border-top:1px solid var(--tt-line); background:transparent;
-    transition:background-color .2s var(--tt-ease), transform .12s var(--tt-ease);
+    display:flex; flex-direction:column; gap:8px; width:100%; min-width:0; text-align:left;
+    padding:12px 14px; border-radius:var(--radius-md);
+    background:var(--card); box-shadow:var(--shadow-sm); cursor:pointer; font-family:inherit;
+    transition:box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
-  .team-card:first-child{border-top:0;}
-  .team-card:hover{background:var(--tt-bg);}
-  .team-card:active{transform:scale(.995);}
-  .team-card:focus-visible{outline:2px solid var(--tt-accent); outline-offset:-2px;}
-  @media (max-width:640px){
-    .team-card{
-      grid-template-columns:1fr;
-      grid-template-areas:"head" "tags" "numbers" "figures";
-      row-gap:8px;
-    }
-  }
-  /* Reuses the same entrance stagger renderTeamCards() already drives via
-     card.style.animationDelay (see app.js) — a new keyframe local to this
-     tab's own easing curve, not a fork of the shared .auth-card cardIn. */
-  .team-card.entering{animation:ttCardIn .5s var(--tt-ease) both;}
-  @keyframes ttCardIn{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);}}
-  .team-card-head{grid-area:head; display:flex; align-items:center; gap:12px; min-width:0;}
-  .team-card-head .avatar{width:38px; height:38px;}
+  .team-card:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
+  /* Only on a month or sort change (see renderTeamCards's entering param) —
+     never on a search keystroke, which redraws the whole grid on every
+     character and would turn this into a flicker instead of an explanation.
+     Reuses .auth-card's own cardIn keyframe rather than inventing a sibling
+     of it. */
+  .team-card.entering{animation:cardIn .4s var(--ease-soft) both;}
+  .team-card-head{display:flex; align-items:center; gap:10px; min-width:0;}
   /* Status and role pills, on their own line. Inline in the name they broke it
      mid-phrase; here they wrap against each other and nothing else. */
-  .team-tags{grid-area:tags; display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0; justify-self:start;}
-  .team-card-numbers{grid-area:numbers;}
-  /* A tight row of hairline-divided cells instead of a mini 2x2 grid —
-     "cockpit" density for the one place on the card that is pure numbers,
-     set in a monospace face so the four values actually align as a column
-     when the eye runs down the roster, the way the rest of the tab's
-     figures do. */
-  .team-card-figures{grid-area:figures; display:flex; gap:0; justify-self:end;}
-  .team-card-figures div{min-width:0; padding:0 12px; border-left:1px solid var(--tt-line); text-align:right;}
-  .team-card-figures div:first-child{padding-left:0; border-left:0;}
-  .team-card-figures .label{font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--tt-muted); font-family:var(--font-display);}
-  .team-card-figures .value{font-family:var(--tt-mono); font-weight:600; font-size:13px; color:var(--tt-ink); margin-top:2px;}
-  .team-card-figures .value.short{color:var(--tt-negative);}
-  .team-card-figures .value.over{color:var(--tt-positive);}
-  @media (max-width:640px){
-    .team-card-figures{justify-self:start; flex-wrap:wrap; gap:2px 0;}
-  }
+  .team-tags{display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0;}
+  /* .team-card's own gap:8px used to be the ONLY interval anywhere in the
+     card — identity-to-tags, tags-to-bar, bar-to-figures, all the same 8px,
+     which is the flat-rhythm anti-pattern: every relationship reads as
+     equally (un)related regardless of whether it actually is. Identity and
+     status are one fact ("who, and are they in") and stay tight against
+     each other; the bar and the four figures below it are a second, later
+     fact ("how did their month go") that deserves a beat of separation
+     from the first, not the same 8px as everything else. The bar and its
+     own figures stay unseparated from EACH OTHER on purpose — they are one
+     reading, not two. */
+  .team-card-numbers{margin-top:4px;}
+  /* Was flex-wrap: at the card's real ~240px inner width (padding taken out
+     of the 268px DESIGN.md sizes these cards to), "Target Hours Met" is too
+     wide to share a row with Days/Avg-Day/Diff, so it silently orphaned onto
+     its own line every time — three items reading as a row, a fourth
+     reading as an afterthought below them, no shared structure tying it
+     back. auto-fit here is the same idiom .team-grid and .team-layout
+     already use one level up: it resolves to 2 columns at the card's usual
+     width (a deliberate pair of rows, not an accident) and opens to more
+     columns on its own if the card ever gets wide enough to fit them,
+     rather than a hardcoded column count fighting the width at either end. */
+  .team-card-figures{display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:10px 14px;}
+  .team-card-figures div{min-width:0;}
+  .team-card-figures .label{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted);}
+  .team-card-figures .value{font-family:var(--font-num); font-weight:700; font-size:15px; color:var(--ink);}
+  .team-card-figures .value.short{color:var(--negative);}
+  .team-card-figures .value.over{color:var(--positive);}
 
   /* Progress against that person's own target for the month. */
-  .team-bar{height:4px; border-radius:99px; background:var(--tt-line); overflow:hidden;}
-  .team-bar span{display:block; height:100%; border-radius:99px; background:var(--tt-ink-soft); transition:width .5s var(--tt-ease);}
-  .team-bar.is-met span{background:var(--tt-positive);}
-  .team-bar.is-short span{background:var(--tt-negative);}
-  .team-bar-note{font-size:10.5px; color:var(--tt-muted); margin-top:5px;}
+  .team-bar{height:7px; border-radius:99px; background:var(--ink-50); overflow:hidden;}
+  .team-bar span{display:block; height:100%; border-radius:99px; background:var(--gradient-ink);}
+  .team-bar.is-met span{background:var(--positive);}
+  /* Was --gold-deep: a lime standing in for "under target" opposite a green
+     "met", so the pair carried no hue relationship at all. Crimson is the
+     under-target hue everywhere else in the app. */
+  .team-bar.is-short span{background:var(--negative);}
+  .team-bar-note{font-size:11px; color:var(--muted-2); margin-top:6px;}
 
-  /* .team-status is shared with Overview's "in today" panel (.tt-row) and
-     #personStatus — its base rule and semantic variants stay where they are,
-     untouched, below. This overrides them at #tab-team specificity rather
-     than editing them, so neither of those other surfaces changes. */
-  #tab-team .team-status{
-    font:600 10px/1 var(--font-display); text-transform:uppercase; letter-spacing:.06em;
-    padding:5px 9px; border-radius:99px; white-space:nowrap; flex-shrink:0;
-    display:inline-flex; align-items:center; gap:5px;
-  }
-  #tab-team .team-status.in{background:var(--tt-accent-soft); color:var(--tt-accent);}
-  #tab-team .team-status.in::before{
-    content:""; width:5px; height:5px; border-radius:50%; background:var(--tt-accent);
-    animation:ttDotPulse 1.8s ease-in-out infinite;
-  }
-  #tab-team .team-status.done{background:var(--tt-line); color:var(--tt-ink-soft);}
-  #tab-team .team-status.off{background:transparent; color:var(--tt-muted); box-shadow:inset 0 0 0 1px var(--tt-line);}
-  #tab-team .team-status.excused{background:var(--tt-excused-soft); color:var(--tt-excused);}
-  #tab-team .team-status.missing{background:transparent; color:var(--tt-muted); box-shadow:inset 0 0 0 1px var(--tt-line);}
-  @keyframes ttDotPulse{0%,100%{opacity:1;} 50%{opacity:.3;}}
-
-  #tab-team .admin-badge{
-    font:600 10px/1 var(--font-display); text-transform:uppercase; letter-spacing:.06em;
-    color:var(--tt-ink-soft); background:var(--tt-line); padding:5px 9px; border-radius:99px;
-  }
-  #tab-team .admin-badge.unconfigured{color:var(--tt-negative); background:var(--tt-negative-soft);}
-
-  #tab-team .team-info{flex:1; min-width:0;}
-  /* overflow-wrap:anywhere carried forward unchanged from the hardening
-     pass: a name with no spaces has nowhere else to break, and min-width:0
-     on the flex parents only creates room for a break, not the break
-     itself. See the original comment history for the 180-char repro. */
-  #tab-team .team-name{
-    font-size:14px; font-weight:600; color:var(--tt-ink); overflow-wrap:anywhere;
-    font-family:var(--font-display); letter-spacing:-.005em;
-  }
-  /* One line and an ellipsis, full value in title — carried forward
-     unchanged, same reasoning as before (wrapping splits an address
-     mid-domain). */
-  #tab-team .team-email{
-    font-size:11.5px; color:var(--tt-muted);
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-
-  /* Beautifully-composed empty/loading states (mandatory, not optional) —
-     framed and centered rather than a bare paragraph, without changing the
-     text app.js sets via .textContent. */
-  #tab-team .empty-state{
-    padding:48px 20px; text-align:center; color:var(--tt-muted); font-size:13px;
-    background:var(--tt-surface); border:1px dashed var(--tt-line); border-radius:20px;
-  }
-  #tab-team .tt-skeleton{
-    display:flex; flex-direction:column; background:var(--tt-surface);
-    border:1px solid var(--tt-line); border-radius:20px; overflow:hidden;
-  }
-  #tab-team .tt-skel-row{display:flex; align-items:center; gap:14px; padding:16px 18px; border-top:1px solid var(--tt-line);}
-  #tab-team .tt-skel-row:first-child{border-top:0;}
-  #tab-team .tt-skel{
-    border-radius:8px; flex-shrink:0;
-    background:linear-gradient(90deg, var(--tt-line) 25%, var(--tt-bg) 50%, var(--tt-line) 75%);
-    background-size:200% 100%; animation:ttShimmer 1.4s ease-in-out infinite;
-  }
-  #tab-team .tt-skel-avatar{width:38px; height:38px; border-radius:50%;}
-  #tab-team .tt-skel-line{height:12px; flex:1; max-width:220px;}
-  #tab-team .tt-skel-pill{height:20px; width:84px; border-radius:99px; margin-left:auto; flex-shrink:0;}
-  @keyframes ttShimmer{0%{background-position:200% 0;} 100%{background-position:-200% 0;}}
-
-  /* This block (base .team-status + variants) is shared with Overview's
-     .tt-row and #personStatus and is intentionally NOT part of the #tab-team
-     redesign above — it stays exactly as it was. */
+  /* No margin-left:auto. It existed to push this pill to the end of the card
+     head; in the tag row it shoved the whole line right, so the first line of
+     pills sat indented while any that wrapped started flush — the two halves of
+     one row looking like two unrelated things. */
   .team-status{
     font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
     padding:4px 8px; border-radius:99px; white-space:nowrap; flex-shrink:0;
@@ -4054,52 +3884,60 @@
      month the rest of the card is reporting on. */
   .team-status.missing{background:var(--ink-50); color:var(--muted-2);}
 
-  /* ---------- Team activity sidebar (restyled as a "Live" rail) ----------
+  /* ---------- Team activity sidebar ----------
      Same job as Overview's "In today" panel — a live read on the team — but
      a different question: not who's in right now, but who did what most
      recently. Built from the same per-month entries fetch renderTeam() already
      makes (entries.updated_at, added to that query), not a second network
-     round-trip.
-
-     Every overflow-prevention property below (.team-activity's min-width:0,
-     .activity-row-body/.activity-row-head's min-width:0, the ellipsis+nowrap
-     pair on .activity-row-name, nowrap on .activity-row-time) is carried
-     forward unchanged from the hardening pass — see the original comment
-     history for exactly why each one is load-bearing: a grid item's
-     automatic minimum size is computed from content, not from what
-     text-overflow:ellipsis would eventually clip, so a long unwrapped name
-     pushed the whole roster into horizontal scroll without every one of
-     these in place. */
-  #tab-team .team-activity{
-    min-width:0; background:var(--tt-surface); border:1px solid var(--tt-line);
-    border-radius:20px; padding:18px;
+     round-trip. */
+  /* The grid item that actually needs suppressing, not .activity-row-name.
+     A grid item's automatic minimum size — the floor .team-main{min-width:0}
+     already removes for the roster's own column — is computed from its
+     content's MIN-CONTENT size, and text-overflow:ellipsis never changes an
+     element's min-content contribution: ellipsis is a paint-time effect
+     applied only once a width already exists, while min-content asks "how
+     narrow can this get by wrapping", and white-space:nowrap answers "not at
+     all" regardless of what happens to the overflow visually. So a long
+     activity-feed name's un-wrapped full width kept being that measurement,
+     .team-activity (the item carrying it into .team-layout's grid) had
+     nothing overriding its own automatic minimum, and that floor is what
+     .team-layout's single collapsed phone-width column sized itself to —
+     567px inside a 331px card, not any longer explained by .team-main or
+     .team-card, which were both fixed and made no difference on their own.
+     This is the one min-width:0 that was actually missing. */
+  .team-activity{min-width:0;}
+  .card.team-activity h2{font-size:19px; margin-bottom:14px;}
+  .team-activity-list{display:flex; flex-direction:column;}
+  .team-activity-empty{font-size:12.5px; color:var(--muted); margin:0;}
+  .activity-row{
+    display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--line-soft);
   }
-  #tab-team .card.team-activity h2{
-    font:700 12px/1 var(--font-display); text-transform:uppercase; letter-spacing:.08em;
-    color:var(--tt-muted); margin:0 0 14px; display:flex; align-items:center; gap:7px;
-  }
-  #tab-team .card.team-activity h2::before{
-    content:""; width:6px; height:6px; border-radius:50%; background:var(--tt-accent);
-    animation:ttDotPulse 1.8s ease-in-out infinite;
-  }
-  #tab-team .team-activity-list{display:flex; flex-direction:column;}
-  #tab-team .team-activity-empty{font-size:12px; color:var(--tt-muted); margin:0;}
-  #tab-team .activity-row{
-    display:flex; gap:10px; padding:10px 4px; margin:0 -4px; border-bottom:1px solid var(--tt-line);
-    border-left:2px solid transparent; transition:border-color .2s var(--tt-ease);
-  }
-  #tab-team .activity-row:hover{border-left-color:var(--tt-accent);}
-  #tab-team .activity-row:last-child{border-bottom:none; padding-bottom:0;}
-  #tab-team .activity-row:first-child{padding-top:0;}
-  #tab-team .activity-row .avatar{flex-shrink:0; width:28px; height:28px; font-size:10.5px;}
-  #tab-team .activity-row-body{min-width:0; flex:1;}
-  #tab-team .activity-row-head{display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; min-width:0;}
-  #tab-team .activity-row-name{
-    font-size:12px; font-weight:600; color:var(--tt-ink); min-width:0; font-family:var(--font-display);
+  .activity-row:last-child{border-bottom:none; padding-bottom:0;}
+  .activity-row:first-child{padding-top:0;}
+  .activity-row .avatar{flex-shrink:0; width:30px; height:30px; font-size:11px;}
+  .activity-row-body{min-width:0; flex:1;}
+  .activity-row-head{display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;}
+  /* min-width:0 has to sit on this element itself, not just an ancestor: it
+     is a direct flex item of .activity-row-head, not a plain block inheriting
+     an already-shrunk parent width the way .team-email inherits .team-info's
+     (that pair works with min-width:0 one level up precisely because
+     .team-email is a plain div, not itself a flex item). A flex item's own
+     default min-width:auto — its content's un-wrapped width, which
+     white-space:nowrap makes equal to the full name — beat overflow:hidden
+     and text-overflow:ellipsis here: neither ever engages without something
+     narrower than that content to clip against, so a long name (an email
+     address, a name with no short form) rendered at full width instead of
+     truncating, forcing the whole roster's second grid column past its own
+     card, its card past .team-layout, and the page into horizontal scroll —
+     visible only on a phone width, where .team-layout collapses to one
+     column and this card ends up sharing a track with the roster's cards
+     rather than sitting safely beside them in its own 240px column. */
+  .activity-row-name{
+    font-size:12.5px; font-weight:500; color:var(--ink); min-width:0;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  #tab-team .activity-row-time{font-size:10.5px; color:var(--tt-muted); white-space:nowrap; margin-left:auto; font-family:var(--tt-mono);}
-  #tab-team .activity-row-desc{font-size:11px; color:var(--tt-ink-soft); margin:2px 0 0;}
+  .activity-row-time{font-size:11px; color:var(--muted-2); white-space:nowrap; margin-left:auto;}
+  .activity-row-desc{font-size:11.5px; color:var(--muted-2); margin:2px 0 0;}
 
   .sr-only{
     position:absolute; width:1px; height:1px; padding:0; margin:-1px;
@@ -4128,11 +3966,32 @@
   }
   .avatar img{width:100%; height:100%; object-fit:cover; display:block;}
   .avatar.lg{width:56px; height:56px; font-size:19px;}
-  /* .team-info/.team-name/.team-email and the Team-card .admin-badge (all
-     exclusive to the Team tab) moved up into the #tab-team-scoped block
-     above, alongside the rest of this tab's own identity. Every overflow
-     guard they carried (overflow-wrap:anywhere on the name, ellipsis+title
-     on the email) made the move unchanged. */
+  .team-info{flex:1; min-width:0;}
+  /* A name may wrap — two lines of a long name is still a readable name — but
+     it breaks between words, not inside one, unless a word itself has nowhere
+     to break: word-break:normal has no break opportunity inside a run with no
+     spaces, so it paints straight past the card's edge regardless of
+     min-width:0 on the flex parents. min-width:0 only lets a flex item shrink
+     to fit an already-wrapped box; it does nothing once the text inside that
+     box refuses to wrap at all. A 180-character unbroken name pushed the card,
+     the grid, .team-main and the whole page 1420px wider than the viewport —
+     min-width:0 does not create a break, only room for one. overflow-wrap
+     breaks inside the word as a last resort, after ordinary word-breaking has
+     already had its chance, so an ordinary long name still wraps at a space
+     first. */
+  .team-name{font-size:13px; font-weight:700; color:var(--ink); overflow-wrap:anywhere;}
+  /* An address gets one line and an ellipsis. Wrapped, it split mid-domain
+     ("p1@example.co / m"), which reads as two broken strings rather than one
+     truncated address — and an address you can't finish reading is no more
+     useful on two lines than on one. The full value stays in the title. */
+  .team-email{
+    font-size:11.5px; color:var(--muted-2);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .admin-badge{
+    font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--excused); background:var(--excused-bg); padding:2px 8px; border-radius:99px;
+  }
 
   /* ---------- Role toggle (Admin tab People list) ----------
      .user-row and .you-badge lived here for the Team & Access card. That card
@@ -5331,14 +5190,6 @@
            control, no target to measure them against, and no way to sort or
            search. Each person is a card now, measured against their OWN
            schedule rather than the viewer's. -->
-      <!-- This tab carries its own visual identity (see the #tab-team-scoped
-           tokens and rules in the CSS below) rather than the Atrium system
-           the rest of the app shares, by explicit request. It does not
-           follow the palette picker. -->
-      <header class="team-head">
-        <p class="tt-kicker">Roster</p>
-        <h2 class="tt-title">Team</h2>
-      </header>
       <div class="team-toolbar">
         <div class="team-month" role="group" aria-label="Month">
           <button type="button" class="icon-btn small" id="teamPrevMonth" aria-label="Previous month">
