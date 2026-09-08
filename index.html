@@ -5084,6 +5084,14 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="notifications" id="cnav-notifications" aria-selected="false" aria-controls="csec-notifications">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Notifications</span>
+              <span class="console-nav-desc" id="cnavDescNotificationsSelf">Push notifications on this device</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
           <button type="button" class="console-nav-item" role="tab" data-console-target="data" id="cnav-data" aria-selected="false" aria-controls="csec-data">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
             <span class="console-nav-text">
@@ -5177,22 +5185,6 @@
             <span>Saving recalculates every day already logged, not just days from here on.</span>
           </p>
           <p class="settings-hint">&ldquo;Remind after&rdquo; flags a day when you&rsquo;ve clocked in but not out for longer than this. &ldquo;Grace period&rdquo; is how late you can arrive before a day counts as a late arrival. &ldquo;Annual Leave Days&rdquo; is the yearly entitlement used to calculate the Leave Balance card.</p>
-
-          <!-- Its own block, not another row of the form-grid above: this
-               takes effect the moment it's toggled, unlike everything above
-               it which waits for Save, and it's about this device, not the
-               schedule being edited (so it's hidden entirely while an admin
-               is viewing someone else's settings). -->
-          <div id="pushToggleRow" hidden style="margin-top:var(--space-4); padding-top:var(--space-4); border-top:1px solid var(--line-soft);">
-            <label class="check-row" for="sPushEnabled" style="margin-top:0;">
-              <input type="checkbox" id="sPushEnabled">
-              <span>
-                <strong>Push notifications on this device</strong>
-                <em>A real notification here — even with the app closed — for the same &ldquo;remind after&rdquo; nudge above, and for anything an admin sends. Takes effect immediately; only affects this browser.</em>
-              </span>
-            </label>
-            <p class="settings-hint" id="pushDeniedHint" hidden></p>
-          </div>
         </div>
       </div>
 
@@ -5369,6 +5361,30 @@
         </div>
       </div>
 
+      <!-- ---------- Notifications (this device, this person) ---------- -->
+      <div class="console-section" data-section="notifications" id="csec-notifications" role="tabpanel" aria-labelledby="cnav-notifications" tabindex="0">
+        <div class="console-section-head">
+          <h3>Notifications</h3>
+          <p>Whether this browser gets a real notification — even with the app closed — for your own forgotten-clock-out reminder and anything an admin sends.</p>
+        </div>
+        <div>
+          <!-- Not a form: this takes effect the instant it's toggled, no
+               Save button, and it's about this device specifically — hidden
+               entirely while an admin is viewing someone else's settings,
+               since subscribing is inherently about whoever is actually
+               signed in on this browser, not whoever is being viewed. -->
+          <div id="pushToggleRow" hidden>
+            <label class="check-row" for="sPushEnabled" style="margin-top:0;">
+              <input type="checkbox" id="sPushEnabled">
+              <span>
+                <strong>Push notifications on this device</strong>
+                <em>Covers the &ldquo;remind after&rdquo; nudge (set under Working Hours &amp; Schedule) and anything an admin sends from the Admin console. Takes effect immediately; only affects this browser.</em>
+              </span>
+            </label>
+            <p class="settings-hint" id="pushStatusHint" hidden></p>
+          </div>
+        </div>
+      </div>
       <div class="console-section" data-section="data" id="csec-data" role="tabpanel" aria-labelledby="cnav-data" tabindex="0">
         <div class="console-section-head">
           <h3>Backup &amp; Data</h3>
