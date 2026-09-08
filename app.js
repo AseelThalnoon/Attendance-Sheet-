@@ -1284,6 +1284,22 @@ if(supabase){
   function pushSupported(){
     return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   }
+  // Excludes Chrome, Firefox, Edge, and their iOS builds (crios/fxios/edgios),
+  // all of which include the literal word "Safari" in their user agent too —
+  // a bare /safari/i test would misclassify most non-Safari traffic as Safari.
+  function isSafariBrowser(){
+    return /^((?!chrome|android|crios|fxios|edgios|opios).)*safari/i.test(navigator.userAgent || "");
+  }
+  // True once launched from an installed icon rather than a plain browser tab
+  // — the Home Screen (iOS/iPadOS "Add to Home Screen") or Dock (macOS
+  // "Add to Dock") equivalent of installing a PWA. Apple requires this before
+  // window.PushManager exists in Safari at all; navigator.standalone is the
+  // older iOS-only signal, display-mode: standalone the modern cross-browser
+  // one that also covers macOS Dock apps — checked together for both eras.
+  function isStandaloneDisplay(){
+    return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+      navigator.standalone === true;
+  }
   async function currentPushSubscription(){
     if(!pushSupported()) return null;
     try{
@@ -1334,11 +1350,19 @@ if(supabase){
     if(!isOwnData) return;
 
     var box = document.getElementById("sPushEnabled");
-    var hint = document.getElementById("pushDeniedHint");
+    var hint = document.getElementById("pushStatusHint");
     if(!pushSupported()){
       box.checked = false; box.disabled = true;
       hint.hidden = false;
-      hint.textContent = "Push notifications aren't supported in this browser.";
+      // The generic message is true but useless for the single largest cause
+      // of it: Safari on an Apple device that hasn't been installed yet.
+      // window.PushManager genuinely does not exist there until it is — no
+      // permission prompt, no error, just absent — so naming the exact fix
+      // (Dock on Mac, Home Screen on iPhone/iPad) turns a dead end into
+      // something they can actually act on.
+      hint.textContent = (isSafariBrowser() && !isStandaloneDisplay())
+        ? "Safari only supports notifications for an installed app: on a Mac, Safari's File menu → Add to Dock; on iPhone or iPad, the Share icon → Add to Home Screen. Then open it from there and check back here."
+        : "Push notifications aren't supported in this browser.";
       return;
     }
     if(Notification.permission === "denied"){
@@ -1348,7 +1372,17 @@ if(supabase){
       return;
     }
     box.disabled = false;
-    hint.hidden = true;
+    // Safari's permission dialog only ever appears from a direct click —
+    // autoPromptPushIfEligible() knows this and skips itself there entirely,
+    // so on Safari this checkbox is the ONLY way in, not just the fallback.
+    // Said explicitly, since "nothing happened after I logged in" is exactly
+    // what silence here would otherwise look like.
+    if(isSafariBrowser() && Notification.permission === "default"){
+      hint.hidden = false;
+      hint.textContent = "Safari won't prompt automatically — tap this checkbox yourself to turn notifications on.";
+    } else {
+      hint.hidden = true;
+    }
     box.checked = !!(await currentPushSubscription());
   }
   document.getElementById("sPushEnabled").addEventListener("change", async function(){
@@ -1386,6 +1420,13 @@ if(supabase){
   async function autoPromptPushIfEligible(){
     if(!pushSupported()) return;
     if(Notification.permission === "granted" && (await currentPushSubscription())) return;
+    // Not a Chrome-style "might get suppressed" risk — Safari's permission
+    // dialog ONLY ever appears from a direct click, full stop. Calling
+    // requestPermission() here (sign-in, not a click) is a guaranteed silent
+    // no-op on Safari every time, so skip the attempt outright rather than
+    // pretend it might work — refreshPushToggle()'s hint text is what tells
+    // a Safari user the checkbox is the one path in for them.
+    if(isSafariBrowser()) return;
     try{
       await subscribeToPush();
       refreshPushToggle();
