@@ -1363,6 +1363,26 @@ if(supabase){
     await refreshPushToggle();
   });
 
+  // Wanted on by default for everyone, not just people who go looking for
+  // the Settings toggle — but the browser's own permission dialog can only
+  // ever be granted by a real click from the person it's asking, on every
+  // single device, with no way for the app to skip that. This is the closest
+  // honest equivalent: ask automatically right after sign-in instead of
+  // waiting to be found. Notification.permission !== "default" guards it to
+  // once ever per browser — after the first ask (granted OR denied) this is
+  // a no-op on every later sign-in, and the Settings toggle is still there
+  // for anyone who dismissed the prompt or wants to turn it back on by hand.
+  // Silent on failure/decline: a background prompt that also throws a visible
+  // error on the sign-in screen would read as broken, not optional.
+  async function autoPromptPushIfEligible(){
+    if(!pushSupported()) return;
+    if(Notification.permission !== "default") return;
+    try{
+      await subscribeToPush();
+      refreshPushToggle();
+    }catch(e){ /* declined, or the browser suppressed an unsolicited prompt — Settings still offers it */ }
+  }
+
   function fillSettingsForm(){
     DAY_NAMES.forEach(function(_, i){
       var box = document.getElementById("wd"+i);
@@ -8410,6 +8430,9 @@ if(supabase){
     // everyone, so this runs regardless of admin status.
     await loadAppSettings();
     setTimeout(updateTabsScrollHint, 0);
+    // Fire-and-forget: eligible only once ever per browser (see the guard
+    // inside), and sign-in must not sit waiting on a permission dialog.
+    autoPromptPushIfEligible();
     // Last, and deliberately not awaited: a punch queued on this device in an
     // earlier session should upload itself now, but sign-in must not sit
     // waiting on it.
