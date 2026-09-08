@@ -1,7 +1,10 @@
 // punchClock(): a double tap must never fire two punches, from ANY of the five
 // clock controls (desktop pair, sticky mobile bar, bottom-nav button), for the
-// whole duration of the call — including the post-save reload, during which
-// updateViewingBanner() re-enables every button before finally{} runs.
+// whole duration of the call. The buttons are re-disabled synchronously and
+// re-enabled in finally{} — but punchInFlight, not button state, is the real
+// guard (see the "caller that doesn't go through the buttons" block below),
+// and stays true regardless of what anything else does to the buttons in
+// between.
 //
 // Taps are driven as real DOM clicks. Calling punchClock() directly would
 // bypass the disabled buttons and prove nothing.
@@ -41,7 +44,6 @@ const saves = page => page.evaluate(() => window.__saveCalls);
 
   // ---------- baseline ----------
   await page.goto(PAGE);
-  await page.evaluate(() => { window.__skipReload = true; });
   const before = await states(page);
   eq(allEnabled(before), true, "all five clock controls start enabled");
   eq(before._bnHasDisabledClass, false, "bottom-nav button starts without .disabled");
@@ -61,19 +63,18 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   eq(await saves(page), 1, "tapping all five during the save fires no second save");
 
   await page.evaluate(() => window.__resolveSave({ date: "2026-08-14", clockIn: "09:00", type: "regular" }));
-  await page.waitForFunction(() => window.__reloadCalls === 1);
+  await page.waitForFunction(() => window.__applyCalls === 1);
   await page.waitForTimeout(60);
   const after = await states(page);
   eq(allEnabled(after), true, "all five re-enabled once the punch completes");
   eq(after._bnPointerEvents, "auto", "bottom-nav button clickable again (measured)");
 
   // ---------- a caller that doesn't go through the buttons ----------
-  // Disabled buttons only stop taps. punchClock is also reachable
-  // programmatically, and updateViewingBanner() re-enables every button mid-
-  // call (index.html:4895-4901) — so the punchInFlight flag, not the button
-  // state, is what actually serialises punches.
+  // Disabled buttons only stop taps, and punchClock is also reachable
+  // programmatically — so the punchInFlight flag, not the button state, is
+  // what actually serialises punches. Proven below by re-enabling the buttons
+  // out from under a pending save and showing a second tap still fires nothing.
   await page.goto(PAGE);
-  await page.evaluate(() => { window.__skipReload = true; });
   await page.click("#clockInBtn");
   await page.waitForFunction(() => window.__saveCalls === 1);
   page.evaluate(() => window.punchClock("in"));
@@ -94,7 +95,6 @@ const saves = page => page.evaluate(() => window.__saveCalls);
 
   // ---------- failure path: finally{} must restore everything ----------
   await page.goto(PAGE);
-  await page.evaluate(() => { window.__skipReload = true; });
   await page.click("#clockOutBtn");
   await page.waitForFunction(() => window.__saveCalls === 1);
   eq(allDisabled(await states(page)), true, "all five disabled in flight (failure path)");
@@ -119,7 +119,6 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   // A clock-in is the one write that cannot be repeated later, because the
   // whole value of it is the minute it happened.
   await page.goto(PAGE);
-  await page.evaluate(() => { window.__skipReload = true; });
   await page.click("#clockInBtn");
   await page.waitForFunction(() => window.__saveCalls === 1);
   await page.evaluate(() => window.__rejectSave(new TypeError("Failed to fetch")));
@@ -140,7 +139,6 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   // not sit through a fetch timeout before being saved.
   await page.goto(PAGE);
   await page.evaluate(() => {
-    window.__skipReload = true;
     Object.defineProperty(window.navigator, "onLine", { get: () => false, configurable: true });
   });
   await page.click("#clockOutBtn");
@@ -159,7 +157,6 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   const punchOutWith = async (rows) => {
     await page.goto(PAGE);
     await page.evaluate(list => {
-      window.__skipReload = true;
       entries.length = 0;
       list.forEach(r => entries.push(r));
     }, rows);

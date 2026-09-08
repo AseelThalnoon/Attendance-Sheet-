@@ -46,22 +46,17 @@ async function sbUpsertEntry(userId, payload){
   return new Promise(function(res, rej){ window.__resolveSave = res; window.__rejectSave = rej; });
 }
 
-// Stands in for loadDataForViewedUser(). The real one awaits two network
-// fetches and then calls updateViewingBanner(); the button-state lines below
-// are that function's block, extracted verbatim, because re-enabling the
-// buttons mid-flight is exactly what the reload-window test probes.
-window.__reloadCalls = 0;
-window.__resolveReload = null;
-window.__skipReload = false;
-async function loadDataForViewedUser(){
-  window.__reloadCalls++;
-  if(window.__skipReload) return;
-  await new Promise(function(res){ window.__resolveReload = res; });
-${["clockInBtn", "clockOutBtn", "stickyClockInBtn", "stickyClockOutBtn"]
-  .map(id => "  " + line(`document.getElementById("${id}").disabled = !isOwnData;`).trim())
-  .join("\n")}
-  ${line('document.getElementById("bnClockBtn").classList.toggle("disabled", !isOwnData);').trim()}
-}
+// A successful punch used to close by re-fetching this person's entire
+// history through loadDataForViewedUser(), whose own updateViewingBanner()
+// call re-enabled every button before punchClock's finally{} ran — which is
+// what made the punchInFlight flag (not button state) the thing actually
+// worth testing. punchClock now patches the saved row into the in-memory
+// entries array and re-renders synchronously instead, with no network gap
+// in between, so applyLocalUpsert() is the one dependency that stands in
+// for that whole step here — just a call counter, since this suite
+// measures the punch, not the repaint.
+window.__applyCalls = 0;
+function applyLocalUpsert(saved, forUserId){ window.__applyCalls++; }
 `;
 
 // resolveOvernightTarget() is inside the extracted slice below, so its own

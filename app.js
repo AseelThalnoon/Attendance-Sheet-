@@ -628,6 +628,36 @@ if(supabase){
     setLoadingSkeletons(false);
   }
 
+  // A single punch, edit or delete already tells us exactly what changed —
+  // sbUpsertEntry returns the saved row, and a delete knows its own id. Every
+  // one of those writes used to close by re-fetching this person's entire
+  // history and re-deriving everything from scratch, which is the same
+  // amplification the Team tab and sbFetchEntries were already fixed for
+  // elsewhere, just on the write side instead of the read side. Patching the
+  // one row locally and re-rendering gets the same end state without the
+  // round trip, so a punch feels instant instead of waiting on a full reload.
+  // Only correct for a write against the data already in memory — viewer
+  // switch, sign-in and bulk imports still go through loadDataForViewedUser()
+  // above, since those genuinely change whose (or how much) data is loaded.
+  // forUserId is whoever the write actually targeted, captured before the
+  // await that reached the server — if an admin switches the viewer while
+  // that save is still in flight, `entries` by the time it resolves belongs
+  // to a different person, and splicing into it would silently attach one
+  // person's row to another's screen. Skipping the patch in that case is
+  // safe: the row is already saved server-side and the next load picks it up.
+  function applyLocalUpsert(saved, forUserId){
+    if(forUserId !== viewedUserId) return;
+    var idx = entries.findIndex(function(e){ return e.id === saved.id; });
+    if(idx === -1) idx = entries.findIndex(function(e){ return e.date === saved.date; });
+    if(idx !== -1) entries[idx] = saved; else entries.push(saved);
+    renderAll();
+  }
+  function applyLocalDelete(id, forUserId){
+    if(forUserId !== viewedUserId) return;
+    entries = entries.filter(function(e){ return e.id !== id; });
+    renderAll();
+  }
+
   // The failure said out loud, and kept said. This is the same shape as the
   // outbox banner — a persistent notice that names the problem and carries the
   // one button that resolves it — rather than a toast, because a toast that
@@ -2758,10 +2788,11 @@ if(supabase){
         type: entry.type || "regular",
         note: entry.note || ""
       };
-      await sbUpsertEntry(viewedUserId, payload, entry.id);
+      var targetUserId = viewedUserId;
+      var saved = await sbUpsertEntry(targetUserId, payload, entry.id);
       delete dismissedReminders[entry.date];
       persistDismissals();
-      await loadDataForViewedUser();
+      applyLocalUpsert(saved, targetUserId);
       showToast("Clocked out " + fmtDate(entry.date) + " at " + formatTime12(payload.clockOut) + ".", "success");
     }catch(err){
       showToast("Couldn't clock that out: " + friendlyError(err), "error");
@@ -3853,11 +3884,12 @@ if(supabase){
     var prevText = btn.textContent;
     btn.disabled = true; btn.textContent = "Saving…";
     try{
-      await sbUpsertEntry(viewedUserId, payload, existingDbId);
+      var targetUserId = viewedUserId;
+      var saved = await sbUpsertEntry(targetUserId, payload, existingDbId);
       delete dismissedReminders[date];
       persistDismissals();
       resetForm();
-      await loadDataForViewedUser();
+      applyLocalUpsert(saved, targetUserId);
     }catch(err){
       showToast("Couldn't save that entry: " + friendlyError(err), "error");
     }finally{
@@ -3988,8 +4020,9 @@ if(supabase){
     if(delId){
       if(editingId === delId) resetForm();
       try{
+        var targetUserId = viewedUserId;
         await sbDeleteEntry(delId);
-        await loadDataForViewedUser();
+        applyLocalDelete(delId, targetUserId);
       }catch(err){
         showToast("Couldn't delete that entry: " + friendlyError(err), "error");
       }
@@ -4221,7 +4254,8 @@ if(supabase){
       // never to conclude that one will succeed. That case is handled by
       // catching the failure below.
       if(navigator.onLine === false) throw OFFLINE;
-      var saved = await sbUpsertEntry(currentUser.id, payload, existing ? existing.id : null);
+      var targetUserId = currentUser.id;
+      var saved = await sbUpsertEntry(targetUserId, payload, existing ? existing.id : null);
       // Clearing on the way out as well as the way in: a day that has just been
       // closed should not stay on the dismissed list, or re-opening it later
       // (an edit that blanks the clock-out) would come back un-remindable.
@@ -4234,7 +4268,7 @@ if(supabase){
         document.getElementById(kind === "in" ? "fIn" : "fOut").value = timeNow;
       }
 
-      await loadDataForViewedUser();
+      applyLocalUpsert(saved, targetUserId);
       pulseSeal();
       pulseQuickClock();
 
@@ -4265,6 +4299,17 @@ if(supabase){
       clockBtns.forEach(function(b){ b.disabled = false; });
       if(bnClockBtnEl) bnClockBtnEl.classList.remove("disabled");
     }
+  }
+
+  // manifest.json's shortcuts array points here (?action=in|out). Stripped
+  // from the URL immediately, before punchClock's own confirms can even open
+  // — a refresh, or the browser re-delivering the same launch URL, must not
+  // replay the punch a second time.
+  function consumeShortcutAction(){
+    var action = new URLSearchParams(location.search).get("action");
+    if(action !== "in" && action !== "out") return;
+    history.replaceState(null, "", location.pathname + location.hash);
+    punchClock(action);
   }
 
   document.getElementById("clockInBtn").addEventListener("click", function(){ punchClock("in"); });
@@ -7461,6 +7506,23 @@ if(supabase){
     if(regBtn) regBtn.style.display = (s && s.allow_registration === false) ? "none" : "";
   }
 
+  // Registration and the schedule a new sign-up actually gets were two
+  // separate acts of memory, in two different console sections — nothing
+  // stopped an admin turning sign-ups on while defaultsAreSet stayed false,
+  // so every new hire silently landed on the Sun–Thu/8h fallback. This
+  // doesn't force the order, it just makes the gap visible where the "allow
+  // registrations" decision is actually made.
+  function updateRegistrationDefaultsHint(){
+    var hint = document.getElementById("registrationDefaultsHint");
+    if(!hint) return;
+    hint.hidden = !(document.getElementById("setAllowRegistration").checked && !defaultsAreSet);
+  }
+  document.getElementById("setAllowRegistration").addEventListener("change", updateRegistrationDefaultsHint);
+  document.getElementById("registrationDefaultsHintBtn").addEventListener("click", function(){
+    var nav = document.getElementById("cnav-admin-defaults");
+    if(nav) nav.click();
+  });
+
   // ---------- Organisation defaults ----------
   // app_settings.default_settings is what handle_new_user() copies into a new
   // account's user_settings row. The column existed from the start but nothing
@@ -7477,6 +7539,7 @@ if(supabase){
 
   function fillDefaultsForm(raw){
     defaultsAreSet = !!(raw && typeof raw === "object" && Object.keys(raw).length);
+    updateRegistrationDefaultsHint();
     var d = normalizeSettings(raw || {});
     DAY_NAMES.forEach(function(_, i){
       var box = document.getElementById("dwd"+i);
@@ -7622,6 +7685,17 @@ if(supabase){
     if(payload.announcement_active && !payload.announcement){
       showToast("Add an announcement message before turning the banner on.", "error");
       return;
+    }
+    // The inline warning above the checkbox says this passively; saving is the
+    // moment it actually takes effect, so it's confirmed here rather than left
+    // to be noticed (or not) on the way past.
+    if(payload.allow_registration && !defaultsAreSet){
+      var proceed = await showConfirm(
+        "No organisation default schedule is set. Anyone who signs up right now will start on " +
+        "the fallback Sun–Thu, 8h week instead of your actual hours until you fix it by hand.",
+        {title:"Allow sign-ups with no default schedule?", confirmText:"Allow Anyway"}
+      );
+      if(!proceed) return;
     }
     btn.disabled = true;
     try{
@@ -7953,6 +8027,11 @@ if(supabase){
     updateLiveClock();
     syncTimers();
     await loadDataForViewedUser();
+    // A long-press on the installed icon's "Clock In"/"Clock Out" shortcut
+    // (see manifest.json) lands here as ?action=in|out — this is the earliest
+    // point punchClock has what it needs (today's entry, if any, to decide
+    // between a fresh punch and a "replace this?" confirm).
+    consumeShortcutAction();
     fillSettingsForm();
     // Org-wide settings (announcement banner, registration toggle) apply to
     // everyone, so this runs regardless of admin status.
