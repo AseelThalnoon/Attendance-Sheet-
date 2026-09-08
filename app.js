@@ -6890,7 +6890,12 @@ if(supabase){
     if(e && EXCUSED_TYPES.indexOf(e.type) !== -1) return {cls:"excused", label:typeLabel(e.type)};
     if(e && e.clockIn && e.clockOut) return {cls:"done", label:"Done today"};
     if(!scheduledFor(personSettings, today)) return {cls:"off", label:"Day off"};
-    return {cls:"missing", label:"Not logged"};
+    // "Not logged" alone read as a verdict on the whole card — which sits
+    // right above real monthly totals ("32h 5m worked · 133% of target"),
+    // so a person with a strong month still carried a badge that looked
+    // like it was denying that. Naming "today" makes it unambiguous this
+    // pill answers a different, narrower question than the rest of the card.
+    return {cls:"missing", label:"Not logged today"};
   }
 
   async function renderTeam(){
@@ -7151,7 +7156,10 @@ if(supabase){
             '<div class="team-name" dir="auto">'+escapeHtml(name)+'</div>'+
             // title, because .team-email truncates to one line: the full
             // address has to stay reachable on hover and to assistive tech.
-            '<div class="team-email" dir="auto" title="'+escapeAttr(p.email)+'">'+escapeHtml(p.email)+'</div>'+
+            // Skipped entirely when there's no full_name to pair it with —
+            // name already fell back to p.email above, and printing the same
+            // address twice read as a rendering glitch, not an empty field.
+            (p.full_name ? '<div class="team-email" dir="auto" title="'+escapeAttr(p.email)+'">'+escapeHtml(p.email)+'</div>' : '')+
           '</div>'+
         '</div>'+
         '<div class="team-tags">'+
@@ -7159,7 +7167,7 @@ if(supabase){
           (p.role === "admin" ? '<span class="admin-badge">Admin</span>' : '')+
           (t.configured ? '' : '<span class="admin-badge unconfigured">No schedule</span>')+
         '</div>'+
-        '<div>'+
+        '<div class="team-card-numbers">'+
           '<div class="team-bar'+barCls+'"><span style="width:'+pct+'%"></span></div>'+
           '<div class="team-bar-note">'+
             (s.targetSum
