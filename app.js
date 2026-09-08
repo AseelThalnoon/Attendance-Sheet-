@@ -5835,7 +5835,7 @@ if(supabase){
   // gate SELECT to own_or_admin, so a non-admin's own version of the admin
   // query below would silently return just themself; list_today_presence()
   // is a narrow SECURITY DEFINER function (migration
-  // 20260906120000_list_today_presence_for_all_users.sql) that hands back
+  // 20260906090258_list_today_presence_for_all_users.sql) that hands back
   // exactly what this panel needs — name, avatar, today's clock_in/clock_out/
   // type — for today only, without widening what entries/profiles themselves
   // allow a non-admin to read.
@@ -6192,7 +6192,7 @@ if(supabase){
 
   // ---------- Profile photo (shared, Supabase Storage) ----------
   // One object per user at "<id>/avatar.jpg" in the private "avatars" bucket
-  // (migration 20260830153418), overwritten on every re-upload rather than
+  // (migration 20260830153507), overwritten on every re-upload rather than
   // versioned. Read is any signed-in user — that is the point, a teammate's
   // photo has to reach the roster and the rail, not just your own browser —
   // write is owner-only, enforced by RLS on the object's path prefix rather

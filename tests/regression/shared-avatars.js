@@ -1,7 +1,7 @@
 // The point of moving avatars off localStorage onto Supabase Storage: a
 // teammate's photo has to reach someone else's browser, not just render as
 // initials everywhere but the uploader's own screen (see DESIGN.md's Avatar
-// section, migration 20260830153418).
+// section, migration 20260830153507).
 //
 // A real browser is the only way to check this — it needs the actual upload
 // handler to run (canvas resize, Blob, the toast, the retry-safe write to
