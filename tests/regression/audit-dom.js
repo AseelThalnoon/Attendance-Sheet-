@@ -418,16 +418,35 @@ function ok(cond, name, detail){
   // Below 700px the table becomes display:block, which strips the table role.
   // The column name must therefore be a real element, not ::before content,
   // which assistive technology does not announce.
+  //
+  // This used to also require the label to be visually rendered
+  // (position !== "absolute"), which was true of the stacked-card layout that
+  // printed every column as its own labelled line. The phone layout is one
+  // row per record now (.mobile-rows), where the row's shape tells a sighted
+  // reader what a time or an hours figure is and the printed label is the
+  // redundancy. What must not change is the half that was always the point:
+  // the label is a real element carrying real text, and it stays IN the
+  // accessibility tree. So the check is the accessible fact directly —
+  // present, non-empty, not display:none, not aria-hidden — which still fails
+  // for the ::before content this test exists to prevent, and no longer fails
+  // for a visually-hidden label that screen readers announce perfectly well.
   {
     await page.setViewportSize({width: 390, height: 844});
     const r = await page.evaluate(() => {
       const cells = [...document.querySelectorAll("#logBody td")].slice(0, 4);
       return cells.map(td => {
         const lab = td.querySelector(".cell-label");
-        return {has: !!lab, shown: lab ? getComputedStyle(lab).position !== "absolute" : false};
+        if(!lab) return {has: false, text: "", announced: false};
+        const cs = getComputedStyle(lab);
+        return {
+          has: true,
+          text: (lab.textContent || "").trim(),
+          announced: cs.display !== "none" && cs.visibility !== "hidden" &&
+            !lab.closest("[aria-hidden='true']")
+        };
       });
     });
-    ok(r.length > 0 && r.every(c => c.has && c.shown),
+    ok(r.length > 0 && r.every(c => c.has && c.text && c.announced),
       "H-10 mobile table cells carry a real, announceable column label", JSON.stringify(r));
     await page.setViewportSize({width: 1280, height: 900});
   }

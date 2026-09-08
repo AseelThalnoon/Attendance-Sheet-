@@ -747,6 +747,12 @@ if(supabase){
   function fmtDateShort(s){
     return dateFromStr(s).toLocaleDateString(undefined,{weekday:"short", month:"short", day:"numeric"});
   }
+  // Month and day alone, for a list whose year is already fixed by a control
+  // above it — the Log's own Year select, which makes ", 2026" the same four
+  // characters repeated down every row of the month.
+  function fmtDateNoYear(s){
+    return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric"});
+  }
   function isScheduled(dateStr){
     return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
   }
@@ -3074,20 +3080,35 @@ if(supabase){
       var rowStatus = c.open ? "open" : c.excused ? "excused"
         : (c.diffMin === null ? "" : (Math.abs(c.diffMin) < 1 ? "onit" : (c.diffMin > 0 ? "over" : "under")));
       if(rowStatus) tr.className = "row-" + rowStatus;
+      tr.setAttribute("data-entry-id", e.id);
       var selectCell = selectModeActive
         ? "<td class='select-col' data-label=''><input type='checkbox' class='row-select' data-id='"+e.id+"'"+(selectedEntryIds.has(e.id)?" checked":"")+"></td>"
         : "";
+      // The phone layout folds this table into one compact row per day (see
+      // .mobile-rows in index.html). It needs to know which cells actually
+      // carry information for a given day, because the ones that don't are
+      // dropped there rather than printed as a label with an em dash after
+      // it: a column that is blank, or identical on all 39 rows, is a column
+      // worth a header on a desk and worth nothing on a phone. The classes
+      // below are those hooks — the desktop table renders exactly as before.
+      var isRegular = (e.type || "regular") === "regular";
       tr.innerHTML =
         selectCell +
-        "<td data-label='Date'><span class=\"cell-label\">Date</span>"+fmtDate(e.date)+"</td>"+
+        // The weekday rides along inside Date for the phone, where the
+        // separate Day column is dropped: "Tue 8 Sep" is one glance,
+        // "Sep 8, 2026" over "Tue" on its own labelled line is two.
+        "<td data-label='Date'><span class=\"cell-label\">Date</span>"+
+          "<span class='cell-weekday'>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</span>"+
+          "<span class='cell-date-full'>"+fmtDate(e.date)+"</span>"+
+          "<span class='cell-date-compact'>"+fmtDateNoYear(e.date)+"</span></td>"+
         "<td data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
-        "<td data-label='In'><span class=\"cell-label\">In</span>"+inCell+"</td>"+
-        "<td data-label='Out'><span class=\"cell-label\">Out</span>"+outCell+"</td>"+
+        "<td data-label='In'"+(e.clockIn ? " class='has-time'" : "")+"><span class=\"cell-label\">In</span>"+inCell+"</td>"+
+        "<td data-label='Out'"+(e.clockOut ? " class='has-time'" : "")+"><span class=\"cell-label\">Out</span>"+outCell+"</td>"+
         "<td class='num col-worked' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
         "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+(c.targetMin ? minutesToHoursStr(c.targetMin) : "—")+"</td>"+
         "<td class='num' data-label='Status'><span class=\"cell-label\">Status</span>"+pillFor(c)+"</td>"+
-        "<td data-label='Type'><span class=\"cell-label\">Type</span>"+escapeHtml(typeLabel(e.type))+"</td>"+
-        "<td class='note-cell' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>"+
+        "<td data-label='Type'"+(isRegular ? " class='is-regular'" : "")+"><span class=\"cell-label\">Type</span>"+escapeHtml(typeLabel(e.type))+"</td>"+
+        "<td class='note-cell"+(e.note ? " has-note" : "")+"' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>"+
         // Each row repeats "Edit"/"Delete"; without the date in the accessible
         // name a screen-reader user hears the same two words over and over with
         // no way to tell which day they are about to delete.
@@ -4168,6 +4189,21 @@ if(supabase){
       var cell = ev.target.closest("td.select-col");
       var box = cell && cell.querySelector(".row-select");
       if(box){ box.checked = !box.checked; box.dispatchEvent(new Event("change", {bubbles:true})); }
+      if(box) return;
+      // On a phone the per-row Edit/Delete pair is dropped — two buttons on
+      // every one of 39 rows is 78 targets for an action you take on maybe
+      // one of them — and the row itself opens the entry instead, which is
+      // what the chevron at its end announces. Delete keeps its existing
+      // home in Select mode's toolbar rather than gaining a second one.
+      // Pointer widths are untouched: there the buttons are still there and
+      // a stray click on a row should not open a form.
+      // Asked at click time, not cached at load: the row-per-record layout is
+      // a media query, so this has to answer for the width the app is at now,
+      // not the one it booted at.
+      if(!selectModeActive && window.matchMedia("(max-width:700px)").matches){
+        var openRow = ev.target.closest("#logBody tr[data-entry-id]");
+        if(openRow) loadEntryIntoForm(openRow.getAttribute("data-entry-id"));
+      }
       return;
     }
     var editId = btn.getAttribute("data-edit");
