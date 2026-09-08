@@ -5676,6 +5676,13 @@
               <em>When off, "Create an account" is hidden on the sign-in screen and the database refuses the sign-up outright.</em>
             </span>
           </label>
+          <p class="settings-warn" id="registrationDefaultsHint" hidden>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+            <span>No organisation default schedule is set — anyone who signs up will start on the
+              fallback Sun–Thu, 8h week instead of your actual hours.
+              <button type="button" class="link-btn" id="registrationDefaultsHintBtn">Set it now</button>
+            </span>
+          </p>
 
           <label class="check-row" for="setAnnouncementActive" style="margin-top:12px;">
             <input type="checkbox" id="setAnnouncementActive">
