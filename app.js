@@ -1363,6 +1363,35 @@ if(supabase){
     await refreshPushToggle();
   });
 
+  // Wanted on by default for everyone, not just people who go looking for
+  // the Settings toggle — but the browser's own permission dialog can only
+  // ever be granted by a real click from the person it's asking, on every
+  // single device, with no way for the app to skip that. This is the closest
+  // honest equivalent: ask automatically on every sign-in until it actually
+  // sticks, rather than waiting to be found (or asking exactly once and
+  // giving up on anyone who closed the first dialog without answering it).
+  //
+  // "Every sign-in" only matters for Notification.permission === "default"
+  // (never answered) — a browser will never show its own permission dialog
+  // again once the person has explicitly clicked Block, full stop, no matter
+  // how many times this calls requestPermission(); that call just resolves
+  // straight to "denied" with no UI, so retrying costs nothing and shows
+  // nothing for that case. Also retries subscribeToPush() when permission is
+  // already "granted" but no subscription exists (e.g. it failed offline
+  // last time) — that path shows no dialog either, just silently finishes
+  // the job. Skips entirely only once both permission and the subscription
+  // are already in place. Silent on failure/decline either way: a background
+  // prompt that also throws a visible error on the sign-in screen would read
+  // as broken, not optional — the Settings toggle is still there by hand.
+  async function autoPromptPushIfEligible(){
+    if(!pushSupported()) return;
+    if(Notification.permission === "granted" && (await currentPushSubscription())) return;
+    try{
+      await subscribeToPush();
+      refreshPushToggle();
+    }catch(e){ /* declined, blocked, or the browser suppressed an unsolicited prompt — Settings still offers it */ }
+  }
+
   function fillSettingsForm(){
     DAY_NAMES.forEach(function(_, i){
       var box = document.getElementById("wd"+i);
@@ -8410,6 +8439,9 @@ if(supabase){
     // everyone, so this runs regardless of admin status.
     await loadAppSettings();
     setTimeout(updateTabsScrollHint, 0);
+    // Fire-and-forget: eligible only once ever per browser (see the guard
+    // inside), and sign-in must not sit waiting on a permission dialog.
+    autoPromptPushIfEligible();
     // Last, and deliberately not awaited: a punch queued on this device in an
     // earlier session should upload itself now, but sign-in must not sit
     // waiting on it.
