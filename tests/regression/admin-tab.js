@@ -64,11 +64,24 @@ const AUDIT = [
   {created_at:new Date().toISOString(), actor_email:"boss@example.com", action:"delete",
    target_email:"sam@example.com", entry_date:"2026-08-11", old_values:{type:"regular"}},
 ];
-// Answered in call order to the three counted health queries: open shifts,
-// blank working days, implausible dates. Cycles rather than draining, so a
-// second render of the console reports the same picture as the first.
-const HEAD_COUNTS = [3, 0, 0];
-let headIdx = 0;
+// Answered in call order to the three health queries: open shifts, blank
+// working days, implausible dates. Each now selects real rows (with an exact
+// count alongside) instead of a head:true count-only query, so the health
+// panel can turn a number into a worklist — the two open-shift rows below
+// exercise that: named people, real dates, and adminUsersCache has both ids
+// so the panel can resolve them to "Kim Rivera" / "Sam Osei" rather than
+// falling back to a bare id. Cycles rather than draining, so a second render
+// of the console reports the same picture as the first.
+const HEALTH_FINDINGS = [
+  {count:3, rows:[
+    {id:"h-1", user_id:"u-2", date:"2026-08-01"},
+    {id:"h-2", user_id:"u-3", date:"2026-08-02"},
+    {id:"h-3", user_id:"u-2", date:"2026-08-15"}
+  ]},
+  {count:0, rows:[]},
+  {count:0, rows:[]}
+];
+let healthIdx = 0;
 const RPC = {
   admin_db_stats: {db_size_bytes: 12582912, counts:{profiles:3, admins:1, entries:345},
     active_connections:4, max_connections:60, postgres_version:"17.6", generated_at:new Date().toISOString(),
@@ -80,11 +93,16 @@ const RPC = {
 };
 
 function builder(table, rpcName){
-  let kind = "list", head = false;
+  let kind = "list", head = false, countExact = false;
   const settle = () => {
     if(rpcName) return {data: RPC[rpcName] !== undefined ? RPC[rpcName] : [], error:null};
     if(table === "entries"){
-      if(head) return {data:null, count: HEAD_COUNTS[headIdx++ % HEAD_COUNTS.length], error:null};
+      // The three health checks ask for an exact count alongside real rows;
+      // the Team tab's month-scoped fetch asks for neither.
+      if(countExact){
+        const h = HEALTH_FINDINGS[healthIdx++ % HEALTH_FINDINGS.length];
+        return {data: h.rows, count: h.count, error:null};
+      }
       return {data: TEAM_ENTRIES, error:null};
     }
     if(table === "profiles") return kind === "single" ? {data:PROFILE, error:null} : {data:PROFILES, error:null};
@@ -98,7 +116,11 @@ function builder(table, rpcName){
     if(p === "catch")   return f => Promise.resolve(settle()).catch(f);
     if(p === "finally") return f => Promise.resolve(settle()).finally(f);
     if(p === "single" || p === "maybeSingle") return () => { kind = "single"; return proxy; };
-    if(p === "select")  return (_c, opts) => { if(opts && opts.head) head = true; return proxy; };
+    if(p === "select")  return (_c, opts) => {
+      if(opts && opts.head) head = true;
+      if(opts && opts.count === "exact") countExact = true;
+      return proxy;
+    };
     return () => proxy;
   }});
   return proxy;
@@ -453,6 +475,38 @@ async function boot(browser, server, query){
     ok(s.titles.some(t => /no schedule of their own/i.test(t)),
       "people with no schedule are reported", JSON.stringify(s.titles));
     ok(s.clears === 2, "checks that passed are shown as clear rather than hidden", JSON.stringify(s));
+  }
+
+  // A count alone left the admin to hunt for the offending rows one viewer
+  // switch at a time. Each finding should now expand into a worklist naming
+  // exactly who and when, and each row should deep-link straight to that day.
+  {
+    const s = await page.evaluate(() => {
+      const items = [...document.querySelectorAll("#adminAttentionList .attention-item")];
+      const openShiftItem = items.find(i => /open shift/i.test(i.querySelector(".attention-title").textContent));
+      const rows = [...openShiftItem.querySelectorAll(".attention-rows button[data-goto-user]")];
+      return {rowCount: rows.length, labels: rows.map(r => r.textContent.trim())};
+    });
+    ok(s.rowCount === 3, "the open-shifts finding lists its rows", JSON.stringify(s));
+    ok(s.labels.some(l => l.includes("Kim Rivera")) && s.labels.some(l => l.includes("Sam Osei")),
+      "each row names the person, not just a count", JSON.stringify(s.labels));
+  }
+  {
+    const s = await page.evaluate(async () => {
+      const btn = document.querySelector('#adminAttentionList .attention-rows button[data-goto-user="u-2"]');
+      btn.click();
+      await new Promise(r => setTimeout(r, 200));
+      return {
+        viewer: document.getElementById("viewerSelect").value,
+        onLog: document.getElementById("tab-log").classList.contains("active"),
+        from: document.getElementById("fromDate").value,
+        to: document.getElementById("toDate").value,
+      };
+    });
+    ok(s.viewer === "u-2", "clicking a finding row switches the viewer to that person", JSON.stringify(s));
+    ok(s.onLog, "and lands on the Log tab", JSON.stringify(s));
+    ok(s.from === "2026-08-01" && s.to === "2026-08-01",
+      "with the date filter pinned to the exact offending day", JSON.stringify(s));
   }
 
   // ------------------------------------------------------------ org defaults

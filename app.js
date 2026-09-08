@@ -299,10 +299,32 @@ if(supabase){
   }
 
   // ---------- Supabase data access ----------
+  // Every sign-in and every viewer switch pulls this person's entire history,
+  // with no date bound and no limit — the same hazard renderTeam's own comment
+  // names precisely: an unbounded select trusts PostgREST's default row cap to
+  // never truncate, which would under-report someone's hours with no error at
+  // all. The Team tab dodges it by scoping to one month; the personal path
+  // can't do the same, since "All Years" in the Log and the Trends charts both
+  // need this person's complete history in memory. So instead of trusting one
+  // request's cap, this pages through in bounded chunks until a page comes
+  // back short of a full page — guaranteeing everything is actually retrieved
+  // no matter how large the table grows, rather than silently stopping at
+  // whatever the server's default happened to be. (user_id, date) is unique,
+  // so ordering by date alone gives every page a stable, gap-free position.
+  var ENTRIES_PAGE_SIZE = 1000;
   async function sbFetchEntries(userId){
-    var res = await supabase.from("entries").select("*").eq("user_id", userId).order("date");
-    if(res.error) throw res.error;
-    return (res.data || []).map(rowToEntry);
+    var all = [];
+    var from = 0;
+    for(;;){
+      var res = await supabase.from("entries").select("*")
+        .eq("user_id", userId).order("date").range(from, from + ENTRIES_PAGE_SIZE - 1);
+      if(res.error) throw res.error;
+      var page = res.data || [];
+      all = all.concat(page);
+      if(page.length < ENTRIES_PAGE_SIZE) break;
+      from += ENTRIES_PAGE_SIZE;
+    }
+    return all.map(rowToEntry);
   }
 
   async function sbFetchSettings(userId){
@@ -2689,11 +2711,22 @@ if(supabase){
       outBtn.textContent = "Clock Out Now";
       outBtn.addEventListener("click", function(){ punchClock("out"); });
       actions.appendChild(outBtn);
+    } else {
+      // A one-tap fix beats a form: the person's own standard end time is
+      // right often enough that making them open the entry form and retype
+      // it just to confirm what the app already knows costs a real clock-out
+      // and gets a dismiss instead. Manual editing is still one tap away, for
+      // the days the standard time is wrong.
+      var quickOutBtn = document.createElement("button");
+      quickOutBtn.className = "btn small";
+      quickOutBtn.textContent = "Clock Out at " + formatTime12(scheduleFor(target.date).standardOut);
+      quickOutBtn.addEventListener("click", function(){ quickClockOut(target, quickOutBtn); });
+      actions.appendChild(quickOutBtn);
     }
 
     var fixBtn = document.createElement("button");
     fixBtn.className = "btn ghost small";
-    fixBtn.textContent = isPast ? "Add Clock-Out Time" : "Edit Entry";
+    fixBtn.textContent = isPast ? "Edit Manually" : "Edit Entry";
     fixBtn.addEventListener("click", function(){ loadEntryIntoForm(target.id); });
     actions.appendChild(fixBtn);
 
@@ -2708,6 +2741,32 @@ if(supabase){
     actions.appendChild(dismissBtn);
 
     banner.classList.add("show");
+  }
+
+  // One tap for the common case: close the day at this person's own standard
+  // end time, no form to open or retype. Still just an upsert of clockOut —
+  // if the standard time is wrong for that particular day, "Edit Manually"
+  // next to it is the escape hatch.
+  async function quickClockOut(entry, btn){
+    var prevText = btn.textContent;
+    btn.disabled = true; btn.textContent = "Clocking out…";
+    try{
+      var payload = {
+        date: entry.date,
+        clockIn: entry.clockIn,
+        clockOut: scheduleFor(entry.date).standardOut,
+        type: entry.type || "regular",
+        note: entry.note || ""
+      };
+      await sbUpsertEntry(viewedUserId, payload, entry.id);
+      delete dismissedReminders[entry.date];
+      persistDismissals();
+      await loadDataForViewedUser();
+      showToast("Clocked out " + fmtDate(entry.date) + " at " + formatTime12(payload.clockOut) + ".", "success");
+    }catch(err){
+      showToast("Couldn't clock that out: " + friendlyError(err), "error");
+      btn.disabled = false; btn.textContent = prevText;
+    }
   }
 
   // ---------- Log ----------
@@ -4850,13 +4909,26 @@ if(supabase){
       );
     }
 
-    var parsed = [], skipped = 0;
+    // A count alone ("3 rows skipped") leaves a 200-row spreadsheet as a hunt
+    // for which three. Naming the sheet row number and the raw value that
+    // wouldn't parse turns that into something the person can go fix
+    // directly, at the cost of remembering only the first few.
+    var SKIP_SAMPLE_LIMIT = 5;
+    var parsed = [], skipped = 0, skipSamples = [];
     var seen = {};
     for(var r=1;r<rows.length;r++){
       var row = rows[r];
       var cell = function(i){ return i !== -1 && i < row.length ? row[i] : ""; };
-      var date = parseDateCell(cell(cDate), dayFirst);
-      if(!date){ skipped++; continue; }
+      var rawDate = cell(cDate);
+      var date = parseDateCell(rawDate, dayFirst);
+      if(!date){
+        skipped++;
+        if(skipSamples.length < SKIP_SAMPLE_LIMIT){
+          var shownVal = String(rawDate || "").trim();
+          skipSamples.push("row " + (r+1) + (shownVal ? " (\"" + shownVal + "\")" : " (blank)"));
+        }
+        continue;
+      }
 
       var rec = {
         date: date,
@@ -4879,9 +4951,18 @@ if(supabase){
       return entries.some(function(e){ return e.date === p.date; });
     }).length;
 
+    // Shared by the pre-import confirm and the post-import toast so the two
+    // never drift into naming a different set of rows.
+    function skipSummary(){
+      if(!skipped) return "";
+      var extra = skipped - skipSamples.length;
+      return skipped + " row" + (skipped===1?"":"s") + " skipped (no readable date): " +
+        skipSamples.join(", ") + (extra > 0 ? ", +" + extra + " more" : "") + ".";
+    }
+
     var msg = "Found " + parsed.length + " day" + (parsed.length===1?"":"s") + " to import.";
     if(replacing) msg += "\n" + replacing + " will replace a day you've already logged.";
-    if(skipped) msg += "\n" + skipped + " row" + (skipped===1?"":"s") + " skipped (no readable date).";
+    if(skipped) msg += "\n" + skipSummary();
     msg += "\n\nImport now?";
     if(!(await showConfirm(msg, {confirmText:"Import"}))) return;
 
@@ -4906,7 +4987,7 @@ if(supabase){
       showToast("Import failed: " + friendlyError(bulkErr) + " No days were changed.", "error");
     } else {
       showToast("Imported " + imported + " day" + (imported===1?"":"s") + " from CSV." +
-        (skipped ? " " + skipped + " row" + (skipped===1?"":"s") + " skipped (no readable date)." : ""), "success");
+        (skipped ? " " + skipSummary() : ""), "success");
     }
   }
 
@@ -4967,12 +5048,24 @@ if(supabase){
         // with no date, time, type or length validation, so a hand-edited or
         // third-party backup could permanently corrupt those days — an unknown
         // `type` renders as the literal text "undefined" everywhere it appears.
-        var clean = [], rejected = 0;
+        var REJECT_SAMPLE_LIMIT = 5;
+        var clean = [], rejected = 0, rejectSamples = [];
         var seenDates = {};
-        incoming.forEach(function(imp){
-          if(!imp || typeof imp !== "object"){ rejected++; return; }
+        incoming.forEach(function(imp, idx){
+          if(!imp || typeof imp !== "object"){
+            rejected++;
+            if(rejectSamples.length < REJECT_SAMPLE_LIMIT) rejectSamples.push("entry " + (idx+1) + " (not an object)");
+            return;
+          }
           var d = parseDateCell(imp.date, false);
-          if(!d){ rejected++; return; }
+          if(!d){
+            rejected++;
+            if(rejectSamples.length < REJECT_SAMPLE_LIMIT){
+              var shownDate = imp.date == null ? "no date field" : "\"" + String(imp.date) + "\"";
+              rejectSamples.push("entry " + (idx+1) + " (" + shownDate + ")");
+            }
+            return;
+          }
           var rec = {
             date: d,
             clockIn: parseTimeCell(imp.clockIn || imp.clock_in),
@@ -5007,8 +5100,10 @@ if(supabase){
         if(jsonErr){
           showToast("Import failed: " + friendlyError(jsonErr), "error");
         } else {
+          var rejectExtra = rejected - rejectSamples.length;
           showToast("Imported " + done + " entr" + (done===1?"y":"ies") + "." +
-            (rejected ? " " + rejected + " skipped (unreadable)." : ""), "success");
+            (rejected ? " " + rejected + " skipped (unreadable): " + rejectSamples.join(", ") +
+              (rejectExtra > 0 ? ", +" + rejectExtra + " more" : "") + "." : ""), "success");
         }
       }catch(err){
         showToast("Couldn't read that file. Choose a JSON backup exported from this page.", "error");
@@ -6994,7 +7089,12 @@ if(supabase){
             (unconfigured ? ' <span class="admin-badge unconfigured">No schedule</span>' : '')+
           '</div>'+
           '<div class="admin-user-meta" dir="auto">'+escapeHtml(u.email)+' · '+
-            Number(u.entry_count).toLocaleString()+' entries · Last seen '+escapeHtml(fmtRelative(u.last_sign_in_at))+
+            // This is auth's last_sign_in_at, not activity — it moves only when
+            // someone authenticates, not when they use the app. "Last seen"
+            // implied the latter, which is exactly the wrong read for an admin
+            // deciding whether to deactivate someone who's been signed in and
+            // idle for weeks. Named for what it actually measures.
+            Number(u.entry_count).toLocaleString()+' entries · Last sign-in '+escapeHtml(fmtRelative(u.last_sign_in_at))+
           '</div>'+
         '</div>'+
         // The role toggle sits on the same row as the account actions so an
@@ -7540,15 +7640,74 @@ if(supabase){
   });
 
   // ---------- Data health ----------
-  // Each check is a counted query rather than a client-side scan, so it stays
-  // honest as the table grows and never pulls the whole database down to the
-  // phone. head:true means no rows travel at all — only the count.
-  async function countEntries(build){
-    var q = supabase.from("entries").select("id", {count:"exact", head:true});
-    var res = await build(q);
+  // Each check used to be a counted query (head:true, no rows travel) so it
+  // stayed honest as the table grows. That told the admin a number and
+  // stopped — the only way to act on "3 open shifts from past days" was to
+  // walk the viewer switcher person by person hunting for them. Fetching a
+  // bounded page of the real rows alongside the exact count keeps the same
+  // cost (still one indexed query, still capped, never the whole table) but
+  // turns the number into a worklist: name, day, and a link straight to it.
+  var HEALTH_ROW_LIMIT = 8;
+  async function findEntries(build, limit){
+    var q = supabase.from("entries").select("id,user_id,date", {count:"exact"});
+    var res = await build(q).order("date").limit(limit);
     if(res.error) throw res.error;
-    return res.count || 0;
+    return {rows: res.data || [], count: res.count || 0};
   }
+  function nameFor(userId){
+    var u = adminUsersCache.find(function(x){ return x.id === userId; });
+    return u ? (u.full_name || u.email) : "Unknown user";
+  }
+  // Renders the worklist under a finding: one deep-linking row per person/day,
+  // capped at what was fetched, with a plain-text tail for the rest rather
+  // than pretending the list is complete.
+  function attentionRowsHtml(rows, totalCount){
+    var extra = totalCount - rows.length;
+    return '<ul class="attention-rows">' +
+      rows.map(function(r){
+        return '<li><button type="button" class="link-btn" data-goto-user="'+escapeAttr(r.userId)+'"'+
+          (r.date ? ' data-goto-date="'+escapeAttr(r.date)+'"' : '')+
+          ' data-goto-tab="'+escapeAttr(r.tab || "log")+'">'+escapeHtml(r.label)+'</button></li>';
+      }).join("") +
+      (extra > 0 ? '<li class="attention-more">+ ' + extra + ' more — narrow the dates below to see the rest.</li>' : '') +
+    '</ul>';
+  }
+  // Same jump the People list's "Open Record" makes (switch the viewer, land
+  // on their data), generalised with an optional exact day so a health
+  // finding can drop the admin straight onto the offending row instead of
+  // just the person's whole history.
+  function gotoUserRecord(userId, opts){
+    opts = opts || {};
+    if(opts.date){
+      document.getElementById("searchInput").value = "";
+      document.getElementById("typeFilterSelect").value = "all";
+      document.getElementById("logYearSelect").value = "all";
+      document.getElementById("monthFilterSelect").value = "all";
+      document.getElementById("fromDate").value = opts.date;
+      document.getElementById("toDate").value = opts.date;
+      logScrollLimit = LOG_SCROLL_CHUNK;
+      updateAdvancedFilterBadge();
+    }
+    var sel = document.getElementById("viewerSelect");
+    if(sel && sel.value !== userId){
+      sel.value = userId;
+      sel.dispatchEvent(new Event("change"));
+    } else if(opts.date){
+      populateFilters();
+      renderLog();
+      renderWeekly();
+    }
+    document.querySelector('.tab-btn[data-tab="'+(opts.tab || "log")+'"]').click();
+    document.getElementById("appShell").scrollIntoView({behavior:"smooth", block:"start"});
+  }
+  document.getElementById("adminAttentionList").addEventListener("click", function(ev){
+    var btn = ev.target.closest("[data-goto-user]");
+    if(!btn) return;
+    gotoUserRecord(btn.getAttribute("data-goto-user"), {
+      date: btn.getAttribute("data-goto-date") || null,
+      tab: btn.getAttribute("data-goto-tab") || "log"
+    });
+  });
 
   // null means the checks could not be run at all — say so rather than
   // reporting "all clear", which is the one wrong answer here.
@@ -7576,24 +7735,25 @@ if(supabase){
     var findings = [];
 
     try{
-      var noSchedule = adminSettingsOwners
-        ? adminUsersCache.filter(function(u){ return !adminSettingsOwners.has(u.id); }).length
+      var noScheduleUsers = adminSettingsOwners
+        ? adminUsersCache.filter(function(u){ return !adminSettingsOwners.has(u.id); })
         : null;
+      var noSchedule = noScheduleUsers ? noScheduleUsers.length : null;
 
       var results = await Promise.all([
         // Clocked in, never clocked out, on a day that has already ended. These
         // are the days that quietly count as a full shortfall in the aggregates.
-        countEntries(function(q){
+        findEntries(function(q){
           return q.not("clock_in","is",null).is("clock_out",null).lt("date", today);
-        }),
+        }, HEALTH_ROW_LIMIT),
         // Regular days carrying no hours at all — usually an import or a bulk
         // apply that landed on a working day and blanked it.
-        countEntries(function(q){
+        findEntries(function(q){
           return q.eq("type","regular").is("clock_in",null).is("clock_out",null).lt("date", today);
-        }),
+        }, HEALTH_ROW_LIMIT),
         // Dated beyond any plausible roster. The CHECK constraint stops the
         // year-9999 case now, but older rows predate it.
-        countEntries(function(q){ return q.gt("date", horizon); })
+        findEntries(function(q){ return q.gt("date", horizon); }, HEALTH_ROW_LIMIT)
       ]);
 
       if(noSchedule !== null){
@@ -7603,26 +7763,42 @@ if(supabase){
                                   : noSchedule + " people have no schedule of their own",
           note: "Their hours, lateness and leave are all measured against the fallback " +
                 "Sunday–Thursday 08:00–16:00 week. Set the organisation defaults below, then apply them.",
-          clear: "Everyone has their own schedule."
+          clear: "Everyone has their own schedule.",
+          rowsTotal: noSchedule,
+          rows: noScheduleUsers.slice(0, HEALTH_ROW_LIMIT).map(function(u){
+            return {userId: u.id, tab: "settings", label: u.full_name || u.email};
+          })
         });
       }
       findings.push({
-        count: results[0],
-        title: results[0] === 1 ? "1 open shift from a past day" : results[0] + " open shifts from past days",
+        count: results[0].count,
+        title: results[0].count === 1 ? "1 open shift from a past day" : results[0].count + " open shifts from past days",
         note: "Someone clocked in and never clocked out. Each one counts as a full day's shortfall until it is corrected.",
-        clear: "No unfinished shifts."
+        clear: "No unfinished shifts.",
+        rowsTotal: results[0].count,
+        rows: results[0].rows.map(function(r){
+          return {userId: r.user_id, date: r.date, tab: "log", label: nameFor(r.user_id) + " — " + fmtDate(r.date)};
+        })
       });
       findings.push({
-        count: results[1],
-        title: results[1] === 1 ? "1 blank working day" : results[1] + " blank working days",
+        count: results[1].count,
+        title: results[1].count === 1 ? "1 blank working day" : results[1].count + " blank working days",
         note: "Regular days holding no clock times at all, usually from an import or a company-wide apply.",
-        clear: "No blank working days."
+        clear: "No blank working days.",
+        rowsTotal: results[1].count,
+        rows: results[1].rows.map(function(r){
+          return {userId: r.user_id, date: r.date, tab: "log", label: nameFor(r.user_id) + " — " + fmtDate(r.date)};
+        })
       });
       findings.push({
-        count: results[2],
-        title: results[2] === 1 ? "1 entry dated far in the future" : results[2] + " entries dated far in the future",
+        count: results[2].count,
+        title: results[2].count === 1 ? "1 entry dated far in the future" : results[2].count + " entries dated far in the future",
         note: "More than 400 days ahead. These distort the Log's year filter and every monthly total.",
-        clear: "No implausible dates."
+        clear: "No implausible dates.",
+        rowsTotal: results[2].count,
+        rows: results[2].rows.map(function(r){
+          return {userId: r.user_id, date: r.date, tab: "log", label: nameFor(r.user_id) + " — " + fmtDate(r.date)};
+        })
       });
     }catch(err){
       wrap.innerHTML = '<p class="settings-hint" style="margin:0;">Couldn\'t run the data checks: ' +
@@ -7643,6 +7819,7 @@ if(supabase){
         '<div class="attention-body">'+
           '<div class="attention-title">'+escapeHtml(f.count ? f.title : f.clear)+'</div>'+
           (f.count ? '<div class="attention-note">'+escapeHtml(f.note)+'</div>' : '')+
+          (f.count && f.rows && f.rows.length ? attentionRowsHtml(f.rows, f.rowsTotal) : '')+
         '</div>'+
       '</div>';
     }).join("");
