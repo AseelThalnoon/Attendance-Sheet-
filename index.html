@@ -3790,21 +3790,27 @@
      .user-row and .you-badge lived here for the Team & Access card. That card
      was absorbed into the Admin tab and its rows now use .admin-user-row, so
      the old rules are gone rather than left looking live. */
-  .role-toggle{
+  /* .choice-toggle/.choice-btn share this exact look for any other
+     mutually-exclusive pair/trio of options (see the Notifications
+     composer's "send to" and "send when" pickers) — kept as separate class
+     names from .role-toggle/.role-btn rather than reusing them directly, so
+     a test (or a future reader) counting "role toggles" in the People list
+     isn't also counting an unrelated picker that happens to look the same. */
+  .role-toggle, .choice-toggle{
     display:inline-flex; border:1px solid var(--line); border-radius:99px;
     padding:2px; background:var(--ink-50); flex-shrink:0;
   }
-  .role-btn{
+  .role-btn, .choice-btn{
     border:none; background:none; cursor:pointer; padding:8px 16px; min-height:44px;
     border-radius:99px; font-size:11.5px; font-weight:500; color:var(--muted);
     transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
-  .role-btn.active{background:var(--gradient-ink); color:#fff; box-shadow:0 1px 5px rgba(17,17,16,.28);}
-  .role-btn:disabled{opacity:.5; cursor:default;}
-  @media (min-width:1100px){ .role-btn{min-height:32px;} }
+  .role-btn.active, .choice-btn.active{background:var(--gradient-ink); color:#fff; box-shadow:0 1px 5px rgba(17,17,16,.28);}
+  .role-btn:disabled, .choice-btn:disabled{opacity:.5; cursor:default;}
+  @media (min-width:1100px){ .role-btn, .choice-btn{min-height:32px;} }
   @media (max-width:480px){
-    .role-toggle{width:100%;}
-    .role-btn{flex:1;}
+    .role-toggle, .choice-toggle{width:100%;}
+    .role-btn, .choice-btn{flex:1;}
   }
 
   /* ---------- Toasts ---------- */
@@ -5171,6 +5177,22 @@
             <span>Saving recalculates every day already logged, not just days from here on.</span>
           </p>
           <p class="settings-hint">&ldquo;Remind after&rdquo; flags a day when you&rsquo;ve clocked in but not out for longer than this. &ldquo;Grace period&rdquo; is how late you can arrive before a day counts as a late arrival. &ldquo;Annual Leave Days&rdquo; is the yearly entitlement used to calculate the Leave Balance card.</p>
+
+          <!-- Its own block, not another row of the form-grid above: this
+               takes effect the moment it's toggled, unlike everything above
+               it which waits for Save, and it's about this device, not the
+               schedule being edited (so it's hidden entirely while an admin
+               is viewing someone else's settings). -->
+          <div id="pushToggleRow" hidden style="margin-top:var(--space-4); padding-top:var(--space-4); border-top:1px solid var(--line-soft);">
+            <label class="check-row" for="sPushEnabled" style="margin-top:0;">
+              <input type="checkbox" id="sPushEnabled">
+              <span>
+                <strong>Push notifications on this device</strong>
+                <em>A real notification here — even with the app closed — for the same &ldquo;remind after&rdquo; nudge above, and for anything an admin sends. Takes effect immediately; only affects this browser.</em>
+              </span>
+            </label>
+            <p class="settings-hint" id="pushDeniedHint" hidden></p>
+          </div>
         </div>
       </div>
 
@@ -5463,6 +5485,14 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-notifications" id="cnav-admin-notifications" aria-selected="false" aria-controls="csec-admin-notifications">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Notifications</span>
+              <span class="console-nav-desc" id="cnavDescNotifications">Push a message to everyone or specific people</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
           <button type="button" class="console-nav-item" role="tab" data-console-target="admin-audit" id="cnav-admin-audit" aria-selected="false" aria-controls="csec-admin-audit">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14v17l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></span>
             <span class="console-nav-text">
@@ -5701,6 +5731,61 @@
           </div>
         </div>
       </div>
+      <!-- ---------- Push notifications ---------- -->
+      <div class="console-section" data-section="admin-notifications" id="csec-admin-notifications" role="tabpanel" aria-labelledby="cnav-admin-notifications" tabindex="0">
+        <div class="console-section-head">
+          <h3>Notifications</h3>
+          <p>A real push notification, even to a closed app — to everyone, or to specific people you pick below. Only reaches someone who has turned it on in their own Settings.</p>
+        </div>
+        <div>
+          <div class="form-grid">
+            <div class="full">
+              <label for="notifyTitle">Title</label>
+              <input type="text" id="notifyTitle" maxlength="80" dir="auto" placeholder="e.g. Early close today">
+            </div>
+            <div class="full">
+              <label for="notifyBody">Message</label>
+              <textarea id="notifyBody" maxlength="500" dir="auto" rows="3" placeholder="What you want people to know"></textarea>
+            </div>
+          </div>
+
+          <div style="margin-top:var(--space-3);">
+            <label id="notifyTargetLabel">Send to</label>
+            <div class="choice-toggle" role="group" aria-labelledby="notifyTargetLabel">
+              <button type="button" class="choice-btn active" data-notify-target="all" aria-pressed="true">Everyone</button>
+              <button type="button" class="choice-btn" data-notify-target="users" aria-pressed="false">Specific people</button>
+            </div>
+          </div>
+          <div id="notifyPeoplePicker" hidden style="margin-top:var(--space-2);">
+            <label for="notifyPeopleSearch">Search people</label>
+            <input type="search" id="notifyPeopleSearch" maxlength="80" dir="auto" placeholder="Name or email">
+            <div id="notifyPeopleList" style="max-height:220px; overflow-y:auto; margin-top:8px;"></div>
+          </div>
+
+          <div style="margin-top:var(--space-3);">
+            <label id="notifyWhenLabel">Send</label>
+            <div class="choice-toggle" role="group" aria-labelledby="notifyWhenLabel">
+              <button type="button" class="choice-btn active" data-notify-when="now" aria-pressed="true">Now</button>
+              <button type="button" class="choice-btn" data-notify-when="later" aria-pressed="false">Schedule for later</button>
+            </div>
+          </div>
+          <div id="notifyScheduleWrap" hidden style="margin-top:var(--space-2);">
+            <label for="notifySchedule">Send at</label>
+            <input type="datetime-local" id="notifySchedule">
+          </div>
+
+          <div class="form-actions console-commit">
+            <button type="button" class="btn" id="sendNotificationBtn">Send Notification</button>
+          </div>
+
+          <div class="admin-attention" style="margin-top:var(--space-4);">
+            <h3 id="notifyHistoryHead">Recent notifications</h3>
+            <div id="notifyHistoryList" role="list" aria-labelledby="notifyHistoryHead">
+              <p class="settings-hint" style="margin:0;">Nothing sent yet.</p>
+            </div>
+          </div>
+        </div>
+      </div>
       <!-- ---------- Activity log ---------- -->
       <div class="console-section" data-section="admin-audit" id="csec-admin-audit" role="tabpanel" aria-labelledby="cnav-admin-audit" tabindex="0">
         <div class="console-section-head">
@@ -5727,6 +5812,7 @@
             <option value="user_reactivated">Reactivations</option>
             <option value="user_deleted">User deletions</option>
             <option value="app_settings_change">Org settings changed</option>
+            <option value="notification_sent">Notifications sent</option>
           </select>
         </div>
         <div>

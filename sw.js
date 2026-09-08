@@ -118,3 +118,58 @@ self.addEventListener("fetch", (event) => {
       })
   );
 });
+
+// ---------- Push notifications ----------
+// The payload is whatever send-push (a Supabase Edge Function) put in the
+// Web Push message: {title, body, action, data}. action/data are only
+// present for a system reminder's "Clock Out" button today, but the shape
+// leaves room for other action types without a service worker change.
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch (e) { payload = {}; }
+
+  const title = payload.title || "Attendance Ledger";
+  const data = Object.assign({ action: payload.action || null }, payload.data || {});
+  const options = {
+    body: payload.body || "",
+    icon: "./icon-192.png",
+    badge: "./icon-192.png",
+    data: data,
+    // Only a clock-out reminder carries an action button today, and only
+    // when it also carries the label to put on it -- an action with no
+    // title would render as a blank, tappable button.
+    actions: (payload.action === "clock_out" && data.label)
+      ? [{ action: "clock_out", title: data.label }]
+      : []
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// All the actual clock-out logic stays in app.js (quickClockOut, reached via
+// consumeShortcutAction's ?action=out-date&date=... case) — this worker
+// never talks to Supabase or holds a session token. Navigating an already-
+// open tab to that URL is a real page load, which re-runs the same boot
+// sequence a cold launch from the manifest shortcut already goes through.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  var url = "./index.html";
+  if (event.action === "clock_out" && data.date) {
+    url = "./index.html?action=out-date&date=" + encodeURIComponent(data.date);
+  }
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        // Reuse an already-open tab showing this app rather than stacking a
+        // second one -- but only if it actually is this app, not some other
+        // same-origin page the browser happens to have open.
+        if (client.url.indexOf(self.registration.scope) === 0 && "focus" in client) {
+          if ("navigate" in client) client.navigate(url).catch(() => {});
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});

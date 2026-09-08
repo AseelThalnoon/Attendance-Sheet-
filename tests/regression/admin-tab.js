@@ -379,9 +379,10 @@ async function boot(browser, server, query){
         panelHeight: Math.round(document.getElementById("tab-admin").getBoundingClientRect().height),
       };
     });
-    // 7 since "Themes & Layouts" was removed with the theme picker.
-    ok(s.count === 7, "the console is split into seven sections", JSON.stringify(s.count));
-    ok(s.sections === 7, "every nav row has a section behind it", JSON.stringify(s.sections));
+    // 8: 7 since "Themes & Layouts" was removed with the theme picker, +1 for
+    // the Notifications section added alongside push notifications.
+    ok(s.count === 8, "the console is split into eight sections", JSON.stringify(s.count));
+    ok(s.sections === 8, "every nav row has a section behind it", JSON.stringify(s.sections));
     ok(s.paired && s.controls, "each nav row points at the section it selects", JSON.stringify(s));
     ok(s.shown.length === 1 && s.selected.length === 1 && s.shown[0] === s.selected[0],
       "exactly one section shows, and the nav agrees which", JSON.stringify(s));

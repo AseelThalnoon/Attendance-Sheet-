@@ -172,6 +172,12 @@ if(supabase){
     annualLeaveDays:21
   };
 
+  // VAPID public keys are meant to be public — the private half never leaves
+  // the send-push Edge Function's own secrets. This one is paired with
+  // whatever VAPID_PRIVATE_KEY is set as that function's secret; the two
+  // must be regenerated and redeployed together, never independently.
+  var VAPID_PUBLIC_KEY = "BJlxibKyLbjnTvhH6hFdlNHSugC15FqdNxT55UJbY0RJtn3DGIWMTX4XG0FKB-K1H8SbvGcWYhLpmCD58OiD-es";
+
   // ---------- Auth / multi-user state ----------
   var currentUser = null;      // {id, email} — the signed-in Supabase auth user
   var currentProfile = null;   // {id, email, full_name, role}
@@ -1262,6 +1268,101 @@ if(supabase){
       return '<input type="checkbox" id="wd'+i+'" value="'+i+'"><label for="wd'+i+'">'+DAY_FULL[i]+'</label>';
     }).join("");
   }
+  // ---------- Push notifications ----------
+  // Subscribing is a property of this browser and the signed-in user, not of
+  // whoever an admin might currently be viewing — refreshPushToggle() below
+  // hides the whole row unless isOwnData, the same restriction the profile
+  // name form uses.
+  function urlBase64ToUint8Array(base64String){
+    var padding = "=".repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    var raw = atob(base64);
+    var arr = new Uint8Array(raw.length);
+    for(var i=0;i<raw.length;i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
+  function pushSupported(){
+    return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  }
+  async function currentPushSubscription(){
+    if(!pushSupported()) return null;
+    try{
+      var reg = await navigator.serviceWorker.ready;
+      return await reg.pushManager.getSubscription();
+    }catch(e){ return null; }
+  }
+  async function subscribeToPush(){
+    if(!pushSupported()) throw new Error("Push notifications aren't supported in this browser.");
+    var perm = await Notification.requestPermission();
+    if(perm !== "granted"){
+      throw new Error(perm === "denied"
+        ? "Notifications are blocked for this site in your browser."
+        : "Permission wasn't granted.");
+    }
+    var reg = await navigator.serviceWorker.ready;
+    var sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    var json = sub.toJSON();
+    var res = await supabase.from("push_subscriptions").upsert({
+      user_id: currentUser.id,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+      user_agent: navigator.userAgent
+    }, {onConflict:"endpoint"});
+    if(res.error) throw res.error;
+  }
+  async function unsubscribeFromPush(){
+    var sub = await currentPushSubscription();
+    if(!sub) return;
+    // Delete the row before unsubscribing the browser API, not after — if the
+    // delete fails (offline), the leftover row still names a subscription
+    // that still exists, rather than one nothing could ever find again to
+    // clean up.
+    try{ await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); }catch(e){}
+    await sub.unsubscribe();
+  }
+  // Async DOM refresh, called fire-and-forget from refreshSettingsPanel() the
+  // same way renderTodayTeam() is from renderAll() — checking subscription
+  // state is inherently async and the rest of that panel's repaint is not.
+  async function refreshPushToggle(){
+    var row = document.getElementById("pushToggleRow");
+    if(!row) return;
+    row.hidden = !isOwnData;
+    if(!isOwnData) return;
+
+    var box = document.getElementById("sPushEnabled");
+    var hint = document.getElementById("pushDeniedHint");
+    if(!pushSupported()){
+      box.checked = false; box.disabled = true;
+      hint.hidden = false;
+      hint.textContent = "Push notifications aren't supported in this browser.";
+      return;
+    }
+    if(Notification.permission === "denied"){
+      box.checked = false; box.disabled = true;
+      hint.hidden = false;
+      hint.textContent = "Notifications are blocked for this site in your browser settings — enable them there to turn this on.";
+      return;
+    }
+    box.disabled = false;
+    hint.hidden = true;
+    box.checked = !!(await currentPushSubscription());
+  }
+  document.getElementById("sPushEnabled").addEventListener("change", async function(){
+    var box = this;
+    box.disabled = true;
+    try{
+      if(box.checked) await subscribeToPush();
+      else await unsubscribeFromPush();
+    }catch(err){
+      showToast("Couldn't update push notifications: " + friendlyError(err), "error");
+    }
+    await refreshPushToggle();
+  });
+
   function fillSettingsForm(){
     DAY_NAMES.forEach(function(_, i){
       var box = document.getElementById("wd"+i);
@@ -1304,6 +1405,7 @@ if(supabase){
   // tab isn't visible costs nothing — same reasoning as renderAll()'s other
   // unconditional repaints.
   function refreshSettingsPanel(){
+    refreshPushToggle().catch(function(){});
     var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user";
     // The line above the form says what the form is. When the schedule never
     // loaded, what the form is holding is DEFAULT_SETTINGS — so it says that,
@@ -2780,10 +2882,13 @@ if(supabase){
   // One tap for the common case: close the day at this person's own standard
   // end time, no form to open or retype. Still just an upsert of clockOut —
   // if the standard time is wrong for that particular day, "Edit Manually"
-  // next to it is the escape hatch.
+  // next to it is the escape hatch. btn is optional: the in-app banner
+  // passes its own button to disable/relabel while the save is in flight,
+  // but a push notification's "Clock Out" action (see consumeShortcutAction)
+  // has no button of its own to hand it.
   async function quickClockOut(entry, btn){
-    var prevText = btn.textContent;
-    btn.disabled = true; btn.textContent = "Clocking out…";
+    var prevText = btn ? btn.textContent : null;
+    if(btn){ btn.disabled = true; btn.textContent = "Clocking out…"; }
     try{
       var payload = {
         date: entry.date,
@@ -2800,7 +2905,7 @@ if(supabase){
       showToast("Clocked out " + fmtDate(entry.date) + " at " + formatTime12(payload.clockOut) + ".", "success");
     }catch(err){
       showToast("Couldn't clock that out: " + friendlyError(err), "error");
-      btn.disabled = false; btn.textContent = prevText;
+      if(btn){ btn.disabled = false; btn.textContent = prevText; }
     }
   }
 
@@ -4310,7 +4415,21 @@ if(supabase){
   // — a refresh, or the browser re-delivering the same launch URL, must not
   // replay the punch a second time.
   function consumeShortcutAction(){
-    var action = new URLSearchParams(location.search).get("action");
+    var params = new URLSearchParams(location.search);
+    var action = params.get("action");
+    // Also reached from a push notification's "Clock Out" action button
+    // (see sw.js's notificationclick): a specific past day, not "now", so it
+    // goes through the same one-tap path the in-app reminder banner uses
+    // rather than punchClock (which always targets today/resolves overnight).
+    if(action === "out-date"){
+      var date = params.get("date");
+      history.replaceState(null, "", location.pathname + location.hash);
+      var entry = date && entries.find(function(e){ return e.date === date; });
+      if(entry && entry.clockIn && !entry.clockOut){
+        quickClockOut(entry, null);
+      }
+      return;
+    }
     if(action !== "in" && action !== "out") return;
     history.replaceState(null, "", location.pathname + location.hash);
     punchClock(action);
@@ -7116,6 +7235,7 @@ if(supabase){
     adminUsersCache = res.data || [];
     fillAuditUserFilter();
     renderAdminPeople();
+    renderNotifyPeopleList();
   }
 
   // Renders from the cache, so typing in the search box never re-queries.
@@ -7306,10 +7426,11 @@ if(supabase){
     insert:"Added", update:"Edited", delete:"Deleted",
     role_change:"Role changed", user_created:"User created",
     user_deactivated:"Deactivated", user_reactivated:"Reactivated", user_deleted:"User deleted",
-    app_settings_change:"Org settings changed", schedule_change:"Schedule changed"
+    app_settings_change:"Org settings changed", notification_sent:"Notification sent",
+    schedule_change:"Schedule changed"
   };
   function auditActionClass(action){
-    if(action === "insert") return "a-insert";
+    if(action === "insert" || action === "notification_sent") return "a-insert";
     if(action === "update" || action === "app_settings_change" || action === "schedule_change") return "a-update";
     if(action === "delete" || action === "user_deleted") return "a-delete";
     return "a-admin";
@@ -7412,6 +7533,12 @@ if(supabase){
       return n != null ? n + " entries removed" : "Account removed";
     }
     if(row.action === "app_settings_change") return appSettingsDiff(row.old_values, row.new_values);
+    if(row.action === "notification_sent"){
+      var nv = row.new_values || {};
+      var who = nv.target_type === "all" ? "everyone" : "specific people";
+      return '"' + (nv.title || "") + '" to ' + who + ' · ' + (nv.recipient_count || 0) + ' delivered' +
+        (nv.failure_count ? ', ' + nv.failure_count + ' failed' : '');
+    }
     if(row.action === "schedule_change") return scheduleDiff(row.old_values, row.new_values);
     if(row.entry_date){
       if(row.action === "update") return entryDiff(row.old_values, row.new_values);
@@ -7776,6 +7903,188 @@ if(supabase){
     saveAppSettings(this, "App settings saved.");
   });
 
+  // ---------- Notifications (admin composer) ----------
+  // Composing here is nothing more than inserting a row into
+  // push_notifications — send-push (a Supabase Edge Function, on its own
+  // cron tick) is the only thing that ever actually talks to a push
+  // service, whether the row came from here or from the automatic
+  // clock-out reminder. "Send now" also invokes it directly so the common
+  // case doesn't wait out the next tick to feel like it went anywhere; a
+  // failed direct invoke isn't fatal, since the row is already queued and
+  // the cron tick picks it up within a minute regardless.
+  var notifyTarget = "all";
+  var notifyWhen = "now";
+  var notifySelectedIds = new Set();
+
+  document.querySelectorAll("#csec-admin-notifications [data-notify-target]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      notifyTarget = this.getAttribute("data-notify-target");
+      document.querySelectorAll("#csec-admin-notifications [data-notify-target]").forEach(function(b){
+        var on = b === btn;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", on);
+      });
+      document.getElementById("notifyPeoplePicker").hidden = notifyTarget !== "users";
+    });
+  });
+  document.querySelectorAll("#csec-admin-notifications [data-notify-when]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      notifyWhen = this.getAttribute("data-notify-when");
+      document.querySelectorAll("#csec-admin-notifications [data-notify-when]").forEach(function(b){
+        var on = b === btn;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", on);
+      });
+      document.getElementById("notifyScheduleWrap").hidden = notifyWhen !== "later";
+    });
+  });
+
+  function renderNotifyPeopleList(){
+    var wrap = document.getElementById("notifyPeopleList");
+    if(!wrap) return;
+    var term = (document.getElementById("notifyPeopleSearch").value || "").trim().toLowerCase();
+    var shown = adminUsersCache.filter(function(u){
+      if(!term) return true;
+      return ((u.full_name || "") + " " + (u.email || "")).toLowerCase().indexOf(term) !== -1;
+    });
+    wrap.innerHTML = shown.length ? shown.map(function(u){
+      var checked = notifySelectedIds.has(u.id);
+      return '<label class="check-row" style="margin-top:4px;">'+
+        '<input type="checkbox" data-notify-person="'+escapeAttr(u.id)+'"'+(checked ? " checked" : "")+'>'+
+        '<span>'+escapeHtml(u.full_name || u.email)+'</span>'+
+      '</label>';
+    }).join("") : '<p class="settings-hint" style="margin:0;">No one matches that search.</p>';
+  }
+  document.getElementById("notifyPeopleSearch").addEventListener("input", renderNotifyPeopleList);
+  document.getElementById("notifyPeopleList").addEventListener("change", function(ev){
+    var box = ev.target.closest("[data-notify-person]");
+    if(!box) return;
+    var id = box.getAttribute("data-notify-person");
+    if(box.checked) notifySelectedIds.add(id); else notifySelectedIds.delete(id);
+  });
+
+  document.getElementById("sendNotificationBtn").addEventListener("click", async function(){
+    var btn = this;
+    var title = document.getElementById("notifyTitle").value.trim();
+    var body = document.getElementById("notifyBody").value.trim();
+    if(!title || !body){
+      showToast("Add a title and a message before sending.", "error");
+      return;
+    }
+    var targetIds = Array.from(notifySelectedIds);
+    if(notifyTarget === "users" && !targetIds.length){
+      showToast("Pick at least one person, or switch to Everyone.", "error");
+      return;
+    }
+
+    var scheduledFor = new Date();
+    if(notifyWhen === "later"){
+      var raw = document.getElementById("notifySchedule").value;
+      if(!raw){ showToast("Pick a date and time to schedule for.", "error"); return; }
+      scheduledFor = new Date(raw);
+      if(isNaN(scheduledFor.getTime())){ showToast("That date and time isn't valid.", "error"); return; }
+    }
+    // A few seconds of slack rather than an exact >now check — "now" picked
+    // in the datetime field is, by the time this runs, technically already
+    // a moment in the past.
+    var isImmediate = scheduledFor.getTime() <= Date.now() + 5000;
+    var whenPhrase = isImmediate ? " now" : ", scheduled for " + scheduledFor.toLocaleString();
+    var confirmMsg = notifyTarget === "all"
+      ? "Send this to everyone who has notifications enabled" + whenPhrase + "?"
+      : "Send this to " + targetIds.length + " selected " + (targetIds.length === 1 ? "person" : "people") + whenPhrase + "?";
+    if(!(await showConfirm(confirmMsg, {title:"Send notification?", confirmText:"Send"}))) return;
+
+    btn.disabled = true; btn.textContent = "Sending…";
+    try{
+      var payload = {
+        created_by: currentUser.id,
+        title: title,
+        body: body,
+        target_type: notifyTarget,
+        target_user_ids: notifyTarget === "users" ? targetIds : null,
+        scheduled_for: scheduledFor.toISOString()
+      };
+      var res = await supabase.from("push_notifications").insert(payload).select().single();
+      if(res.error) throw res.error;
+
+      if(isImmediate){
+        try{ await supabase.functions.invoke("send-push", {body:{id: res.data.id}}); }
+        catch(e){ /* already queued — the cron tick still delivers it within a minute */ }
+      }
+
+      document.getElementById("notifyTitle").value = "";
+      document.getElementById("notifyBody").value = "";
+      document.getElementById("notifySchedule").value = "";
+      notifySelectedIds.clear();
+      renderNotifyPeopleList();
+      showToast(isImmediate ? "Notification sent." : "Notification scheduled for " + scheduledFor.toLocaleString() + ".", "success");
+      await renderNotifyHistory();
+    }catch(err){
+      showToast("Couldn't send that: " + friendlyError(err), "error");
+    }finally{
+      btn.disabled = false; btn.textContent = "Send Notification";
+    }
+  });
+
+  var NOTIFY_STATUS_BADGE = {
+    pending: '<span class="audit-action a-update">Scheduled</span>',
+    sending: '<span class="audit-action a-update">Sending</span>',
+    sent: '<span class="audit-action a-insert">Sent</span>',
+    failed: '<span class="audit-action a-delete">Failed</span>',
+    canceled: '<span class="audit-action a-admin">Canceled</span>'
+  };
+  async function renderNotifyHistory(){
+    var wrap = document.getElementById("notifyHistoryList");
+    if(!wrap) return;
+    var res;
+    try{
+      res = await supabase.from("push_notifications").select("*").order("created_at", {ascending:false}).limit(20);
+      if(res.error) throw res.error;
+    }catch(err){
+      wrap.innerHTML = '<p class="settings-hint" style="margin:0;">Couldn\'t load notification history: ' +
+        escapeHtml(friendlyError(err)) + '</p>';
+      return;
+    }
+    var rows = res.data || [];
+    if(!rows.length){
+      wrap.innerHTML = '<p class="settings-hint" style="margin:0;">Nothing sent yet.</p>';
+      return;
+    }
+    wrap.innerHTML = rows.map(function(n){
+      var who = n.target_type === "all" ? "Everyone"
+        : (n.target_user_ids || []).length === 1 ? nameFor(n.target_user_ids[0])
+        : (n.target_user_ids || []).length + " people";
+      var when = n.status === "sent" ? fmtRelative(n.sent_at) : fmtRelative(n.scheduled_for);
+      var canCancel = n.status === "pending" && new Date(n.scheduled_for).getTime() > Date.now();
+      return '<div class="attention-item" role="listitem">'+
+        '<div class="attention-body">'+
+          '<div class="attention-title">'+(NOTIFY_STATUS_BADGE[n.status] || n.status)+' '+escapeHtml(n.title)+'</div>'+
+          '<div class="attention-note">To '+escapeHtml(who)+' · '+escapeHtml(when)+
+            (n.status === "sent" ? ' · ' + (n.recipient_count || 0) + ' delivered' +
+              (n.failure_count ? ', ' + n.failure_count + ' failed' : '') : '') +
+          '</div>'+
+        '</div>'+
+        (canCancel ? '<button type="button" class="btn ghost small" data-cancel-notify="'+escapeAttr(n.id)+'">Cancel</button>' : '')+
+      '</div>';
+    }).join("");
+  }
+  document.getElementById("notifyHistoryList").addEventListener("click", async function(ev){
+    var btn = ev.target.closest("[data-cancel-notify]");
+    if(!btn) return;
+    var id = btn.getAttribute("data-cancel-notify");
+    btn.disabled = true;
+    try{
+      // Only a still-pending row can be canceled -- one send-push has
+      // already claimed (status='sending' or later) must run to completion.
+      var res = await supabase.from("push_notifications").update({status:"canceled"}).eq("id", id).eq("status", "pending");
+      if(res.error) throw res.error;
+      await renderNotifyHistory();
+    }catch(err){
+      showToast("Couldn't cancel that: " + friendlyError(err), "error");
+      btn.disabled = false;
+    }
+  });
+
   // ---------- Data health ----------
   // Each check used to be a counted query (head:true, no rows travel) so it
   // stayed honest as the table grows. That told the admin a number and
@@ -7993,7 +8302,8 @@ if(supabase){
       renderAdminStats(),
       loadAdminPeople(),
       resetAuditPaging(),
-      loadAppSettings()
+      loadAppSettings(),
+      renderNotifyHistory()
     ]);
     await renderAdminHealth();
   }
