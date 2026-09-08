@@ -6842,6 +6842,13 @@ if(supabase){
   var teamMonth = null;          // "YYYY-MM"; null until first render
   var teamSettingsCache = null;  // user_id -> normalised settings
   var teamRowsCache = [];        // [{profile, summary, today, settings}]
+  // Same guard as loadDataForViewedUser's loadGeneration, for the same
+  // reason: renderTeam() awaits a network fetch, and Prev/Next Month can be
+  // clicked again before it lands. Without this, a slow response for a month
+  // already navigated away from can resolve after a faster later one and
+  // silently overwrite the screen — the header still naming the month you're
+  // looking at while the cards and totals underneath it are someone else's.
+  var teamLoadGeneration = 0;
 
   async function loadTeamSettings(){
     if(teamSettingsCache) return teamSettingsCache;
@@ -6900,6 +6907,7 @@ if(supabase){
 
   async function renderTeam(){
     if(!isAdmin) return;
+    var gen = ++teamLoadGeneration;
     var list = document.getElementById("teamList");
     var empty = document.getElementById("teamEmpty");
     if(!teamMonth) teamMonth = monthKey(todayStr());
@@ -6929,6 +6937,7 @@ if(supabase){
       var res = await supabase.from("entries")
         .select("user_id,date,clock_in,clock_out,type,updated_at")
         .gte("date", monthStart).lte("date", monthEnd);
+      if(gen !== teamLoadGeneration) return;   // a later navigation already owns the screen
       if(res.error) throw res.error;
       (res.data || []).forEach(function(row){
         if(!byUser[row.user_id]) byUser[row.user_id] = [];
@@ -6937,6 +6946,7 @@ if(supabase){
         byUser[row.user_id].push(entry);
       });
     }catch(err){
+      if(gen !== teamLoadGeneration) return;
       list.innerHTML = "";
       empty.textContent = "Couldn't load team data: " + friendlyError(err);
       empty.style.display = "block";
@@ -6944,6 +6954,7 @@ if(supabase){
     }
 
     var settingsByUser = await loadTeamSettings();
+    if(gen !== teamLoadGeneration) return;
 
     teamRowsCache = allProfiles.map(function(p){
       var rows = byUser[p.id] || [];
