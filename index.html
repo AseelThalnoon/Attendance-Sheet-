@@ -3646,7 +3646,28 @@
   /* Status and role pills, on their own line. Inline in the name they broke it
      mid-phrase; here they wrap against each other and nothing else. */
   .team-tags{display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0;}
-  .team-card-figures{display:flex; gap:14px; flex-wrap:wrap;}
+  /* .team-card's own gap:8px used to be the ONLY interval anywhere in the
+     card — identity-to-tags, tags-to-bar, bar-to-figures, all the same 8px,
+     which is the flat-rhythm anti-pattern: every relationship reads as
+     equally (un)related regardless of whether it actually is. Identity and
+     status are one fact ("who, and are they in") and stay tight against
+     each other; the bar and the four figures below it are a second, later
+     fact ("how did their month go") that deserves a beat of separation
+     from the first, not the same 8px as everything else. The bar and its
+     own figures stay unseparated from EACH OTHER on purpose — they are one
+     reading, not two. */
+  .team-card-numbers{margin-top:4px;}
+  /* Was flex-wrap: at the card's real ~240px inner width (padding taken out
+     of the 268px DESIGN.md sizes these cards to), "Target Hours Met" is too
+     wide to share a row with Days/Avg-Day/Diff, so it silently orphaned onto
+     its own line every time — three items reading as a row, a fourth
+     reading as an afterthought below them, no shared structure tying it
+     back. auto-fit here is the same idiom .team-grid and .team-layout
+     already use one level up: it resolves to 2 columns at the card's usual
+     width (a deliberate pair of rows, not an accident) and opens to more
+     columns on its own if the card ever gets wide enough to fit them,
+     rather than a hardcoded column count fighting the width at either end. */
+  .team-card-figures{display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:10px 14px;}
   .team-card-figures div{min-width:0;}
   .team-card-figures .label{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted);}
   .team-card-figures .value{font-family:var(--font-num); font-weight:700; font-size:15px; color:var(--ink);}
@@ -3675,7 +3696,14 @@
   .team-status.done{background:var(--info-bg); color:var(--info);}
   .team-status.off{background:var(--ink-50); color:var(--muted-2);}
   .team-status.excused{background:var(--excused-bg); color:var(--excused);}
-  .team-status.missing{background:var(--negative-bg); color:var(--negative);}
+  /* Same neutral treatment as .off, not the alarm-red it used to carry: most
+     of the time this just means today's shift hasn't started yet, which is
+     the ordinary case for a card that will read as one line among the
+     card's real flags ("No schedule") otherwise it competed with. See the
+     label itself (teamStatus() in app.js) for the other half of this fix —
+     "today" now says outright that this pill is about today, not the whole
+     month the rest of the card is reporting on. */
+  .team-status.missing{background:var(--ink-50); color:var(--muted-2);}
 
   /* ---------- Team activity sidebar ----------
      Same job as Overview's "In today" panel — a live read on the team — but
