@@ -7523,13 +7523,28 @@ if(supabase){
             (u.deactivated ? ' <span class="admin-badge deactivated">Deactivated</span>' : '')+
             (unconfigured ? ' <span class="admin-badge unconfigured">No schedule</span>' : '')+
           '</div>'+
-          '<div class="admin-user-meta" dir="auto">'+escapeHtml(u.email)+' · '+
-            // This is auth's last_sign_in_at, not activity — it moves only when
-            // someone authenticates, not when they use the app. "Last seen"
-            // implied the latter, which is exactly the wrong read for an admin
-            // deciding whether to deactivate someone who's been signed in and
-            // idle for weeks. Named for what it actually measures.
-            Number(u.entry_count).toLocaleString()+' entries · Last sign-in '+escapeHtml(fmtRelative(u.last_sign_in_at))+
+          '<div class="admin-user-meta" dir="auto"'+
+            // Both facts in the tooltip, because they genuinely differ and the
+            // difference is worth being able to see: "signed in 27 days ago,
+            // last used it today" describes a perfectly normal person on a
+            // phone that never signs out.
+            ' title="'+escapeAttr(
+              "Last active " + fmtRelative(u.last_seen_at || u.last_sign_in_at) +
+              " · Last signed in " + fmtRelative(u.last_sign_in_at))+'">'+
+            escapeHtml(u.email)+' · '+
+            // This once read "Last sign-in", and was named that honestly:
+            // auth.users.last_sign_in_at moves only when someone
+            // authenticates, so it could not answer "when did this person
+            // last use the app" and the label was corrected to stop implying
+            // it did. But the question an admin is actually asking — before
+            // deactivating an account, say — was the one it stopped
+            // answering, and a persistent session made the gap enormous: a
+            // month of daily use produces no sign-in event at all. profiles
+            // .last_seen_at is that fact (migration 20260909060549), and the
+            // sign-in is still one hover away for when the distinction
+            // matters.
+            Number(u.entry_count).toLocaleString()+' entries · Last active '+
+            escapeHtml(fmtRelative(u.last_seen_at || u.last_sign_in_at))+
           '</div>'+
         '</div>'+
         // The role toggle sits on the same row as the account actions so an
@@ -8331,6 +8346,46 @@ if(supabase){
   var notifyHistoryFilter = "all";
   var notifyHistoryRows = [];
 
+  var DELIVERY_LABEL = {
+    delivered: '<span class="audit-action a-insert">Delivered</span>',
+    failed:    '<span class="audit-action a-delete">Failed</span>',
+    expired:   '<span class="audit-action a-admin">Expired</span>'
+  };
+  // One line per device: whose it is, which device, what happened, and — when
+  // something went wrong — why, in a sentence rather than a status code.
+  // Grouped per person, because someone with a phone and a laptop is one
+  // person to follow up with, not two rows to reconcile.
+  function notifyDeliveriesHtml(rows){
+    if(!rows.length){
+      return '<p class="settings-hint" style="margin:0;">' +
+        'No devices were recorded for this send. Sends made before per-device ' +
+        'recording was added report totals only.</p>';
+    }
+    var byUser = {};
+    rows.forEach(function(d){
+      (byUser[d.user_id] = byUser[d.user_id] || []).push(d);
+    });
+    // Anyone who had a problem first: this list is opened to find them.
+    var ids = Object.keys(byUser).sort(function(a, b){
+      var bad = function(id){ return byUser[id].some(function(d){ return d.status !== "delivered"; }) ? 0 : 1; };
+      return bad(a) - bad(b) || nameFor(a).localeCompare(nameFor(b));
+    });
+    return '<ul class="notify-people-list">' + ids.map(function(id){
+      return '<li>'+
+        '<div class="notify-person" dir="auto">'+escapeHtml(nameFor(id))+'</div>'+
+        byUser[id].map(function(d){
+          return '<div class="notify-device">'+
+            (DELIVERY_LABEL[d.status] || escapeHtml(d.status))+
+            ' <span class="notify-device-name">'+escapeHtml(d.device || "Unrecognised device")+'</span>'+
+            (d.status !== "delivered" && d.error_detail
+              ? '<div class="notify-device-why">'+escapeHtml(d.error_detail)+'</div>'
+              : '')+
+          '</div>';
+        }).join("")+
+      '</li>';
+    }).join("") + '</ul>';
+  }
+
   // Counts only, and admin-gated in the database (see the migration
   // 20260909055532_admin_push_reach.sql for why this cannot be a client-side
   // query). Best-effort on purpose: if the function isn't deployed to a given
@@ -8416,6 +8471,7 @@ if(supabase){
     wrap.innerHTML = waiting.concat(done).map(function(n){
       var who = notifyAudience(n);
       var auto = isAutomaticNotification(n);
+      var hasRun = n.status === "sent" || n.status === "failed";
       var whenStamp = n.status === "sent" ? n.sent_at : n.scheduled_for;
       var whenAbs = whenStamp ? new Date(whenStamp).toLocaleString() : "";
       var canCancel = n.status === "pending" && new Date(n.scheduled_for).getTime() > Date.now();
@@ -8428,9 +8484,16 @@ if(supabase){
       // Delivery is only a fact once a send has run. Before that a count of
       // zero is not "nobody got it", it is "this has not happened yet".
       if(n.status === "sent" || n.status === "failed"){
+        // "3 devices · 1 failed" counted things without identifying any of
+        // them, and a count you cannot act on is not much better than no
+        // count. The summary still leads with numbers, because that is what a
+        // scan wants — but "Who got it" opens the list behind them.
         var got = n.recipient_count || 0;
-        meta.push(got + (got === 1 ? " device" : " devices") +
-          (n.failure_count ? " · " + n.failure_count + " failed" : ""));
+        var lost = n.failure_count || 0;
+        meta.push(got === 0 && lost === 0
+          ? "Reached nobody"
+          : "Delivered to " + got + (got === 1 ? " device" : " devices") +
+            (lost ? " · " + lost + " failed" : ""));
       }
       meta.push(auto ? "Automatic" : "From " + escapeHtml(nameFor(n.created_by)));
 
@@ -8452,13 +8515,20 @@ if(supabase){
           // A failure that names no reason leaves an admin with nothing to do
           // but send it again and hope. error_detail has been recorded since
           // this table existed; it was simply never read back out.
-          (n.status === "failed" && n.error_detail
+          // Now shown for any send that had failures, not only one whose
+          // every device failed: a broadcast that mostly worked is exactly
+          // the case where the reason was previously invisible.
+          ((n.status === "failed" || n.failure_count) && n.error_detail
             ? '<p class="notify-item-error">'+escapeHtml(n.error_detail)+'</p>'
+            : '')+
+          (hasRun
+            ? '<div class="notify-people" data-people-for="'+escapeAttr(n.id)+'" hidden></div>'
             : '')+
         '</div>'+
         '<div class="notify-item-actions">'+
           (canCancel ? '<button type="button" class="btn ghost small" data-cancel-notify="'+escapeAttr(n.id)+'">Cancel</button>' : '')+
           (canRetry ? '<button type="button" class="btn ghost small" data-retry-notify="'+escapeAttr(n.id)+'">Retry</button>' : '')+
+          (hasRun ? '<button type="button" class="btn ghost small" data-who-notify="'+escapeAttr(n.id)+'" aria-expanded="false">Who got it</button>' : '')+
           '<button type="button" class="btn ghost small" data-reuse-notify="'+escapeAttr(n.id)+'">Reuse</button>'+
         '</div>'+
       '</div>';
@@ -8475,6 +8545,39 @@ if(supabase){
     var cancelBtn = ev.target.closest("[data-cancel-notify]");
     var retryBtn = ev.target.closest("[data-retry-notify]");
     var reuseBtn = ev.target.closest("[data-reuse-notify]");
+    var whoBtn = ev.target.closest("[data-who-notify]");
+
+    // Per-device outcomes, fetched only when asked for: a broadcast to a large
+    // team is one row per device, and every notification in the list carrying
+    // its own set of them would be the bulk of the panel's traffic for
+    // something most rows never get expanded.
+    if(whoBtn){
+      var wid = whoBtn.getAttribute("data-who-notify");
+      var panel = document.querySelector('[data-people-for="'+CSS.escape(wid)+'"]');
+      if(!panel) return;
+      if(!panel.hidden){
+        panel.hidden = true;
+        whoBtn.setAttribute("aria-expanded", "false");
+        return;
+      }
+      panel.hidden = false;
+      whoBtn.setAttribute("aria-expanded", "true");
+      if(panel.getAttribute("data-loaded") !== "1"){
+        panel.innerHTML = '<p class="settings-hint" style="margin:0;">Loading…</p>';
+        try{
+          var dres = await supabase.from("push_deliveries")
+            .select("user_id,device,status,status_code,error_detail")
+            .eq("notification_id", wid);
+          if(dres.error) throw dres.error;
+          panel.innerHTML = notifyDeliveriesHtml(dres.data || []);
+          panel.setAttribute("data-loaded", "1");
+        }catch(err){
+          panel.innerHTML = '<p class="settings-hint" style="margin:0;">Couldn\'t load the delivery list: '+
+            escapeHtml(friendlyError(err))+'</p>';
+        }
+      }
+      return;
+    }
 
     if(cancelBtn){
       var id = cancelBtn.getAttribute("data-cancel-notify");
@@ -8785,6 +8888,32 @@ if(supabase){
   });
 
   // ---------- Sign-in / sign-out transitions ----------
+  // Records that this person used the app, which is the question the admin
+  // People list was asking and auth.users.last_sign_in_at was not answering:
+  // that column only moves on a real authentication event, and a persistent
+  // session with silently refreshing tokens means someone can use this every
+  // day for a month without producing one. The list read "27d ago" for people
+  // who had logged a day that morning.
+  //
+  // Throttled per device rather than sent on every boot: the value is only
+  // ever read as a coarse "when were they last around", so an hour's
+  // granularity is all it needs, and a shared machine that signs in and out
+  // repeatedly should not turn that into a write per page load. Server-set
+  // (see touch_last_seen) and entirely best-effort — this never blocks
+  // sign-in and a failure costs a slightly stale timestamp, nothing more.
+  var LAST_SEEN_KEY = "attendance.lastSeenPing";
+  var LAST_SEEN_EVERY_MS = 60 * 60 * 1000;
+  function touchLastSeen(){
+    try{
+      var last = +(localStorage.getItem(LAST_SEEN_KEY) || 0);
+      if(Date.now() - last < LAST_SEEN_EVERY_MS) return;
+    }catch(e){ /* private mode: ping anyway rather than never */ }
+    supabase.rpc("touch_last_seen").then(function(res){
+      if(res && res.error) return;
+      try{ localStorage.setItem(LAST_SEEN_KEY, String(Date.now())); }catch(e){}
+    }, function(){});
+  }
+
   async function handleSignedIn(user){
     currentUser = {id:user.id, email:user.email};
 
@@ -8824,6 +8953,7 @@ if(supabase){
     // in localStorage before this migration, so a person who already set a
     // photo does not appear to have lost it. Must not hold up sign-in.
     migrateLocalAvatarIfAny().catch(function(){});
+    touchLastSeen();
 
     if(isAdmin){
       await loadAllProfilesForSwitcher();

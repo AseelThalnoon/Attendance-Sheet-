@@ -67,6 +67,7 @@ function createBackend(seed){
     // are, which is what every suite that does not care about them wants.
     push_notifications: (seed && seed.push_notifications) || [],
     push_subscriptions: (seed && seed.push_subscriptions) || [],
+    push_deliveries: (seed && seed.push_deliveries) || [],
     // Faults, keyed by a substring of the request path ("entries", "rpc/admin_list_users").
     // Value: {status, message} | "hang" | {delayMs, ...}
     faults: new Map(),
@@ -154,6 +155,7 @@ function createBackend(seed){
         id: p.id, email: p.email, full_name: p.full_name, role: p.role,
         created_at: p.created_at || "2026-01-01T00:00:00Z",
         last_sign_in_at: p.last_sign_in_at || null,
+        last_seen_at: p.last_seen_at || null,
         deactivated: !!p.deactivated,
         entry_count: state.entries.filter(e => e.user_id === p.id).length
       })));
