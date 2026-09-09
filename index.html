@@ -2402,6 +2402,22 @@
   .console-nav-count{color:var(--muted); font-weight:500;}
 
   .console-pane{min-width:0;}
+  /* Push navigation, phone only: the list is the screen until you pick a
+     section, then the section is. Above 900px the two are side by side and
+     neither is ever hidden, so none of this applies and the button that
+     returns to the list has nothing to return from. */
+  .console-back{display:none;}
+  @media (max-width:899px){
+    .console-back{
+      display:inline-flex; align-items:center; gap:6px;
+      min-height:44px; margin:-4px 0 10px; padding:0 10px 0 4px;
+      background:none; border:none; cursor:pointer; font:inherit;
+      font-size:13px; font-weight:500; color:var(--muted-2); border-radius:var(--radius-sm);
+    }
+    .console-back:hover{color:var(--ink);}
+    .console:not(.is-detail) .console-pane{display:none;}
+    .console.is-detail .console-side{display:none;}
+  }
   .console-section{display:none;}
   .console-section.active{display:block; animation:fadeFlat .22s var(--ease-soft);}
   .console-section-head{
@@ -2658,6 +2674,15 @@
     padding:8px 12px; background:var(--ink-50); border-radius:var(--radius-sm);
   }
   .late-cell{color:var(--negative); font-weight:700;}
+  /* The one line that replaces three empty findings cards. Positive, not
+     neutral: nothing to flag is the good outcome on this tab, and it should
+     not read like a failed load. */
+  .punct-allclear{
+    margin:0 0 16px; font-size:13px; font-weight:500; color:var(--positive);
+  }
+  @media (max-width:700px){
+    .stat-card.is-vacant{display:none;}
+  }
 
   /* ---------- Tabs ---------- */
   /* Kept in the DOM as the single activation path every nav surface clicks
@@ -3157,16 +3182,31 @@
      its status tint were each repeated per row on top of that, so the chrome
      outweighed the data it framed.
 
-     This is the same information as a grid instead: the day and its hours on
-     the first line, the times and how the day landed on the second, a note
-     only if there is one. No box, no fill, one hairline between records — the
-     separation comes from type and space, which is the whole reason this
-     reads as calm at four rows a screen instead of one.
+     This is the same information as a grid instead: what the record is and its
+     one headline figure on the first line, the supporting detail on the
+     second, a note only if there is one. No box, no fill, one hairline between
+     records — the separation comes from type and space, which is the whole
+     reason this reads as calm at four rows a screen instead of one.
 
-     Columns 1-3 are `auto`, so a cell that carries nothing for a given day is
-     dropped and its column collapses to zero rather than leaving a gap where
-     a value would have been. Column 4 is the spacer that keeps the right-hand
-     figure right, whatever is or isn't to its left. */
+     Four tables share this (Log, Weekly and Monthly totals, flagged days), so
+     the placement is driven by what a cell IS rather than by which column it
+     happens to be. Each row builder tags its cells:
+
+       .c-primary  what the record is        line 1, left
+       .c-figure   the one number it is about line 1, right
+       .c-meta     supporting detail          line 2, left, in order
+       .c-status   how it landed              line 2, right
+       .c-note     free text                  line 3, full width
+       .c-off      carries nothing here       dropped
+
+     A .c-meta prints its own column name in front of the value, because "6h"
+     alone next to "8h" says nothing about which is which. The ones whose value
+     already says what it is — a clock time, "Sick Leave" — opt out with
+     .c-bare. Columns 1-3 are `auto`, so a cell that is dropped for a given
+     record collapses to zero rather than leaving a gap where a value would
+     have been, and the separation between metas is margin rather than
+     column-gap for exactly that reason. Column 4 is the spacer that keeps the
+     right-hand figure right, whatever is or isn't to its left. */
   @media (max-width:700px){
     .table-wrap.mobile-rows{border:none; overflow:visible; background:transparent;}
     .table-wrap.mobile-rows table{border-collapse:collapse; border-spacing:0; margin:0;}
@@ -3182,8 +3222,8 @@
       border-bottom:1px solid var(--line-soft);
     }
     /* The status tints came per row and read as four highlight colours down a
-       month. The day still says how it landed — in the figure's own colour on
-       the right — without painting the whole record to say it. */
+       month. The record still says how it landed — in the figure's own colour
+       on the right — without painting the whole row to say it. */
     .table-wrap.mobile-rows tbody tr,
     .table-wrap.mobile-rows tbody tr:nth-child(even),
     .table-wrap.mobile-rows tbody tr:hover,
@@ -3202,84 +3242,91 @@
     /* Kept in the DOM and kept announced. The column name is the only thing
        telling a screen reader what a bare time or figure is once the table
        role is gone (see the .cell-label note above); it is the sighted
-       reader who no longer needs it printed, because the row's shape says
-       the same thing in less room. */
+       reader who no longer needs every one of them printed. */
     .table-wrap.mobile-rows td > .cell-label{
       position:absolute; width:1px; height:1px; padding:0; margin:-1px;
       overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
     }
 
-    /* Line 1 — which day, and the one figure the day is about. */
-    .table-wrap.mobile-rows td[data-label='Date']{
+    /* Line 1 — what this is, and the one figure it is about. */
+    .table-wrap.mobile-rows td.c-primary{
       grid-row:1; grid-column:1 / 5;
       font-size:14.5px; font-weight:700; color:var(--ink); letter-spacing:-.01em;
+      white-space:normal;
     }
-    .table-wrap.mobile-rows td[data-label='Date'] .cell-weekday{
+    .table-wrap.mobile-rows td.c-primary .cell-weekday{
       display:inline; color:var(--muted); font-weight:500; margin-right:7px;
     }
-    .table-wrap.mobile-rows td[data-label='Date'] .cell-date-full{display:none;}
-    .table-wrap.mobile-rows td[data-label='Date'] .cell-date-compact{display:inline;}
-    .table-wrap.mobile-rows td[data-label='Worked']{
+    .table-wrap.mobile-rows td.c-primary .cell-date-full{display:none;}
+    .table-wrap.mobile-rows td.c-primary .cell-date-compact{display:inline;}
+    .table-wrap.mobile-rows td.c-figure{
       grid-row:1; grid-column:5; justify-self:end; text-align:right;
       font-family:var(--font-num); font-size:15px; font-weight:700;
       color:var(--ink); font-variant-numeric:tabular-nums;
     }
 
-    /* Line 2 — when, and how it landed. */
-    .table-wrap.mobile-rows td[data-label='In']{grid-row:2; grid-column:1;}
-    .table-wrap.mobile-rows td[data-label='Out']{grid-row:2; grid-column:2;}
-    .table-wrap.mobile-rows td[data-label='Type']{grid-row:2; grid-column:3;}
-    .table-wrap.mobile-rows td[data-label='In'],
-    .table-wrap.mobile-rows td[data-label='Out'],
-    .table-wrap.mobile-rows td[data-label='Type']{
+    /* Line 2 — the supporting detail, placed in source order across the three
+       auto columns, and how the record landed at the end of it. */
+    .table-wrap.mobile-rows td.c-meta{
+      grid-row:2; margin-right:12px;
       font-size:12.5px; color:var(--muted-2);
     }
-    .table-wrap.mobile-rows td[data-label='Out'].has-time::before{
-      content:"–"; margin:0 5px; color:var(--muted);
+    .table-wrap.mobile-rows td.c-meta:last-of-type{margin-right:0;}
+    .table-wrap.mobile-rows td.c-meta > .cell-label{
+      position:static; width:auto; height:auto; margin:0 5px 0 0; overflow:visible;
+      clip:auto; display:inline; font-size:11px; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--muted);
     }
-    /* Only when there is actually a time to its left to be separated from.
-       A leave day has no clock times, so the dot led the line ("· Sick
-       Leave") — a separator separating its own left margin from a word. */
-    .table-wrap.mobile-rows td[data-label='In'].has-time ~ td[data-label='Type']:not(.is-regular)::before{
-      content:"·"; margin:0 7px; color:var(--line);
+    .table-wrap.mobile-rows td.c-meta.c-bare > .cell-label{
+      position:absolute; width:1px; height:1px; margin:-1px;
+      overflow:hidden; clip:rect(0 0 0 0);
     }
-    .table-wrap.mobile-rows td[data-label='Status']{
+    .table-wrap.mobile-rows td.c-status{
       grid-row:2; grid-column:5; justify-self:end; text-align:right;
       font-family:var(--font-num); font-size:12.5px; font-weight:700;
       font-variant-numeric:tabular-nums;
     }
-    /* Flat, per the same reasoning as the row tint: a filled pill per row is
-       a second background colour down the month for a value the colour of the
-       text already carries. The dot goes with it — it was there to survive
-       the fill, and there is no fill now. */
-    .table-wrap.mobile-rows td[data-label='Status'] .pill{
+    /* Flat, per the same reasoning as the row tint: a filled pill per row is a
+       second background colour down the month for a value the colour of the
+       text already carries. The dot goes with it — it was there to survive the
+       fill, and there is no fill now. */
+    .table-wrap.mobile-rows td.c-status .pill{
       background:none; padding:0; border-radius:0; font-size:12.5px; font-weight:700;
     }
-    .table-wrap.mobile-rows td[data-label='Status'] .pill::before{display:none;}
-    .table-wrap.mobile-rows td[data-label='Status'] .on-target{color:var(--muted-2);}
+    .table-wrap.mobile-rows td.c-status .pill::before{display:none;}
+    .table-wrap.mobile-rows td.c-status .on-target{color:var(--muted-2);}
 
-    /* Line 3 — only ever drawn when the day actually carries a note. */
-    .table-wrap.mobile-rows td.note-cell{
+    /* Line 3 — only ever drawn when the record actually carries a note. */
+    .table-wrap.mobile-rows td.c-note{
       grid-row:3; grid-column:1 / 6;
       white-space:normal; font-size:12.5px; color:var(--muted-2);
       line-height:1.5; margin-top:2px;
     }
+    .table-wrap.mobile-rows td.c-note > .cell-label{
+      position:absolute; width:1px; height:1px; margin:-1px;
+      overflow:hidden; clip:rect(0 0 0 0);
+    }
 
-    /* Dropped on a phone: the weekday now rides inside Date; Target is the
-       same figure on every row of the month (it is your schedule, not the
-       day's data, and it is one tap away in the entry itself); an absent
-       clock time, an unremarkable "Regular", and an empty note each print a
-       label and an em dash to say nothing. */
-    .table-wrap.mobile-rows td[data-label='Day'],
-    .table-wrap.mobile-rows td[data-label='Target'],
-    .table-wrap.mobile-rows td[data-label='In']:not(.has-time),
-    .table-wrap.mobile-rows td[data-label='Out']:not(.has-time),
-    .table-wrap.mobile-rows td[data-label='Type'].is-regular,
-    .table-wrap.mobile-rows td.note-cell:not(.has-note){display:none;}
+    /* Carries nothing worth a line here: a column that is blank for this
+       record, constant down the whole table, or already said by the row's
+       own shape. */
+    .table-wrap.mobile-rows td.c-off{display:none;}
 
-    /* The row opens the entry (see the #logBody click handler), so the pair
-       of buttons per row goes — but only visually, and only until focused.
-       A keyboard reaches Edit and Delete in the same order it always did and
+    /* Log only: the clock pair reads as one span, so the second half joins the
+       first with a dash instead of its own label — and only when there is
+       actually a time to its left to be separated from. A leave day has no
+       clock times, so the dash led the line. */
+    .table-wrap.mobile-rows td.c-in{margin-right:0;}
+    .table-wrap.mobile-rows td.c-out.has-time::before{
+      content:"–"; margin:0 5px; color:var(--muted);
+    }
+    .table-wrap.mobile-rows td.c-in.has-time ~ td.c-daytype::before{
+      content:"·"; margin:0 7px 0 0; color:var(--line);
+    }
+
+    /* The row opens the record (see the #logBody click handler), so the pair
+       of buttons per row goes — but only visually, and only until focused. A
+       keyboard reaches Edit and Delete in the same order it always did and
        they appear when it gets there, which is the same bargain .skip-link
        already makes at the top of the page. */
     .table-wrap.mobile-rows td.row-actions{
@@ -3296,9 +3343,9 @@
       border:1px solid var(--line); padding:10px 14px; min-height:44px; border-radius:var(--radius-sm);
     }
 
-    /* What the row's own tap does, said the way a list row says it. Drawn,
-       not a glyph: a mask keeps it on --muted in every palette and both
-       modes, which a baked-in fill colour would not survive. */
+    /* What the row's own tap does, said the way a list row says it. Drawn, not
+       a glyph: a mask keeps it on a token in every palette and both modes,
+       which a baked-in fill colour would not survive. */
     .table-wrap.mobile-rows tbody tr[data-entry-id]::after{
       content:""; grid-row:1 / span 2; grid-column:6;
       align-self:center; justify-self:end;
@@ -3315,7 +3362,6 @@
     }
     .table-wrap.mobile-rows tr.log-more-row td{width:100%; text-align:center; white-space:normal;}
   }
-
   /* The three data tables behind an accordion — Weekly totals, Monthly totals,
      Shortfall by month — open on arrival rather than collapsed.
      Collapsed, Trends ended in 234px of empty canvas at 1440x900 and Shortfall
@@ -3883,6 +3929,79 @@
      "today" now says outright that this pill is about today, not the whole
      month the rest of the card is reporting on. */
   .team-status.missing{background:var(--ink-50); color:var(--muted-2);}
+  /* The month total, in the card's own sentence on a pointer and the row's
+     leading figure on a phone. Hidden here; the phone block below places it. */
+  .team-worked{display:none;}
+
+  /* ---------- Phone: the roster is a list of people, not a deck of cards ----
+     Five full-width stat cards stacked to about 700px before the first person
+     appeared, and each person was then a 150px card carrying their address,
+     a progress bar, the same total written out as a sentence, and four
+     figures — of which Diff and Target Hours Met are the same comparison
+     twice, and the bar is it a third time.
+
+     Same treatment as the tables: no box per person, one hairline between,
+     the name and the month's total on the first line, how they are doing on
+     the second. display:contents on the two wrappers lets the pieces inside
+     them take part in the row's own grid, so this is a re-placement of the
+     existing markup rather than a second copy of it rendered for phones. */
+  @media (max-width:700px){
+    .team-stats{
+      display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px;
+    }
+    .team-stats .stat-card{padding:10px 12px; border-radius:var(--radius-sm);}
+    .team-stats .stat-value{font-size:19px;}
+    .team-stats .stat-detail{font-size:11px;}
+    /* Four tiles fill this grid exactly. The fifth counted the roster that
+       begins immediately below it. */
+    .team-stats .stat-card.only-wide{display:none;}
+
+    .team-grid{gap:0;}
+    .team-card{
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      column-gap:10px; row-gap:1px;
+      align-items:center;
+      padding:10px 0; border-radius:0;
+      background:transparent; box-shadow:none;
+      /* A .team-card is a real <button>, and the card surface plus shadow was
+         all that hid the user-agent's own border. Take the surface away and
+         the browser's box comes back, which is the one edge this layout must
+         not have. */
+      border:none; border-bottom:1px solid var(--line-soft);
+    }
+    .team-card:hover{box-shadow:none; transform:none;}
+    .team-card:last-child{border-bottom:none;}
+    .team-card-head{display:contents;}
+    .team-card .avatar{grid-row:1 / span 2; grid-column:1; width:34px; height:34px;}
+    .team-info{grid-row:1; grid-column:2;}
+    .team-worked{
+      display:block; grid-row:1; grid-column:3; justify-self:end;
+      font-family:var(--font-num); font-size:14.5px; font-weight:700;
+      color:var(--ink); font-variant-numeric:tabular-nums;
+    }
+    .team-tags{grid-row:2; grid-column:2;}
+    /* Flat, for the same reason the Log's status pills are: a filled pill per
+       person is a second background colour down the roster. */
+    .team-card .team-status{
+      background:none; padding:0; font-size:11.5px;
+    }
+    .team-card .admin-badge{background:none; padding:0 0 0 6px; font-size:10.5px;}
+    .team-card-figures{display:contents;}
+    .team-card-figures .f-diff{
+      grid-row:2; grid-column:3; justify-self:end; text-align:right;
+    }
+    .team-card-figures .f-diff .label{display:none;}
+    .team-card-figures .f-diff .value{font-size:12.5px;}
+    /* The address (the name is the identifier here, and the full record is one
+       tap away), the bar and its sentence, and the three figures that restate
+       the two already on the row. */
+    .team-email,
+    .team-card-numbers,
+    .team-card-figures .f-days,
+    .team-card-figures .f-avg,
+    .team-card-figures .f-pct{display:none;}
+  }
 
   /* ---------- Team activity sidebar ----------
      Same job as Overview's "In today" panel — a live read on the team — but
@@ -5037,7 +5156,7 @@
             <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
           </button>
           <div class="accordion-body">
-            <div class="table-wrap responsive-cards">
+            <div class="table-wrap mobile-rows">
               <table>
                 <thead>
                   <tr>
@@ -5073,7 +5192,7 @@
             <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
           </button>
           <div class="accordion-body">
-            <div class="table-wrap responsive-cards">
+            <div class="table-wrap mobile-rows">
               <table>
                 <thead>
                   <tr>
@@ -5133,22 +5252,28 @@
           <p class="stat-value" id="pMetRate">—</p>
           <p class="stat-detail" id="pMetRateDetail">—</p>
         </div>
-        <div class="stat-card">
+        <!-- The three findings cards. With nothing to flag they each held an
+             em dash over a sentence saying the same thing a third time, which
+             on a phone was three full-width cards of "nothing happened"
+             stacked between the one real figure and the chart. renderPunctuality
+             hides them as a set in that case, and the line below says it once. -->
+        <div class="stat-card" id="pShortDaysCard">
           <p class="stat-label">Days Short</p>
           <p class="stat-value" id="pShortDays">0</p>
           <p class="stat-detail" id="pShortDaysDetail">—</p>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" id="pShortTotalCard">
           <p class="stat-label">Total Shortfall</p>
           <p class="stat-value" id="pShortTotal">—</p>
           <p class="stat-detail" id="pShortTotalDetail">—</p>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" id="pAvgShortCard">
           <p class="stat-label">Avg Shortfall</p>
           <p class="stat-value" id="pAvgShort">—</p>
           <p class="stat-detail" id="pAvgShortDetail">—</p>
         </div>
       </div>
+      <p class="punct-allclear" id="punctAllClear" hidden></p>
 
       <div class="period-card">
         <div class="period-card-head">
@@ -5168,7 +5293,7 @@
           <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </button>
         <div class="accordion-body">
-          <div class="table-wrap responsive-cards">
+          <div class="table-wrap mobile-rows">
             <table>
               <thead>
                 <tr>
@@ -5311,6 +5436,10 @@
         </div><!-- /.console-side -->
 
         <div class="console-pane">
+          <button type="button" class="console-back" data-console-back>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+            All settings
+          </button>
       <!-- Both the name and the photo are shared with the team — the photo
            lives in Supabase Storage (migration 20260830153418), not this
            browser — so one line covers both, rather than the two captions this
@@ -5736,6 +5865,10 @@
         </div><!-- /.console-side -->
 
         <div class="console-pane">
+          <button type="button" class="console-back" data-console-back>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+            All sections
+          </button>
       <!-- ---------- Overview: system stats + data health ---------- -->
       <div class="console-section" data-section="admin-overview" id="csec-admin-overview" role="tabpanel" aria-labelledby="cnav-admin-overview" tabindex="0">
         <div class="console-section-head">
