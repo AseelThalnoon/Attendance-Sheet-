@@ -62,6 +62,11 @@ function createBackend(seed){
     user_settings: (seed && seed.user_settings) || [],
     app_settings: (seed && seed.app_settings) || [{ id: 1, default_settings: null, announcement: null, allow_signup: true }],
     audit_log: (seed && seed.audit_log) || [],
+    // The push tables, so a suite can seed a send history or a set of
+    // subscribed devices. Unseeded they behave like the empty tables they
+    // are, which is what every suite that does not care about them wants.
+    push_notifications: (seed && seed.push_notifications) || [],
+    push_subscriptions: (seed && seed.push_subscriptions) || [],
     // Faults, keyed by a substring of the request path ("entries", "rpc/admin_list_users").
     // Value: {status, message} | "hang" | {delayMs, ...}
     faults: new Map(),
@@ -152,6 +157,17 @@ function createBackend(seed){
         deactivated: !!p.deactivated,
         entry_count: state.entries.filter(e => e.user_id === p.id).length
       })));
+    }
+    // Counts only, the way the real SECURITY DEFINER function does -- a suite
+    // seeds push_subscriptions and this reports the reach they add up to.
+    if(name === "admin_push_reach"){
+      const active = state.profiles.filter(p => !p.deactivated);
+      const subs = state.push_subscriptions.filter(s => active.some(p => p.id === s.user_id));
+      return json({
+        people: active.length,
+        subscribed: new Set(subs.map(s => s.user_id)).size,
+        devices: subs.length
+      });
     }
     if(name === "admin_db_stats"){
       return json({

@@ -287,6 +287,125 @@ async function run(){
     await h.close();
   }
 
+  // ---- The notification history has to show what was actually sent -------
+  // Every check here is a thing the panel could not answer before: what the
+  // message said, who it went to by name, who sent it, and — for a send still
+  // queued — when it is due, which read "Just now" for a time that had not
+  // arrived yet because fmtRelative only ever handled the past.
+  {
+    const people = D.roster(5).slice(0, 5);
+    const me = people[0];
+    me.role = "admin";
+    const iso = m => new Date(Date.now() + m * 60000).toISOString();
+    const notifications = [
+      { id:"h1", created_by:me.id, title:"Early close today",
+        body:"Shutting at 2pm for the building inspection.",
+        target_type:"all", target_user_ids:null, action:null, action_payload:null,
+        scheduled_for:iso(-30), status:"sent", sent_at:iso(-30),
+        recipient_count:3, failure_count:0, error_detail:null, created_at:iso(-31) },
+      { id:"h2", created_by:me.id, title:"Timesheet reminder",
+        body:"September needs completing before Thursday.",
+        target_type:"users", target_user_ids:[people[1].id, people[2].id],
+        action:null, action_payload:null,
+        scheduled_for:iso(-1440), status:"sent", sent_at:iso(-1440),
+        recipient_count:1, failure_count:1, error_detail:null, created_at:iso(-1441) },
+      { id:"h3", created_by:me.id, title:"Ramadan hours",
+        body:"Reduced hours from Monday.",
+        target_type:"all", target_user_ids:null, action:null, action_payload:null,
+        scheduled_for:iso(2880), status:"pending", sent_at:null,
+        recipient_count:null, failure_count:null, error_detail:null, created_at:iso(-60) },
+      { id:"h4", created_by:null, title:"You're still clocked in",
+        body:"You clocked in at 8:00 AM and haven't clocked out.",
+        target_type:"users", target_user_ids:[people[3].id],
+        action:"clock_out", action_payload:{date:"2026-09-08"},
+        scheduled_for:iso(-120), status:"sent", sent_at:iso(-120),
+        recipient_count:1, failure_count:0, error_detail:null, created_at:iso(-121) },
+      { id:"h5", created_by:me.id, title:"Server maintenance",
+        body:"Briefly unavailable tonight.",
+        target_type:"all", target_user_ids:null, action:null, action_payload:null,
+        scheduled_for:iso(-4000), status:"failed", sent_at:null,
+        recipient_count:0, failure_count:0,
+        error_detail:"VAPID credentials rejected by the push service (401).", created_at:iso(-4001) }
+    ];
+
+    const openNotifications = async page => {
+      await goTab(page, "admin");
+      await settle(page, 400);
+      await page.evaluate(() => document.getElementById("cnav-admin-notifications").click());
+      await settle(page, 600);
+    };
+
+    const h = await boot({ meId: me.id, seed: {
+      profiles: people, entries: [],
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })),
+      push_notifications: notifications,
+      push_subscriptions: [
+        { id:"s1", user_id:people[1].id, endpoint:"https://push.example/1", p256dh:"k", auth:"a", user_agent:"Chrome", created_at:iso(-500) },
+        { id:"s2", user_id:people[1].id, endpoint:"https://push.example/2", p256dh:"k", auth:"a", user_agent:"Safari", created_at:iso(-500) },
+        { id:"s3", user_id:people[3].id, endpoint:"https://push.example/3", p256dh:"k", auth:"a", user_agent:"Firefox", created_at:iso(-500) }
+      ]
+    }});
+    await openNotifications(h.page);
+
+    const view = await h.page.evaluate(() => ({
+      history: document.getElementById("notifyHistoryList").innerText,
+      reach: document.getElementById("notifyReach").hidden
+        ? "" : document.getElementById("notifyReach").innerText,
+      // The queued send is the only actionable row, so it leads regardless of
+      // being older by created_at than two of the sends below it.
+      firstTitle: (document.querySelector("#notifyHistoryList .attention-title") || {}).innerText || ""
+    }));
+
+    ok(view.history.includes("Shutting at 2pm for the building inspection."),
+      "the history shows the message that was sent, not just its title");
+    ok(view.history.includes(people[1].full_name) && view.history.includes(people[2].full_name),
+      "a send to specific people names them instead of counting them");
+    ok(/From\s/.test(view.history), "an admin-composed send says who composed it");
+    ok(view.history.includes("Automatic"),
+      "the automatic clock-out reminder is marked as automatic, not attributed to an admin");
+    ok(/in\s\d+d/.test(view.history) && !/Scheduled\s+Just now/.test(view.history),
+      "a scheduled send says how long until it goes, not \"Just now\"",
+      view.history.split("\n").slice(0, 4).join(" | "));
+    ok(view.history.includes("VAPID credentials rejected by the push service (401)."),
+      "a failed send shows the reason it failed");
+    ok(view.firstTitle.includes("Ramadan hours"),
+      "the still-queued send sorts above sends that have already gone",
+      view.firstTitle);
+    ok(/2 of 5 people have notifications on/.test(view.reach) && /3 devices/.test(view.reach),
+      "the composer says how many people can actually be reached", view.reach);
+
+    // The filter exists because the automatic reminder writes one row per
+    // person per open shift per day and would otherwise bury everything an
+    // admin ever sent.
+    await h.page.evaluate(() => document.querySelector('[data-notify-filter="admin"]').click());
+    await settle(h.page, 200);
+    const adminOnly = await h.page.evaluate(() => document.getElementById("notifyHistoryList").innerText);
+    ok(!adminOnly.includes("You're still clocked in") && adminOnly.includes("Early close today"),
+      "the \"sent by admins\" filter hides the automatic reminders");
+    await h.page.evaluate(() => document.querySelector('[data-notify-filter="auto"]').click());
+    await settle(h.page, 200);
+    const autoOnly = await h.page.evaluate(() => document.getElementById("notifyHistoryList").innerText);
+    ok(autoOnly.includes("You're still clocked in") && !autoOnly.includes("Early close today"),
+      "the \"automatic\" filter shows only what the reminder job sent");
+    await h.close();
+
+    // Nobody subscribed is the state that made a send to everyone look
+    // identical to a send to no one -- it must say so before the send.
+    const h2 = await boot({ meId: me.id, seed: {
+      profiles: people, entries: [],
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })),
+      push_notifications: [], push_subscriptions: []
+    }});
+    await openNotifications(h2.page);
+    const empty = await h2.page.evaluate(() => {
+      const el = document.getElementById("notifyReach");
+      return el.hidden ? "" : el.innerText;
+    });
+    ok(/reach no one/i.test(empty),
+      "with nobody subscribed, the composer says a send would reach nobody", empty);
+    await h2.close();
+  }
+
   // ---- PWA: the safe-area rule survives at every breakpoint that overrides
   // header padding, not just the base one --------------------------------
   // env(safe-area-inset-*) reads as 0 in every test browser (there is no
