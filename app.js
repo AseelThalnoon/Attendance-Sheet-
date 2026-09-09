@@ -1313,6 +1313,59 @@ if(supabase){
       return await reg.pushManager.getSubscription();
     }catch(e){ return null; }
   }
+  // Whether a subscription the browser is already holding belongs to the key
+  // this app signs with now. options.applicationServerKey is the raw 65-byte
+  // P-256 point the subscription was created with; VAPID_PUBLIC_KEY is the
+  // same value base64url-encoded, so the comparison is byte-for-byte after
+  // decoding. Browsers that do not expose PushSubscription.options (older
+  // Safari) return true rather than throwing away a subscription that is
+  // probably fine -- an unnecessary re-subscribe there costs a permission-free
+  // round trip, while a wrong "false" would loop.
+  function subscriptionMatchesKey(sub){
+    try{
+      var raw = sub.options && sub.options.applicationServerKey;
+      if(!raw) return true;
+      var a = new Uint8Array(raw);
+      var b = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      if(a.length !== b.length) return false;
+      for(var i = 0; i < a.length; i++){ if(a[i] !== b[i]) return false; }
+      return true;
+    }catch(e){ return true; }
+  }
+
+  // pushManager.subscribe() reports the interesting failures as one opaque
+  // sentence -- Chrome's is "Registration failed - push service error" -- and
+  // that string was being shown to the person as-is. It names no cause and no
+  // next step, and the most common cause is not the app at all: each browser
+  // registers with its own vendor's push service (Chrome and Edge with
+  // Google's, Firefox with Mozilla's, Safari with Apple's), and a network that
+  // cannot reach that particular service fails exactly here while every other
+  // part of the app keeps working.
+  function describeSubscribeFailure(err){
+    var msg = String((err && (err.message || err.name)) || "");
+    var vendor = /edg\//i.test(navigator.userAgent) ? "Microsoft and Google's"
+      : /chrome|chromium|crios/i.test(navigator.userAgent) ? "Google's"
+      : /firefox|fxios/i.test(navigator.userAgent) ? "Mozilla's"
+      : isSafariBrowser() ? "Apple's"
+      : "your browser vendor's";
+    if(/push service error|Registration failed|AbortError/i.test(msg)){
+      return "This browser couldn't register with its push service (" + vendor +
+        "). That is usually the network rather than this app — a firewall, VPN, " +
+        "or corporate Wi-Fi blocking it. Try another network, or a different " +
+        "browser: each one uses a different push service, so one often works " +
+        "where another doesn't.";
+    }
+    if(/NotAllowedError|permission/i.test(msg)){
+      return "Your browser blocked the notification permission for this site. " +
+        "Allow it in the site settings next to the address bar, then try again.";
+    }
+    if(/NotSupportedError/i.test(msg)){
+      return "This browser can't do push notifications here. On iPhone or iPad " +
+        "the app has to be added to the Home Screen first.";
+    }
+    return msg || "The browser couldn't set up notifications on this device.";
+  }
+
   async function subscribeToPush(){
     if(!pushSupported()) throw new Error("Push notifications aren't supported in this browser.");
     var perm = await Notification.requestPermission();
@@ -1322,10 +1375,29 @@ if(supabase){
         : "Permission wasn't granted.");
     }
     var reg = await navigator.serviceWorker.ready;
-    var sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
+    var sub = await reg.pushManager.getSubscription();
+    // An existing subscription is only reusable if it was created with the
+    // key this app is still using. Reusing one made with a different one --
+    // a rotated VAPID pair, a project the browser was pointed at before --
+    // produces a subscription send-push can never deliver to, because the
+    // signature it makes with the current private key will not verify against
+    // the key the push service recorded. Worse, it fails silently: the
+    // toggle switches on, a row is written, and nothing ever arrives.
+    if(sub && !subscriptionMatchesKey(sub)){
+      try{ await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); }catch(e){}
+      try{ await sub.unsubscribe(); }catch(e){}
+      sub = null;
+    }
+    if(!sub){
+      try{
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        });
+      }catch(err){
+        throw new Error(describeSubscribeFailure(err));
+      }
+    }
     var json = sub.toJSON();
     var res = await supabase.from("push_subscriptions").upsert({
       user_id: currentUser.id,
