@@ -7378,17 +7378,31 @@ if(supabase){
     return (v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)) + " " + units[i];
   }
 
+  // Every caller but one asks about something that already happened, and for
+  // those nothing here changed. The exception is a scheduled notification,
+  // whose whole point is a time that has NOT arrived: a negative difference
+  // fell through "less than a minute ago" and a send queued for next Tuesday
+  // read "Just now", which is both wrong and the opposite of the truth.
   function fmtRelative(iso){
     if(!iso) return "Never";
     var then = new Date(iso), now = new Date();
-    var mins = Math.round((now - then) / 60000);
-    if(mins < 1) return "Just now";
-    if(mins < 60) return mins + "m ago";
+    var diff = Math.round((now - then) / 60000);
+    // Far enough either way and the date itself is easier to read than a span
+    // of it, so that case answers before the direction is even considered.
+    if(Math.abs(diff) >= 60 * 24 * 30){
+      return then.toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"});
+    }
+    if(diff < 0) return "in " + coarseDuration(-diff);
+    if(diff < 1) return "Just now";
+    return coarseDuration(diff) + " ago";
+  }
+  // The magnitude half of fmtRelative, shared by both directions so "3h" means
+  // the same span whichever side of now it falls on.
+  function coarseDuration(mins){
+    if(mins < 60) return mins + "m";
     var hrs = Math.round(mins/60);
-    if(hrs < 24) return hrs + "h ago";
-    var days = Math.round(hrs/24);
-    if(days < 30) return days + "d ago";
-    return then.toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"});
+    if(hrs < 24) return hrs + "h";
+    return Math.round(hrs/24) + "d";
   }
 
   async function renderAdminStats(){
@@ -8144,27 +8158,58 @@ if(supabase){
   var notifyWhen = "now";
   var notifySelectedIds = new Set();
 
-  document.querySelectorAll("#csec-admin-notifications [data-notify-target]").forEach(function(btn){
-    btn.addEventListener("click", function(){
-      notifyTarget = this.getAttribute("data-notify-target");
-      document.querySelectorAll("#csec-admin-notifications [data-notify-target]").forEach(function(b){
-        var on = b === btn;
-        b.classList.toggle("active", on);
-        b.setAttribute("aria-pressed", on);
-      });
-      document.getElementById("notifyPeoplePicker").hidden = notifyTarget !== "users";
+  // Setters rather than inline handler bodies, because the composer is now
+  // driven from two places: the toggles themselves, and "Reuse" loading an
+  // earlier notification back into it.
+  function setNotifyTarget(value){
+    notifyTarget = value;
+    document.querySelectorAll("#csec-admin-notifications [data-notify-target]").forEach(function(b){
+      var on = b.getAttribute("data-notify-target") === value;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    document.getElementById("notifyPeoplePicker").hidden = value !== "users";
+    updateNotifyCounters();
+  }
+  function setNotifyWhen(value){
+    notifyWhen = value;
+    document.querySelectorAll("#csec-admin-notifications [data-notify-when]").forEach(function(b){
+      var on = b.getAttribute("data-notify-when") === value;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.getElementById("notifyScheduleWrap").hidden = value !== "later";
+  }
+  document.querySelectorAll("#csec-admin-notifications [data-notify-target]").forEach(function(btn){
+    btn.addEventListener("click", function(){ setNotifyTarget(btn.getAttribute("data-notify-target")); });
   });
   document.querySelectorAll("#csec-admin-notifications [data-notify-when]").forEach(function(btn){
-    btn.addEventListener("click", function(){
-      notifyWhen = this.getAttribute("data-notify-when");
-      document.querySelectorAll("#csec-admin-notifications [data-notify-when]").forEach(function(b){
-        var on = b === btn;
-        b.classList.toggle("active", on);
-        b.setAttribute("aria-pressed", on);
-      });
-      document.getElementById("notifyScheduleWrap").hidden = notifyWhen !== "later";
+    btn.addEventListener("click", function(){ setNotifyWhen(btn.getAttribute("data-notify-when")); });
+  });
+
+  // Both fields have a maxlength the browser enforces silently, so the only
+  // sign you had hit it was that typing stopped doing anything. A push
+  // notification is also read in a place with far less room than the field
+  // it was typed into, which is the real reason to see the count.
+  function updateNotifyCounters(){
+    [["notifyTitle","notifyTitleCount"], ["notifyBody","notifyBodyCount"]].forEach(function(pair){
+      var field = document.getElementById(pair[0]);
+      var out = document.getElementById(pair[1]);
+      if(!field || !out) return;
+      var max = field.getAttribute("maxlength");
+      out.textContent = field.value.length + "/" + max;
+      out.classList.toggle("is-full", field.value.length >= +max);
     });
+    var picked = notifyTarget === "users" ? notifySelectedIds.size : null;
+    var el = document.getElementById("notifyPickedCount");
+    if(el){
+      el.hidden = picked === null;
+      el.textContent = picked === 1 ? "1 person selected" : picked + " people selected";
+    }
+  }
+  ["notifyTitle","notifyBody"].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.addEventListener("input", updateNotifyCounters);
   });
 
   function renderNotifyPeopleList(){
@@ -8189,6 +8234,7 @@ if(supabase){
     if(!box) return;
     var id = box.getAttribute("data-notify-person");
     if(box.checked) notifySelectedIds.add(id); else notifySelectedIds.delete(id);
+    updateNotifyCounters();
   });
 
   document.getElementById("sendNotificationBtn").addEventListener("click", async function(){
@@ -8245,6 +8291,7 @@ if(supabase){
       document.getElementById("notifySchedule").value = "";
       notifySelectedIds.clear();
       renderNotifyPeopleList();
+      updateNotifyCounters();
       showToast(isImmediate ? "Notification sent." : "Notification scheduled for " + scheduledFor.toLocaleString() + ".", "success");
       await renderNotifyHistory();
     }catch(err){
@@ -8261,55 +8308,232 @@ if(supabase){
     failed: '<span class="audit-action a-delete">Failed</span>',
     canceled: '<span class="audit-action a-admin">Canceled</span>'
   };
+  // Which of the two things in this table a row is. They are stored together
+  // on purpose — one sender code path — but they are not the same object to an
+  // administrator: one is a message a person wrote and is answerable for, the
+  // other is the hourly clock-out reminder firing per person per open shift.
+  // Left unseparated the second buries the first within a few days, which is
+  // the whole reason the filter above the list exists.
+  function isAutomaticNotification(n){ return !n.created_by; }
+
+  // Who a notification actually went to, named. "2 people" told an admin the
+  // size of something they had themselves chosen one by one, and never which
+  // two — the one fact the history is for.
+  function notifyAudience(n){
+    if(n.target_type === "all") return {text:"Everyone", full:"Everyone"};
+    var ids = n.target_user_ids || [];
+    var names = ids.map(nameFor);
+    var full = names.join(", ");
+    if(names.length <= 3) return {text: full || "Nobody", full: full};
+    return {text: names.slice(0, 2).join(", ") + " and " + (names.length - 2) + " more", full: full};
+  }
+
+  var notifyHistoryFilter = "all";
+  var notifyHistoryRows = [];
+
+  // Counts only, and admin-gated in the database (see the migration
+  // 20260909061500_admin_push_reach.sql for why this cannot be a client-side
+  // query). Best-effort on purpose: if the function isn't deployed to a given
+  // project yet, the composer loses a sentence and keeps working, rather than
+  // the panel failing to render over a line of context.
+  async function renderNotifyReach(){
+    var el = document.getElementById("notifyReach");
+    if(!el) return;
+    var reach;
+    try{
+      var res = await supabase.rpc("admin_push_reach");
+      if(res.error) throw res.error;
+      reach = res.data;
+    }catch(err){ el.hidden = true; return; }
+    if(!reach){ el.hidden = true; return; }
+
+    el.hidden = false;
+    el.classList.toggle("is-empty", !reach.subscribed);
+    if(!reach.subscribed){
+      el.textContent = "Nobody has notifications switched on yet, so a message sent now would reach no one. " +
+        "Each person turns them on under Settings → Notifications, on each device they want them on.";
+      return;
+    }
+    el.textContent = reach.subscribed + " of " + reach.people +
+      (reach.people === 1 ? " person has" : " people have") + " notifications on, across " +
+      reach.devices + (reach.devices === 1 ? " device" : " devices") + ".";
+  }
+
   async function renderNotifyHistory(){
     var wrap = document.getElementById("notifyHistoryList");
     if(!wrap) return;
     var res;
     try{
-      res = await supabase.from("push_notifications").select("*").order("created_at", {ascending:false}).limit(20);
+      res = await supabase.from("push_notifications").select("*").order("created_at", {ascending:false}).limit(60);
       if(res.error) throw res.error;
     }catch(err){
       wrap.innerHTML = '<p class="settings-hint" style="margin:0;">Couldn\'t load notification history: ' +
         escapeHtml(friendlyError(err)) + '</p>';
       return;
     }
-    var rows = res.data || [];
+    notifyHistoryRows = res.data || [];
+    paintNotifyHistory();
+  }
+
+  // Split from the fetch so the filter re-renders without a round trip.
+  function paintNotifyHistory(){
+    var wrap = document.getElementById("notifyHistoryList");
+    if(!wrap) return;
+    var all = notifyHistoryRows;
+    var counts = {
+      all: all.length,
+      admin: all.filter(function(n){ return !isAutomaticNotification(n); }).length,
+      auto: all.filter(isAutomaticNotification).length
+    };
+    Array.prototype.forEach.call(document.querySelectorAll("[data-notify-filter]"), function(btn){
+      var k = btn.getAttribute("data-notify-filter");
+      var on = k === notifyHistoryFilter;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      var c = btn.querySelector(".choice-count");
+      if(c) c.textContent = counts[k];
+    });
+
+    var rows = all.filter(function(n){
+      if(notifyHistoryFilter === "admin") return !isAutomaticNotification(n);
+      if(notifyHistoryFilter === "auto") return isAutomaticNotification(n);
+      return true;
+    });
+
     if(!rows.length){
-      wrap.innerHTML = '<p class="settings-hint" style="margin:0;">Nothing sent yet.</p>';
+      wrap.innerHTML = '<p class="settings-hint" style="margin:0;">'+
+        (all.length ? "Nothing here under this filter." : "Nothing sent yet.")+'</p>';
       return;
     }
-    wrap.innerHTML = rows.map(function(n){
-      var who = n.target_type === "all" ? "Everyone"
-        : (n.target_user_ids || []).length === 1 ? nameFor(n.target_user_ids[0])
-        : (n.target_user_ids || []).length + " people";
-      var when = n.status === "sent" ? fmtRelative(n.sent_at) : fmtRelative(n.scheduled_for);
+
+    // Anything still waiting comes first, soonest first: a queued send is the
+    // only row in this list you can still do something about, and by
+    // created_at it sorted in among sends that are already history.
+    var waiting = rows.filter(function(n){ return n.status === "pending" || n.status === "sending"; })
+      .sort(function(a, b){ return new Date(a.scheduled_for) - new Date(b.scheduled_for); });
+    var done = rows.filter(function(n){ return n.status !== "pending" && n.status !== "sending"; });
+
+    wrap.innerHTML = waiting.concat(done).map(function(n){
+      var who = notifyAudience(n);
+      var auto = isAutomaticNotification(n);
+      var whenStamp = n.status === "sent" ? n.sent_at : n.scheduled_for;
+      var whenAbs = whenStamp ? new Date(whenStamp).toLocaleString() : "";
       var canCancel = n.status === "pending" && new Date(n.scheduled_for).getTime() > Date.now();
-      return '<div class="attention-item" role="listitem">'+
-        '<div class="attention-body">'+
-          '<div class="attention-title">'+(NOTIFY_STATUS_BADGE[n.status] || n.status)+' '+escapeHtml(n.title)+'</div>'+
-          '<div class="attention-note">To '+escapeHtml(who)+' · '+escapeHtml(when)+
-            (n.status === "sent" ? ' · ' + (n.recipient_count || 0) + ' delivered' +
-              (n.failure_count ? ', ' + n.failure_count + ' failed' : '') : '') +
-          '</div>'+
+      var canRetry = n.status === "failed";
+
+      var meta = [
+        (n.status === "sent" ? "Sent " : n.status === "pending" ? "Scheduled " : "") + fmtRelative(whenStamp),
+        "To " + who.text
+      ];
+      // Delivery is only a fact once a send has run. Before that a count of
+      // zero is not "nobody got it", it is "this has not happened yet".
+      if(n.status === "sent" || n.status === "failed"){
+        var got = n.recipient_count || 0;
+        meta.push(got + (got === 1 ? " device" : " devices") +
+          (n.failure_count ? " · " + n.failure_count + " failed" : ""));
+      }
+      meta.push(auto ? "Automatic" : "From " + escapeHtml(nameFor(n.created_by)));
+
+      return '<div class="notify-item" role="listitem">'+
+        '<div class="notify-item-main">'+
+          '<div class="attention-title">'+(NOTIFY_STATUS_BADGE[n.status] || escapeHtml(n.status))+
+            ' <span dir="auto">'+escapeHtml(n.title)+'</span>'+
+            (auto ? ' <span class="notify-auto-tag">Reminder</span>' : '')+'</div>'+
+          // The message itself. Its absence was the single strangest gap in
+          // this panel: a log of things you sent that never showed what you
+          // sent, so "did that go out with the right wording" was
+          // unanswerable from the one screen built to answer it.
+          '<p class="notify-item-body" dir="auto">'+escapeHtml(n.body)+'</p>'+
+          '<div class="attention-note"'+(whenAbs ? ' title="'+escapeAttr(whenAbs)+'"' : '')+'>'+
+            meta.join(" · ")+'</div>'+
+          (who.text !== who.full
+            ? '<div class="attention-note notify-item-who" title="'+escapeAttr(who.full)+'">'+escapeHtml(who.full)+'</div>'
+            : '')+
+          // A failure that names no reason leaves an admin with nothing to do
+          // but send it again and hope. error_detail has been recorded since
+          // this table existed; it was simply never read back out.
+          (n.status === "failed" && n.error_detail
+            ? '<p class="notify-item-error">'+escapeHtml(n.error_detail)+'</p>'
+            : '')+
         '</div>'+
-        (canCancel ? '<button type="button" class="btn ghost small" data-cancel-notify="'+escapeAttr(n.id)+'">Cancel</button>' : '')+
+        '<div class="notify-item-actions">'+
+          (canCancel ? '<button type="button" class="btn ghost small" data-cancel-notify="'+escapeAttr(n.id)+'">Cancel</button>' : '')+
+          (canRetry ? '<button type="button" class="btn ghost small" data-retry-notify="'+escapeAttr(n.id)+'">Retry</button>' : '')+
+          '<button type="button" class="btn ghost small" data-reuse-notify="'+escapeAttr(n.id)+'">Reuse</button>'+
+        '</div>'+
       '</div>';
     }).join("");
   }
+  Array.prototype.forEach.call(document.querySelectorAll("[data-notify-filter]"), function(btn){
+    btn.addEventListener("click", function(){
+      notifyHistoryFilter = btn.getAttribute("data-notify-filter");
+      paintNotifyHistory();
+    });
+  });
+
   document.getElementById("notifyHistoryList").addEventListener("click", async function(ev){
-    var btn = ev.target.closest("[data-cancel-notify]");
-    if(!btn) return;
-    var id = btn.getAttribute("data-cancel-notify");
-    btn.disabled = true;
-    try{
-      // Only a still-pending row can be canceled -- one send-push has
-      // already claimed (status='sending' or later) must run to completion.
-      var res = await supabase.from("push_notifications").update({status:"canceled"}).eq("id", id).eq("status", "pending");
-      if(res.error) throw res.error;
-      await renderNotifyHistory();
-    }catch(err){
-      showToast("Couldn't cancel that: " + friendlyError(err), "error");
-      btn.disabled = false;
+    var cancelBtn = ev.target.closest("[data-cancel-notify]");
+    var retryBtn = ev.target.closest("[data-retry-notify]");
+    var reuseBtn = ev.target.closest("[data-reuse-notify]");
+
+    if(cancelBtn){
+      var id = cancelBtn.getAttribute("data-cancel-notify");
+      cancelBtn.disabled = true;
+      try{
+        // Only a still-pending row can be canceled -- one send-push has
+        // already claimed (status='sending' or later) must run to completion.
+        var res = await supabase.from("push_notifications").update({status:"canceled"}).eq("id", id).eq("status", "pending");
+        if(res.error) throw res.error;
+        await renderNotifyHistory();
+      }catch(err){
+        showToast("Couldn't cancel that: " + friendlyError(err), "error");
+        cancelBtn.disabled = false;
+      }
+      return;
+    }
+
+    // Send the same row again rather than composing a copy of it: the
+    // failure is on the record, and a second row would report the same
+    // message twice with no sign the first attempt was the same send.
+    if(retryBtn){
+      var rid = retryBtn.getAttribute("data-retry-notify");
+      if(!(await showConfirm("Try sending this notification again?",
+        {title:"Retry send?", confirmText:"Retry"}))) return;
+      retryBtn.disabled = true;
+      try{
+        var r = await supabase.from("push_notifications")
+          .update({status:"pending", scheduled_for:new Date().toISOString(), error_detail:null})
+          .eq("id", rid).eq("status", "failed");
+        if(r.error) throw r.error;
+        try{ await supabase.functions.invoke("send-push", {body:{id: rid}}); }
+        catch(e){ /* queued -- the cron tick picks it up within a minute */ }
+        showToast("Retrying that notification.", "success");
+        await renderNotifyHistory();
+      }catch(err){
+        showToast("Couldn't retry that: " + friendlyError(err), "error");
+        retryBtn.disabled = false;
+      }
+      return;
+    }
+
+    // Load an old message back into the composer. Sending the same notice
+    // again -- a weekly reminder, a repeated closure -- meant retyping it
+    // from whatever the history happened to still show of it.
+    if(reuseBtn){
+      var uid = reuseBtn.getAttribute("data-reuse-notify");
+      var src = notifyHistoryRows.find(function(x){ return x.id === uid; });
+      if(!src) return;
+      document.getElementById("notifyTitle").value = src.title;
+      document.getElementById("notifyBody").value = src.body;
+      setNotifyTarget(src.target_type === "all" ? "all" : "users");
+      notifySelectedIds.clear();
+      (src.target_user_ids || []).forEach(function(id){ notifySelectedIds.add(id); });
+      renderNotifyPeopleList();
+      setNotifyWhen("now");
+      updateNotifyCounters();
+      document.getElementById("notifyTitle").scrollIntoView({block:"center", behavior:"smooth"});
+      document.getElementById("notifyTitle").focus();
+      showToast("Loaded into the composer. Nothing has been sent.", "success");
     }
   });
 
@@ -8531,7 +8755,8 @@ if(supabase){
       loadAdminPeople(),
       resetAuditPaging(),
       loadAppSettings(),
-      renderNotifyHistory()
+      renderNotifyHistory(),
+      renderNotifyReach()
     ]);
     await renderAdminHealth();
   }
