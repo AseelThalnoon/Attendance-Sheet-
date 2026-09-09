@@ -595,7 +595,13 @@ async function boot(browser, server, query){
     // "Target Hours Met", not "Target Met Rate": the figure is worked hours over
     // target hours, and the old name read as a count of days that met target —
     // a different number the same tab could plausibly have shown.
-    ok(/people/i.test(s.summary) && /hours worked/i.test(s.summary) &&
+    //
+    // "Avg Hours / Day", not "Hours Worked": the tile carried the month's
+    // running total, which grows with the size of the team and with how far
+    // into the month it is, so no row underneath it could be read against it.
+    // Per logged day it is the same measure each person's own row now leads
+    // with, and the tile is the line they are above or below.
+    ok(/people/i.test(s.summary) && /avg hours \/ day/i.test(s.summary) &&
        /target hours met/i.test(s.summary),
       "a team-wide summary sits above the cards", s.summary.slice(0, 120));
     ok(s.statuses.every(x => typeof x === "string" && x.length),

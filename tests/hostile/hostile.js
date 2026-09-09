@@ -69,6 +69,77 @@ async function run(){
     await h.close();
   }
 
+  // ---- Team month-navigation race: the last-clicked month must win --------
+  // Same bug class as the viewer-switch race above, in renderTeam() instead
+  // of loadDataForViewedUser(): Prev/Next Month awaits a network fetch with
+  // no generation guard, so a slower response for a month already navigated
+  // away from can land after a faster later one and silently overwrite the
+  // screen — the header naming the month you're looking at while the cards
+  // underneath it are someone else's.
+  {
+    const pad2 = n => String(n).padStart(2, "0");
+    const dstr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    // A day whose weekday falls inside D.SETTINGS.workDays ([0..4], Sun-Thu):
+    // an entry on an unscheduled day contributes nothing to the totals below
+    // (see summarize()'s own isScheduled() gate), which would make this test
+    // pass for the wrong reason.
+    const scheduledDateIn = (year, month1) => {
+      for(let day = 1; day <= 27; day++){
+        const d = new Date(year, month1 - 1, day);
+        if(D.SETTINGS.workDays.includes(d.getDay())) return d;
+      }
+    };
+    const people = D.roster(4), me = people[0];
+    const today = new Date();
+    const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const prevStart = `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}-01`;
+    const curSched = scheduledDateIn(today.getFullYear(), today.getMonth() + 1);
+    const prevSched = scheduledDateIn(prev.getFullYear(), prev.getMonth() + 1);
+
+    // people is D.roster(4)'s full 7-person base list, all clocked 8h on the
+    // current month's scheduled day.
+    const entries = people.map((p, i) => ({
+      id: 1000 + i, user_id: p.id, date: dstr(curSched),
+      clock_in: "08:00:00", clock_out: "16:00:00", type: "regular", note: "", updated_at: "2026-01-01T00:00:00Z"
+    }));
+    entries.push({
+      id: 9999, user_id: me.id, date: dstr(prevSched),
+      clock_in: "08:00:00", clock_out: "09:00:00", type: "regular", note: "", updated_at: "2026-01-01T00:00:00Z"
+    });
+
+    const h = await boot({ meId: me.id, seed: {
+      profiles: people, entries,
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS }))
+    }});
+    await goTab(h.page, "team");
+    await settle(h.page, 400);
+
+    h.backend.fail(`gte.${prevStart}`, { delayMs: 1500 }, 1);   // the month navigated away from crawls
+    await h.page.evaluate(() => document.getElementById("teamPrevMonth").click());
+    await h.page.waitForTimeout(150);
+    await h.page.evaluate(() => document.getElementById("teamNextMonth").click());  // back to current, instant
+
+    await settle(h.page, 2200);   // let the slow, stale prev-month response land, if it's going to
+    const t = await h.page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll("#teamSummary .stat-card"));
+      const hours = cards.find(c => c.querySelector(".stat-label").textContent.includes("Avg Hours / Day"));
+      return {
+        label: document.getElementById("teamMonthLabel").textContent,
+        hoursWorked: hours ? hours.querySelector(".stat-value").textContent : null
+      };
+    });
+    const expectedLabel = today.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    ok(t.label === expectedLabel, "team month label reads the last-clicked month after a race",
+      `label: ${t.label}`);
+    // All 7 of D.roster(4)'s base list worked 8h on the current month's one
+    // scheduled day, so the team averages 8h across 7 logged days. The stale
+    // prev-month response is one person's single 1h day, which would read as
+    // 1h — a different enough number that this cannot pass by coincidence.
+    ok(t.hoursWorked === "8h", "team totals show the last-clicked month's data, not a slower earlier load",
+      `Avg Hours / Day: ${t.hoursWorked}`);
+    await h.close();
+  }
+
   // ---- A failed load must not be presented as an empty/real account -------
   {
     const me = D.profile(1);

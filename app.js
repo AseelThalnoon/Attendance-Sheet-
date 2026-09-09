@@ -747,6 +747,12 @@ if(supabase){
   function fmtDateShort(s){
     return dateFromStr(s).toLocaleDateString(undefined,{weekday:"short", month:"short", day:"numeric"});
   }
+  // Month and day alone, for a list whose year is already fixed by a control
+  // above it — the Log's own Year select, which makes ", 2026" the same four
+  // characters repeated down every row of the month.
+  function fmtDateNoYear(s){
+    return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric"});
+  }
   function isScheduled(dateStr){
     return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
   }
@@ -1585,18 +1591,37 @@ if(supabase){
       });
       // Where "the section you picked" is depends on the layout. Side by side,
       // it is already beside the nav and the panel just needs to be back at the
-      // top. Stacked — a phone — it is *below* the whole nav, so resetting to
-      // the top would leave you looking at the list you just chose from.
+      // top. Stacked — a phone — the nav and the section cannot both be the
+      // screen: seven 62px rows above the thing you picked meant every visit
+      // to a setting started with a scroll past the list you had just used,
+      // and every change of section started with a scroll back up to it. So on
+      // a phone the list IS the screen until you choose, and then the section
+      // is, with a way back — which is how a settings list on a phone has
+      // worked since before this app existed. The initial call is silent (see
+      // below), so a phone opens on the list rather than on a section nobody
+      // picked.
       var panel = root.closest(".tab-panel");
       if(!panel || silent) return true;
       if(window.matchMedia("(min-width:900px)").matches){
         panel.scrollTop = 0;
       }else{
-        var pane = root.querySelector(".console-pane");
-        if(pane) pane.scrollIntoView({block:"start", behavior:"smooth"});
+        root.classList.add("is-detail");
+        panel.scrollTop = 0;
       }
       return true;
     }
+
+    // Back to the list. Only reachable on a phone — above 900px the nav is
+    // never hidden, so nothing ever needs restoring.
+    Array.prototype.forEach.call(root.querySelectorAll("[data-console-back]"), function(btn){
+      btn.addEventListener("click", function(){
+        root.classList.remove("is-detail");
+        var sel = root.querySelector('.console-nav-item[aria-selected="true"]');
+        if(sel) sel.focus();
+        var panel = root.closest(".tab-panel");
+        if(panel) panel.scrollTop = 0;
+      });
+    });
 
     items.forEach(function(item, i){
       item.addEventListener("click", function(){
@@ -3074,20 +3099,35 @@ if(supabase){
       var rowStatus = c.open ? "open" : c.excused ? "excused"
         : (c.diffMin === null ? "" : (Math.abs(c.diffMin) < 1 ? "onit" : (c.diffMin > 0 ? "over" : "under")));
       if(rowStatus) tr.className = "row-" + rowStatus;
+      tr.setAttribute("data-entry-id", e.id);
       var selectCell = selectModeActive
         ? "<td class='select-col' data-label=''><input type='checkbox' class='row-select' data-id='"+e.id+"'"+(selectedEntryIds.has(e.id)?" checked":"")+"></td>"
         : "";
+      // The phone layout folds this table into one compact row per day (see
+      // .mobile-rows in index.html). It needs to know which cells actually
+      // carry information for a given day, because the ones that don't are
+      // dropped there rather than printed as a label with an em dash after
+      // it: a column that is blank, or identical on all 39 rows, is a column
+      // worth a header on a desk and worth nothing on a phone. The classes
+      // below are those hooks — the desktop table renders exactly as before.
+      var isRegular = (e.type || "regular") === "regular";
       tr.innerHTML =
         selectCell +
-        "<td data-label='Date'><span class=\"cell-label\">Date</span>"+fmtDate(e.date)+"</td>"+
-        "<td data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
-        "<td data-label='In'><span class=\"cell-label\">In</span>"+inCell+"</td>"+
-        "<td data-label='Out'><span class=\"cell-label\">Out</span>"+outCell+"</td>"+
-        "<td class='num col-worked' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
-        "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+(c.targetMin ? minutesToHoursStr(c.targetMin) : "—")+"</td>"+
-        "<td class='num' data-label='Status'><span class=\"cell-label\">Status</span>"+pillFor(c)+"</td>"+
-        "<td data-label='Type'><span class=\"cell-label\">Type</span>"+escapeHtml(typeLabel(e.type))+"</td>"+
-        "<td class='note-cell' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>"+
+        // The weekday rides along inside Date for the phone, where the
+        // separate Day column is dropped: "Tue 8 Sep" is one glance,
+        // "Sep 8, 2026" over "Tue" on its own labelled line is two.
+        "<td class='c-primary' data-label='Date'><span class=\"cell-label\">Date</span>"+
+          "<span class='cell-weekday'>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</span>"+
+          "<span class='cell-date-full'>"+fmtDate(e.date)+"</span>"+
+          "<span class='cell-date-compact'>"+fmtDateNoYear(e.date)+"</span></td>"+
+        "<td class='c-off' data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
+        "<td class='c-meta c-bare c-in"+(e.clockIn ? " has-time" : " c-off")+"' data-label='In'><span class=\"cell-label\">In</span>"+inCell+"</td>"+
+        "<td class='c-meta c-bare c-out"+(e.clockOut ? " has-time" : " c-off")+"' data-label='Out'><span class=\"cell-label\">Out</span>"+outCell+"</td>"+
+        "<td class='num col-worked c-figure' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
+        "<td class='num c-off' data-label='Target'><span class=\"cell-label\">Target</span>"+(c.targetMin ? minutesToHoursStr(c.targetMin) : "—")+"</td>"+
+        "<td class='num c-status' data-label='Status'><span class=\"cell-label\">Status</span>"+pillFor(c)+"</td>"+
+        "<td class='c-meta c-bare c-daytype"+(isRegular ? " c-off" : "")+"' data-label='Type'><span class=\"cell-label\">Type</span>"+escapeHtml(typeLabel(e.type))+"</td>"+
+        "<td class='note-cell c-note"+(e.note ? "" : " c-off")+"' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>"+
         // Each row repeats "Edit"/"Delete"; without the date in the accessible
         // name a screen-reader user hears the same two words over and over with
         // no way to tell which day they are about to delete.
@@ -3220,13 +3260,21 @@ if(supabase){
       var s = wk.s;
       var tr = document.createElement("tr");
       tr.innerHTML =
-        "<td data-label='Week'><span class=\"cell-label\">Week</span>Week of "+wk.range+"</td>"+
-        "<td class='num' data-label='Days'><span class=\"cell-label\">Days</span>"+s.loggedDays+
+        // The phone drops "Week of" and the year: the row above it says the
+        // year, and every row in the table is a week.
+        "<td class='c-primary' data-label='Week'><span class=\"cell-label\">Week</span>"+
+          "<span class='cell-date-full'>Week of "+wk.range+"</span>"+
+          "<span class='cell-date-compact'>"+wk.range.replace(/,\s*\d{4}\s*$/, "")+"</span></td>"+
+        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+s.loggedDays+
           (s.incompleteDays ? " <span class='muted-inline'>("+s.incompleteDays+" incomplete)</span>" : "")+"</td>"+
-        "<td class='num' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(s.workedSum)+"</td>"+
-        "<td class='num' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+"</td>"+
-        "<td class='num' data-label='Diff' style='color:"+(s.diffSum>0?cssVar("--positive"):s.diffSum<0?cssVar("--negative"):"inherit")+"'><span class=\"cell-label\">Diff</span>"+signed(s.diffSum)+"</td>"+
-        "<td data-label='Days worked'><span class=\"cell-label\">Days worked</span><span class='spark-holder'></span></td>";
+        "<td class='num c-figure' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(s.workedSum)+"</td>"+
+        "<td class='num c-meta' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+"</td>"+
+        "<td class='num c-status' data-label='Diff' style='color:"+(s.diffSum>0?cssVar("--positive"):s.diffSum<0?cssVar("--negative"):"inherit")+"'><span class=\"cell-label\">Diff</span>"+signed(s.diffSum)+"</td>"+
+        // The per-day sparkline is the one cell that will not compress: three
+        // labelled figures and a chart do not share 331px. The chart directly
+        // above this table is the same shape of information at a size you can
+        // actually read, so this is the phone's redundancy, not its loss.
+        "<td class='c-off' data-label='Days worked'><span class=\"cell-label\">Days worked</span><span class='spark-holder'></span></td>";
       body.appendChild(tr);
       renderSparkline(tr.querySelector(".spark-holder"), wk.days, {name:"Hours worked each day, week of "+wk.range});
     });
@@ -3273,12 +3321,15 @@ if(supabase){
     stats.slice().reverse().forEach(function(m){
       var tr = document.createElement("tr");
       tr.innerHTML =
-        "<td data-label='Month'><span class=\"cell-label\">Month</span>"+m.label+"</td>"+
-        "<td class='num' data-label='Days'><span class=\"cell-label\">Days</span>"+m.loggedDays+"</td>"+
-        "<td class='num' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(m.workedSum)+"</td>"+
-        "<td class='num' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(m.loggedDays?minutesToHoursStr(m.avgMin):"—")+"</td>"+
-        "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(m.targetSum)+"</td>"+
-        "<td class='num' data-label='Diff' style='color:"+(m.diffSum>0?cssVar("--positive"):m.diffSum<0?cssVar("--negative"):"inherit")+"'><span class=\"cell-label\">Diff</span>"+signed(m.diffSum)+"</td>";
+        "<td class='c-primary' data-label='Month'><span class=\"cell-label\">Month</span>"+m.label+"</td>"+
+        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+m.loggedDays+"</td>"+
+        "<td class='num c-figure' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(m.workedSum)+"</td>"+
+        "<td class='num c-meta' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(m.loggedDays?minutesToHoursStr(m.avgMin):"—")+"</td>"+
+        // Same two figures as the weekly table beside it, in the same two
+        // slots. Target drops out because Diff is that comparison already
+        // made — a month reading "163h 12m / +3h 12m" has said "of 160h".
+        "<td class='num c-off' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(m.targetSum)+"</td>"+
+        "<td class='num c-status' data-label='Diff' style='color:"+(m.diffSum>0?cssVar("--positive"):m.diffSum<0?cssVar("--negative"):"inherit")+"'><span class=\"cell-label\">Diff</span>"+signed(m.diffSum)+"</td>";
       body.appendChild(tr);
     });
   }
@@ -3587,6 +3638,25 @@ if(supabase){
     // than sitting in plain ink regardless of whether shortDays is 0 or 20.
     var shortCls = "stat-value" + (s.shortDays ? " negative" : "");
 
+    // With nothing to flag, all three of them say so — an em dash over
+    // "Nothing flagged", "Nothing owed this period", "Nothing flagged" — and
+    // the chart and the flagged-days list below say it twice more. Five
+    // statements of the same fact, and on a phone the three cards alone were
+    // most of a screen between the one figure that does vary and the chart.
+    // A clean period is one sentence; the cards come back the moment there is
+    // something in them worth a card.
+    var clear = !s.shortDays;
+    ["pShortDaysCard","pShortTotalCard","pAvgShortCard"].forEach(function(id){
+      document.getElementById(id).hidden = clear;
+    });
+    var allClearEl = document.getElementById("punctAllClear");
+    allClearEl.hidden = !clear;
+    if(clear){
+      allClearEl.textContent = s.ratedDays
+        ? "No shortfalls. Every scheduled day in " + punctScopeLabel() + " met its target."
+        : "No scheduled days assessed yet in " + punctScopeLabel() + ".";
+    }
+
     var shortDaysEl = document.getElementById("pShortDays");
     shortDaysEl.textContent = s.shortDays;
     shortDaysEl.className = shortCls;
@@ -3611,6 +3681,12 @@ if(supabase){
     var avgIsTotal = s.shortDays === 1;
     avgShortEl.textContent = (s.shortDays && !avgIsTotal) ? minutesToHoursStr(s.avgShortMin) : "—";
     avgShortEl.className = avgIsTotal ? "stat-value" : shortCls;
+    // "Holds its place in the row" is a grid argument, and below 700px there
+    // is no row to hold a place in — the cards stack, so this one becomes a
+    // full-width card containing an em dash and a sentence explaining why it
+    // is empty. Marked here, dropped by CSS only at the widths where the
+    // reasoning above stops applying.
+    document.getElementById("pAvgShortCard").classList.toggle("is-vacant", avgIsTotal);
     document.getElementById("pAvgShortDetail").textContent = s.shortDays
       ? (avgIsTotal ? "Only one short day this period" : "Per day that fell short")
       : "Nothing flagged";
@@ -3664,12 +3740,18 @@ if(supabase){
       var shortMin = c.targetMin - worked;
       var tr = document.createElement("tr");
       tr.innerHTML =
-        "<td data-label='Date'><span class=\"cell-label\">Date</span>"+fmtDate(e.date)+"</td>"+
-        "<td data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
-        "<td class='num' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
-        "<td class='num' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(c.targetMin)+"</td>"+
-        "<td class='num' data-label='Short By'><span class=\"cell-label\">Short By</span><span class='late-cell'>"+minutesToHoursStr(shortMin)+"</span></td>"+
-        "<td class='note-cell' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>";
+        // Short By is the headline here, not Worked: this table exists to
+        // answer "how much did this day owe", and the row's other two figures
+        // are how that number was arrived at.
+        "<td class='c-primary' data-label='Date'><span class=\"cell-label\">Date</span>"+
+          "<span class='cell-weekday'>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</span>"+
+          "<span class='cell-date-full'>"+fmtDate(e.date)+"</span>"+
+          "<span class='cell-date-compact'>"+fmtDateNoYear(e.date)+"</span></td>"+
+        "<td class='c-off' data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
+        "<td class='num c-meta' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
+        "<td class='num c-meta' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(c.targetMin)+"</td>"+
+        "<td class='num c-figure' data-label='Short By'><span class=\"cell-label\">Short By</span><span class='late-cell'>"+minutesToHoursStr(shortMin)+"</span></td>"+
+        "<td class='note-cell c-note"+(e.note ? "" : " c-off")+"' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>";
       body.appendChild(tr);
     });
   }
@@ -4168,6 +4250,21 @@ if(supabase){
       var cell = ev.target.closest("td.select-col");
       var box = cell && cell.querySelector(".row-select");
       if(box){ box.checked = !box.checked; box.dispatchEvent(new Event("change", {bubbles:true})); }
+      if(box) return;
+      // On a phone the per-row Edit/Delete pair is dropped — two buttons on
+      // every one of 39 rows is 78 targets for an action you take on maybe
+      // one of them — and the row itself opens the entry instead, which is
+      // what the chevron at its end announces. Delete keeps its existing
+      // home in Select mode's toolbar rather than gaining a second one.
+      // Pointer widths are untouched: there the buttons are still there and
+      // a stray click on a row should not open a form.
+      // Asked at click time, not cached at load: the row-per-record layout is
+      // a media query, so this has to answer for the width the app is at now,
+      // not the one it booted at.
+      if(!selectModeActive && window.matchMedia("(max-width:700px)").matches){
+        var openRow = ev.target.closest("#logBody tr[data-entry-id]");
+        if(openRow) loadEntryIntoForm(openRow.getAttribute("data-entry-id"));
+      }
       return;
     }
     var editId = btn.getAttribute("data-edit");
@@ -6842,6 +6939,13 @@ if(supabase){
   var teamMonth = null;          // "YYYY-MM"; null until first render
   var teamSettingsCache = null;  // user_id -> normalised settings
   var teamRowsCache = [];        // [{profile, summary, today, settings}]
+  // Same guard as loadDataForViewedUser's loadGeneration, for the same
+  // reason: renderTeam() awaits a network fetch, and Prev/Next Month can be
+  // clicked again before it lands. Without this, a slow response for a month
+  // already navigated away from can resolve after a faster later one and
+  // silently overwrite the screen — the header still naming the month you're
+  // looking at while the cards and totals underneath it are someone else's.
+  var teamLoadGeneration = 0;
 
   async function loadTeamSettings(){
     if(teamSettingsCache) return teamSettingsCache;
@@ -6900,6 +7004,7 @@ if(supabase){
 
   async function renderTeam(){
     if(!isAdmin) return;
+    var gen = ++teamLoadGeneration;
     var list = document.getElementById("teamList");
     var empty = document.getElementById("teamEmpty");
     if(!teamMonth) teamMonth = monthKey(todayStr());
@@ -6929,6 +7034,7 @@ if(supabase){
       var res = await supabase.from("entries")
         .select("user_id,date,clock_in,clock_out,type,updated_at")
         .gte("date", monthStart).lte("date", monthEnd);
+      if(gen !== teamLoadGeneration) return;   // a later navigation already owns the screen
       if(res.error) throw res.error;
       (res.data || []).forEach(function(row){
         if(!byUser[row.user_id]) byUser[row.user_id] = [];
@@ -6937,6 +7043,7 @@ if(supabase){
         byUser[row.user_id].push(entry);
       });
     }catch(err){
+      if(gen !== teamLoadGeneration) return;
       list.innerHTML = "";
       empty.textContent = "Couldn't load team data: " + friendlyError(err);
       empty.style.display = "block";
@@ -6944,6 +7051,7 @@ if(supabase){
     }
 
     var settingsByUser = await loadTeamSettings();
+    if(gen !== teamLoadGeneration) return;
 
     teamRowsCache = allProfiles.map(function(p){
       var rows = byUser[p.id] || [];
@@ -7056,6 +7164,10 @@ if(supabase){
     summaryEl.innerHTML = [
       {
         icon:'<circle cx="8.5" cy="8.5" r="3"/><path d="M3.5 20c0-3.5 2.2-6 5-6s5 2.5 5 6"/><circle cx="16" cy="9" r="2.3"/><path d="M14.7 14.2c2.2.5 3.8 2.5 3.8 5.8"/>',
+        // Dropped on a phone (see .team-stats in index.html): the roster it
+        // counts starts one swipe below it, and losing it is what turns an
+        // orphaned five-tile grid into an even four.
+        cls:"only-wide",
         label:"People", value:String(teamRowsCache.length), detail:"On the roster"
       },
       {
@@ -7066,9 +7178,26 @@ if(supabase){
         icon:'<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/>',
         label:"Days Logged", value:String(totals.days), detail:"Across the team"
       },
+      // Hours per logged day across the team, not the month's running total.
+      // Same reasoning as the per-person figure on each row, and deliberately
+      // the same measure, so the tile and the rows under it can be read
+      // against each other: this is the line every name in the roster is
+      // above or below. A total could not be — it grows with the size of the
+      // team and with how far into the month it is, so it says nothing a
+      // person's own row can be compared to.
+      //
+      // Keeps the ledger circle rather than taking Overview's calendar, which
+      // is what Overview marks its own Avg / Day with: in THIS row the
+      // calendar is already Days Logged, and two tiles under one glyph would
+      // cost more than the cross-tab echo gains. Ledger is hours, calendar is
+      // days, which is the distinction that matters here.
       {
         icon:'<circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/>',
-        label:"Hours Worked", value:minutesToHoursStr(totals.worked), detail:"Of "+minutesToHoursStr(totals.target)+" target"
+        label:"Avg Hours / Day",
+        value: totals.days ? minutesToHoursStr(Math.round(totals.worked / totals.days)) : "—",
+        detail: totals.days
+          ? "Of " + minutesToHoursStr(Math.round(totals.target / totals.days)) + " target"
+          : "Nobody logged time yet"
       },
       // Same accomplishment reading as the Shortfall tab's Target Hours Met:
       // share of target HOURS worked, not a day-count rate. Floored, not
@@ -7092,7 +7221,7 @@ if(supabase){
         })()
       }
     ].map(function(c){
-      return '<div class="stat-card">'+
+      return '<div class="stat-card'+(c.cls ? " "+c.cls : "")+'">'+
         '<p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+c.icon+'</svg>'+c.label+'</p>'+
         '<p class="stat-value">'+c.value+'</p>'+
         '<p class="stat-detail">'+c.detail+'</p>'+
@@ -7166,6 +7295,11 @@ if(supabase){
           '<span class="team-status '+t.status.cls+'">'+escapeHtml(t.status.label)+'</span>'+
           (p.role === "admin" ? '<span class="admin-badge">Admin</span>' : '')+
           (t.configured ? '' : '<span class="admin-badge unconfigured">No schedule</span>')+
+          // How many days the average beside it is an average OF. Only shown
+          // on a phone, where the Days figure below is dropped; on a pointer
+          // it is already in .team-card-figures and would be the same count
+          // twice on one card.
+          '<span class="team-daycount">'+s.loggedDays+(s.loggedDays === 1 ? " day" : " days")+'</span>'+
         '</div>'+
         '<div class="team-card-numbers">'+
           '<div class="team-bar'+barCls+'"><span style="width:'+pct+'%"></span></div>'+
@@ -7176,11 +7310,27 @@ if(supabase){
               : 'No scheduled days')+
           '</div>'+
         '</div>'+
+        // What the row leads with on a phone: hours per day worked, not the
+        // month's running total. A total answers "how much time is on the
+        // books", which is mostly a function of how many days someone has
+        // logged so far — a person four days into the month always trails one
+        // twelve days in, however they are actually doing. The average is the
+        // comparable figure, and the day count beside it in .team-tags is the
+        // weight to read it with. On a pointer both are already in
+        // .team-card-figures, so this element is phone-only.
+        '<div class="team-avg">'+
+          (s.loggedDays
+            ? minutesToHoursStr(s.avgMin)+'<span class="team-per">/day</span>'
+            : '—')+
+        '</div>'+
+        // Named rather than positional: the phone keeps one of these four and
+        // drops three, and picking them by nth-child would silently pick the
+        // wrong ones the day a figure is added.
         '<div class="team-card-figures">'+
-          '<div><div class="label">Days</div><div class="value">'+s.loggedDays+'</div></div>'+
-          '<div><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
-          '<div><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
-          '<div><div class="label">Target Hours Met</div><div class="value">'+
+          '<div class="f-days"><div class="label">Days</div><div class="value">'+s.loggedDays+'</div></div>'+
+          '<div class="f-avg"><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
+          '<div class="f-diff"><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
+          '<div class="f-pct"><div class="label">Target Hours Met</div><div class="value">'+
             (s.targetSum ? Math.floor((s.workedSum/s.targetSum)*100)+"%" : "—")+'</div></div>'+
         '</div>';
       list.appendChild(card);
