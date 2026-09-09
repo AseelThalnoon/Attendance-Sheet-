@@ -109,6 +109,30 @@ async function run(){
       "a subscription made with a different key is replaced, not reused");
     ok(chrome.subscriptionMatchesKey({}) === true,
       "a browser that does not expose the key keeps its subscription rather than churning it");
+
+    // friendlyError translates the errors that are not written for a person.
+    // It must not translate the ones that are: its patterns match on wording,
+    // and the push-service explanation says the cause is usually the network,
+    // which its own /network/i catch-all replaced with "Couldn't reach the
+    // server" -- burying the specific explanation under the generic one it
+    // was written to replace. That shipped, and this is what it cost:
+    // enabling notifications reported a connection problem that was not one.
+    const fe = build("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36");
+    vm.runInContext(
+      grab("function explainedError", "// ---------- Bulk-operation guard"), fe);
+    const explained = fe.explainedError(
+      fe.describeSubscribeFailure(new Error("Registration failed - push service error")));
+    ok(/push service \(Google's\)/.test(fe.friendlyError(explained)),
+      "an already-explained error reaches the person as written",
+      fe.friendlyError(explained).slice(0, 90));
+    ok(!/Couldn't reach the server/.test(fe.friendlyError(explained)),
+      "the generic network message does not overwrite an explanation that mentions the network");
+    // The translations that must survive: these errors are not written for
+    // anyone and still need turning into English.
+    ok(/Couldn't reach the server/.test(fe.friendlyError(new TypeError("Failed to fetch"))),
+      "a real fetch failure still translates");
+    ok(/permission/i.test(fe.friendlyError({code:"42501", message:"row-level security"})),
+      "a Postgres error still translates");
   }
 
   // ---- Viewer-switch race: the last-clicked person must win ---------------
