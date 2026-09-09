@@ -406,6 +406,58 @@ async function run(){
     await h2.close();
   }
 
+  // ---- The People list reports activity, not authentication -------------
+  // The reported shape exactly: someone whose last actual sign-in was 27 days
+  // ago because their session never expired, who used the app this morning.
+  // auth.users.last_sign_in_at says 27 days and is not wrong -- it is
+  // answering a different question than the one being asked of it.
+  {
+    const people = D.roster(3).slice(0, 3);
+    const me = people[0];
+    me.role = "admin";
+    const daysAgo = d => new Date(Date.now() - d * 86400000).toISOString();
+    people[1].last_sign_in_at = daysAgo(27);
+    people[1].last_seen_at = new Date(Date.now() - 30 * 60000).toISOString();  // half an hour ago
+    people[2].last_sign_in_at = daysAgo(40);
+    people[2].last_seen_at = null;                                             // never seen since
+
+    const h = await boot({ meId: me.id, seed: {
+      profiles: people, entries: [],
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS }))
+    }});
+    await goTab(h.page, "admin");
+    await settle(h.page, 400);
+    await h.page.evaluate(() => document.getElementById("cnav-admin-people").click());
+    await settle(h.page, 600);
+
+    const row = await h.page.evaluate(uid => {
+      const el = [...document.querySelectorAll("#adminUsersList .admin-user-row")]
+        .find(r => (r.innerHTML || "").includes(uid));
+      const meta = el && el.querySelector(".admin-user-meta");
+      return meta ? {text: meta.innerText, title: meta.getAttribute("title") || ""} : null;
+    }, people[1].id);
+
+    ok(!!row, "the People list renders the row under test");
+    ok(row && /Last active\s+30m ago/.test(row.text),
+      "someone with a live session reads as active today, not 27 days ago",
+      row && row.text);
+    ok(row && /Last signed in\s+27d ago/.test(row.title),
+      "the actual sign-in is still available, on hover, since it is a different fact",
+      row && row.title);
+
+    // Nobody has been seen since the column was added: it falls back to the
+    // sign-in rather than rendering "Never" over a person who plainly did.
+    const never = await h.page.evaluate(uid => {
+      const el = [...document.querySelectorAll("#adminUsersList .admin-user-row")]
+        .find(r => (r.innerHTML || "").includes(uid));
+      const meta = el && el.querySelector(".admin-user-meta");
+      return meta ? meta.innerText : "";
+    }, people[2].id);
+    ok(/Last active\s+40d ago|Last active\s+\w{3}\s\d/.test(never),
+      "with no last_seen_at recorded yet, the sign-in stands in rather than \"Never\"", never);
+    await h.close();
+  }
+
   // ---- PWA: the safe-area rule survives at every breakpoint that overrides
   // header padding, not just the base one --------------------------------
   // env(safe-area-inset-*) reads as 0 in every test browser (there is no

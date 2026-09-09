@@ -154,6 +154,7 @@ function createBackend(seed){
         id: p.id, email: p.email, full_name: p.full_name, role: p.role,
         created_at: p.created_at || "2026-01-01T00:00:00Z",
         last_sign_in_at: p.last_sign_in_at || null,
+        last_seen_at: p.last_seen_at || null,
         deactivated: !!p.deactivated,
         entry_count: state.entries.filter(e => e.user_id === p.id).length
       })));

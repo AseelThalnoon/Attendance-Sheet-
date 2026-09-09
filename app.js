@@ -7523,13 +7523,28 @@ if(supabase){
             (u.deactivated ? ' <span class="admin-badge deactivated">Deactivated</span>' : '')+
             (unconfigured ? ' <span class="admin-badge unconfigured">No schedule</span>' : '')+
           '</div>'+
-          '<div class="admin-user-meta" dir="auto">'+escapeHtml(u.email)+' · '+
-            // This is auth's last_sign_in_at, not activity — it moves only when
-            // someone authenticates, not when they use the app. "Last seen"
-            // implied the latter, which is exactly the wrong read for an admin
-            // deciding whether to deactivate someone who's been signed in and
-            // idle for weeks. Named for what it actually measures.
-            Number(u.entry_count).toLocaleString()+' entries · Last sign-in '+escapeHtml(fmtRelative(u.last_sign_in_at))+
+          '<div class="admin-user-meta" dir="auto"'+
+            // Both facts in the tooltip, because they genuinely differ and the
+            // difference is worth being able to see: "signed in 27 days ago,
+            // last used it today" describes a perfectly normal person on a
+            // phone that never signs out.
+            ' title="'+escapeAttr(
+              "Last active " + fmtRelative(u.last_seen_at || u.last_sign_in_at) +
+              " · Last signed in " + fmtRelative(u.last_sign_in_at))+'">'+
+            escapeHtml(u.email)+' · '+
+            // This once read "Last sign-in", and was named that honestly:
+            // auth.users.last_sign_in_at moves only when someone
+            // authenticates, so it could not answer "when did this person
+            // last use the app" and the label was corrected to stop implying
+            // it did. But the question an admin is actually asking — before
+            // deactivating an account, say — was the one it stopped
+            // answering, and a persistent session made the gap enormous: a
+            // month of daily use produces no sign-in event at all. profiles
+            // .last_seen_at is that fact (migration 20260909060549), and the
+            // sign-in is still one hover away for when the distinction
+            // matters.
+            Number(u.entry_count).toLocaleString()+' entries · Last active '+
+            escapeHtml(fmtRelative(u.last_seen_at || u.last_sign_in_at))+
           '</div>'+
         '</div>'+
         // The role toggle sits on the same row as the account actions so an
@@ -8785,6 +8800,32 @@ if(supabase){
   });
 
   // ---------- Sign-in / sign-out transitions ----------
+  // Records that this person used the app, which is the question the admin
+  // People list was asking and auth.users.last_sign_in_at was not answering:
+  // that column only moves on a real authentication event, and a persistent
+  // session with silently refreshing tokens means someone can use this every
+  // day for a month without producing one. The list read "27d ago" for people
+  // who had logged a day that morning.
+  //
+  // Throttled per device rather than sent on every boot: the value is only
+  // ever read as a coarse "when were they last around", so an hour's
+  // granularity is all it needs, and a shared machine that signs in and out
+  // repeatedly should not turn that into a write per page load. Server-set
+  // (see touch_last_seen) and entirely best-effort — this never blocks
+  // sign-in and a failure costs a slightly stale timestamp, nothing more.
+  var LAST_SEEN_KEY = "attendance.lastSeenPing";
+  var LAST_SEEN_EVERY_MS = 60 * 60 * 1000;
+  function touchLastSeen(){
+    try{
+      var last = +(localStorage.getItem(LAST_SEEN_KEY) || 0);
+      if(Date.now() - last < LAST_SEEN_EVERY_MS) return;
+    }catch(e){ /* private mode: ping anyway rather than never */ }
+    supabase.rpc("touch_last_seen").then(function(res){
+      if(res && res.error) return;
+      try{ localStorage.setItem(LAST_SEEN_KEY, String(Date.now())); }catch(e){}
+    }, function(){});
+  }
+
   async function handleSignedIn(user){
     currentUser = {id:user.id, email:user.email};
 
@@ -8824,6 +8865,7 @@ if(supabase){
     // in localStorage before this migration, so a person who already set a
     // photo does not appear to have lost it. Must not hold up sign-in.
     migrateLocalAvatarIfAny().catch(function(){});
+    touchLastSeen();
 
     if(isAdmin){
       await loadAllProfilesForSwitcher();
