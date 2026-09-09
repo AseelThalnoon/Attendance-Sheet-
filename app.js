@@ -8332,7 +8332,7 @@ if(supabase){
   var notifyHistoryRows = [];
 
   // Counts only, and admin-gated in the database (see the migration
-  // 20260909061500_admin_push_reach.sql for why this cannot be a client-side
+  // 20260909055532_admin_push_reach.sql for why this cannot be a client-side
   // query). Best-effort on purpose: if the function isn't deployed to a given
   // project yet, the composer loses a sentence and keeps working, rather than
   // the panel failing to render over a line of context.
