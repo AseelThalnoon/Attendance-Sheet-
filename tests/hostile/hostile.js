@@ -45,6 +45,72 @@ async function run(){
     ok(sandbox.initialsOf(null) === "?", "initialsOf(null) falls back to \"?\"");
   }
 
+  // ---- A failed push subscription has to say something actionable --------
+  // pushManager.subscribe() reports its failures as one opaque sentence, and
+  // "Registration failed - push service error" was being shown to the person
+  // verbatim. It names no cause and no next step, and the usual cause is not
+  // the app: each browser registers with its own vendor's push service, and a
+  // network that cannot reach that one fails exactly here.
+  //
+  // subscriptionMatchesKey is in the same block because it guards the other
+  // half of the same feature: a subscription held over from a different VAPID
+  // key produces a row nothing can ever deliver to, silently.
+  {
+    const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "..", "app.js");
+    const lines = fs.readFileSync(APP_SRC, "utf8").split("\n");
+    const grab = (startsWith, endsWith) => {
+      const s = lines.findIndex(l => l.trim().startsWith(startsWith));
+      if(s === -1) throw new Error("extract: not found: " + startsWith);
+      const e = s + lines.slice(s).findIndex(l => l.trim().startsWith(endsWith));
+      return lines.slice(s, e).join("\n");
+    };
+    const VAPID = (lines.find(l => l.includes("var VAPID_PUBLIC_KEY")) || "").split('"')[1];
+    ok(!!VAPID && VAPID.length > 80, "the VAPID public key constant is present in app.js");
+
+    const build = ua => {
+      const sandbox = {
+        navigator: { userAgent: ua },
+        atob: s => Buffer.from(s, "base64").toString("binary"),
+        Uint8Array,
+        VAPID_PUBLIC_KEY: VAPID,
+        isSafariBrowser: () => /^((?!chrome|android|crios|fxios|edgios|opios).)*safari/i.test(ua)
+      };
+      vm.createContext(sandbox);
+      vm.runInContext(
+        grab("function urlBase64ToUint8Array", "function pushSupported") + "\n" +
+        grab("function subscriptionMatchesKey", "// pushManager.subscribe()") + "\n" +
+        grab("function describeSubscribeFailure", "async function subscribeToPush"),
+        sandbox);
+      return sandbox;
+    };
+
+    const chrome = build("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36");
+    const chromeMsg = chrome.describeSubscribeFailure(new Error("Registration failed - push service error"));
+    ok(!/Registration failed - push service error/.test(chromeMsg),
+      "the raw browser string is not what the person is shown", chromeMsg);
+    ok(/Google's/.test(chromeMsg) && /network/i.test(chromeMsg),
+      "it names the push service that failed and points at the usual cause", chromeMsg);
+
+    const ff = build("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:154.0) Gecko/20100101 Firefox/154.0");
+    ok(/Mozilla's/.test(ff.describeSubscribeFailure(new Error("Registration failed - push service error"))),
+      "the named service follows the browser, since they each use a different one");
+
+    ok(/blocked/i.test(chrome.describeSubscribeFailure({name:"NotAllowedError", message:"NotAllowedError"})),
+      "a blocked permission is reported as a permission problem, not a network one");
+
+    // A subscription made with this key is reusable; one made with any other
+    // is not, and reusing it would write a row send-push can never deliver to.
+    const mine = chrome.urlBase64ToUint8Array(VAPID);
+    const theirs = chrome.urlBase64ToUint8Array(
+      "BEl2b8ZQ0OPBoBiRurCz-tUEDcOEuUAPCPmvbCV0PdrgRDROIPBIGFOouKMYLYtLLKvMbNBBGCEBLPBLRMDPPBg");
+    ok(chrome.subscriptionMatchesKey({options:{applicationServerKey: mine.buffer}}) === true,
+      "a subscription made with the current key is kept");
+    ok(chrome.subscriptionMatchesKey({options:{applicationServerKey: theirs.buffer}}) === false,
+      "a subscription made with a different key is replaced, not reused");
+    ok(chrome.subscriptionMatchesKey({}) === true,
+      "a browser that does not expose the key keeps its subscription rather than churning it");
+  }
+
   // ---- Viewer-switch race: the last-clicked person must win ---------------
   {
     const people = D.roster(6), me = people[0], A = people[1], B = people[2];
