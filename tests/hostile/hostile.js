@@ -339,6 +339,20 @@ async function run(){
       profiles: people, entries: [],
       user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })),
       push_notifications: notifications,
+      // h1 went to four devices belonging to three people; one of them is a
+      // dead subscription, which is the case the reported "1 failed" was.
+      push_deliveries: [
+        { id:"pd1", notification_id:"h1", user_id:people[1].id, device:"Chrome on Windows",
+          status:"delivered", status_code:null, error_detail:null, created_at:iso(-30) },
+        { id:"pd2", notification_id:"h1", user_id:people[1].id, device:"Safari on iPhone",
+          status:"delivered", status_code:null, error_detail:null, created_at:iso(-30) },
+        { id:"pd3", notification_id:"h1", user_id:people[3].id, device:"Firefox on Mac",
+          status:"delivered", status_code:null, error_detail:null, created_at:iso(-30) },
+        { id:"pd4", notification_id:"h1", user_id:people[2].id, device:"Safari on iPhone",
+          status:"expired", status_code:410,
+          error_detail:"This device's subscription has expired or was revoked (410). It has been removed -- that person can switch notifications back on from Settings on that device.",
+          created_at:iso(-30) }
+      ],
       push_subscriptions: [
         { id:"s1", user_id:people[1].id, endpoint:"https://push.example/1", p256dh:"k", auth:"a", user_agent:"Chrome", created_at:iso(-500) },
         { id:"s2", user_id:people[1].id, endpoint:"https://push.example/2", p256dh:"k", auth:"a", user_agent:"Safari", created_at:iso(-500) },
@@ -373,6 +387,30 @@ async function run(){
       view.firstTitle);
     ok(/2 of 5 people have notifications on/.test(view.reach) && /3 devices/.test(view.reach),
       "the composer says how many people can actually be reached", view.reach);
+
+    // "3 devices · 1 failed" is a count nobody can act on: not whose device,
+    // not why. The breakdown behind "Who got it" is what makes the number
+    // mean something, so it has to name the person, the device and the reason.
+    await h.page.evaluate(() => document.querySelector('[data-who-notify="h1"]').click());
+    await settle(h.page, 400);
+    const who = await h.page.evaluate(() => {
+      const panel = document.querySelector('[data-people-for="h1"]');
+      return {
+        hidden: panel.hidden,
+        text: panel.innerText,
+        // Whoever had the problem is what this list is opened to find.
+        firstPerson: (panel.querySelector(".notify-person") || {}).innerText || ""
+      };
+    });
+    ok(!who.hidden, "\"Who got it\" opens the per-device breakdown");
+    ok(who.text.includes(people[2].full_name) && /Safari on iPhone/.test(who.text),
+      "the breakdown names whose device it was, and which device", who.text.slice(0, 120));
+    ok(/expired or was revoked \(410\)/.test(who.text),
+      "a failed device says why, in words rather than a status code", who.text.slice(0, 200));
+    ok(who.firstPerson.includes(people[2].full_name),
+      "the person with a problem sorts above the people who received it", who.firstPerson);
+    ok(who.text.includes(people[1].full_name) && (who.text.match(/DELIVERED/g) || []).length >= 2,
+      "someone with two devices is one person with two lines, not two people", who.text.slice(0, 200));
 
     // The filter exists because the automatic reminder writes one row per
     // person per open shift per day and would otherwise bury everything an

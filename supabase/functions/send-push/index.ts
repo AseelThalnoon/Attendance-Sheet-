@@ -58,6 +58,56 @@ Deno.serve(async (req) => {
   });
 });
 
+// "Which device" in the words a person would use about their own, out of the
+// user agent the browser sent when it subscribed. Not parsing for accuracy --
+// nothing depends on being right about a rare browser -- just enough for
+// someone reading a failure to know which of their devices to go and look at.
+// Order matters: every Chromium browser also says "Safari", and Edge and Opera
+// both also say "Chrome".
+function deviceLabel(ua: string | null | undefined): string | null {
+  if (!ua) return null;
+  const browser = /Edg\//.test(ua) ? "Edge"
+    : /OPR\/|Opera/.test(ua) ? "Opera"
+    : /Firefox\//.test(ua) ? "Firefox"
+    : /Chrome\//.test(ua) ? "Chrome"
+    : /Safari\//.test(ua) ? "Safari"
+    : null;
+  const os = /iPhone/.test(ua) ? "iPhone"
+    : /iPad/.test(ua) ? "iPad"
+    : /Android/.test(ua) ? "Android"
+    : /Mac OS X|Macintosh/.test(ua) ? "Mac"
+    : /Windows/.test(ua) ? "Windows"
+    : /Linux/.test(ua) ? "Linux"
+    : null;
+  if (browser && os) return `${browser} on ${os}`;
+  return browser ?? os;
+}
+
+// What went wrong, said so an administrator can decide what to do about it.
+// web-push throws a WebPushError carrying the push service's own status code
+// and body; the body is often empty and the raw message is written for whoever
+// wrote the library, not for whoever has to act on it.
+function describePushError(err: any, gone: boolean): string {
+  const code = err?.statusCode;
+  if (gone) {
+    return "This device's subscription has expired or was revoked (" + code +
+      "). It has been removed -- that person can switch notifications back on " +
+      "from Settings on that device.";
+  }
+  if (code === 401 || code === 403) {
+    return "The push service rejected this app's credentials (" + code +
+      "). Check the VAPID keys configured for the project.";
+  }
+  if (code === 413) return "The message was too large for the push service (413).";
+  if (code === 429) {
+    return "The push service is rate limiting this app (429). It should " +
+      "succeed on a later send.";
+  }
+  const body = typeof err?.body === "string" ? err.body.trim() : "";
+  const base = code ? `The push service returned ${code}.` : "The push service could not be reached.";
+  return body ? `${base} ${body.slice(0, 300)}` : base;
+}
+
 async function sendOne(notification: Record<string, any>) {
   // Deliberately not joined to profiles/auth.users to check for a
   // deactivated or deleted account: a deleted user's rows are already gone
@@ -68,7 +118,7 @@ async function sendOne(notification: Record<string, any>) {
   // security issue -- they're already locked out of the app itself.
   let subsQuery = supabase
     .from("push_subscriptions")
-    .select("id, user_id, endpoint, p256dh, auth");
+    .select("id, user_id, endpoint, p256dh, auth, user_agent");
   if (notification.target_type === "users") {
     subsQuery = subsQuery.in("user_id", notification.target_user_ids ?? []);
   }
@@ -91,6 +141,10 @@ async function sendOne(notification: Record<string, any>) {
   });
 
   let sent = 0, failed = 0;
+  // One record per attempt, so "1 failed" can name the person, the device and
+  // the reason. Collected here and written in a single insert below rather
+  // than a round trip inside the send loop.
+  const deliveries: Record<string, unknown>[] = [];
   for (const sub of subs ?? []) {
     try {
       await webpush.sendNotification(
@@ -98,25 +152,69 @@ async function sendOne(notification: Record<string, any>) {
         payload,
       );
       sent++;
+      deliveries.push({
+        notification_id: notification.id,
+        user_id: sub.user_id,
+        device: deviceLabel(sub.user_agent),
+        status: "delivered",
+      });
     } catch (err: any) {
       failed++;
       // The push service itself is saying this subscription is dead -- kept
       // around, it would just fail exactly the same way on every future send.
       const code = err?.statusCode;
-      if (code === 404 || code === 410) {
+      const gone = code === 404 || code === 410;
+      if (gone) {
         await supabase.from("push_subscriptions").delete().eq("id", sub.id);
       }
+      deliveries.push({
+        notification_id: notification.id,
+        user_id: sub.user_id,
+        device: deviceLabel(sub.user_agent),
+        // A dead subscription is not the same event as a push service
+        // refusing a live one, and the admin's next move differs: the first
+        // resolves itself (the row is gone, that person re-enables on that
+        // device), the second is a fault to look into.
+        status: gone ? "expired" : "failed",
+        status_code: typeof code === "number" ? code : null,
+        error_detail: describePushError(err, gone),
+      });
     }
+  }
+  if (deliveries.length) {
+    // Never let bookkeeping fail a send that already happened.
+    const { error: delErr } = await supabase.from("push_deliveries").insert(deliveries);
+    if (delErr) console.error("push_deliveries insert failed", delErr.message);
   }
 
   // A subscriptionless target (nobody opted in yet) is not a failure of the
   // send itself -- there was simply nothing to deliver to.
   const status = failed > 0 && sent === 0 && (subs ?? []).length > 0 ? "failed" : "sent";
+  // A one-line summary on the notification itself, so the row explains its own
+  // badge before anyone opens the per-device breakdown. Distinct reasons are
+  // listed rather than counted: five devices failing for one reason and five
+  // failing for five different ones need different responses.
+  let summary: string | null = null;
+  if (failed > 0) {
+    const reasons = [
+      ...new Set(
+        deliveries.filter((d) => d.status !== "delivered")
+          .map((d) => String(d.error_detail ?? "").split(".")[0])
+          .filter(Boolean),
+      ),
+    ];
+    summary = `${failed} of ${(subs ?? []).length} device${(subs ?? []).length === 1 ? "" : "s"} ` +
+      `did not receive this. ${reasons.join(". ")}.`;
+  } else if ((subs ?? []).length === 0) {
+    summary = "Nobody had notifications switched on, so this reached no one. " +
+      "Each person enables them under Settings, on each device.";
+  }
   await supabase.from("push_notifications").update({
     status,
     sent_at: new Date().toISOString(),
     recipient_count: sent,
     failure_count: failed,
+    error_detail: summary,
   }).eq("id", notification.id);
 
   // One audit row per send, not per recipient: the count already says how
