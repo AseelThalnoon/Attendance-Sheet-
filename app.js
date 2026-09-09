@@ -8143,13 +8143,19 @@ if(supabase){
       var affected = r.entry_date
         ? fmtDate(r.entry_date) + (r.target_email ? " · " + r.target_email : "")
         : (r.target_email || "—");
+      var detail = auditDetail(r);
+      // Who did it and when read as the row's own name and figure; what they
+      // did and what it touched are the supporting line, in the same
+      // thead-matching cell order every other mobile-rows table keeps for a
+      // screen reader — c-figure/c-status/c-meta place them on screen without
+      // moving them in the DOM.
       tr.innerHTML =
-        "<td data-label='When'><span class=\"cell-label\">When</span>"+escapeHtml(fmtRelative(r.created_at))+"</td>"+
-        "<td data-label='Who'><span class=\"cell-label\">Who</span>"+escapeHtml(r.actor_email || "System")+"</td>"+
-        "<td data-label='Action'><span class=\"cell-label\">Action</span><span class='audit-action "+auditActionClass(r.action)+"'>"+
+        "<td class='c-figure' data-label='When'><span class=\"cell-label\">When</span>"+escapeHtml(fmtRelative(r.created_at))+"</td>"+
+        "<td class='c-primary' data-label='Who'><span class=\"cell-label\">Who</span>"+escapeHtml(r.actor_email || "System")+"</td>"+
+        "<td class='c-status' data-label='Action'><span class=\"cell-label\">Action</span><span class='audit-action "+auditActionClass(r.action)+"'>"+
           escapeHtml(AUDIT_LABELS[r.action] || r.action)+"</span></td>"+
-        "<td data-label='Affected'><span class=\"cell-label\">Affected</span>"+escapeHtml(affected)+"</td>"+
-        "<td data-label='Details' class='audit-detail'><span class=\"cell-label\">Details</span>"+escapeHtml(auditDetail(r))+"</td>";
+        "<td class='c-meta c-bare"+(affected === "—" ? " c-off" : "")+"' data-label='Affected'><span class=\"cell-label\">Affected</span>"+escapeHtml(affected)+"</td>"+
+        "<td class='audit-detail c-note"+(detail === "—" ? " c-off" : "")+"' dir='auto' data-label='Details'><span class=\"cell-label\">Details</span>"+escapeHtml(detail)+"</td>";
       body.appendChild(tr);
     });
   }
