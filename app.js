@@ -7072,6 +7072,13 @@ if(supabase){
     finally { settings = saved; }
   }
 
+  // Reading order for the roster's default sort: still working, then finished,
+  // then legitimately not working today, then nothing logged at all. "Off" and
+  // an excused day sit above "not logged today" because they are answers --
+  // that person is not expected in — while "not logged" is the absence of one,
+  // and the only row on this list anybody needs to chase.
+  var TEAM_STATUS_RANK = {in:0, done:1, excused:2, off:3, missing:4};
+
   // What that person is doing today — the question a roster is actually opened
   // to answer, and one the old three-number row could not answer at all.
   function teamStatus(rows, personSettings){
@@ -7321,6 +7328,20 @@ if(supabase){
     });
 
     shown.sort(function(a, b){
+      if(sort === "active"){
+        var r = TEAM_STATUS_RANK[a.status.cls] - TEAM_STATUS_RANK[b.status.cls];
+        if(r) return r;
+        // Inside a group, whoever has more of the month behind them first.
+        // This is what separates the two readings of "hasn't logged": someone
+        // with no entry today but twelve days this month is not the same as
+        // someone who has never logged anything, and the second belongs at
+        // the very bottom.
+        if(a.summary.loggedDays !== b.summary.loggedDays){
+          return b.summary.loggedDays - a.summary.loggedDays;
+        }
+        return (a.profile.full_name || a.profile.email || "")
+          .localeCompare(b.profile.full_name || b.profile.email || "");
+      }
       if(sort === "worked") return b.summary.workedSum - a.summary.workedSum;
       if(sort === "short")  return a.summary.diffSum - b.summary.diffSum;
       if(sort === "ontime"){

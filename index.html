@@ -5409,6 +5409,11 @@
           <input type="search" id="teamSearch" maxlength="80" dir="auto" placeholder="Search name or email">
           <label class="sr-only" for="teamSort">Sort by</label>
           <select id="teamSort" title="Sort the roster">
+            <!-- The default, because the question this tab is opened to answer
+                 is who is working today: alphabetical put whoever has not
+                 logged anything among the people who have, so the roster had
+                 to be read in full to find either. -->
+            <option value="active">Sort: Active today</option>
             <option value="name">Sort: Name</option>
             <option value="worked">Sort: Hours worked</option>
             <option value="short">Sort: Furthest behind</option>
