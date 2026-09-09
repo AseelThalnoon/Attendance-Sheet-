@@ -937,8 +937,23 @@ if(supabase){
   // 'new row violates row-level security policy for table "entries"'. Map the
   // ones we understand to a sentence that says what to do; fall back to the raw
   // text rather than hiding a failure we didn't anticipate.
+  // An error that already carries a sentence written for the person who will
+  // read it. friendlyError exists to translate the ones that don't — a
+  // Postgres code, a fetch failure — and it must not re-translate these,
+  // because its patterns match on wording and a good explanation can contain
+  // the same words as the failure it is explaining. Notably: the message for
+  // a push service that could not be registered with says the cause is
+  // usually the network, which friendlyError's own /network/i catch-all then
+  // replaced with "Couldn't reach the server" — burying the specific
+  // explanation under the generic one it was written to replace.
+  function explainedError(text){
+    var e = new Error(text);
+    e.explained = true;
+    return e;
+  }
   function friendlyError(err){
     if(!err) return "Something went wrong.";
+    if(err.explained) return err.message;
     var code = err.code || "";
     var msg  = err.message || String(err);
 
@@ -1367,10 +1382,10 @@ if(supabase){
   }
 
   async function subscribeToPush(){
-    if(!pushSupported()) throw new Error("Push notifications aren't supported in this browser.");
+    if(!pushSupported()) throw explainedError("Push notifications aren't supported in this browser.");
     var perm = await Notification.requestPermission();
     if(perm !== "granted"){
-      throw new Error(perm === "denied"
+      throw explainedError(perm === "denied"
         ? "Notifications are blocked for this site in your browser."
         : "Permission wasn't granted.");
     }
@@ -1395,7 +1410,7 @@ if(supabase){
           applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
         });
       }catch(err){
-        throw new Error(describeSubscribeFailure(err));
+        throw explainedError(describeSubscribeFailure(err));
       }
     }
     var json = sub.toJSON();
