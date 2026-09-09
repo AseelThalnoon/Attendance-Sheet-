@@ -3295,6 +3295,11 @@
     }
     .table-wrap.mobile-rows td.c-status .pill::before{display:none;}
     .table-wrap.mobile-rows td.c-status .on-target{color:var(--muted-2);}
+    /* Same flattening, for the Activity log's action badge — a filled pill
+       there too, and the same second-colour-down-the-list problem. */
+    .table-wrap.mobile-rows td.c-status .audit-action{
+      background:none; padding:0; font-size:12.5px; font-weight:700;
+    }
 
     /* Line 3 — only ever drawn when the record actually carries a note. */
     .table-wrap.mobile-rows td.c-note{
@@ -3721,6 +3726,19 @@
   }
   .admin-user-meta{font-size:11.5px; color:var(--muted-2); margin-top:4px;}
   .admin-user-actions{display:flex; gap:8px; flex-wrap:wrap;}
+  /* Phone: the same surface-per-record problem the Log, Team and Trends rows
+     already had — a boxed, shadowed card per person, one after another, is a
+     second background colour down the whole roster. The role toggle and every
+     action stay exactly where they are; only the box comes off, for a hairline
+     list in the same register as the rest of the tab on a phone. */
+  @media (max-width:700px){
+    .admin-user-row{
+      border:none; border-bottom:1px solid var(--line-soft); border-radius:0;
+      background:transparent; box-shadow:none; padding:12px 0; margin-bottom:0;
+    }
+    .admin-user-row:last-child{border-bottom:none;}
+    .admin-user-row.is-deactivated{background:transparent;}
+  }
   .admin-badge{
     font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:700;
     padding:2px 8px; border-radius:99px; white-space:nowrap;
@@ -6325,7 +6343,7 @@
         <button type="button" class="btn ghost small" id="refreshAuditBtn">Refresh</button>
         <button type="button" class="btn ghost small" id="auditExportBtn">Export CSV</button>
       </div>
-      <div class="table-wrap responsive-cards">
+      <div class="table-wrap mobile-rows">
         <table>
           <thead>
             <tr><th>When</th><th>Who</th><th>Action</th><th>Affected</th><th>Details</th></tr>
