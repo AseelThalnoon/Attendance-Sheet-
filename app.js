@@ -7278,6 +7278,11 @@ if(supabase){
           '<span class="team-status '+t.status.cls+'">'+escapeHtml(t.status.label)+'</span>'+
           (p.role === "admin" ? '<span class="admin-badge">Admin</span>' : '')+
           (t.configured ? '' : '<span class="admin-badge unconfigured">No schedule</span>')+
+          // How many days the average beside it is an average OF. Only shown
+          // on a phone, where the Days figure below is dropped; on a pointer
+          // it is already in .team-card-figures and would be the same count
+          // twice on one card.
+          '<span class="team-daycount">'+s.loggedDays+(s.loggedDays === 1 ? " day" : " days")+'</span>'+
         '</div>'+
         '<div class="team-card-numbers">'+
           '<div class="team-bar'+barCls+'"><span style="width:'+pct+'%"></span></div>'+
@@ -7288,11 +7293,19 @@ if(supabase){
               : 'No scheduled days')+
           '</div>'+
         '</div>'+
-        // The month's total, as its own element. On a pointer it is part of
-        // the sentence under the bar ("24h 31m of 24h target"); on a phone
-        // that whole line goes and this is the figure the row leads with, so
-        // it needs to exist on its own rather than inside a sentence.
-        '<div class="team-worked">'+minutesToHoursStr(s.workedSum)+'</div>'+
+        // What the row leads with on a phone: hours per day worked, not the
+        // month's running total. A total answers "how much time is on the
+        // books", which is mostly a function of how many days someone has
+        // logged so far — a person four days into the month always trails one
+        // twelve days in, however they are actually doing. The average is the
+        // comparable figure, and the day count beside it in .team-tags is the
+        // weight to read it with. On a pointer both are already in
+        // .team-card-figures, so this element is phone-only.
+        '<div class="team-avg">'+
+          (s.loggedDays
+            ? minutesToHoursStr(s.avgMin)+'<span class="team-per">/day</span>'
+            : '—')+
+        '</div>'+
         // Named rather than positional: the phone keeps one of these four and
         // drops three, and picking them by nth-child would silently pick the
         // wrong ones the day a figure is added.
