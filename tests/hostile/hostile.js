@@ -534,6 +534,81 @@ async function run(){
     await h2.close();
   }
 
+  // ---- The roster leads with whoever is working today --------------------
+  // Alphabetical put whoever had not logged anything among the people who
+  // had, so the roster had to be read in full to find either. The default
+  // sort is the tab's own question: who is in, who has finished, who is
+  // legitimately not here, and — last — who has logged nothing.
+  {
+    const pad2 = n => String(n).padStart(2, "0");
+    const dstr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const today = new Date(), T = dstr(today), dow = today.getDay();
+    // Everyone is scheduled today except the one person who must read "Day
+    // off", whose work days are every day but this one.
+    const every = [0, 1, 2, 3, 4, 5, 6];
+    const settings = Object.assign({}, D.SETTINGS, { workDays: every });
+    const offToday = Object.assign({}, D.SETTINGS, { workDays: every.filter(d => d !== dow) });
+
+    const mk = (n, name) => ({ id: D.UUID(n), email: `p${n}@example.com`, full_name: name,
+      role: n === 7 ? "admin" : "user", avatar_updated_at: null, created_at: "2026-01-01T00:00:00Z" });
+    const people = [ mk(1, "Zoe Clockedin"), mk(2, "Adam Done"), mk(3, "Nina Leave"),
+      mk(4, "Wendy Weekend"), mk(5, "Bob Missing"), mk(6, "Yara Never"), mk(7, "Aseel Admin") ];
+
+    const entries = [];
+    let id = 1;
+    const row = (uid, date, ci, co, type) => entries.push({ id: id++, user_id: uid, date,
+      clock_in: ci, clock_out: co, type, note: "", updated_at: new Date().toISOString() });
+    row(D.UUID(1), T, "08:00:00", null, "regular");        // still in
+    row(D.UUID(2), T, "08:00:00", "16:05:00", "regular");  // finished
+    row(D.UUID(3), T, null, null, "leave");                // excused
+    // Nothing today for the last three. Bob has most of the month behind him,
+    // the admin has a little, and Yara has never logged anything at all.
+    for(let b = 1; b <= 6; b++){
+      const d = new Date(today); d.setDate(d.getDate() - b);
+      row(D.UUID(5), dstr(d), "08:00:00", "16:00:00", "regular");
+    }
+    for(let b = 1; b <= 2; b++){
+      const d = new Date(today); d.setDate(d.getDate() - b);
+      row(D.UUID(7), dstr(d), "08:00:00", "16:00:00", "regular");
+    }
+
+    const h = await boot({ meId: D.UUID(7), seed: {
+      profiles: people, entries,
+      user_settings: people.map(p => ({ user_id: p.id,
+        settings: p.id === D.UUID(4) ? offToday : settings }))
+    }});
+    await goTab(h.page, "team");
+    await settle(h.page, 700);
+    const order = await h.page.evaluate(() =>
+      [...document.querySelectorAll("#teamList .team-card .team-name")]
+        .map(n => n.textContent.trim().split(" ")[0]));
+
+    ok(order[0] === "Zoe", "whoever is still clocked in leads the roster", JSON.stringify(order));
+    ok(order[1] === "Adam", "then whoever has finished for the day", JSON.stringify(order));
+    ok(order.indexOf("Nina") < order.indexOf("Bob") && order.indexOf("Wendy") < order.indexOf("Bob"),
+      "leave and a day off rank above nothing-logged: they are answers, not absences",
+      JSON.stringify(order));
+    ok(order[order.length - 1] === "Yara",
+      "somebody who has never logged anything sorts last of all", JSON.stringify(order));
+    ok(order.indexOf("Bob") < order.indexOf("Aseel"),
+      "inside the un-logged group, more of the month behind you ranks higher",
+      JSON.stringify(order));
+
+    // The alphabetical sort is still there for anyone who wants the roster as
+    // a list of names rather than as today.
+    await h.page.evaluate(() => {
+      const s = document.getElementById("teamSort");
+      s.value = "name"; s.dispatchEvent(new Event("change"));
+    });
+    await settle(h.page, 300);
+    const byName = await h.page.evaluate(() =>
+      [...document.querySelectorAll("#teamList .team-card .team-name")]
+        .map(n => n.textContent.trim().split(" ")[0]));
+    ok(byName[0] === "Adam" && byName[byName.length - 1] === "Zoe",
+      "choosing Name still sorts alphabetically", JSON.stringify(byName));
+    await h.close();
+  }
+
   // ---- The People list reports activity, not authentication -------------
   // The reported shape exactly: someone whose last actual sign-in was 27 days
   // ago because their session never expired, who used the app this morning.
