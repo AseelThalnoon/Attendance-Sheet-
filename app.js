@@ -1324,7 +1324,17 @@ if(supabase){
   async function currentPushSubscription(){
     if(!pushSupported()) return null;
     try{
-      var reg = await navigator.serviceWorker.ready;
+      // navigator.serviceWorker.ready does not reject when there is no worker
+      // to become ready -- it never settles at all. Every caller here is a
+      // read ("is this browser subscribed?") whose answer is "no" if the
+      // worker is not up, so waiting forever for it is strictly worse than
+      // answering. Callers that need a registration to act on (subscribing)
+      // still await it directly and are allowed to wait.
+      var reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise(function(resolve){ setTimeout(function(){ resolve(null); }, 3000); })
+      ]);
+      if(!reg) return null;
       return await reg.pushManager.getSubscription();
     }catch(e){ return null; }
   }
@@ -1436,6 +1446,148 @@ if(supabase){
   // Async DOM refresh, called fire-and-forget from refreshSettingsPanel() the
   // same way renderTodayTeam() is from renderAll() — checking subscription
   // state is inherently async and the rest of that panel's repaint is not.
+  // Same shape of label send-push writes into push_deliveries, computed here
+  // for the person's own device list. Order matters: every Chromium browser
+  // also says "Safari", and Edge and Opera both also say "Chrome".
+  function deviceLabelFor(ua){
+    if(!ua) return "Unrecognised device";
+    var browser = /Edg\//.test(ua) ? "Edge"
+      : /OPR\/|Opera/.test(ua) ? "Opera"
+      : /Firefox\//.test(ua) ? "Firefox"
+      : /Chrome\//.test(ua) ? "Chrome"
+      : /Safari\//.test(ua) ? "Safari"
+      : null;
+    var os = /iPhone/.test(ua) ? "iPhone"
+      : /iPad/.test(ua) ? "iPad"
+      : /Android/.test(ua) ? "Android"
+      : /Mac OS X|Macintosh/.test(ua) ? "Mac"
+      : /Windows/.test(ua) ? "Windows"
+      : /Linux/.test(ua) ? "Linux"
+      : null;
+    if(browser && os) return browser + " on " + os;
+    return browser || os || "Unrecognised device";
+  }
+  function isIOS(){ return /iPhone|iPad|iPod/.test(navigator.userAgent || ""); }
+  function isAndroid(){ return /Android/.test(navigator.userAgent || ""); }
+
+  // How to get notifications working on the device the person is holding.
+  // Every platform's answer is different and none of them is guessable, which
+  // is why the generic "enable notifications in your settings" that most apps
+  // print here is worth nothing on the two platforms most people read it on.
+  function enableInstructionsFor(){
+    if(isIOS()){
+      return "On iPhone and iPad, notifications only work once this app is on your Home Screen: " +
+        "open it in Safari, tap the Share icon, choose \"Add to Home Screen\", then open it from " +
+        "that icon and turn this on. Notifications must also be allowed for it in iOS Settings → Notifications.";
+    }
+    if(isAndroid()){
+      return "On Android, turn this on and accept the permission your browser asks for. If no prompt " +
+        "appears, check Android Settings → Apps → your browser → Notifications, and make sure " +
+        "notifications are allowed for this site. Installing the app (your browser's menu → " +
+        "\"Install app\" or \"Add to Home screen\") makes them more reliable.";
+    }
+    if(isSafariBrowser() && !isStandaloneDisplay()){
+      return "Safari only supports notifications for an installed app: on a Mac, Safari's File menu → " +
+        "Add to Dock. Then open it from there and check back here.";
+    }
+    return "Turn this on and accept the permission your browser asks for. If nothing appears, check " +
+      "this site's notification permission next to the address bar.";
+  }
+
+  // The person's own subscriptions, across every device they have enabled.
+  // RLS scopes push_subscriptions to its owner, so this is exactly their own
+  // rows and nobody else's -- the same query an admin cannot run.
+  async function refreshPushDevices(){
+    var wrap = document.getElementById("pushDevicesWrap");
+    var list = document.getElementById("pushDevicesList");
+    var hint = document.getElementById("pushDevicesHint");
+    if(!wrap || !list) return;
+    if(!isOwnData){ wrap.hidden = true; return; }
+
+    var rows;
+    try{
+      var res = await supabase.from("push_subscriptions")
+        .select("endpoint,user_agent,created_at")
+        .eq("user_id", currentUser.id)
+        .order("created_at", {ascending:false});
+      if(res.error) throw res.error;
+      rows = res.data || [];
+    }catch(err){ wrap.hidden = true; return; }
+
+    // Shown as soon as the rows are in hand, before asking the browser which
+    // of them is the current device. That question goes through
+    // navigator.serviceWorker.ready, which simply never resolves when no
+    // worker is registered -- and with the reveal sequenced after it, the
+    // whole panel stayed hidden on exactly the devices most likely to have a
+    // registration problem. Which device you are on is a refinement of this
+    // list; the list itself does not depend on it.
+    wrap.hidden = false;
+
+    if(!rows.length){
+      list.innerHTML = '<p class="settings-hint" style="margin:0;">No devices yet — notifications ' +
+        'would not reach you anywhere.</p>';
+      hint.textContent = enableInstructionsFor();
+      return;
+    }
+
+    // Drawn from the rows alone. Which one is the device in your hand comes
+    // from the browser and is marked on afterwards, because that lookup can
+    // take seconds (or, with no service worker registered, never answer) and
+    // the list is worth more immediately than it is complete.
+    list.innerHTML = rows.map(function(r){
+      return '<div class="push-device" data-endpoint="'+escapeAttr(r.endpoint)+'">'+
+        '<div class="push-device-main">'+
+          '<span class="push-device-name">'+escapeHtml(deviceLabelFor(r.user_agent))+'</span>'+
+          '<div class="push-device-since">Added '+escapeHtml(fmtRelative(r.created_at))+'</div>'+
+        '</div>'+
+        '<button type="button" class="btn ghost small" data-forget-device="'+
+          escapeAttr(r.endpoint)+'">Remove</button>'+
+      '</div>';
+    }).join("");
+
+    // The sentence this whole block exists for, and it does not depend on
+    // which device is which either -- so it is written before the wait, not
+    // after it.
+    hint.textContent = rows.length === 1
+      ? "This is the only device that will receive them. Notifications are per device — " +
+        "open this app on your phone and turn them on there too."
+      : "Notifications go to these " + rows.length + " devices. Any device not listed here — " +
+        "another phone, another browser — will not receive them until you turn them on there.";
+
+    var here = await currentPushSubscription();
+    if(here){
+      var mine = list.querySelector('.push-device[data-endpoint="'+CSS.escape(here.endpoint)+'"]');
+      if(mine){
+        var name = mine.querySelector(".push-device-name");
+        if(name) name.insertAdjacentHTML("afterend", '<span class="push-device-here">This device</span>');
+        // Removing the device you are reading this on would leave the toggle
+        // above saying "on" for a subscription that no longer exists. Turning
+        // it off is what that toggle is for.
+        var rm = mine.querySelector("[data-forget-device]");
+        if(rm) rm.remove();
+      }
+    }
+
+  }
+  document.getElementById("pushDevicesList").addEventListener("click", async function(ev){
+    var btn = ev.target.closest("[data-forget-device]");
+    if(!btn) return;
+    // Only ever the person's own rows: RLS would refuse anything else, and the
+    // endpoint came from this same list.
+    if(!(await showConfirm("Stop sending notifications to that device?",
+      {title:"Remove device?", confirmText:"Remove"}))) return;
+    btn.disabled = true;
+    try{
+      var res = await supabase.from("push_subscriptions").delete()
+        .eq("endpoint", btn.getAttribute("data-forget-device"));
+      if(res.error) throw res.error;
+      await refreshPushDevices();
+    }catch(err){
+      showToast("Couldn't remove that device: " + friendlyError(err), "error");
+      btn.disabled = false;
+    }
+  });
+
   async function refreshPushToggle(){
     var row = document.getElementById("pushToggleRow");
     if(!row) return;
@@ -1453,15 +1605,23 @@ if(supabase){
       // permission prompt, no error, just absent — so naming the exact fix
       // (Dock on Mac, Home Screen on iPhone/iPad) turns a dead end into
       // something they can actually act on.
-      hint.textContent = (isSafariBrowser() && !isStandaloneDisplay())
-        ? "Safari only supports notifications for an installed app: on a Mac, Safari's File menu → Add to Dock; on iPhone or iPad, the Share icon → Add to Home Screen. Then open it from there and check back here."
+      // iPhone reaches this branch too, not just Mac Safari: window.PushManager
+      // genuinely does not exist there until the app is on the Home Screen, so
+      // the answer is the install step, not "unsupported".
+      hint.textContent = (isIOS() || isAndroid() || isSafariBrowser())
+        ? enableInstructionsFor()
         : "Push notifications aren't supported in this browser.";
+      refreshPushDevices();
       return;
     }
     if(Notification.permission === "denied"){
       box.checked = false; box.disabled = true;
       hint.hidden = false;
-      hint.textContent = "Notifications are blocked for this site in your browser settings — enable them there to turn this on.";
+      hint.textContent = "Notifications are blocked for this site in your browser settings — enable them " +
+        "there to turn this on." + (isIOS() || isAndroid()
+          ? " On a phone, check the operating system's own notification settings for your browser as well."
+          : "");
+      refreshPushDevices();
       return;
     }
     box.disabled = false;
@@ -1477,6 +1637,10 @@ if(supabase){
       hint.hidden = true;
     }
     box.checked = !!(await currentPushSubscription());
+    // The toggle answers "is this browser subscribed". The list answers "where
+    // will notifications actually arrive", which is the question people think
+    // the toggle is answering.
+    await refreshPushDevices();
   }
   document.getElementById("sPushEnabled").addEventListener("change", async function(){
     var box = this;
