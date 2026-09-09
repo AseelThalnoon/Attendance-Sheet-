@@ -534,6 +534,111 @@ async function run(){
     await h2.close();
   }
 
+  // ---- A person can see WHERE their notifications actually arrive --------
+  // A push subscription is per device, per browser. The Settings toggle only
+  // ever described the browser it was being read in, so enabling it at a desk
+  // left the phone -- the device the reminders are for -- receiving nothing,
+  // with every screen in the app agreeing notifications were on.
+  {
+    const me = D.profile(1, { role: "admin" });
+    const sub = (n, ua, mins) => ({ id: "s" + n, user_id: me.id, endpoint: "https://push.example/" + n,
+      p256dh: "k", auth: "a", user_agent: ua, created_at: new Date(Date.now() - mins * 60000).toISOString() });
+    const FIREFOX = "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:154.0) Gecko/20100101 Firefox/154.0";
+    const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Safari/605.1";
+    const ANDROID = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36";
+
+    const openNotifications = async page => {
+      await goTab(page, "settings");
+      await settle(page, 400);
+      await page.evaluate(() => document.querySelector(
+        '#settingsConsole .console-nav-item[data-console-target="notifications"]').click());
+      await settle(page, 600);
+    };
+    const readPanel = page => page.evaluate(() => {
+      const w = document.getElementById("pushDevicesWrap");
+      return { hidden: w.hidden, text: w.innerText,
+        names: [...document.querySelectorAll(".push-device-name")].map(n => n.textContent.trim()) };
+    });
+
+    // One device is the misleading case: it reads as "notifications are on"
+    // while the phone in your pocket is not on this list.
+    const one = await boot({ meId: me.id, seed: {
+      profiles: [me], entries: [], user_settings: [{ user_id: me.id, settings: D.SETTINGS }],
+      push_subscriptions: [sub(1, FIREFOX, 2880)]
+    }});
+    await openNotifications(one.page);
+    const solo = await readPanel(one.page);
+    ok(!solo.hidden, "the device list is shown, not hidden behind a service worker that never became ready");
+    ok(solo.names.join() === "Firefox on Linux",
+      "each subscription is named as a device a person would recognise", JSON.stringify(solo.names));
+    ok(/only device/.test(solo.text) && /per device/.test(solo.text) && /phone/.test(solo.text),
+      "with one device it says so, and says to enable it on the phone as well",
+      solo.text.replace(/\n/g, " | ").slice(0, 160));
+    await one.close();
+
+    // Three devices, including both phone platforms.
+    const many = await boot({ meId: me.id, seed: {
+      profiles: [me], entries: [], user_settings: [{ user_id: me.id, settings: D.SETTINGS }],
+      push_subscriptions: [sub(1, FIREFOX, 2880), sub(2, IPHONE, 60), sub(3, ANDROID, 30)]
+    }});
+    await openNotifications(many.page);
+    const all = await readPanel(many.page);
+    ok(all.names.length === 3 && all.names.includes("Safari on iPhone") && all.names.includes("Chrome on Android"),
+      "a phone on each platform is listed and told apart", JSON.stringify(all.names));
+    ok(/not listed here/.test(all.text),
+      "and it still says an unlisted device receives nothing", all.text.slice(0, 140));
+    await many.close();
+
+    // Nobody subscribed: the panel has to say that plainly rather than being
+    // absent, which reads as "fine".
+    const none = await boot({ meId: me.id, seed: {
+      profiles: [me], entries: [], user_settings: [{ user_id: me.id, settings: D.SETTINGS }],
+      push_subscriptions: []
+    }});
+    await openNotifications(none.page);
+    const empty = await readPanel(none.page);
+    ok(!empty.hidden && /would not reach you anywhere/.test(empty.text),
+      "with no devices at all it says notifications would reach nobody", empty.text.slice(0, 120));
+    await none.close();
+  }
+
+  // ---- Enabling instructions are the platform's, not a generic sentence ---
+  // "Enable notifications in your settings" is worth nothing on the two
+  // platforms most people read it on: iOS needs the app on the Home Screen
+  // before push exists at all, and Android hides the switch in the OS.
+  {
+    const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "..", "app.js");
+    const lines = fs.readFileSync(APP_SRC, "utf8").split("\n");
+    const grab = (a, b) => {
+      const s = lines.findIndex(l => l.trim().startsWith(a));
+      const e = s + lines.slice(s).findIndex(l => l.trim().startsWith(b));
+      return lines.slice(s, e).join("\n");
+    };
+    const code = grab("function isIOS()", "function enableInstructionsFor") + "\n" +
+                 grab("function enableInstructionsFor", "// The person's own subscriptions");
+    const say = (ua, standalone) => {
+      const sb = { navigator: { userAgent: ua },
+        isSafariBrowser: () => /^((?!chrome|android|crios|fxios|edgios|opios).)*safari/i.test(ua),
+        isStandaloneDisplay: () => !!standalone };
+      vm.createContext(sb); vm.runInContext(code, sb);
+      return sb.enableInstructionsFor();
+    };
+    const ios = say("Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Version/26.6 Safari/605.1");
+    ok(/Home Screen/.test(ios) && /Share/.test(ios),
+      "iPhone is told the app must be added to the Home Screen first", ios.slice(0, 110));
+    ok(/iOS Settings/.test(ios),
+      "and that iOS itself must allow notifications for it too", ios.slice(0, 200));
+
+    const android = say("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36");
+    ok(/Android Settings/.test(android) && /Install app|Add to Home screen/.test(android),
+      "Android is told where its own notification switch lives", android.slice(0, 140));
+    ok(!/Home Screen: open it in Safari/.test(android),
+      "and is not given the iPhone's instructions");
+
+    const mac = say("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1", false);
+    ok(/Add to Dock/.test(mac), "Mac Safari is told to add it to the Dock", mac.slice(0, 100));
+  }
+
   // ---- The roster leads with whoever is working today --------------------
   // Alphabetical put whoever had not logged anything among the people who
   // had, so the roster had to be read in full to find either. The default

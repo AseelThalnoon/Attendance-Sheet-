@@ -4182,6 +4182,27 @@
   /* Who actually received it, per device. Indented under the message it
      belongs to and set on the wash, so an expanded row reads as detail of
      that send rather than as more sends. */
+  /* ---------- Your notification devices ---------- */
+  .settings-subhead{
+    margin:16px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.07em; color:var(--muted);
+  }
+  .push-device{
+    display:flex; align-items:center; gap:12px;
+    padding:9px 0; border-top:1px solid var(--line-soft);
+  }
+  .push-device:first-child{border-top:none;}
+  .push-device-main{flex:1; min-width:0;}
+  .push-device-name{font-size:13px; font-weight:700; color:var(--ink);}
+  /* Which of these is the one you are holding. Without it a list of two
+     Chromes says nothing about which is which. */
+  .push-device-here{
+    margin-left:8px; padding:1px 7px; border-radius:99px;
+    background:var(--positive-bg); color:var(--positive);
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  }
+  .push-device-since{font-size:11.5px; color:var(--muted-2); margin-top:2px;}
+
   .notify-people{
     margin-top:10px; padding:10px 12px;
     background:var(--card); border-radius:var(--radius-sm);
@@ -5802,6 +5823,16 @@
               </span>
             </label>
             <p class="settings-hint" id="pushStatusHint" hidden></p>
+          </div>
+          <!-- The toggle above is about THIS browser only, which is the single
+               most misleading thing about push: switch it on at a desk and the
+               phone in your pocket -- the device you actually want reminding
+               on -- still has nothing, and every screen in the app agrees you
+               have notifications on. This is the list that contradicts that. -->
+          <div id="pushDevicesWrap" hidden>
+            <p class="settings-subhead">Devices receiving your notifications</p>
+            <div id="pushDevicesList"></div>
+            <p class="settings-hint" id="pushDevicesHint"></p>
           </div>
         </div>
       </div>
