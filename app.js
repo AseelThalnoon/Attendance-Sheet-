@@ -7178,9 +7178,26 @@ if(supabase){
         icon:'<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/>',
         label:"Days Logged", value:String(totals.days), detail:"Across the team"
       },
+      // Hours per logged day across the team, not the month's running total.
+      // Same reasoning as the per-person figure on each row, and deliberately
+      // the same measure, so the tile and the rows under it can be read
+      // against each other: this is the line every name in the roster is
+      // above or below. A total could not be — it grows with the size of the
+      // team and with how far into the month it is, so it says nothing a
+      // person's own row can be compared to.
+      //
+      // Keeps the ledger circle rather than taking Overview's calendar, which
+      // is what Overview marks its own Avg / Day with: in THIS row the
+      // calendar is already Days Logged, and two tiles under one glyph would
+      // cost more than the cross-tab echo gains. Ledger is hours, calendar is
+      // days, which is the distinction that matters here.
       {
         icon:'<circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/>',
-        label:"Hours Worked", value:minutesToHoursStr(totals.worked), detail:"Of "+minutesToHoursStr(totals.target)+" target"
+        label:"Avg Hours / Day",
+        value: totals.days ? minutesToHoursStr(Math.round(totals.worked / totals.days)) : "—",
+        detail: totals.days
+          ? "Of " + minutesToHoursStr(Math.round(totals.target / totals.days)) + " target"
+          : "Nobody logged time yet"
       },
       // Same accomplishment reading as the Shortfall tab's Target Hours Met:
       // share of target HOURS worked, not a day-count rate. Floored, not

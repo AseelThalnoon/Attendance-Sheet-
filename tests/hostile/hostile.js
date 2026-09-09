@@ -122,7 +122,7 @@ async function run(){
     await settle(h.page, 2200);   // let the slow, stale prev-month response land, if it's going to
     const t = await h.page.evaluate(() => {
       const cards = Array.from(document.querySelectorAll("#teamSummary .stat-card"));
-      const hours = cards.find(c => c.querySelector(".stat-label").textContent.includes("Hours Worked"));
+      const hours = cards.find(c => c.querySelector(".stat-label").textContent.includes("Avg Hours / Day"));
       return {
         label: document.getElementById("teamMonthLabel").textContent,
         hoursWorked: hours ? hours.querySelector(".stat-value").textContent : null
@@ -131,12 +131,12 @@ async function run(){
     const expectedLabel = today.toLocaleDateString(undefined, { month: "long", year: "numeric" });
     ok(t.label === expectedLabel, "team month label reads the last-clicked month after a race",
       `label: ${t.label}`);
-    // D.roster(4) still returns its full 7-person base list (see roster()'s
-    // own comment); all 7 worked 8h on the current month's scheduled day, and
-    // the stale prev-month response (1 person, 1h) must never land on top of
-    // that.
-    ok(t.hoursWorked === "56h", "team totals show the last-clicked month's data, not a slower earlier load",
-      `Hours Worked: ${t.hoursWorked}`);
+    // All 7 of D.roster(4)'s base list worked 8h on the current month's one
+    // scheduled day, so the team averages 8h across 7 logged days. The stale
+    // prev-month response is one person's single 1h day, which would read as
+    // 1h — a different enough number that this cannot pass by coincidence.
+    ok(t.hoursWorked === "8h", "team totals show the last-clicked month's data, not a slower earlier load",
+      `Avg Hours / Day: ${t.hoursWorked}`);
     await h.close();
   }
 
