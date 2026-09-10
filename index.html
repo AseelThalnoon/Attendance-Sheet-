@@ -1490,6 +1490,12 @@
   }
   .reminder-text{font-size:12.5px; color:var(--muted); margin:0; overflow-wrap:anywhere;}
   .reminder-actions{display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;}
+  /* Same fix as .today-team[hidden] elsewhere in this file: an author
+     display: declaration outranks the UA sheet's [hidden] rule, so without
+     this the push prompt's button row stayed on screen under its own
+     install-instructions text, where neither button can do anything until
+     the app is on the Home Screen. */
+  .reminder-actions[hidden]{display:none;}
 
   /* Today's hours, on a phone only — above 760px the rail's status card is
      already on screen and this would be the same fact twice. It exists because
@@ -1540,6 +1546,13 @@
     .reminder-text{
       display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
       overflow:hidden; font-size:12px;
+    }
+    /* The clamp above assumes a button is doing the rest of the job — true for
+       every other reminder, not for the push prompt's install-instructions
+       state (no button can trigger "Add to Home Screen"), where the two
+       clamped lines were cutting the actual steps off mid-sentence. */
+    #pushPromptText.is-instructional{
+      -webkit-line-clamp:unset; display:block; overflow:visible;
     }
     .reminder-actions{margin-top:var(--space-2);}
     .reminder-actions .btn{min-height:40px; padding:var(--space-2) var(--space-3); font-size:12.5px;}
@@ -4951,6 +4964,26 @@
     </div>
   </div>
 
+  <!-- Every platform that can subscribe silently (Chrome, Android, ...)
+       already got a real permission dialog from autoPromptPushIfEligible()
+       at sign-in, before this ever shows. This is for the rest: Safari's
+       dialog only ever opens from a real click, so sign-in cannot produce
+       one there no matter how eligible the browser is -- and until now
+       nothing outside Settings said so, which read as "nothing happened"
+       on exactly the platform (iPhone) most likely to be someone's only
+       device. Rendered by renderPushPromptBanner() in app.js. -->
+  <div class="reminder push-prompt-banner" id="pushPromptBanner">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    <div class="reminder-body">
+      <p class="reminder-title" id="pushPromptTitle"></p>
+      <p class="reminder-text" id="pushPromptText"></p>
+      <div class="reminder-actions" id="pushPromptActions">
+        <button type="button" class="btn small" id="pushPromptEnableBtn">Turn On</button>
+        <button type="button" class="btn ghost small" id="pushPromptLaterBtn">Not Now</button>
+      </div>
+    </div>
+  </div>
+
   <div class="reminder" id="reminderBanner">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 2"/></svg>
     <div class="reminder-body">
@@ -5848,7 +5881,7 @@
                on -- still has nothing, and every screen in the app agrees you
                have notifications on. This is the list that contradicts that. -->
           <div id="pushDevicesWrap" hidden>
-            <p class="settings-subhead">Devices receiving your notifications</p>
+            <p class="settings-subhead" id="pushDevicesSubhead">Devices receiving your notifications</p>
             <div id="pushDevicesList"></div>
             <p class="settings-hint" id="pushDevicesHint"></p>
           </div>
@@ -6318,6 +6351,7 @@
             <option value="user_deleted">User deletions</option>
             <option value="app_settings_change">Org settings changed</option>
             <option value="notification_sent">Notifications sent</option>
+            <option value="push_device_removed">Devices removed</option>
           </select>
         </div>
         <div>
