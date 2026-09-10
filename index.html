@@ -1490,12 +1490,6 @@
   }
   .reminder-text{font-size:12.5px; color:var(--muted); margin:0; overflow-wrap:anywhere;}
   .reminder-actions{display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;}
-  /* Same fix as .today-team[hidden] elsewhere in this file: an author
-     display: declaration outranks the UA sheet's [hidden] rule, so without
-     this the push prompt's button row stayed on screen under its own
-     install-instructions text, where neither button can do anything until
-     the app is on the Home Screen. */
-  .reminder-actions[hidden]{display:none;}
 
   /* Today's hours, on a phone only — above 760px the rail's status card is
      already on screen and this would be the same fact twice. It exists because
@@ -1546,13 +1540,6 @@
     .reminder-text{
       display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
       overflow:hidden; font-size:12px;
-    }
-    /* The clamp above assumes a button is doing the rest of the job — true for
-       every other reminder, not for the push prompt's install-instructions
-       state (no button can trigger "Add to Home Screen"), where the two
-       clamped lines were cutting the actual steps off mid-sentence. */
-    #pushPromptText.is-instructional{
-      -webkit-line-clamp:unset; display:block; overflow:visible;
     }
     .reminder-actions{margin-top:var(--space-2);}
     .reminder-actions .btn{min-height:40px; padding:var(--space-2) var(--space-3); font-size:12.5px;}
@@ -4514,6 +4501,12 @@
     margin:2px 0 8px; color:var(--ink);
   }
   .modal-msg{font-size:13.5px; line-height:1.55; color:var(--muted); margin:0; white-space:pre-line;}
+  /* The specific reason subscribeToPush() failed -- blocked, unsupported, a
+     failed subscribe -- shown in the dialog itself rather than a toast that
+     can be missed and gone in a few seconds. This is the one piece of this
+     popup that must read as wrong, not as more of the same explanatory text
+     above it. */
+  .modal-msg.push-prompt-error{color:var(--negative); margin-top:10px;}
   .modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px;}
   .btn.danger-solid{
     background:linear-gradient(135deg, var(--negative-solid), var(--negative-deep)); border-color:var(--negative-deep); color:#fff;
@@ -4961,26 +4954,6 @@
     <div class="reminder-body">
       <p class="reminder-title" id="viewingOtherTitle"></p>
       <p class="reminder-text">You're an admin viewing another employee's attendance. Edits here save to their record, not yours.</p>
-    </div>
-  </div>
-
-  <!-- Every platform that can subscribe silently (Chrome, Android, ...)
-       already got a real permission dialog from autoPromptPushIfEligible()
-       at sign-in, before this ever shows. This is for the rest: Safari's
-       dialog only ever opens from a real click, so sign-in cannot produce
-       one there no matter how eligible the browser is -- and until now
-       nothing outside Settings said so, which read as "nothing happened"
-       on exactly the platform (iPhone) most likely to be someone's only
-       device. Rendered by renderPushPromptBanner() in app.js. -->
-  <div class="reminder push-prompt-banner" id="pushPromptBanner">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-    <div class="reminder-body">
-      <p class="reminder-title" id="pushPromptTitle"></p>
-      <p class="reminder-text" id="pushPromptText"></p>
-      <div class="reminder-actions" id="pushPromptActions">
-        <button type="button" class="btn small" id="pushPromptEnableBtn">Turn On</button>
-        <button type="button" class="btn ghost small" id="pushPromptLaterBtn">Not Now</button>
-      </div>
     </div>
   </div>
 
