@@ -159,6 +159,8 @@ if(supabase){
   var SNOOZE_KEY   = "attendance_ledger_backup_snooze_v1";
   var BACKUP_KEY   = "attendance_ledger_lastbackup_v1";
   var BACKUP_REMIND_DAYS = 14;
+  var PUSH_PROMPT_SNOOZE_KEY = "attendance_ledger_push_prompt_snooze_v1";
+  var PUSH_PROMPT_SNOOZE_DAYS = 7;
 
   var DEFAULT_SETTINGS = {
     workDays:[0,1,2,3,4],
@@ -1494,24 +1496,35 @@ if(supabase){
       "this site's notification permission next to the address bar.";
   }
 
-  // The person's own subscriptions, across every device they have enabled.
-  // RLS scopes push_subscriptions to its owner, so this is exactly their own
-  // rows and nobody else's -- the same query an admin cannot run.
+  // Own data goes straight at push_subscriptions, which RLS already scopes to
+  // its owner. Viewing someone else's Settings goes through
+  // admin_list_user_push_devices() instead — same fields, admin-gated in the
+  // database (see 20260909210000_admin_view_user_push_devices.sql) — so an
+  // admin troubleshooting "I'm not getting notified" can actually see whether
+  // that person has a device registered at all, not just their own.
   async function refreshPushDevices(){
     var wrap = document.getElementById("pushDevicesWrap");
     var list = document.getElementById("pushDevicesList");
     var hint = document.getElementById("pushDevicesHint");
     if(!wrap || !list) return;
-    if(!isOwnData){ wrap.hidden = true; return; }
+    var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this person";
+    var possessive = isOwnData ? "your" : who + "'s";
+    var pronounObj = isOwnData ? "you" : "them";
 
     var rows;
     try{
-      var res = await supabase.from("push_subscriptions")
-        .select("endpoint,user_agent,created_at")
-        .eq("user_id", currentUser.id)
-        .order("created_at", {ascending:false});
-      if(res.error) throw res.error;
-      rows = res.data || [];
+      if(isOwnData){
+        var res = await supabase.from("push_subscriptions")
+          .select("endpoint,user_agent,created_at")
+          .eq("user_id", currentUser.id)
+          .order("created_at", {ascending:false});
+        if(res.error) throw res.error;
+        rows = res.data || [];
+      } else {
+        var res2 = await supabase.rpc("admin_list_user_push_devices", {target_id: viewedUserId});
+        if(res2.error) throw res2.error;
+        rows = res2.data || [];
+      }
     }catch(err){ wrap.hidden = true; return; }
 
     // Shown as soon as the rows are in hand, before asking the browser which
@@ -1520,13 +1533,17 @@ if(supabase){
     // worker is registered -- and with the reveal sequenced after it, the
     // whole panel stayed hidden on exactly the devices most likely to have a
     // registration problem. Which device you are on is a refinement of this
-    // list; the list itself does not depend on it.
+    // list; the list itself does not depend on it, and it is only ever asked
+    // for your own -- there is no "your browser" to check against someone
+    // else's list.
     wrap.hidden = false;
+    document.getElementById("pushDevicesSubhead").textContent =
+      "Devices receiving " + possessive + " notifications";
 
     if(!rows.length){
       list.innerHTML = '<p class="settings-hint" style="margin:0;">No devices yet — notifications ' +
-        'would not reach you anywhere.</p>';
-      hint.textContent = enableInstructionsFor();
+        'would not reach ' + escapeHtml(pronounObj) + ' anywhere.</p>';
+      hint.textContent = isOwnData ? enableInstructionsFor() : "";
       return;
     }
 
@@ -1550,10 +1567,16 @@ if(supabase){
     // after it.
     hint.textContent = rows.length === 1
       ? "This is the only device that will receive them. Notifications are per device — " +
-        "open this app on your phone and turn them on there too."
+        (isOwnData ? "open this app on your phone and turn them on there too."
+          : "another device of " + possessive + " needs its own.")
       : "Notifications go to these " + rows.length + " devices. Any device not listed here — " +
-        "another phone, another browser — will not receive them until you turn them on there.";
+        "another phone, another browser — will not receive them until " +
+        (isOwnData ? "you turn them on there too." : "they turn them on there too.");
 
+    // Which one is the device in your own hand only means anything for your
+    // own list -- there is no browser here to compare an admin's endpoint
+    // against when the list is someone else's.
+    if(!isOwnData) return;
     var here = await currentPushSubscription();
     if(here){
       var mine = list.querySelector('.push-device[data-endpoint="'+CSS.escape(here.endpoint)+'"]');
@@ -1572,15 +1595,22 @@ if(supabase){
   document.getElementById("pushDevicesList").addEventListener("click", async function(ev){
     var btn = ev.target.closest("[data-forget-device]");
     if(!btn) return;
-    // Only ever the person's own rows: RLS would refuse anything else, and the
-    // endpoint came from this same list.
-    if(!(await showConfirm("Stop sending notifications to that device?",
+    var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this person";
+    if(!(await showConfirm(isOwnData
+      ? "Stop sending notifications to that device?"
+      : "Stop sending notifications to that device of " + who + "'s?",
       {title:"Remove device?", confirmText:"Remove"}))) return;
     btn.disabled = true;
     try{
-      var res = await supabase.from("push_subscriptions").delete()
-        .eq("endpoint", btn.getAttribute("data-forget-device"));
-      if(res.error) throw res.error;
+      var endpoint = btn.getAttribute("data-forget-device");
+      if(isOwnData){
+        var res = await supabase.from("push_subscriptions").delete().eq("endpoint", endpoint);
+        if(res.error) throw res.error;
+      } else {
+        var res3 = await supabase.rpc("admin_delete_user_push_device",
+          {target_id: viewedUserId, target_endpoint: endpoint});
+        if(res3.error) throw res3.error;
+      }
       await refreshPushDevices();
     }catch(err){
       showToast("Couldn't remove that device: " + friendlyError(err), "error");
@@ -1591,8 +1621,14 @@ if(supabase){
   async function refreshPushToggle(){
     var row = document.getElementById("pushToggleRow");
     if(!row) return;
+    // The toggle itself only ever makes sense for your own browser — there is
+    // no such thing as switching on push for a device you are not holding —
+    // but the device list below it is a separate question ("does this person
+    // have one registered at all") that refreshPushDevices() now answers for
+    // an admin too, so it still has to run on this path rather than bailing
+    // out with it.
     row.hidden = !isOwnData;
-    if(!isOwnData) return;
+    if(!isOwnData){ await refreshPushDevices(); return; }
 
     var box = document.getElementById("sPushEnabled");
     var hint = document.getElementById("pushStatusHint");
@@ -1675,20 +1711,98 @@ if(supabase){
   // prompt that also throws a visible error on the sign-in screen would read
   // as broken, not optional — the Settings toggle is still there by hand.
   async function autoPromptPushIfEligible(){
-    if(!pushSupported()) return;
-    if(Notification.permission === "granted" && (await currentPushSubscription())) return;
+    if(!pushSupported()){ renderPushPromptBanner(); return; }
+    if(Notification.permission === "granted" && (await currentPushSubscription())){
+      renderPushPromptBanner(); return;
+    }
     // Not a Chrome-style "might get suppressed" risk — Safari's permission
     // dialog ONLY ever appears from a direct click, full stop. Calling
     // requestPermission() here (sign-in, not a click) is a guaranteed silent
     // no-op on Safari every time, so skip the attempt outright rather than
-    // pretend it might work — refreshPushToggle()'s hint text is what tells
-    // a Safari user the checkbox is the one path in for them.
-    if(isSafariBrowser()) return;
+    // pretend it might work — renderPushPromptBanner() below is what tells a
+    // Safari user (iPhone very much included) that there is still a button
+    // for them, right where they are instead of buried in Settings.
+    if(isSafariBrowser()){ renderPushPromptBanner(); return; }
     try{
       await subscribeToPush();
       refreshPushToggle();
     }catch(e){ /* declined, blocked, or the browser suppressed an unsolicited prompt — Settings still offers it */ }
+    renderPushPromptBanner();
   }
+
+  // ---------- Push prompt banner ----------
+  // autoPromptPushIfEligible() above covers the platforms that can be asked
+  // silently at sign-in. Safari cannot be — its permission dialog only opens
+  // from a real click — and until this banner existed, a Safari sign-in that
+  // was eligible for push produced no dialog and no other visible sign that
+  // anything was waiting on them, which reads as "notifications don't work
+  // here" rather than "one tap away". iPhone is the platform this bites
+  // hardest, since it is the one place a browser tab genuinely cannot receive
+  // push at all until the app is on the Home Screen (see enableInstructionsFor).
+  //
+  // A real click on this banner's own button satisfies the same gesture
+  // requirement autoPromptPushIfEligible() cannot, so it is not just a
+  // pointer to Settings — it is a second, working path to the same dialog.
+  function pushPromptSnoozed(){
+    var until = parseInt(safeGet(PUSH_PROMPT_SNOOZE_KEY) || "", 10);
+    return isFinite(until) && Date.now() < until;
+  }
+  async function renderPushPromptBanner(){
+    var banner = document.getElementById("pushPromptBanner");
+    if(!banner) return;
+    // Never for an admin looking at someone else's account — this is about
+    // notifications reaching the browser in front of you, and hiding it in
+    // that view is one glance short of showing another person's own prompt.
+    if(!isOwnData || pushPromptSnoozed() || Notification.permission === "denied"){
+      banner.classList.remove("show"); return;
+    }
+
+    var title = document.getElementById("pushPromptTitle");
+    var text = document.getElementById("pushPromptText");
+    var actions = document.getElementById("pushPromptActions");
+
+    if(!pushSupported()){
+      // Nothing this banner's own button could do — window.PushManager is
+      // simply absent until the app is installed. Only worth saying on the
+      // platforms where "install it" is the actual fix; a desktop browser
+      // with no push support at all has no next step to offer.
+      if(!(isIOS() || isAndroid()) || isStandaloneDisplay()){
+        banner.classList.remove("show"); return;
+      }
+      title.textContent = "Turn on notifications";
+      text.textContent = enableInstructionsFor();
+      text.classList.add("is-instructional");
+      actions.hidden = true;
+      banner.classList.add("show");
+      return;
+    }
+    if(Notification.permission === "granted" && (await currentPushSubscription())){
+      banner.classList.remove("show"); return;
+    }
+
+    text.classList.remove("is-instructional");
+    actions.hidden = false;
+    title.textContent = "Turn on notifications";
+    text.textContent = "Get notified here when it matters — a forgotten clock-out, or a message from an admin.";
+    banner.classList.add("show");
+  }
+  document.getElementById("pushPromptEnableBtn").addEventListener("click", async function(){
+    var btn = this;
+    btn.disabled = true;
+    try{
+      await subscribeToPush();
+      showToast("Notifications are on for this device.", "success");
+    }catch(err){
+      showToast("Couldn't turn on notifications: " + friendlyError(err), "error");
+    }
+    btn.disabled = false;
+    await refreshPushToggle();
+    await renderPushPromptBanner();
+  });
+  document.getElementById("pushPromptLaterBtn").addEventListener("click", function(){
+    safeSet(PUSH_PROMPT_SNOOZE_KEY, String(Date.now() + PUSH_PROMPT_SNOOZE_DAYS*24*60*60*1000));
+    renderPushPromptBanner();
+  });
 
   function fillSettingsForm(){
     DAY_NAMES.forEach(function(_, i){
@@ -1733,6 +1847,7 @@ if(supabase){
   // unconditional repaints.
   function refreshSettingsPanel(){
     refreshPushToggle().catch(function(){});
+    renderPushPromptBanner().catch(function(){});
     var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user";
     // The line above the form says what the form is. When the schedule never
     // loaded, what the form is holding is DEFAULT_SETTINGS — so it says that,
@@ -7956,12 +8071,12 @@ if(supabase){
     role_change:"Role changed", user_created:"User created",
     user_deactivated:"Deactivated", user_reactivated:"Reactivated", user_deleted:"User deleted",
     app_settings_change:"Org settings changed", notification_sent:"Notification sent",
-    schedule_change:"Schedule changed"
+    schedule_change:"Schedule changed", push_device_removed:"Device removed"
   };
   function auditActionClass(action){
     if(action === "insert" || action === "notification_sent") return "a-insert";
     if(action === "update" || action === "app_settings_change" || action === "schedule_change") return "a-update";
-    if(action === "delete" || action === "user_deleted") return "a-delete";
+    if(action === "delete" || action === "user_deleted" || action === "push_device_removed") return "a-delete";
     return "a-admin";
   }
 
@@ -8069,6 +8184,10 @@ if(supabase){
         (nv.failure_count ? ', ' + nv.failure_count + ' failed' : '');
     }
     if(row.action === "schedule_change") return scheduleDiff(row.old_values, row.new_values);
+    if(row.action === "push_device_removed"){
+      var device = row.new_values && row.new_values.device;
+      return device ? deviceLabelFor(device) : "Unrecognised device";
+    }
     if(row.entry_date){
       if(row.action === "update") return entryDiff(row.old_values, row.new_values);
       var src = row.new_values || row.old_values || {};
