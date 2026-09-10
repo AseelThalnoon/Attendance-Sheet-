@@ -615,7 +615,7 @@ async function run(){
       return lines.slice(s, e).join("\n");
     };
     const code = grab("function isIOS()", "function enableInstructionsFor") + "\n" +
-                 grab("function enableInstructionsFor", "// The person's own subscriptions");
+                 grab("function enableInstructionsFor", "async function refreshPushDevices");
     const say = (ua, standalone) => {
       const sb = { navigator: { userAgent: ua },
         isSafariBrowser: () => /^((?!chrome|android|crios|fxios|edgios|opios).)*safari/i.test(ua),
