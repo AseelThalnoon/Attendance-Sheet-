@@ -186,6 +186,7 @@ if(supabase){
   var viewedUserId = null;     // whose data is currently loaded (self, unless admin switched)
   var viewedProfile = null;
   var allProfiles = [];        // admin only: every registered user, for the switcher + Team tab
+  var pushPromptModalShown = false;  // at most once per sign-in — see maybeShowPushPromptModal()
   var isAdmin = false;
   var isOwnData = true;
 
@@ -1711,98 +1712,133 @@ if(supabase){
   // prompt that also throws a visible error on the sign-in screen would read
   // as broken, not optional — the Settings toggle is still there by hand.
   async function autoPromptPushIfEligible(){
-    if(!pushSupported()){ renderPushPromptBanner(); return; }
+    if(!pushSupported()){ maybeShowPushPromptModal(); return; }
     if(Notification.permission === "granted" && (await currentPushSubscription())){
-      renderPushPromptBanner(); return;
+      return;
     }
     // Not a Chrome-style "might get suppressed" risk — Safari's permission
     // dialog ONLY ever appears from a direct click, full stop. Calling
     // requestPermission() here (sign-in, not a click) is a guaranteed silent
     // no-op on Safari every time, so skip the attempt outright rather than
-    // pretend it might work — renderPushPromptBanner() below is what tells a
-    // Safari user (iPhone very much included) that there is still a button
-    // for them, right where they are instead of buried in Settings.
-    if(isSafariBrowser()){ renderPushPromptBanner(); return; }
+    // pretend it might work — maybeShowPushPromptModal() below is the real,
+    // working path for a Safari user (iPhone very much included): its own
+    // button click is the direct user gesture this call site cannot supply.
+    if(isSafariBrowser()){ maybeShowPushPromptModal(); return; }
     try{
       await subscribeToPush();
       refreshPushToggle();
     }catch(e){ /* declined, blocked, or the browser suppressed an unsolicited prompt — Settings still offers it */ }
-    renderPushPromptBanner();
   }
 
-  // ---------- Push prompt banner ----------
+  // ---------- Push prompt popup ----------
   // autoPromptPushIfEligible() above covers the platforms that can be asked
   // silently at sign-in. Safari cannot be — its permission dialog only opens
-  // from a real click — and until this banner existed, a Safari sign-in that
-  // was eligible for push produced no dialog and no other visible sign that
-  // anything was waiting on them, which reads as "notifications don't work
-  // here" rather than "one tap away". iPhone is the platform this bites
-  // hardest, since it is the one place a browser tab genuinely cannot receive
-  // push at all until the app is on the Home Screen (see enableInstructionsFor).
+  // from a real click — and without this, a Safari sign-in that was eligible
+  // for push produced no dialog and no other visible sign that anything was
+  // waiting, which reads as "notifications don't work here" rather than "one
+  // tap away". iPhone is the platform this bites hardest, since it is the one
+  // place a browser tab genuinely cannot receive push at all until the app is
+  // on the Home Screen (see enableInstructionsFor).
   //
-  // A real click on this banner's own button satisfies the same gesture
+  // A real click on this dialog's own button satisfies the same gesture
   // requirement autoPromptPushIfEligible() cannot, so it is not just a
-  // pointer to Settings — it is a second, working path to the same dialog.
+  // pointer to Settings — it is a second, working path to the same dialog:
+  // the click handler below calls subscribeToPush() directly and
+  // synchronously, with nothing awaited first, so the permission request
+  // rides the same user gesture as the tap that opened it.
   function pushPromptSnoozed(){
     var until = parseInt(safeGet(PUSH_PROMPT_SNOOZE_KEY) || "", 10);
     return isFinite(until) && Date.now() < until;
   }
-  async function renderPushPromptBanner(){
-    var banner = document.getElementById("pushPromptBanner");
-    if(!banner) return;
-    // Never for an admin looking at someone else's account — this is about
-    // notifications reaching the browser in front of you, and hiding it in
-    // that view is one glance short of showing another person's own prompt.
-    if(!isOwnData || pushPromptSnoozed() || Notification.permission === "denied"){
-      banner.classList.remove("show"); return;
-    }
-
-    var title = document.getElementById("pushPromptTitle");
-    var text = document.getElementById("pushPromptText");
-    var actions = document.getElementById("pushPromptActions");
-
-    if(!pushSupported()){
-      // Nothing this banner's own button could do — window.PushManager is
-      // simply absent until the app is installed. Only worth saying on the
-      // platforms where "install it" is the actual fix; a desktop browser
-      // with no push support at all has no next step to offer.
-      if(!(isIOS() || isAndroid()) || isStandaloneDisplay()){
-        banner.classList.remove("show"); return;
-      }
-      title.textContent = "Turn on notifications";
-      text.textContent = enableInstructionsFor();
-      text.classList.add("is-instructional");
-      actions.hidden = true;
-      banner.classList.add("show");
+  // Once per sign-in, not once per render — a modal is a real interruption,
+  // unlike the banner it replaced, and refreshSettingsPanel() alone re-runs
+  // on every admin viewer switch and every settings save.
+  async function maybeShowPushPromptModal(){
+    if(pushPromptModalShown || !isOwnData || pushPromptSnoozed()) return;
+    if(Notification.permission === "denied") return;
+    if(pushSupported() && Notification.permission === "granted" && (await currentPushSubscription())) return;
+    pushPromptModalShown = true;
+    showPushPromptModal();
+  }
+  function showPushPromptModal(){
+    var instructional = !pushSupported();
+    if(instructional && !((isIOS() || isAndroid()) && !isStandaloneDisplay())){
+      // Nothing this dialog's own button could do — window.PushManager is
+      // simply absent until the app is installed, and only worth saying on
+      // the platforms where "install it" is the actual fix.
       return;
     }
-    if(Notification.permission === "granted" && (await currentPushSubscription())){
-      banner.classList.remove("show"); return;
-    }
+    var overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    var mid = "pushp" + Math.random().toString(36).slice(2,8);
+    overlay.innerHTML =
+      '<div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="'+mid+'-t" aria-describedby="'+mid+'-m">' +
+        '<h3 class="modal-title" id="'+mid+'-t">Turn on notifications?</h3>' +
+        '<p class="modal-msg" id="'+mid+'-m"></p>' +
+        '<p class="modal-msg push-prompt-error" hidden></p>' +
+        '<div class="modal-actions">' +
+          (instructional
+            ? '<button type="button" class="btn modal-confirm">Got It</button>'
+            : '<button type="button" class="btn ghost modal-cancel">Not Now</button>' +
+              '<button type="button" class="btn modal-confirm">Turn On</button>') +
+        '</div>' +
+      '</div>';
+    overlay.querySelector(".modal-msg").textContent = instructional
+      ? enableInstructionsFor()
+      : "Get notified here when it matters — a forgotten clock-out, or a message from an admin.";
+    dialogRoot().appendChild(overlay);
+    requestAnimationFrame(function(){ overlay.classList.add("show"); });
 
-    text.classList.remove("is-instructional");
-    actions.hidden = false;
-    title.textContent = "Turn on notifications";
-    text.textContent = "Get notified here when it matters — a forgotten clock-out, or a message from an admin.";
-    banner.classList.add("show");
-  }
-  document.getElementById("pushPromptEnableBtn").addEventListener("click", async function(){
-    var btn = this;
-    btn.disabled = true;
-    try{
-      await subscribeToPush();
-      showToast("Notifications are on for this device.", "success");
-    }catch(err){
-      showToast("Couldn't turn on notifications: " + friendlyError(err), "error");
+    var bgRoot = document.getElementById("appShell").style.display !== "none"
+      ? document.getElementById("appShell") : document.getElementById("authScreen");
+    bgRoot.setAttribute("aria-hidden", "true");
+    var previouslyFocused = document.activeElement;
+
+    function close(){
+      document.removeEventListener("keydown", onKey);
+      bgRoot.removeAttribute("aria-hidden");
+      overlay.classList.remove("show");
+      setTimeout(function(){
+        overlay.remove();
+        if(previouslyFocused && typeof previouslyFocused.focus === "function") previouslyFocused.focus();
+      }, 180);
     }
-    btn.disabled = false;
-    await refreshPushToggle();
-    await renderPushPromptBanner();
-  });
-  document.getElementById("pushPromptLaterBtn").addEventListener("click", function(){
-    safeSet(PUSH_PROMPT_SNOOZE_KEY, String(Date.now() + PUSH_PROMPT_SNOOZE_DAYS*24*60*60*1000));
-    renderPushPromptBanner();
-  });
+    function onKey(ev){ if(ev.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    var cancelBtn = overlay.querySelector(".modal-cancel");
+    if(cancelBtn){
+      cancelBtn.addEventListener("click", function(){
+        safeSet(PUSH_PROMPT_SNOOZE_KEY, String(Date.now() + PUSH_PROMPT_SNOOZE_DAYS*24*60*60*1000));
+        close();
+      });
+    }
+    var confirmBtn = overlay.querySelector(".modal-confirm");
+    if(instructional){
+      confirmBtn.addEventListener("click", close);
+    } else {
+      // The click itself — nothing awaited before this line — is what makes
+      // requestPermission() (inside subscribeToPush) eligible to actually
+      // open the OS dialog on Safari. If it still doesn't, the error below
+      // is the real reason (blocked, unsupported, or a failed subscribe),
+      // not silence.
+      confirmBtn.addEventListener("click", async function(){
+        confirmBtn.disabled = true;
+        var errEl = overlay.querySelector(".push-prompt-error");
+        try{
+          await subscribeToPush();
+          showToast("Notifications are on for this device.", "success");
+          await refreshPushToggle();
+          close();
+        }catch(err){
+          errEl.textContent = friendlyError(err);
+          errEl.hidden = false;
+          confirmBtn.disabled = false;
+        }
+      });
+    }
+    overlay.addEventListener("click", function(ev){ if(ev.target === overlay) close(); });
+    setTimeout(function(){ confirmBtn.focus(); }, 40);
+  }
 
   function fillSettingsForm(){
     DAY_NAMES.forEach(function(_, i){
@@ -1847,7 +1883,6 @@ if(supabase){
   // unconditional repaints.
   function refreshSettingsPanel(){
     refreshPushToggle().catch(function(){});
-    renderPushPromptBanner().catch(function(){});
     var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user";
     // The line above the form says what the form is. When the schedule never
     // loaded, what the form is holding is DEFAULT_SETTINGS — so it says that,
@@ -9404,6 +9439,7 @@ if(supabase){
     currentUser = null; currentProfile = null;
     viewedUserId = null; viewedProfile = null;
     allProfiles = []; isAdmin = false; isOwnData = true;
+    pushPromptModalShown = false;
     entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
     dismissedReminders = {};
     // entries is empty now, so this clears the icon. Leaving a badge behind
