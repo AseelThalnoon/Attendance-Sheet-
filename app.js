@@ -2189,20 +2189,30 @@ if(supabase){
 
   // The period editor works on the DOM rows directly; nothing is committed to
   // settings until Save is pressed, so Close always discards edits.
+  // "From/To" for the date range and "Start/End" for the daily clock times
+  // read as the same pair of words twice — easy to tell apart once you know
+  // one is a date input and the other a time input, not before. Starts/Ends
+  // vs Clock In/Clock Out don't share that ambiguity.
   function periodRowHtml(p){
-    return '<div class="period-row" data-period>' +
-      '<div><label>Name</label><input type="text" data-p="name" value="'+escapeAttr(p.name)+'" placeholder="Ramadan"></div>' +
-      '<div><label>From</label><input type="date" data-p="start" value="'+escapeAttr(p.start)+'"></div>' +
-      '<div><label>To</label><input type="date" data-p="end" value="'+escapeAttr(p.end)+'"></div>' +
-      '<div><label>Hours</label><input type="number" data-p="th" min="0" max="24" step="1" value="'+Math.floor(p.targetMin/60)+'"></div>' +
-      '<div><label>Mins</label><input type="number" data-p="tm" min="0" max="59" step="1" value="'+(p.targetMin%60)+'"></div>' +
-      '<div><label>Start / End</label>' +
-        '<div class="period-time-row">' +
-          '<input type="time" data-p="in" value="'+escapeAttr(p.standardIn)+'">' +
-          '<input type="time" data-p="out" value="'+escapeAttr(p.standardOut)+'">' +
-        '</div>' +
+    return '<div class="season-card" data-period>' +
+      '<div class="season-card-head">' +
+        '<div class="season-name-field"><label>Name</label>' +
+          '<input type="text" class="season-name" data-p="name" value="'+escapeAttr(p.name)+'" maxlength="60" dir="auto" placeholder="e.g. Ramadan"></div>' +
+        '<button type="button" class="period-del" data-remove-period>Remove</button>' +
       '</div>' +
-      '<button type="button" class="period-del" data-remove-period>Remove</button>' +
+      '<div class="form-grid">' +
+        '<fieldset class="field-pair">' +
+          '<legend>Daily Target</legend>' +
+          '<div class="pair-row">' +
+            '<span class="pair-unit"><input type="number" data-p="th" min="0" max="24" step="1" value="'+Math.floor(p.targetMin/60)+'"><label>hrs</label></span>' +
+            '<span class="pair-unit"><input type="number" data-p="tm" min="0" max="59" step="1" value="'+(p.targetMin%60)+'"><label>min</label></span>' +
+          '</div>' +
+        '</fieldset>' +
+        '<div><label>Starts</label><input type="date" data-p="start" value="'+escapeAttr(p.start)+'"></div>' +
+        '<div><label>Ends</label><input type="date" data-p="end" value="'+escapeAttr(p.end)+'"></div>' +
+        '<div><label>Clock In</label><input type="time" data-p="in" value="'+escapeAttr(p.standardIn)+'"></div>' +
+        '<div><label>Clock Out</label><input type="time" data-p="out" value="'+escapeAttr(p.standardOut)+'"></div>' +
+      '</div>' +
     '</div>';
   }
 
