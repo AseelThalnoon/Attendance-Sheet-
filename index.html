@@ -2551,28 +2551,39 @@
 
   .periods-section{margin-top:var(--space-6); padding-top:var(--space-4); border-top:1px solid var(--line-soft);}
   .periods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:2px;}
-  .period-row{
-    display:grid; grid-template-columns:1.4fr 1fr 1fr .8fr .8fr 1.1fr auto;
-    gap:10px; align-items:end;
-    padding:12px; margin-bottom:10px;
+  /* One period was seven equally-weighted columns squeezed into a single row
+     -- Name no more prominent than Mins, six repeated column labels per
+     period, and the whole row forced into one column below 760px regardless
+     of what actually needed it. A card instead: the name leads as a real
+     title, and the fields below it are .form-grid -- the exact same
+     component Working Hours uses right above this section, which already
+     carries the 480px native-date/time-control fallback (see that rule's own
+     comment) rather than a second, untested one invented for this list.
+     Named .season-*, not .period-* -- Trends/Shortfall already own
+     .period-card for their own, differently-styled chart card, and reusing
+     the name here would silently merge the two. */
+  .season-card{
+    padding:14px; margin-bottom:10px;
     border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--ink-50);
   }
-  .period-row > div{min-width:0;}
-  .period-row label{font-size:11px; margin-bottom:4px;}
-  .period-row input{padding:8px 8px; font-size:12.5px; min-width:0;}
-  .period-time-row{display:flex; gap:6px; flex-wrap:wrap;}
-  .period-time-row input{flex:1 1 90px; min-width:90px;}
+  .season-card-head{display:flex; align-items:flex-end; gap:10px; margin-bottom:12px;}
+  .season-name-field{flex:1 1 auto; min-width:0;}
+  .season-name-field label{font-size:11px; margin-bottom:4px;}
+  /* The one field on this card that is also its title. Larger and heavier
+     than a field has any reason to be on its own -- earned here, the same
+     way a card heading is, because this input IS how the period is told
+     apart from the one above and below it. */
+  .season-name{font-size:14.5px; font-weight:700;}
+  /* Denser than the form above it, on purpose: this repeats per period, and
+     the 10px/12.5px pair-row footprint already proven on Daily Target there
+     is the ceiling a repeating list item should spend. */
+  .season-card .form-grid{gap:10px;}
+  .season-card .form-grid input{padding:8px 8px; font-size:12.5px; min-width:0;}
   .period-del{
     background:none; border:1px solid var(--line); color:var(--negative);
-    border-radius:var(--radius-xs); cursor:pointer; padding:8px 10px; font-size:12px; height:34px; white-space:nowrap;
+    border-radius:var(--radius-xs); cursor:pointer; padding:8px 10px; font-size:12px; height:34px; white-space:nowrap; flex-shrink:0;
   }
   .periods-empty{font-size:12px; color:var(--muted-2); padding:10px 2px;}
-  @media (max-width:760px){
-    /* Single column: every seasonal-hours field gets its own full-width row,
-       so nothing is ever squeezed into a space it can't fit. */
-    .period-row{grid-template-columns:1fr;}
-    .period-row .period-del{grid-column:auto; width:100%;}
-  }
 
   /* ---------- Log search bar ---------- */
   .search-field{position:relative; flex:1 1 200px; min-width:170px; display:flex; align-items:center;}
@@ -3087,7 +3098,6 @@
        would otherwise reset the room the search icon sits in — the glyph ended
        up printed under the first letter of the placeholder. */
     .search-field input{padding-left:32px;}
-    .period-row input{padding:var(--space-1) var(--space-2);}
     /* Capped. flex:1 1 200px with no ceiling made the search box 65% of the
        content width, and narrowing the selects only fed it more — 808px at
        1920 to hold a short phrase, with the buttons beside it pushed to the
@@ -5612,6 +5622,15 @@
             <label>Working Days</label>
             <div class="daypicker" id="dayPicker"></div>
           </div>
+          <!-- Six fields the same weight, one after another, read as one
+               undifferentiated list — worse on a phone, where they are six
+               full-width rows with nothing to tell a reader "the first three
+               are the shape of your day; the next two are about running
+               late; the last one is a different year altogether entirely."
+               .console-subhead already exists for exactly this (see
+               Seasonal Hours inside Organisation Defaults) and .full already
+               spans a .form-grid row, so grouping costs one label each,
+               reusing both rather than inventing a container per group. -->
           <div class="form-grid">
             <fieldset class="field-pair">
               <legend>Daily Target</legend>
@@ -5628,6 +5647,8 @@
               <label for="sOut">Standard End</label>
               <input type="time" id="sOut">
             </div>
+
+            <div class="console-subhead full">Lateness &amp; Reminders</div>
             <div>
               <label for="sRemind">Remind After (hours)</label>
               <input type="number" id="sRemind" min="1" max="24" step="0.5">
@@ -5636,20 +5657,23 @@
               <label for="sGrace">Grace Period (minutes)</label>
               <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
             </div>
+            <p class="settings-hint full" style="margin:0;">Grace period is how late you can arrive before a day counts as a late arrival. Remind after flags a day you&rsquo;ve clocked in but not out for this long — it&rsquo;s also what triggers the reminder notification.</p>
+
+            <div class="console-subhead full">Leave</div>
             <div>
               <label for="sLeaveDays">Annual Leave Days / Year</label>
               <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
             </div>
+            <p class="settings-hint full" style="margin:0;">The yearly entitlement used to calculate the Leave Balance card.</p>
           </div>
           <!-- The retroactive warning was the fourth line of a grey paragraph
                under the fields — the single most consequential fact on this
-               screen, in the least emphatic slot on it. It leads now, and the
-               field glossary follows as the reference it actually is. -->
+               screen, in the least emphatic slot on it. It leads here, right
+               after the fields it applies to and before the sign-off below. -->
           <p class="settings-warn">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
             <span>Saving recalculates every day already logged, not just days from here on.</span>
           </p>
-          <p class="settings-hint">&ldquo;Remind after&rdquo; flags a day when you&rsquo;ve clocked in but not out for longer than this. &ldquo;Grace period&rdquo; is how late you can arrive before a day counts as a late arrival. &ldquo;Annual Leave Days&rdquo; is the yearly entitlement used to calculate the Leave Balance card.</p>
         </div>
       </div>
 
@@ -6111,14 +6135,18 @@
           <label for="dOut">Standard End</label>
           <input type="time" id="dOut">
         </div>
-        <div>
-          <label for="dGrace">Grace Period (min)</label>
-          <input type="number" id="dGrace" min="0" max="240" step="1" inputmode="numeric">
-        </div>
+
+        <div class="console-subhead full">Lateness &amp; Reminders</div>
         <div>
           <label for="dRemind">Remind After (hours)</label>
           <input type="number" id="dRemind" min="1" max="24" step="0.5">
         </div>
+        <div>
+          <label for="dGrace">Grace Period (min)</label>
+          <input type="number" id="dGrace" min="0" max="240" step="1" inputmode="numeric">
+        </div>
+
+        <div class="console-subhead full">Leave</div>
         <div>
           <label for="dLeaveDays">Annual Leave (days)</label>
           <input type="number" id="dLeaveDays" min="0" max="365" step="1" inputmode="numeric">
