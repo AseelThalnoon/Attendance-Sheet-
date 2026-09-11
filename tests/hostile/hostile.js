@@ -289,7 +289,7 @@ async function run(){
       profiles: [me], entries: [],
       user_settings: [{ user_id: me.id, settings: D.SETTINGS }]
     }});
-    await h.page.evaluate(() => { for(let i=0;i<10;i++) document.getElementById("clockInBtn").click(); });
+    await h.page.evaluate(() => { for(let i=0;i<10;i++) document.getElementById("qcClockBtn").click(); });
     await settle(h.page, 1000);
     ok(h.backend.state.entries.filter(e => e.user_id === me.id).length === 1,
       "10 same-tick clicks on Clock In write exactly one entry");
@@ -364,7 +364,7 @@ async function run(){
       user_settings: [{ user_id: me.id, settings: D.SETTINGS }]
     }, beforeLoad: ({ backend }) => backend.fail("/rest/v1/", { mode: "offline" }, Infinity) });
     await settle(h.page, 1200);
-    await h.page.evaluate(() => document.getElementById("clockInBtn").click());
+    await h.page.evaluate(() => document.getElementById("qcClockBtn").click());
     await settle(h.page, 1000);
     const snap = await h.page.evaluate(() => ({
       outboxShown: document.getElementById("outboxBanner").classList.contains("show"),
