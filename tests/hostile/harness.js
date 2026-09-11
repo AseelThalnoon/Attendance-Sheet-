@@ -1,16 +1,24 @@
 // Boots the real application, signed in, against a scripted backend.
-const { chromium } = require("playwright");
+const playwright = require("playwright");
+const { chromium } = playwright;
 const { start } = require("./server");
 const { createBackend } = require("./backend");
 
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE   = { width: 393, height: 852 };
 
+// opts.engine picks the browser ("chromium" by default, "webkit" for Safari's
+// actual engine) and opts.device takes a Playwright device descriptor --
+// devices["iPhone 15 Pro"] and friends, which carry the viewport, DPR, touch
+// flags and user agent together. Neither is set by any existing caller, so
+// every suite that predates them keeps the Chromium/viewport behaviour it had.
 async function boot(opts){
   opts = opts || {};
   const server = await start();
-  const browser = await chromium.launch();
-  const context = await browser.newContext({
+  const engine = playwright[opts.engine || "chromium"];
+  if(!engine) throw new Error("unknown engine: " + opts.engine);
+  const browser = await engine.launch();
+  const context = await browser.newContext(opts.device ? Object.assign({}, opts.device) : {
     viewport: opts.viewport || DESKTOP,
     deviceScaleFactor: opts.viewport === PHONE ? 3 : 1,
     isMobile: opts.viewport === PHONE,
