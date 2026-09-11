@@ -1525,22 +1525,7 @@
      of an 852px screen and neither was the thing the person opened the app to
      do. Nothing is dismissed on their behalf — the count says exactly what is
      waiting and one tap brings it back. */
-  .notice-more{
-    display:none; width:100%; margin-bottom:var(--space-5);
-    padding:var(--space-3) var(--space-4); align-items:center; gap:var(--space-2);
-    background:var(--wash-soft); border:1px solid var(--line-soft);
-    border-radius:var(--radius-md); color:var(--muted-2);
-    font-family:inherit; font-size:12.5px; font-weight:500; text-align:left;
-    cursor:pointer; min-height:44px;
-  }
-  .notice-more::before{
-    content:""; width:6px; height:6px; border-radius:50%;
-    background:var(--warn); flex-shrink:0;
-  }
-  .notice-more:hover{border-color:var(--line); color:var(--ink);}
   @media (max-width:759px){
-    .notice-stack:not(.is-open) .reminder.show.is-folded{display:none;}
-    .notice-more:not([hidden]){display:flex;}
     /* Compact: a notice on a phone is a sentence and its buttons, not a card
        with desktop padding. The body clamps to two lines — the notice has to
        say what happened and offer the fix, and the third line was always the
@@ -1623,7 +1608,6 @@
     padding:var(--space-3) 0;
   }
   .notif-body .notice-stack > .reminder.show{display:flex;}
-  .notif-body .notice-stack > .reminder.is-folded{display:flex;}
   /* Undo the frame's inline strip. Above 761px a notice lays its title, its
      sentence and its buttons out as flex siblings on one line, because up
      there it sits on top of the screen and every row it costs is a row the tab
@@ -4790,7 +4774,11 @@
   .crop-stage{
     position:relative; width:300px; height:300px; max-width:100%;
     margin:0 auto; border-radius:var(--radius-md); overflow:hidden;
-    background:var(--wash-soft); touch-action:none; cursor:grab;
+    /* --wash-soft was named here but defined in no palette, so this
+       declaration was invalid and the cropper had no backdrop at all
+       behind the photo. --surface-gray is the light neutral surface that
+       actually exists in all fourteen blocks. */
+    background:var(--surface-gray); touch-action:none; cursor:grab;
   }
   .crop-stage.dragging{cursor:grabbing;}
   .crop-stage img{
@@ -5430,8 +5418,10 @@
     </div>
   </section>
 
-  <!-- Who is in today. Admin-only; it removes itself for everyone else, and
-       the panel drops to two columns rather than leaving the gap. -->
+  <!-- Who is in today. Everyone sees this: an admin reads entries/profiles
+       directly, and a non-admin goes through list_today_presence(), the
+       SECURITY DEFINER function added for exactly this panel so it did not
+       need a wider grant on either table. -->
   <section class="card today-team" id="todayTeamCard" hidden>
     <div class="tt-head">
       <h2>In today</h2>
