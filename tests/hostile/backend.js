@@ -68,6 +68,7 @@ function createBackend(seed){
     push_notifications: (seed && seed.push_notifications) || [],
     push_subscriptions: (seed && seed.push_subscriptions) || [],
     push_deliveries: (seed && seed.push_deliveries) || [],
+    notification_reads: (seed && seed.notification_reads) || [],
     // Faults, keyed by a substring of the request path ("entries", "rpc/admin_list_users").
     // Value: {status, message} | "hang" | {delayMs, ...}
     faults: new Map(),
@@ -191,6 +192,37 @@ function createBackend(seed){
       return json(null);
     }
     if(name === "admin_set_user_active" || name === "admin_delete_user") return json(null);
+    // The notification bell's two read/write paths. Mirrors the SQL in
+    // 20260911090000_notification_center.sql: only 'sent' rows, only ones
+    // addressed to the caller, newest first, with this user's read state
+    // joined on -- and mark is insert-only and idempotent.
+    if(name === "list_my_notifications"){
+      const mine = state.push_notifications
+        .filter(n => n.status === "sent" &&
+          (n.target_type === "all" ||
+           (n.target_type === "users" && (n.target_user_ids || []).includes(state.meId))))
+        .sort((a, b) => String(b.sent_at || b.created_at).localeCompare(String(a.sent_at || a.created_at)))
+        .slice(0, Math.min(Math.max(args.p_limit || 50, 1), 200))
+        .map(n => ({
+          id: n.id, title: n.title, body: n.body,
+          action: n.action || null, action_payload: n.action_payload || null,
+          sent_at: n.sent_at || n.created_at,
+          from_system: !n.created_by,
+          read: state.notification_reads.some(r => r.user_id === state.meId && r.notification_id === n.id)
+        }));
+      return json(mine);
+    }
+    if(name === "mark_notifications_read"){
+      let added = 0;
+      (args.p_ids || []).forEach(id => {
+        const n = state.push_notifications.find(x => x.id === id && x.status === "sent");
+        if(!n) return;
+        if(state.notification_reads.some(r => r.user_id === state.meId && r.notification_id === id)) return;
+        state.notification_reads.push({ user_id: state.meId, notification_id: id, read_at: new Date().toISOString() });
+        added++;
+      });
+      return json(added);
+    }
     return json({ message: "unknown rpc " + name }, 404);
   }
 
