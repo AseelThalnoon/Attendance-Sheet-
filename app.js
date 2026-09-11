@@ -8801,7 +8801,7 @@ var __authLinkError = (function(){
   window.addEventListener("resize", function(){ closeRowMenu(); });
   document.addEventListener("click", function(ev){
     if(!rowMenuOwner) return;
-    if(ev.target.closest(".row-menu, .row-menu-btn")) return;
+    if(ev.target && ev.target.closest && ev.target.closest(".row-menu, .row-menu-btn")) return;
     closeRowMenu();
   });
   document.addEventListener("keydown", function(ev){

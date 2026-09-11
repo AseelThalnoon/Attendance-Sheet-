@@ -119,6 +119,120 @@ const TARGETS = [
     await h.close();
   }
 
+  // ---- dismissing the People row menu by tapping away from it ----------
+  // iOS Safari only synthesises a click for elements it considers
+  // interactive. A tap on a plain <div> -- another person's row, the section
+  // heading -- produces no click event at all, so a click-only
+  // outside-dismiss listener never hears it and the menu cannot be closed.
+  // Chromium fires a click for every tap and shows none of this; so does a
+  // test that dismisses with document.body.click(), which dispatches the
+  // event directly and would pass against the broken code.
+  //
+  // This taps the screen the way a thumb does.
+  {
+    const device = devices["iPhone 14 Pro Max"];
+    const admins = D.roster(6);
+    admins[0].role = "admin";
+    const h = await boot({ engine, device, meId: admins[0].id, seed: {
+      profiles: admins, entries: [],
+      user_settings: admins.map(p => ({ user_id: p.id, settings: D.SETTINGS }))
+    }});
+    try{
+      // The Add to Home Screen / notifications prompt shows on a phone
+      // profile and covers the list. Dismiss it first, or every tap below
+      // lands on the modal instead of on the row it names.
+      await settle(h.page, 900);
+      await h.page.evaluate(() => {
+        document.querySelectorAll(".modal-overlay").forEach(o => {
+          const no = [...o.querySelectorAll("button")]
+            .find(b => /not now|later|cancel|no thanks|dismiss|close/i.test(b.textContent || ""));
+          if(no) no.click(); else o.remove();
+        });
+      });
+      await settle(h.page, 300);
+      const covered = await h.page.evaluate(() => document.querySelectorAll(".modal-overlay").length);
+      ok(covered === 0, "[iOS tap] the prompt modal is out of the way first", `${covered} still open`);
+
+      await goTab(h.page, "admin");
+      await h.page.evaluate(() => {
+        const b = document.getElementById("cnav-admin-people");
+        if(b) b.click();
+      });
+      await settle(h.page, 600);
+
+      // Scrolled into view before measuring: on a phone the People rows start
+      // well below the fold, and a coordinate taken from an offscreen element
+      // taps whatever happens to be at that point instead.
+      const at = async sel => {
+        await h.page.evaluate(s => {
+          const el = document.querySelector(s);
+          if(el) el.scrollIntoView({ block: "center" });
+        }, sel);
+        await settle(h.page, 250);
+        return h.page.evaluate(s => {
+          const el = document.querySelector(s);
+          if(!el) return null;
+          const r = el.getBoundingClientRect();
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + Math.min(12, r.height / 2)),
+                   tag: el.tagName, onScreen: r.top >= 0 && r.bottom <= window.innerHeight,
+                   interactive: !!el.closest("button, a, input, select, textarea, label") };
+        }, sel);
+      };
+      // Painted, not .hidden -- see the same note in regression/admin-tab.js.
+      const menuOpen = () => h.page.evaluate(() => {
+        const m = document.getElementById("adminRowMenu");
+        return !!(m && m.getClientRects().length);
+      });
+
+      const kebab = await at("#adminUsersList .admin-user-row:nth-child(2) .row-menu-btn");
+      ok(!!kebab && kebab.onScreen,
+        "[iOS tap] the People list has a row menu button on screen to tap", JSON.stringify(kebab));
+      if(kebab){
+        await h.page.touchscreen.tap(kebab.x, kebab.y);
+        await settle(h.page, 400);
+        ok(await menuOpen(), "[iOS tap] tapping the three dots opens the menu");
+
+        // The target has to be a plain, non-interactive element -- tapping a
+        // button would produce a click on any engine and prove nothing.
+        // Deliberately NOT scrolled into view: scrolling closes the menu on
+        // its own (the menu cannot follow a row inside a scroller), so a
+        // helper that scrolls first dismisses it before the tap and the
+        // assertion below passes no matter what the listener does. This was
+        // that mistake once already. Find a spot that is already on screen,
+        // is genuinely non-interactive, and is not underneath the menu.
+        const elsewhere = await h.page.evaluate(() => {
+          const menu = document.getElementById("adminRowMenu").getBoundingClientRect();
+          for(const main of document.querySelectorAll("#adminUsersList .admin-user-main")){
+            const r = main.getBoundingClientRect();
+            const x = Math.round(r.left + 20), y = Math.round(r.top + 6);
+            if(r.top < 60 || r.bottom > window.innerHeight - 60) continue;
+            if(y > menu.top - 8 && y < menu.bottom + 8) continue;   // under the popover
+            const hit = document.elementFromPoint(x, y);
+            if(!hit || hit.closest(".row-menu")) continue;
+            return { x, y, tag: hit.tagName,
+                     interactive: !!hit.closest("button, a, input, select, textarea, label") };
+          }
+          return null;
+        });
+        ok(elsewhere && !elsewhere.interactive,
+          "[iOS tap] and there is a plain, on-screen spot to tap away to",
+          JSON.stringify(elsewhere));
+        // Nothing since the open should have dismissed it. If this fails the
+        // tap below is meaningless.
+        ok(await menuOpen(), "[iOS tap] the menu is still open right before the tap-away");
+        if(elsewhere && !elsewhere.interactive){
+          await h.page.touchscreen.tap(elsewhere.x, elsewhere.y);
+          await settle(h.page, 400);
+          ok(!(await menuOpen()),
+            "[iOS tap] tapping away from it closes the menu",
+            "the menu is still painted — .row-menu is display:flex, which outranks " +
+            "the UA sheet's [hidden]{display:none}, so closing it in the DOM leaves " +
+            "it on the screen");
+        }
+      }
+    } finally { await h.close(); }
+  }
+
   console.log(`  apple     pass ${pass}   fail ${fail}`);
   if(fail){ failures.forEach(f => console.log("  FAIL " + f)); process.exitCode = 1; }
 })().catch(err => { console.error(err); process.exitCode = 1; });
