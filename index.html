@@ -1540,6 +1540,17 @@
     .reminder-actions .btn{min-height:40px; padding:var(--space-2) var(--space-3); font-size:12.5px;}
   }
 
+  /* Above every overlay in the app -- the modal overlay at 210 included, since
+     a dialog scrolls under the status bar exactly like the page does. Only the
+     skip link (400) sits higher, because it has to be reachable before
+     anything else. */
+  .status-bar-scrim{
+    position:fixed; top:0; left:0; right:0; z-index:300;
+    height:env(safe-area-inset-top, 0px);
+    background:var(--ink-950);
+    pointer-events:none;
+  }
+
   /* ---------- Notification centre ----------
      The bell lives on two surfaces and only ever one at a time: the rail above
      760px, the header row below it. Same split Admin and Settings already use,
@@ -5092,6 +5103,16 @@
 </div>
 
 <!-- ============ MAIN APP (hidden until signed in) ============ -->
+<!-- Standalone on iOS draws the page UNDER the status bar: the
+     apple-mobile-web-app-status-bar-style above is black-translucent and the
+     viewport is viewport-fit=cover. The header reserves the inset, so nothing
+     collides at the top of the page -- but nothing stopped SCROLLED content
+     passing through that strip, and the Today bar slid under the clock and the
+     battery. This band occludes it. It also gives the status bar's glyphs, which
+     black-translucent always renders white, something they can be read against:
+     on the light canvas they were white on greige. Zero-height everywhere the
+     inset is zero, so it costs nothing on desktop or Android. -->
+<div class="status-bar-scrim" aria-hidden="true"></div>
 <div id="appShell" style="display:none;">
 
 <!-- The rail. Nav items are a thin visual layer over the real .tab-btn

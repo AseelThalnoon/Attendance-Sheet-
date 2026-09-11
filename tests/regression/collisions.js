@@ -192,6 +192,83 @@ const VIEWPORTS = [
     }
   }
 
+  // ---- the collision a DOM scan cannot see -------------------------------
+  // Everything above measures elements against each other. The status bar is
+  // not an element: standalone on iOS draws the page underneath it
+  // (black-translucent + viewport-fit=cover), and Chromium resolves
+  // env(safe-area-inset-top) to 0, so no amount of scanning the DOM will ever
+  // show the Today bar sliding under the clock and the battery. It was
+  // reported from a real phone, not found here.
+  //
+  // What is testable is the band that occludes it: that it exists, spans the
+  // strip, outranks every overlay, costs nothing where there is no inset, and
+  // actually PAINTS over scrolled content -- sampled from the rendered frame,
+  // because pointer-events:none makes elementFromPoint skip it and paint order
+  // is the whole question.
+  {
+    const h = await boot({ viewport: { width: 393, height: 852 }, meId: me.id, seed: {
+      profiles: people, entries: D.entriesFor(me.id, 25),
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS }))
+    }});
+    await settle(h.page, 600);
+
+    const base = await h.page.evaluate(() => {
+      const s = document.querySelector(".status-bar-scrim");
+      if(!s) return { missing: true };
+      const cs = getComputedStyle(s), r = s.getBoundingClientRect();
+      const others = Array.from(document.querySelectorAll("*"))
+        .filter(e => !e.classList.contains("status-bar-scrim"))
+        .map(e => parseInt(getComputedStyle(e).zIndex, 10))
+        .filter(n => !isNaN(n) && n < 400);
+      return { pos: cs.position, top: cs.top, h: Math.round(r.height),
+               w: Math.round(r.width), z: parseInt(cs.zIndex, 10),
+               maxOtherZ: Math.max(...others), pe: cs.pointerEvents,
+               vw: document.documentElement.clientWidth };
+    });
+    ok(!base.missing, "a status-bar band exists", "nothing occludes content scrolling under the iOS status bar");
+    ok(base.pos === "fixed" && base.top === "0px", "the band is pinned to the top of the viewport");
+    ok(base.w === base.vw, "the band spans the full width", `${base.w} of ${base.vw}`);
+    ok(base.h === 0, "the band is zero-height where there is no inset", `it is ${base.h}px, so it costs layout off iOS`);
+    ok(base.z > base.maxOtherZ, "the band outranks every overlay",
+      `z ${base.z} against a highest other of ${base.maxOtherZ} -- a dialog scrolls under the status bar too`);
+    ok(base.pe === "none", "the band never intercepts a tap");
+
+    // Drive the height the way a notch would and look at what is drawn.
+    const NOTCH = 59;
+    await h.page.evaluate(async px => {
+      const st = document.createElement("style");
+      st.textContent = ".status-bar-scrim{height:" + px + "px !important;}";
+      document.head.appendChild(st);
+      await new Promise(r => setTimeout(r, 120));
+      window.scrollTo(0, 400);
+      await new Promise(r => setTimeout(r, 200));
+    }, NOTCH);
+    const strip = await h.page.screenshot({ clip: { x: 0, y: 0, width: 393, height: NOTCH } });
+    // Decode enough of the PNG to know it is one flat colour: re-encode via the
+    // browser, which already has a decoder.
+    const flat = await h.page.evaluate(async b64 => {
+      const img = new Image();
+      img.src = "data:image/png;base64," + b64;
+      await img.decode();
+      const c = document.createElement("canvas");
+      c.width = img.width; c.height = img.height;
+      c.getContext("2d").drawImage(img, 0, 0);
+      const d = c.getContext("2d").getImageData(0, 0, img.width, img.height).data;
+      let min = 255, max = 0;
+      for(let i = 0; i < d.length; i += 4){
+        const lum = d[i] + d[i+1] + d[i+2];
+        if(lum < min) min = lum;
+        if(lum > max) max = lum;
+      }
+      return { min, max };
+    }, strip.toString("base64"));
+    ok(flat.max < 60,
+      "with a notch-sized inset, scrolled content is fully occluded by the band",
+      `the strip contains pixels up to luminance ${flat.max} -- content is showing through`);
+
+    await h.close();
+  }
+
   console.log(`  collisions  pass ${pass}   fail ${fail}`);
   if(fail){ failures.forEach(f => console.log("  FAIL " + f)); process.exitCode = 1; }
 })().catch(err => { console.error(err); process.exitCode = 1; });
