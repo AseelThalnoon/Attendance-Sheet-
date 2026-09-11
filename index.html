@@ -1545,8 +1545,13 @@
      760px, the header row below it. Same split Admin and Settings already use,
      so nothing new is duplicated on screen. */
   .notif-bell-host{position:relative;}
+  /* Inline, not pinned to the pill's corner. Corner-positioned, it sat on the
+     pill's own last letter and spilled over the neighbouring Admin pill --
+     these pills sit side by side with an 8px gap, which is narrower than the
+     badge. Inside the pill it collides with nothing and needs no stacking
+     context to stay clear. */
   .notif-badge{
-    position:absolute; top:4px; right:4px;
+    flex-shrink:0;
     min-width:17px; height:17px; padding:0 4px; box-sizing:border-box;
     border-radius:var(--radius-pill);
     background:var(--negative-solid); color:#fff;
@@ -1554,10 +1559,8 @@
     font-variant-numeric:tabular-nums; pointer-events:none;
   }
   .notif-badge[hidden]{display:none;}
-  #notifBtn{position:relative;}
-  /* The rail item is a full-width row, so the count sits at its end rather
-     than clipped to a corner the way it does on the header's pill. */
-  .rail-notif-badge{position:static; margin-left:auto;}
+  /* The rail item is a full-width row, so the count sits at its far end. */
+  .rail-notif-badge{margin-left:auto;}
   #railNotifBtn{position:relative;}
 
   .notif-overlay{
@@ -2554,6 +2557,36 @@
      themselves the rows came out at two heights depending on whether a
      description wrapped, and a directory whose rows are all slightly different
      reads as a list of unrelated things rather than one set of choices. */
+  /* Eight rows in one flat list is past what anyone holds at once, and these
+     eight are not one kind of thing: three only read, two touch one person at
+     a time, three act on the whole team. The headings are the chunking; each
+     group is three rows or fewer.
+     role="presentation" on the wrapper and aria-hidden on the heading keep the
+     tablist's own semantics exactly as they were -- a tablist's children are
+     tabs, and arrow keys still walk all eight in order. The grouping is a
+     scanning aid for the eye; nothing about the keyboard or the screen-reader
+     path changes. */
+  .console-nav-group + .console-nav-group{margin-top:var(--space-3);}
+  .console-nav-group-title{
+    margin:0 0 var(--space-1); padding:0 var(--space-3);
+    font-size:10px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted-2);
+  }
+
+  /* A row that has found something wrong. Organisation Defaults sitting unset
+     is the one genuinely actionable state in this console -- every figure a new
+     account sees is measured against a schedule nobody chose -- and it used to
+     be styled exactly like "Mark a holiday for the whole team at once".
+     Carried by a dot AND the description's colour AND its weight, never colour
+     alone: DESIGN.md holds a mark that is the sole carrier of a fact to the
+     same floor as the sentence it replaced. */
+  .console-nav-item.needs-attention .console-nav-desc{color:var(--warn); font-weight:500;}
+  .console-nav-item.needs-attention .console-nav-title::after{
+    content:""; display:inline-block; width:6px; height:6px; margin-left:6px;
+    border-radius:50%; background:var(--warn); vertical-align:middle;
+  }
+  .console-nav-item.needs-attention .console-nav-icon{background:var(--warn-bg); color:var(--warn);}
+
   .console-nav-item{
     display:flex; align-items:center; gap:var(--space-3); width:100%; min-height:62px;
     padding:10px var(--space-3); border:none; background:transparent; cursor:pointer;
@@ -2579,10 +2612,15 @@
      is in — "3 periods set", "Not set — new accounts fall back to Sun–Thu" —
      and a truncated one is worse than none, because it looks like it said
      something and you cannot tell what. */
+  /* One line, clipped. The rule above says these rows are a fixed height so the
+     directory reads as one set of choices, but nothing stopped a description
+     wrapping -- so rows came out 62px or 68px depending on the words in them,
+     which is the exact raggedness that rule exists to prevent. Now that every
+     row carries live state the text is short by construction; this is the
+     guard for the day one of them is not. */
   .console-nav-desc{
-    display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
+    display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     font-size:11px; color:var(--muted-2); line-height:1.35; margin-top:2px;
-    overflow:hidden;
   }
   .console-nav-chevron{color:var(--muted); flex-shrink:0; transition:transform var(--dur-base) var(--ease-soft);}
   .console-nav-item[aria-selected="true"] .console-nav-chevron{transform:translateX(2px);}
@@ -5835,6 +5873,8 @@
              section like the others now, and the first one, so it still reads
              as "who all of this is about" without holding the column open. -->
         <div class="console-nav" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+          <div class="console-nav-group" role="presentation">
+            <p class="console-nav-group-title" aria-hidden="true">You</p>
           <button type="button" class="console-nav-item" role="tab" data-console-target="profile" id="cnav-profile" aria-selected="false" aria-controls="csec-profile">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></span>
             <span class="console-nav-text">
@@ -5843,6 +5883,9 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          </div>
+          <div class="console-nav-group" role="presentation">
+            <p class="console-nav-group-title" aria-hidden="true">Schedule</p>
           <button type="button" class="console-nav-item" role="tab" data-console-target="hours" id="cnav-hours" aria-selected="false" aria-controls="csec-hours">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg></span>
             <span class="console-nav-text">
@@ -5867,6 +5910,9 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          </div>
+          <div class="console-nav-group" role="presentation">
+            <p class="console-nav-group-title" aria-hidden="true">App & Data</p>
           <button type="button" class="console-nav-item" role="tab" data-console-target="appearance" id="cnav-appearance" aria-selected="false" aria-controls="csec-appearance">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></span>
             <span class="console-nav-text">
@@ -5887,11 +5933,12 @@
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
             <span class="console-nav-text">
               <span class="console-nav-title">Backup &amp; Data</span>
-              <span class="console-nav-desc">Export, import, or clear your attendance records</span>
+              <span class="console-nav-desc" id="cnavDescData">Export, import, or clear your attendance records</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
-        </div>
+          </div>
+                </div>
         </div><!-- /.console-side -->
 
         <div class="console-pane">
@@ -6280,6 +6327,8 @@
              the same trick Seasonal Hours uses to show it holds something
              without being open. -->
         <div class="console-nav" role="tablist" aria-orientation="vertical" aria-label="Admin sections">
+          <div class="console-nav-group" role="presentation">
+            <p class="console-nav-group-title" aria-hidden="true">Monitor</p>
           <button type="button" class="console-nav-item" role="tab" data-console-target="admin-overview" id="cnav-admin-overview" aria-selected="false" aria-controls="csec-admin-overview">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V4.5M16 19v-7M22 19H2"/></svg></span>
             <span class="console-nav-text">
@@ -6288,6 +6337,25 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-audit" id="cnav-admin-audit" aria-selected="false" aria-controls="csec-admin-audit">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14v17l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Activity Log</span>
+              <span class="console-nav-desc"><span id="auditCount">Who changed what, and when</span></span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-storage" id="cnav-admin-storage" aria-selected="false" aria-controls="csec-admin-storage">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Storage</span>
+              <span class="console-nav-desc" id="cnavDescStorage">Row counts and size, table by table</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          </div>
+          <div class="console-nav-group" role="presentation">
+            <p class="console-nav-group-title" aria-hidden="true">People</p>
           <button type="button" class="console-nav-item" role="tab" data-console-target="admin-people" id="cnav-admin-people" aria-selected="false" aria-controls="csec-admin-people">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-1.6a3.4 3.4 0 0 0-3.4-3.4H6.4A3.4 3.4 0 0 0 3 18.4V20"/><circle cx="9.5" cy="7.5" r="3.5"/><path d="M21 20v-1.6a3.4 3.4 0 0 0-2.6-3.3M15.5 4.2a3.4 3.4 0 0 1 0 6.6"/></svg></span>
             <span class="console-nav-text">
@@ -6304,11 +6372,14 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          </div>
+          <div class="console-nav-group" role="presentation">
+            <p class="console-nav-group-title" aria-hidden="true">Everyone</p>
           <button type="button" class="console-nav-item" role="tab" data-console-target="admin-bulk" id="cnav-admin-bulk" aria-selected="false" aria-controls="csec-admin-bulk">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/></svg></span>
             <span class="console-nav-text">
               <span class="console-nav-title">Company-Wide Days</span>
-              <span class="console-nav-desc">Mark a holiday for the whole team at once</span>
+              <span class="console-nav-desc" id="cnavDescBulk">Mark a holiday for the whole team at once</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
@@ -6316,7 +6387,7 @@
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2.5L12 18.5v-13L6.5 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 9a4.5 4.5 0 0 1 0 6"/></svg></span>
             <span class="console-nav-text">
               <span class="console-nav-title">Announcement &amp; Sign-Up</span>
-              <span class="console-nav-desc">The banner everyone sees, and who may register</span>
+              <span class="console-nav-desc" id="cnavDescApp">The banner everyone sees, and who may register</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
@@ -6328,23 +6399,8 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-audit" id="cnav-admin-audit" aria-selected="false" aria-controls="csec-admin-audit">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14v17l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Activity Log</span>
-              <span class="console-nav-desc"><span id="auditCount">Who changed what, and when</span></span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-storage" id="cnav-admin-storage" aria-selected="false" aria-controls="csec-admin-storage">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Storage</span>
-              <span class="console-nav-desc">Row counts and size, table by table</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-        </div>
+          </div>
+                </div>
         </div><!-- /.console-side -->
 
         <div class="console-pane">
