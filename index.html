@@ -20,6 +20,53 @@
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<!-- Launch screens. An installed iOS PWA shows a blank white rectangle while
+     it boots unless it finds an apple-touch-startup-image whose media query
+     matches the device EXACTLY -- iOS does not scale a near-miss, it falls
+     back to white. Hence one per size/DPR/orientation rather than a handful.
+     They are the near-black of --rail with the app icon centred, so the boot
+     reads as the app starting rather than as a page failing to load, and it
+     matches theme-color and the status-bar band above it.
+     Deliberately NOT in sw.js's SHELL_FILES: that is 824KB nobody needs
+     offline, and cache.addAll rejects the whole precache if any one entry
+     404s. iOS fetches these at launch over HTTP like any other image.
+     Regenerate with the script noted in tests/regression/ios.js. -->
+<link rel="apple-touch-startup-image" href="splash/640x1136.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/1136x640.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/1334x750.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1242x2208.png" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2208x1242.png" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2436x1125.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/1792x828.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1242x2688.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2688x1242.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2532x1170.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2778x1284.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2556x1179.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1290x2796.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2796x1290.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1206x2622.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2622x1206.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1320x2868.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2868x1320.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1536x2048.png" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2048x1536.png" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1620x2160.png" media="(device-width: 810px) and (device-height: 1080px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2160x1620.png" media="(device-width: 810px) and (device-height: 1080px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1640x2360.png" media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2360x1640.png" media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1668x2224.png" media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2224x1668.png" media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/1668x2388.png" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2388x1668.png" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
+<link rel="apple-touch-startup-image" href="splash/2048x2732.png" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="splash/2732x2048.png" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)">
 <!-- Now that the one runtime dependency is vendored rather than pulled from a
      third-party CDN, script-src can be locked to this origin. That closes off
      injected-script execution against the session tokens in localStorage.
@@ -47,6 +94,14 @@
      default palette and then swap. External rather than inline because
      script-src is 'self' — see the CSP above. -->
 <script src="theme-boot.js"></script>
+<!-- iOS turns anything that looks like a date, a time or a phone number into
+     a tappable blue link of its own accord. This app is made of dates and
+     times: "Sep 10, 2026", "08:00", "4h 30m" all qualify, and a log of them
+     came out underlined and calling Calendar on tap. -->
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+<!-- The standardised spelling alongside Apple's. Both are needed: iOS still
+     only reads the apple- prefixed one, and Chromium warns on it. -->
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Attendance">
@@ -999,7 +1054,15 @@
   html[data-theme="dark"] .console-nav-item:hover{background:rgba(255,255,255,.07);}
 
   *{box-sizing:border-box;}
-  html{-webkit-text-size-adjust:100%;}
+  html{
+    -webkit-text-size-adjust:100%;
+    /* iOS paints a grey rectangle over anything tappable for ~300ms on touch,
+       sized to the element's box rather than its visual shape -- so a pill
+       button flashes a grey rectangle with square corners. Every control here
+       already has its own :active state (the FAB scales, buttons shift), so
+       the default is a second, worse answer to a question already answered. */
+    -webkit-tap-highlight-color:transparent;
+  }
   body{
     margin:0;
     color:var(--ink);
@@ -1054,7 +1117,11 @@
   .rail{
     position:fixed; left:0; top:0; bottom:0; width:236px; z-index:120;
     background:var(--rail); color:#fff;
-    display:flex; flex-direction:column; padding:24px 16px 16px;
+    /* The rail's own left edge IS the screen's left edge, so in landscape its
+       contents run under the sensor housing. The dark ground already extends
+       beneath it, which is the right look; only the contents move. */
+    display:flex; flex-direction:column;
+    padding:24px 16px 16px calc(16px + env(safe-area-inset-left, 0px));
   }
   .rail-brand{
     display:flex; align-items:center; gap:8px;
@@ -1156,7 +1223,11 @@
   /* ---------- Header ----------
      No longer a dark bar: on the canvas, an oversized greeting carries the
      page and the controls shrink to circular buttons on the right. */
-  .shell{margin-left:236px; min-height:100vh;}
+  /* dvh second: iOS Safari's 100vh is the viewport WITH the address bar
+     hidden, so a 100vh box is taller than the screen actually is and the
+     bottom of it sits under the chrome. Browsers without dvh ignore the
+     second declaration and keep the first. */
+  .shell{margin-left:236px; min-height:100vh; min-height:100dvh;}
   /* Installed as a standalone PWA locked to portrait (see manifest.json), this
      header is the first thing painted below the status bar / notch / Dynamic
      Island on a phone — the rail that would otherwise sit above it is hidden
@@ -2363,6 +2434,22 @@
   /* The halo was rgba(27,114,107,.16) — #1B726B, Gilt Ledger's teal — on every
      input and select in the app, which is the one browser surface a person
      stares straight at while typing. Atrium's own ink, at the same weight. */
+  /* iOS Safari zooms the whole page in whenever a control smaller than 16px
+     takes focus, and never zooms back out -- tap a date field and the rest of
+     the session happens magnified. 14px is this app's control size on a
+     pointer; on a touch device it goes to 16, which is the threshold, not a
+     preference. tests/mobile/collision.js already forces 17px and 20px
+     controls and asserts the form grid absorbs them without clipping or
+     overlap, so this is a size the layout was built to take. */
+  @media (pointer: coarse){
+    input[type="date"], input[type="time"], input[type="text"], input[type="number"],
+    input[type="email"], input[type="password"], input[type="search"],
+    select, textarea{ font-size:16px; }
+    /* Specificity: the seasonal card sets 12.5px through two classes, which
+       outranks the element selectors above. */
+    .season-card .form-grid input{ font-size:16px; }
+  }
+
   input:focus, select:focus{border-color:var(--ink-600); box-shadow:0 0 0 3px rgba(61,61,56,.20);}
   .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(168,58,85,.18);}
 
@@ -2540,7 +2627,7 @@
        last section fell off the bottom of the screen. The card takes the
        height it needs and the nav scrolls in whatever is left. */
     .console-side{
-      position:sticky; top:0; max-height:calc(100vh - 214px);
+      position:sticky; top:0; max-height:calc(100vh - 214px); max-height:calc(100dvh - 214px);
       display:flex; flex-direction:column;
     }
     /* The profile card used to be pinned here, above the scrolling nav. It is
@@ -3917,7 +4004,10 @@
 
   /* ---------- Auth screen ---------- */
   .auth-screen{
-    min-height:100vh;
+    /* Same dvh pairing as .shell: on iOS the sign-in card was being centred
+       against a viewport taller than the screen, which pushed it up under the
+       address bar on the very first screen an installed PWA shows. */
+    min-height:100vh; min-height:100dvh;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     /* This is the very first screen an installed PWA shows — before sign-in,
        there is no rail, no bottom nav, nothing else on screen claiming the
@@ -4558,7 +4648,10 @@
   .toast-stack{
     position:fixed; left:0; right:0; bottom:calc(18px + env(safe-area-inset-bottom)); z-index:200;
     display:flex; flex-direction:column; align-items:center; gap:8px;
-    padding:0 16px; pointer-events:none;
+    /* Landscape insets on top of the 16px gutter, so a toast clears the notch
+       instead of being centred against a width that includes it. */
+    padding:0 calc(16px + env(safe-area-inset-right, 0px)) 0 calc(16px + env(safe-area-inset-left, 0px));
+    pointer-events:none;
   }
   .toast{
     pointer-events:auto;
@@ -4607,7 +4700,9 @@
   /* ---------- Sticky mobile clock bar (desktop/tablet fallback only —
      mobile now uses the bottom nav's clock button instead) ---------- */
   .sticky-clock{
-    display:none; position:fixed; left:12px; right:12px;
+    display:none; position:fixed;
+    left:calc(12px + env(safe-area-inset-left, 0px));
+    right:calc(12px + env(safe-area-inset-right, 0px));
     /* left is overridden to clear the rail above 760px — see below. */
     /* Clear the home indicator on notched devices rather than sitting under it. */
     bottom:calc(14px + env(safe-area-inset-bottom)); z-index:120;
@@ -4644,6 +4739,12 @@
   /* ---------- Bottom navigation (mobile) ---------- */
   .bottom-nav{
     display:none; position:fixed; left:0; right:0; bottom:0; z-index:150;
+    /* Rotate an iPhone and the sensor housing takes a bite out of one end of
+       this bar -- which end depends on which way you turned. The bottom inset
+       was already handled for the home indicator; these are its landscape
+       siblings, and without them Overview or Team sits under the notch. */
+    padding-left:env(safe-area-inset-left, 0px);
+    padding-right:env(safe-area-inset-right, 0px);
     background:var(--card); border-top:1px solid var(--line-soft);
     box-shadow:0 -6px 20px rgba(0,0,0,.07);
     padding:8px 4px calc(8px + env(safe-area-inset-bottom));
