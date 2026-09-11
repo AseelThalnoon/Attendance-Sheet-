@@ -7208,12 +7208,16 @@ var __authLinkError = (function(){
   });
 
   // ---------- Roles: grant/revoke admin rights ----------
-  // The role toggle lives in the Admin tab's People list. Delegated from the
-  // list container so rows can be re-rendered freely by search and filtering.
-  document.getElementById("adminUsersList").addEventListener("click", async function(ev){
-    var btn = ev.target.closest(".role-btn");
+  // Named rather than inline because it is bound twice: once on the People
+  // list (nothing there carries data-role today, but the binding is what
+  // keeps the list authoritative) and once on the row menu, which is where
+  // the control now lives. closest("[data-uid]") is what makes one function
+  // serve both — the row carries the id, and so does the menu.
+  async function adminRoleClick(ev){
+    var btn = ev.target.closest("[data-role]");
     if(!btn || btn.disabled) return;
-    var row = btn.closest(".admin-user-row");
+    var row = btn.closest("[data-uid]");
+    if(!row) return;
     var uid = row.getAttribute("data-uid");
     var newRole = btn.getAttribute("data-role");
     var person = adminUsersCache.find(function(p){ return p.id === uid; });
@@ -7242,7 +7246,7 @@ var __authLinkError = (function(){
     });
     if(!confirmed) return;
 
-    var buttons = row.querySelectorAll(".role-btn");
+    var buttons = row.querySelectorAll("[data-role]");
     buttons.forEach(function(b){ b.disabled = true; });
     try{
       // Role changes go through a SECURITY DEFINER RPC that re-checks admin
@@ -7261,7 +7265,8 @@ var __authLinkError = (function(){
       showToast("Couldn't update that role: " + friendlyError(err), "error");
       buttons.forEach(function(b){ b.disabled = false; });
     }
-  });
+  }
+  document.getElementById("adminUsersList").addEventListener("click", adminRoleClick);
 
   // Applies one entry to every registered user across a date range — the
   // "mark a multi-day public holiday for the whole team in one click" case.
@@ -8649,9 +8654,15 @@ var __authLinkError = (function(){
       row.className = "admin-user-row" + (u.deactivated ? " is-deactivated" : "");
       row.setAttribute("data-uid", u.id);
       row.innerHTML =
+        avatarSlotHtml(u)+
         '<div class="admin-user-main">'+
           '<div class="admin-user-name" dir="auto">'+escapeHtml(name)+
             (isSelf ? ' <span class="admin-badge role-you">You</span>' : '')+
+            // Role used to be a two-button switch on every row. As a fact it
+            // is binary and almost always the same value, so it reads better
+            // as a mark on the minority that carries it than as a control
+            // repeated once per person; changing it lives in the row menu.
+            (u.role === "admin" ? ' <span class="admin-badge role-admin">Admin</span>' : '')+
             (u.deactivated ? ' <span class="admin-badge deactivated">Deactivated</span>' : '')+
             (unconfigured ? ' <span class="admin-badge unconfigured">No schedule</span>' : '')+
           '</div>'+
@@ -8679,31 +8690,130 @@ var __authLinkError = (function(){
             escapeHtml(fmtRelative(u.last_seen_at || u.last_sign_in_at))+
           '</div>'+
         '</div>'+
-        // The role toggle sits on the same row as the account actions so an
-        // admin never has to hold "who is an admin" in their head across two
-        // different screens the way the old Team & Access card required.
-        '<div class="role-toggle" role="group" aria-label="Role for '+escapeAttr(name)+'">'+
-          '<button type="button" class="role-btn'+(u.role!=="admin"?" active":"")+'" data-role="user"'+
-            ' aria-pressed="'+(u.role!=="admin")+'">Employee</button>'+
-          '<button type="button" class="role-btn'+(u.role==="admin"?" active":"")+'" data-role="admin"'+
-            ' aria-pressed="'+(u.role==="admin")+'">Admin</button>'+
-        '</div>'+
-        '<div class="admin-user-actions">'+
-          '<button type="button" class="btn ghost small" data-view-user="'+u.id+'">Open Record</button>'+
-          '<button type="button" class="btn ghost small" data-reset="'+u.id+'">Reset Password</button>'+
-          (isSelf ? '' :
-            '<button type="button" class="btn ghost small" data-toggle-active="'+u.id+'">'+
-              (u.deactivated ? "Reactivate" : "Deactivate")+'</button>'+
-            '<button type="button" class="btn danger-ghost small" data-delete-user="'+u.id+'">Delete</button>')+
-        '</div>';
+        '<button type="button" class="row-menu-btn" aria-haspopup="menu" aria-expanded="false"'+
+          ' aria-label="Actions for '+escapeAttr(name)+'">'+KEBAB_ICON+'</button>';
       list.appendChild(row);
     });
+    hydrateAvatars(list);
   }
+
+  // ---------- The People row menu ----------
+  // One menu, reused by every row, parented to the body. Six buttons per
+  // person made the roster a wall of chrome and gave Delete — which destroys
+  // the person and every entry they logged — the same pill, size and border
+  // as Open Record. Body-parented because #tab-admin scrolls and
+  // #tabContentCard is overflow:hidden: a popover inside the row is clipped
+  // by both.
+  var KEBAB_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">'+
+    '<circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>';
+  var rowMenuEl = null;      // the singleton, built on first use
+  var rowMenuOwner = null;   // the .row-menu-btn it is currently open against
+
+  function rowMenu(){
+    if(rowMenuEl) return rowMenuEl;
+    rowMenuEl = document.createElement("div");
+    rowMenuEl.className = "row-menu";
+    rowMenuEl.id = "adminRowMenu";
+    rowMenuEl.setAttribute("role", "menu");
+    rowMenuEl.hidden = true;
+    document.body.appendChild(rowMenuEl);
+    // Registered before the two action handlers so the menu is already shut
+    // by the time a confirm dialog opens over it. The item stays in the DOM
+    // — closing only hides — because both handlers reach the person through
+    // closest("[data-uid]") and a detached item has no ancestors to find.
+    rowMenuEl.addEventListener("click", function(ev){
+      if(ev.target.closest(".row-menu-item")) closeRowMenu();
+    });
+    rowMenuEl.addEventListener("click", adminRoleClick);
+    rowMenuEl.addEventListener("click", adminUserActionClick);
+    return rowMenuEl;
+  }
+
+  function closeRowMenu(returnFocus){
+    if(!rowMenuOwner) return;
+    var btn = rowMenuOwner;
+    rowMenuOwner = null;
+    if(rowMenuEl) rowMenuEl.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+    // Only on Escape or a re-click of the same button. Returning focus after
+    // a chosen action would fight the confirm dialog for it.
+    if(returnFocus && btn.isConnected) btn.focus();
+  }
+
+  function positionRowMenu(menu, btn){
+    var r = btn.getBoundingClientRect();
+    var m = menu.getBoundingClientRect();
+    var gap = 6, edge = 8;
+    var left = Math.max(edge, Math.min(r.right - m.width, window.innerWidth - m.width - edge));
+    var top = r.bottom + gap;
+    // Flip above when it would run off the bottom. With a roster this long
+    // the lower half of the list is where every menu opens.
+    if(top + m.height > window.innerHeight - edge) top = Math.max(edge, r.top - m.height - gap);
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top  = Math.round(top) + "px";
+  }
+
+  function openRowMenu(btn, u){
+    closeRowMenu();
+    var menu = rowMenu();
+    var isSelf = u.id === currentUser.id;
+    var name = u.full_name || u.email;
+    menu.setAttribute("data-uid", u.id);
+    menu.setAttribute("aria-label", "Actions for " + name);
+    menu.innerHTML =
+      '<p class="row-menu-name" dir="auto">'+escapeHtml(name)+'</p>'+
+      '<button type="button" role="menuitem" class="row-menu-item" data-view-user="'+escapeAttr(u.id)+'">Open Record</button>'+
+      '<button type="button" role="menuitem" class="row-menu-item" data-reset="'+escapeAttr(u.id)+'">Reset Password</button>'+
+      '<button type="button" role="menuitem" class="row-menu-item" data-role="'+(u.role === "admin" ? "user" : "admin")+'">'+
+        (u.role === "admin" ? "Remove Admin Rights" : "Make Admin")+'</button>'+
+      // Deactivating or deleting yourself is not offered, the same as before.
+      (isSelf ? "" :
+        '<button type="button" role="menuitem" class="row-menu-item" data-toggle-active="'+escapeAttr(u.id)+'">'+
+          (u.deactivated ? "Reactivate" : "Deactivate")+'</button>'+
+        '<div class="row-menu-sep" role="separator"></div>'+
+        '<button type="button" role="menuitem" class="row-menu-item danger" data-delete-user="'+escapeAttr(u.id)+'">Delete\u2026</button>');
+    // Parked offscreen for the measure, so the first open does not flash at
+    // the body's top-left before positionRowMenu gets a size to work with.
+    menu.style.left = "-9999px";
+    menu.style.top = "0px";
+    menu.hidden = false;
+    positionRowMenu(menu, btn);
+    btn.setAttribute("aria-expanded", "true");
+    rowMenuOwner = btn;
+    var first = menu.querySelector(".row-menu-item");
+    if(first) first.focus();
+  }
+
+  document.getElementById("adminUsersList").addEventListener("click", function(ev){
+    var btn = ev.target.closest(".row-menu-btn");
+    if(!btn) return;
+    if(rowMenuOwner === btn){ closeRowMenu(true); return; }
+    var holder = btn.closest("[data-uid]");
+    var u = holder && adminUsersCache.find(function(p){ return p.id === holder.getAttribute("data-uid"); });
+    if(u) openRowMenu(btn, u);
+  });
+
+  // A menu anchored to a row in a scroller cannot follow it, so it closes
+  // rather than drifting away from the person it belongs to. Capture phase:
+  // the scroll that matters is #tab-admin's, not the window's, and scroll
+  // events do not bubble.
+  window.addEventListener("scroll", function(){ closeRowMenu(); }, true);
+  window.addEventListener("resize", function(){ closeRowMenu(); });
+  document.addEventListener("click", function(ev){
+    if(!rowMenuOwner) return;
+    if(ev.target.closest(".row-menu, .row-menu-btn")) return;
+    closeRowMenu();
+  });
+  document.addEventListener("keydown", function(ev){
+    if(ev.key === "Escape") closeRowMenu(true);
+  });
 
   document.getElementById("adminUserSearch").addEventListener("input", renderAdminPeople);
   document.getElementById("adminUserFilter").addEventListener("change", renderAdminPeople);
 
-  document.getElementById("adminUsersList").addEventListener("click", async function(ev){
+  // Named and bound twice, for the same reason adminRoleClick is: the items
+  // it serves moved into the row menu, which is not inside #adminUsersList.
+  async function adminUserActionClick(ev){
     var btn = ev.target.closest("button");
     if(!btn) return;
 
@@ -8809,7 +8919,8 @@ var __authLinkError = (function(){
         btn.disabled = false;
       }
     }
-  });
+  }
+  document.getElementById("adminUsersList").addEventListener("click", adminUserActionClick);
 
   var AUDIT_LABELS = {
     insert:"Added", update:"Edited", delete:"Deleted",

@@ -149,7 +149,7 @@ const MEASURE = (floor) => {
     "sub-tab": [".sub-tab-btn", "trends"],
     "row action": [".row-actions button", "log"],
     "day picker": [".daypicker label", "settings", "hours"],
-    "role switch": [".role-btn", "admin", "admin-people"]
+    "row menu": [".row-menu-btn", "admin", "admin-people"]
   };
   for(const [name, [sel, tab, section]] of Object.entries(probes)){
     await openTab(tab, section);
