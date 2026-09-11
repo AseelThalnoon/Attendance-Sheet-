@@ -757,8 +757,9 @@ async function run(){
     await settle(h.page, 600);
 
     const row = await h.page.evaluate(uid => {
-      const el = [...document.querySelectorAll("#adminUsersList .admin-user-row")]
-        .find(r => (r.innerHTML || "").includes(uid));
+      // data-uid on the row itself, not a scan of its markup: the actions
+      // that used to carry the id inline moved into the row menu.
+      const el = document.querySelector(`#adminUsersList .admin-user-row[data-uid="${uid}"]`);
       const meta = el && el.querySelector(".admin-user-meta");
       return meta ? {text: meta.innerText, title: meta.getAttribute("title") || ""} : null;
     }, people[1].id);
@@ -774,13 +775,56 @@ async function run(){
     // Nobody has been seen since the column was added: it falls back to the
     // sign-in rather than rendering "Never" over a person who plainly did.
     const never = await h.page.evaluate(uid => {
-      const el = [...document.querySelectorAll("#adminUsersList .admin-user-row")]
-        .find(r => (r.innerHTML || "").includes(uid));
+      const el = document.querySelector(`#adminUsersList .admin-user-row[data-uid="${uid}"]`);
       const meta = el && el.querySelector(".admin-user-meta");
       return meta ? meta.innerText : "";
     }, people[2].id);
     ok(/Last active\s+40d ago|Last active\s+\w{3}\s\d/.test(never),
       "with no last_seen_at recorded yet, the sign-in stands in rather than \"Never\"", never);
+    await h.close();
+  }
+
+  // ---- the People row menu flips above a row sitting low on the screen ----
+  // Most menus in a real roster open in the lower half of the list, where a
+  // menu that only ever drops downward runs off the bottom of the screen and
+  // takes Delete with it. Twelve people and a phone, because three rows at
+  // the top of a desktop viewport never need the flip and a check run there
+  // passes with the flip deleted.
+  {
+    const people = D.roster(12);
+    const me = people[0]; me.role = "admin";
+    const h = await boot({ viewport: PHONE, meId: me.id, seed: {
+      profiles: people, entries: [],
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS }))
+    }});
+    await goTab(h.page, "admin");
+    await h.page.evaluate(() => document.getElementById("cnav-admin-people").click());
+    await settle(h.page, 600);
+
+    const low = await h.page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#adminUsersList .admin-user-row")];
+      // Not the last row: nothing below it to scroll past, so it can never
+      // reach the bottom of the screen. One with rows under it can.
+      const row = rows[Math.floor(rows.length * 0.7)];
+      row.scrollIntoView({ block: "end" });
+      const btn = row.querySelector(".row-menu-btn");
+      btn.click();
+      const menu = document.getElementById("adminRowMenu");
+      const m = menu.getBoundingClientRect(), b = btn.getBoundingClientRect();
+      return {
+        rows: rows.length,
+        gapBelow: Math.round(window.innerHeight - b.bottom), menuH: Math.round(m.height),
+        top: Math.round(m.top), bottom: Math.round(m.bottom), vh: window.innerHeight,
+        needsFlip: m.height > (window.innerHeight - b.bottom),
+        aboveTheRow: m.bottom <= Math.round(b.top) + 1,
+        inside: m.top >= 0 && m.bottom <= window.innerHeight
+      };
+    });
+    ok(low.needsFlip,
+      "the row under test really is too low for the menu to drop below it",
+      "otherwise the flip never runs and the next two assertions prove nothing: " + JSON.stringify(low));
+    ok(low.inside, "the row menu stays fully on screen", JSON.stringify(low));
+    ok(low.aboveTheRow, "by opening above the row rather than below it", JSON.stringify(low));
     await h.close();
   }
 
@@ -952,6 +996,48 @@ async function run(){
     ok(m.lines < 8,
       `[${label}] and wraps to a sane number of lines`,
       `${m.lines} lines for ${m.chars} characters`);
+    await h.close();
+  }
+
+  // ---- the registration guard must not clobber the reset form -------------
+  // refreshRegistrationVisibility() runs at boot, awaits public_app_flags, and
+  // then backs out of the register form if sign-ups turn out to be closed. It
+  // did that by calling showSignInForm(), which also hides the reset-password
+  // form -- so arriving from a password-reset email with sign-ups closed was a
+  // race between an RPC and the PASSWORD_RECOVERY event. When the RPC landed
+  // second it wiped "choose a new password" and left the visitor on the
+  // sign-in screen with nothing to explain it.
+  //
+  // The delay makes that ordering deterministic rather than hoping for it.
+  {
+    const people = D.roster(3), me = people[0];
+    const h = await boot({ viewport: PHONE, meId: me.id, signedOut: true, waitForApp: false,
+      seed: { profiles: people, entries: [], user_settings: [],
+              app_settings: [{ id: 1, allow_registration: false }] },
+      beforeLoad: ({ backend }) => backend.fail("rpc/public_app_flags", { delayMs: 900 }, 1)
+    });
+    // Put the reset screen up while the flags call is still in flight, which
+    // is what the recovery event does.
+    await h.page.evaluate(() => {
+      document.getElementById("signInForm").style.display = "none";
+      document.getElementById("registerForm").style.display = "none";
+      document.getElementById("resetPasswordForm").style.display = "flex";
+    });
+    await settle(h.page, 1600);   // well past the delayed RPC
+    const r = await h.page.evaluate(() => ({
+      reset: document.getElementById("resetPasswordForm").style.display,
+      signIn: document.getElementById("signInForm").style.display,
+      register: document.getElementById("showRegisterBtn").style.display
+    }));
+    ok(r.reset === "flex",
+      "a visible reset-password form survives the registration flags landing",
+      `the form is display:${r.reset} -- the visitor cannot finish setting a password`);
+    ok(r.signIn === "none",
+      "and the sign-in form is not pulled back over it",
+      `sign-in is display:${r.signIn}`);
+    ok(r.register === "none",
+      "while the flag itself still took effect",
+      "Create an account is still offered with sign-ups closed");
     await h.close();
   }
 

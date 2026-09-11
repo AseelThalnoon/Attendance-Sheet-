@@ -103,6 +103,41 @@ if(supabase){
   });
 }
 
+// ...and even catching the event early is not enough, because the event is
+// not the first thing to arrive. supabase-js broadcasts PASSWORD_RECOVERY
+// from inside a setTimeout(..., 0) while resolving initializePromise
+// straight away, and onAuthStateChange replays the current session to each
+// new subscriber as INITIAL_SESSION the moment that promise settles. A
+// microtask beats a macrotask, so BOTH listeners are handed INITIAL_SESSION
+// for the recovery session first, carrying no hint of what it is; the app
+// boots the dashboard on the old password, and the PASSWORD_RECOVERY that
+// lands a tick later cannot take back a sign-in that is already underway.
+// That is what the visitor saw: the emailed link signed them in and never
+// asked for a new password.
+//
+// The fragment itself is the one signal that does not race. Supabase puts
+// "type=recovery" in it and strips it during that same async init, so read
+// it synchronously now, while it is still there, and let it — not the event
+// ordering — decide whether this page load is a password reset.
+var __authHash = (window.location.hash || "").replace(/^#/, "");
+var __recoveryArrival = /(^|&)type=recovery(&|$)/.test(__authHash);
+// A link that has already been used or has expired comes back the same way,
+// as an error in the fragment rather than a session. Nothing read this
+// before, so a spent link dropped the visitor on a blank sign-in screen with
+// no idea why.
+var __authLinkError = (function(){
+  if(!/(^|&)error(_code|_description)?=/.test(__authHash)) return null;
+  function field(name){
+    var m = new RegExp("(^|&)" + name + "=([^&]*)").exec(__authHash);
+    if(!m) return "";
+    try{ return decodeURIComponent(m[2].replace(/\+/g, " ")); }catch(e){ return m[2]; }
+  }
+  var code = field("error_code");
+  if(code === "otp_expired" || field("error") === "access_denied")
+    return "That link has already been used or has expired. Enter your email below and tap \u201cForgot password?\u201d for a fresh one.";
+  return field("error_description") || "That link could not be opened. Enter your email below and tap \u201cForgot password?\u201d for a fresh one.";
+})();
+
 (function(){
   "use strict";
 
@@ -999,6 +1034,8 @@ if(supabase){
       return "There's already an account with that email. Try signing in instead.";
     if(/signups? not allowed|signup is disabled/i.test(msg))
       return "New accounts are turned off. Ask an administrator to create one for you.";
+    if(err.code === "over_email_send_rate_limit" || /email rate limit/i.test(msg))
+      return "Too many reset emails have gone out from this app in the last hour. Wait an hour and try again.";
     if(/rate limit|only request this after|too many requests/i.test(msg))
       return "Too many attempts just now. Wait a minute and try again.";
     if(/same as the old password|should be different/i.test(msg))
@@ -6283,8 +6320,16 @@ if(supabase){
       return;
     }
     btn.style.display = registrationOpen ? "" : "none";
-    // The form itself may already be open from a previous visit in this tab.
-    if(!registrationOpen) showSignInForm();
+    // Back out of the register form only if that is actually what is open.
+    //
+    // This called showSignInForm() unconditionally, which also hides the
+    // reset-password form -- and this function is async and runs at boot, so
+    // it raced the PASSWORD_RECOVERY event. Arriving from a reset email with
+    // sign-ups closed, whichever resolved last won: the RPC landing second
+    // wiped the "choose a new password" form and left the visitor on the
+    // sign-in screen with no way to finish, and no error to explain it.
+    var reg = document.getElementById("registerForm");
+    if(!registrationOpen && reg && reg.style.display !== "none") showSignInForm();
   }
 
   function showAuthScreen(){
@@ -6301,12 +6346,33 @@ if(supabase){
     if(el) el.textContent = msg || "";
   }
 
+  // Where an emailed reset link should land. Deliberately not
+  // window.location.href: that carries whatever fragment is on the page, and
+  // the fragment is exactly where a spent link leaves its
+  // "#error=access_denied&error_code=otp_expired". Send that back as the
+  // redirect target and Supabase appends the new session to a URL that
+  // already has a "#" -- the browser keeps the first fragment, so the fresh
+  // link arrives carrying the OLD error and no token at all. One expired
+  // link then breaks every reset email after it, for as long as the tab
+  // stays open. The bare page is the only stable target.
+  function resetRedirectTarget(){
+    return window.location.origin + window.location.pathname;
+  }
+
   // The email link Supabase sends signs the browser into a short-lived
   // "recovery" session and fires PASSWORD_RECOVERY (see the auth listener
   // below) rather than a normal SIGNED_IN. That session's user is stashed
   // here so the reset form can hand it straight to handleSignedIn() once the
   // new password is set, instead of making them log in a second time.
   var recoverySessionUser = null;
+  // Releases the sticky recovery hold set from the URL fragment at module
+  // load. Until this runs, the auth handler refuses to boot the app, so
+  // every path that legitimately leaves the reset form has to call it or the
+  // visitor is stuck staring at it.
+  function endPasswordRecovery(){
+    __recoveryArrival = false;
+    recoverySessionUser = null;
+  }
   function showResetPasswordScreen(){
     document.getElementById("authScreen").style.display = "flex";
     document.getElementById("appShell").style.display = "none";
@@ -6347,7 +6413,7 @@ if(supabase){
   document.getElementById("resetBackBtn").addEventListener("click", function(){
     // Drop the recovery session too: leaving it set would let the next
     // password submit land on an account the person has just backed away from.
-    recoverySessionUser = null;
+    endPasswordRecovery();
     showSignInForm();
   });
 
@@ -6378,9 +6444,8 @@ if(supabase){
       // Without an explicit redirectTo, Supabase falls back to the project's
       // configured Site URL, which may point somewhere other than this exact
       // page — the emailed link then lands the user off the app entirely,
-      // with no way back to the reset form. Pinning it to the current page
-      // matches the admin-triggered reset a few hundred lines down.
-      var res = await supabase.auth.resetPasswordForEmail(email, {redirectTo: window.location.href});
+      // with no way back to the reset form.
+      var res = await supabase.auth.resetPasswordForEmail(email, {redirectTo: resetRedirectTarget()});
       if(res.error) throw res.error;
       setAuthMsg("signInError", "");
       showToast("If an account exists for " + email + ", a reset link has been sent.", "success");
@@ -6404,7 +6469,10 @@ if(supabase){
       if(res.error) throw res.error;
       showToast("Password updated.", "success");
       var u = recoverySessionUser || (res.data && res.data.user);
-      recoverySessionUser = null;
+      // Before handleSignedIn, not after: the hold is what stops the auth
+      // handler booting the app, and updateUser() fires USER_UPDATED on its
+      // way out of here.
+      endPasswordRecovery();
       if(u) handleSignedIn(u); else showAuthScreen();
     }catch(err){
       setAuthMsg("resetPasswordError", err ? friendlyError(err) : "Couldn't update password.");
@@ -7140,12 +7208,16 @@ if(supabase){
   });
 
   // ---------- Roles: grant/revoke admin rights ----------
-  // The role toggle lives in the Admin tab's People list. Delegated from the
-  // list container so rows can be re-rendered freely by search and filtering.
-  document.getElementById("adminUsersList").addEventListener("click", async function(ev){
-    var btn = ev.target.closest(".role-btn");
+  // Named rather than inline because it is bound twice: once on the People
+  // list (nothing there carries data-role today, but the binding is what
+  // keeps the list authoritative) and once on the row menu, which is where
+  // the control now lives. closest("[data-uid]") is what makes one function
+  // serve both — the row carries the id, and so does the menu.
+  async function adminRoleClick(ev){
+    var btn = ev.target.closest("[data-role]");
     if(!btn || btn.disabled) return;
-    var row = btn.closest(".admin-user-row");
+    var row = btn.closest("[data-uid]");
+    if(!row) return;
     var uid = row.getAttribute("data-uid");
     var newRole = btn.getAttribute("data-role");
     var person = adminUsersCache.find(function(p){ return p.id === uid; });
@@ -7174,7 +7246,7 @@ if(supabase){
     });
     if(!confirmed) return;
 
-    var buttons = row.querySelectorAll(".role-btn");
+    var buttons = row.querySelectorAll("[data-role]");
     buttons.forEach(function(b){ b.disabled = true; });
     try{
       // Role changes go through a SECURITY DEFINER RPC that re-checks admin
@@ -7193,7 +7265,8 @@ if(supabase){
       showToast("Couldn't update that role: " + friendlyError(err), "error");
       buttons.forEach(function(b){ b.disabled = false; });
     }
-  });
+  }
+  document.getElementById("adminUsersList").addEventListener("click", adminRoleClick);
 
   // Applies one entry to every registered user across a date range — the
   // "mark a multi-day public holiday for the whole team in one click" case.
@@ -8581,9 +8654,15 @@ if(supabase){
       row.className = "admin-user-row" + (u.deactivated ? " is-deactivated" : "");
       row.setAttribute("data-uid", u.id);
       row.innerHTML =
+        avatarSlotHtml(u)+
         '<div class="admin-user-main">'+
           '<div class="admin-user-name" dir="auto">'+escapeHtml(name)+
             (isSelf ? ' <span class="admin-badge role-you">You</span>' : '')+
+            // Role used to be a two-button switch on every row. As a fact it
+            // is binary and almost always the same value, so it reads better
+            // as a mark on the minority that carries it than as a control
+            // repeated once per person; changing it lives in the row menu.
+            (u.role === "admin" ? ' <span class="admin-badge role-admin">Admin</span>' : '')+
             (u.deactivated ? ' <span class="admin-badge deactivated">Deactivated</span>' : '')+
             (unconfigured ? ' <span class="admin-badge unconfigured">No schedule</span>' : '')+
           '</div>'+
@@ -8611,31 +8690,130 @@ if(supabase){
             escapeHtml(fmtRelative(u.last_seen_at || u.last_sign_in_at))+
           '</div>'+
         '</div>'+
-        // The role toggle sits on the same row as the account actions so an
-        // admin never has to hold "who is an admin" in their head across two
-        // different screens the way the old Team & Access card required.
-        '<div class="role-toggle" role="group" aria-label="Role for '+escapeAttr(name)+'">'+
-          '<button type="button" class="role-btn'+(u.role!=="admin"?" active":"")+'" data-role="user"'+
-            ' aria-pressed="'+(u.role!=="admin")+'">Employee</button>'+
-          '<button type="button" class="role-btn'+(u.role==="admin"?" active":"")+'" data-role="admin"'+
-            ' aria-pressed="'+(u.role==="admin")+'">Admin</button>'+
-        '</div>'+
-        '<div class="admin-user-actions">'+
-          '<button type="button" class="btn ghost small" data-view-user="'+u.id+'">Open Record</button>'+
-          '<button type="button" class="btn ghost small" data-reset="'+u.id+'">Reset Password</button>'+
-          (isSelf ? '' :
-            '<button type="button" class="btn ghost small" data-toggle-active="'+u.id+'">'+
-              (u.deactivated ? "Reactivate" : "Deactivate")+'</button>'+
-            '<button type="button" class="btn danger-ghost small" data-delete-user="'+u.id+'">Delete</button>')+
-        '</div>';
+        '<button type="button" class="row-menu-btn" aria-haspopup="menu" aria-expanded="false"'+
+          ' aria-label="Actions for '+escapeAttr(name)+'">'+KEBAB_ICON+'</button>';
       list.appendChild(row);
     });
+    hydrateAvatars(list);
   }
+
+  // ---------- The People row menu ----------
+  // One menu, reused by every row, parented to the body. Six buttons per
+  // person made the roster a wall of chrome and gave Delete — which destroys
+  // the person and every entry they logged — the same pill, size and border
+  // as Open Record. Body-parented because #tab-admin scrolls and
+  // #tabContentCard is overflow:hidden: a popover inside the row is clipped
+  // by both.
+  var KEBAB_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">'+
+    '<circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>';
+  var rowMenuEl = null;      // the singleton, built on first use
+  var rowMenuOwner = null;   // the .row-menu-btn it is currently open against
+
+  function rowMenu(){
+    if(rowMenuEl) return rowMenuEl;
+    rowMenuEl = document.createElement("div");
+    rowMenuEl.className = "row-menu";
+    rowMenuEl.id = "adminRowMenu";
+    rowMenuEl.setAttribute("role", "menu");
+    rowMenuEl.hidden = true;
+    document.body.appendChild(rowMenuEl);
+    // Registered before the two action handlers so the menu is already shut
+    // by the time a confirm dialog opens over it. The item stays in the DOM
+    // — closing only hides — because both handlers reach the person through
+    // closest("[data-uid]") and a detached item has no ancestors to find.
+    rowMenuEl.addEventListener("click", function(ev){
+      if(ev.target.closest(".row-menu-item")) closeRowMenu();
+    });
+    rowMenuEl.addEventListener("click", adminRoleClick);
+    rowMenuEl.addEventListener("click", adminUserActionClick);
+    return rowMenuEl;
+  }
+
+  function closeRowMenu(returnFocus){
+    if(!rowMenuOwner) return;
+    var btn = rowMenuOwner;
+    rowMenuOwner = null;
+    if(rowMenuEl) rowMenuEl.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+    // Only on Escape or a re-click of the same button. Returning focus after
+    // a chosen action would fight the confirm dialog for it.
+    if(returnFocus && btn.isConnected) btn.focus();
+  }
+
+  function positionRowMenu(menu, btn){
+    var r = btn.getBoundingClientRect();
+    var m = menu.getBoundingClientRect();
+    var gap = 6, edge = 8;
+    var left = Math.max(edge, Math.min(r.right - m.width, window.innerWidth - m.width - edge));
+    var top = r.bottom + gap;
+    // Flip above when it would run off the bottom. With a roster this long
+    // the lower half of the list is where every menu opens.
+    if(top + m.height > window.innerHeight - edge) top = Math.max(edge, r.top - m.height - gap);
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top  = Math.round(top) + "px";
+  }
+
+  function openRowMenu(btn, u){
+    closeRowMenu();
+    var menu = rowMenu();
+    var isSelf = u.id === currentUser.id;
+    var name = u.full_name || u.email;
+    menu.setAttribute("data-uid", u.id);
+    menu.setAttribute("aria-label", "Actions for " + name);
+    menu.innerHTML =
+      '<p class="row-menu-name" dir="auto">'+escapeHtml(name)+'</p>'+
+      '<button type="button" role="menuitem" class="row-menu-item" data-view-user="'+escapeAttr(u.id)+'">Open Record</button>'+
+      '<button type="button" role="menuitem" class="row-menu-item" data-reset="'+escapeAttr(u.id)+'">Reset Password</button>'+
+      '<button type="button" role="menuitem" class="row-menu-item" data-role="'+(u.role === "admin" ? "user" : "admin")+'">'+
+        (u.role === "admin" ? "Remove Admin Rights" : "Make Admin")+'</button>'+
+      // Deactivating or deleting yourself is not offered, the same as before.
+      (isSelf ? "" :
+        '<button type="button" role="menuitem" class="row-menu-item" data-toggle-active="'+escapeAttr(u.id)+'">'+
+          (u.deactivated ? "Reactivate" : "Deactivate")+'</button>'+
+        '<div class="row-menu-sep" role="separator"></div>'+
+        '<button type="button" role="menuitem" class="row-menu-item danger" data-delete-user="'+escapeAttr(u.id)+'">Delete\u2026</button>');
+    // Parked offscreen for the measure, so the first open does not flash at
+    // the body's top-left before positionRowMenu gets a size to work with.
+    menu.style.left = "-9999px";
+    menu.style.top = "0px";
+    menu.hidden = false;
+    positionRowMenu(menu, btn);
+    btn.setAttribute("aria-expanded", "true");
+    rowMenuOwner = btn;
+    var first = menu.querySelector(".row-menu-item");
+    if(first) first.focus();
+  }
+
+  document.getElementById("adminUsersList").addEventListener("click", function(ev){
+    var btn = ev.target.closest(".row-menu-btn");
+    if(!btn) return;
+    if(rowMenuOwner === btn){ closeRowMenu(true); return; }
+    var holder = btn.closest("[data-uid]");
+    var u = holder && adminUsersCache.find(function(p){ return p.id === holder.getAttribute("data-uid"); });
+    if(u) openRowMenu(btn, u);
+  });
+
+  // A menu anchored to a row in a scroller cannot follow it, so it closes
+  // rather than drifting away from the person it belongs to. Capture phase:
+  // the scroll that matters is #tab-admin's, not the window's, and scroll
+  // events do not bubble.
+  window.addEventListener("scroll", function(){ closeRowMenu(); }, true);
+  window.addEventListener("resize", function(){ closeRowMenu(); });
+  document.addEventListener("click", function(ev){
+    if(!rowMenuOwner) return;
+    if(ev.target.closest(".row-menu, .row-menu-btn")) return;
+    closeRowMenu();
+  });
+  document.addEventListener("keydown", function(ev){
+    if(ev.key === "Escape") closeRowMenu(true);
+  });
 
   document.getElementById("adminUserSearch").addEventListener("input", renderAdminPeople);
   document.getElementById("adminUserFilter").addEventListener("change", renderAdminPeople);
 
-  document.getElementById("adminUsersList").addEventListener("click", async function(ev){
+  // Named and bound twice, for the same reason adminRoleClick is: the items
+  // it serves moved into the row menu, which is not inside #adminUsersList.
+  async function adminUserActionClick(ev){
     var btn = ev.target.closest("button");
     if(!btn) return;
 
@@ -8673,7 +8851,7 @@ if(supabase){
       if(!okReset) return;
       btn.disabled = true;
       try{
-        var r = await supabase.auth.resetPasswordForEmail(user.email, {redirectTo: window.location.href});
+        var r = await supabase.auth.resetPasswordForEmail(user.email, {redirectTo: resetRedirectTarget()});
         if(r.error) throw r.error;
         showToast("Password reset email sent to " + user.email + ".", "success");
       }catch(err){
@@ -8741,7 +8919,8 @@ if(supabase){
         btn.disabled = false;
       }
     }
-  });
+  }
+  document.getElementById("adminUsersList").addEventListener("click", adminUserActionClick);
 
   var AUDIT_LABELS = {
     insert:"Added", update:"Edited", delete:"Deleted",
@@ -10140,7 +10319,18 @@ if(supabase){
     renderOutbox();
     document.getElementById("signInForm").reset();
     document.getElementById("registerForm").reset();
-    setAuthMsg("signInError", ""); setAuthMsg("registerError", ""); setAuthMsg("registerSuccess", "");
+    // A reset link that has expired or already been used comes back here with
+    // the reason in the fragment and no session, so nothing else on this
+    // screen has anything to say about it — the visitor just finds the
+    // sign-in form again and concludes the link did nothing. This is where it
+    // gets said, and it has to be here rather than at boot: a page load with
+    // no session always ends in an INITIAL_SESSION carrying null, which lands
+    // in this function and blanks the field. Cleared after the one use, so a
+    // later genuine sign-out is not greeted with a stale complaint about a
+    // link from an hour ago.
+    setAuthMsg("signInError", __authLinkError || "");
+    __authLinkError = null;
+    setAuthMsg("registerError", ""); setAuthMsg("registerSuccess", "");
     document.getElementById("signInForm").style.display = "flex";
     document.getElementById("registerForm").style.display = "none";
     showAuthScreen();
@@ -10221,11 +10411,28 @@ if(supabase){
       // comment, above createClient()) — in which case it arrives here
       // relabelled INITIAL_SESSION, indistinguishable from an ordinary
       // restored session, unless the early listener already caught it.
-      if(event === "PASSWORD_RECOVERY" || (event === "INITIAL_SESSION" && __earlyRecoverySession)){
-        recoverySessionUser = (session && session.user) || (__earlyRecoverySession && __earlyRecoverySession.user);
+      // __recoveryArrival is the sticky one, and it is what actually holds the
+      // line: PASSWORD_RECOVERY arrives a tick BEHIND the INITIAL_SESSION for
+      // the very same session (see its comment above createClient), so a
+      // branch that only watches the events lets the dashboard boot first and
+      // wins nothing by showing the form afterwards. Read off the fragment
+      // before supabase-js touches it, this is true from the first event on.
+      // It is deliberately not cleared here — only endPasswordRecovery() does
+      // that, once the new password is set or the visitor backs out.
+      if(event !== "SIGNED_OUT" &&
+         (__recoveryArrival || event === "PASSWORD_RECOVERY" ||
+          (event === "INITIAL_SESSION" && __earlyRecoverySession))){
+        var recoveredUser = (session && session.user) ||
+                            (__earlyRecoverySession && __earlyRecoverySession.user);
+        if(recoveredUser) recoverySessionUser = recoveredUser;
         __earlyRecoverySession = null;
-        showResetPasswordScreen();
-        return;
+        // A fragment that says "recovery" but carries no usable session is not
+        // a reset — a truncated link, a hand-typed one. Offering a password
+        // form there would take a new password and have nothing to set it on,
+        // so release the hold and let this be the ordinary signed-out boot it
+        // actually is.
+        if(recoverySessionUser){ showResetPasswordScreen(); return; }
+        endPasswordRecovery();
       }
       // handleSignedIn() is a full cold start: it re-fetches the profile, resets
       // the theme, resets the entry form to today, and — most damagingly — resets

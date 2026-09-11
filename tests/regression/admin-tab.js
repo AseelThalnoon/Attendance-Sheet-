@@ -220,11 +220,11 @@ async function boot(browser, server, query){
       oldList: !!document.getElementById("usersList"),
       bulkInAdmin: !!document.getElementById("tab-admin").querySelector("#bulkApplyBtn"),
       bulkCount: document.querySelectorAll("#bulkApplyBtn").length,
-      roleToggles: document.querySelectorAll("#tab-admin .role-toggle").length,
+      rowMenus: document.querySelectorAll("#tab-admin .row-menu-btn").length,
     }));
     ok(!s.oldCard && !s.oldList, "the old Team & Access card is gone", JSON.stringify(s));
     ok(s.bulkInAdmin && s.bulkCount === 1, "Apply to Everyone lives in the Admin tab, once", JSON.stringify(s));
-    ok(s.roleToggles === 3, "every account has a role toggle in the People list", JSON.stringify(s));
+    ok(s.rowMenus === 3, "every account has an actions menu in the People list", JSON.stringify(s));
   }
 
   // ------------------------------------------------------------ header
@@ -422,15 +422,78 @@ async function boot(browser, server, query){
         count: rows.length,
         badges: rows.map(r => [...r.querySelectorAll(".admin-badge")].map(b => b.textContent.trim())),
         countLabel: document.getElementById("adminUserCount").textContent,
-        selfHasDelete: !!rows[0].querySelector("[data-delete-user]"),
+        inlineActionsLeft: document.querySelectorAll(
+          "#adminUsersList [data-delete-user], #adminUsersList [data-toggle-active], " +
+          "#adminUsersList [data-reset], #adminUsersList .role-btn").length,
       };
     });
     ok(s.count === 3, "the People list renders every account", JSON.stringify(s));
-    ok(!s.selfHasDelete, "you cannot delete or deactivate your own account", JSON.stringify(s));
+    ok(s.inlineActionsLeft === 0,
+      "the row itself carries no action buttons — they live in the menu", JSON.stringify(s));
     ok(s.badges.some(b => b.includes("No schedule")),
       "someone with no user_settings row is flagged", JSON.stringify(s.badges));
     ok(s.badges.some(b => b.includes("Deactivated")), "a deactivated account is flagged", JSON.stringify(s.badges));
+    ok(s.badges.some(b => b.includes("Admin")),
+      "an admin is marked as one now the role toggle is gone", JSON.stringify(s.badges));
     ok(/1 admin/.test(s.countLabel), "the header counts admins", s.countLabel);
+  }
+
+  // The row menu. Opening it is the only way to reach an action now, so the
+  // "you cannot delete your own account" rule has to be checked through it —
+  // asserting the row has no [data-delete-user] would pass for every row on
+  // this screen, including the ones that must offer it.
+  {
+    const menuFor = async (which) => page.evaluate((w) => {
+      const rows = [...document.querySelectorAll("#adminUsersList .admin-user-row")];
+      const me = document.getElementById("viewerSelect");
+      const selfUid = me ? me.value : null;
+      const row = w === "self"
+        ? rows.find(r => r.querySelector(".admin-badge.role-you"))
+        : rows.find(r => !r.querySelector(".admin-badge.role-you"));
+      if(!row) return { error: "no " + w + " row found" };
+      row.querySelector(".row-menu-btn").click();
+      const menu = document.getElementById("adminRowMenu");
+      if(!menu || menu.hidden) return { error: "menu did not open" };
+      const r = menu.getBoundingClientRect();
+      return {
+        uid: menu.getAttribute("data-uid"),
+        selfUid,
+        items: [...menu.querySelectorAll(".row-menu-item")].map(b => b.textContent.trim()),
+        danger: [...menu.querySelectorAll(".row-menu-item.danger")].map(b => b.textContent.trim()),
+        onScreen: r.width > 0 && r.height > 0 &&
+                  r.top >= 0 && r.left >= 0 &&
+                  r.bottom <= window.innerHeight && r.right <= window.innerWidth,
+        focused: document.activeElement && document.activeElement.classList.contains("row-menu-item")
+      };
+    }, which);
+
+    const other = await menuFor("other");
+    ok(!other.error, "the row menu opens", other.error || "");
+    ok(other.onScreen, "and opens fully inside the viewport", JSON.stringify(other));
+    ok(other.focused, "and moves focus into itself for the keyboard", JSON.stringify(other));
+    ok(other.items.some(t => /^Delete/.test(t)), "someone else's menu offers Delete", JSON.stringify(other.items));
+    ok(other.items.some(t => /Deactivate|Reactivate/.test(t)), "and Deactivate", JSON.stringify(other.items));
+    ok(other.danger.length === 1 && /^Delete/.test(other.danger[0]),
+      "Delete is the one item marked destructive", JSON.stringify(other.danger));
+    ok(other.items.some(t => /Admin/.test(t)), "and role is changed from here", JSON.stringify(other.items));
+
+    const self = await menuFor("self");
+    ok(!self.error, "your own row menu opens", self.error || "");
+    ok(!self.items.some(t => /^Delete/.test(t)),
+      "you cannot delete your own account", JSON.stringify(self.items));
+    ok(!self.items.some(t => /Deactivate|Reactivate/.test(t)),
+      "nor deactivate it", JSON.stringify(self.items));
+    ok(self.items.some(t => /Open Record|Reset Password/.test(t)),
+      "but the harmless actions are still there", JSON.stringify(self.items));
+
+    const closed = await page.evaluate(() => {
+      document.body.click();
+      const m = document.getElementById("adminRowMenu");
+      const btn = document.querySelector("#adminUsersList .row-menu-btn");
+      return { hidden: !!(m && m.hidden), expanded: btn.getAttribute("aria-expanded") };
+    });
+    ok(closed.hidden, "clicking away closes it", JSON.stringify(closed));
+    ok(closed.expanded === "false", "and the button stops reporting itself open", JSON.stringify(closed));
   }
   {
     const s = await page.evaluate(async () => {

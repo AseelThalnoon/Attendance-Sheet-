@@ -4139,13 +4139,33 @@
     margin-bottom:var(--space-3);
     grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
   }
+  /* A person is a row in a list, not a card with a toolbar attached.
+     Twelve boxed, shadowed cards stacked down the section laid a second
+     background colour behind the whole roster, and with six controls each —
+     Open Record, Reset Password, Deactivate, Delete and a two-button role
+     switch — the buttons were the loudest thing about every person while
+     their name was the smallest. The box already came off at <=700px for
+     exactly that reason; the reason was never specific to phones. The
+     actions are all still one tap away, in .row-menu below.
+
+     No flex-wrap: it is what let the row reflow into two lines for everyone
+     except yourself, whose row loses Deactivate and Delete and so happened
+     to fit on one. Eleven rows of one shape and one row of another is what
+     stopped the eye finding a column to follow. */
   .admin-user-row{
-    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
-    border:1px solid var(--line-soft); border-radius:var(--radius-md);
-    padding:12px 16px; margin-bottom:8px; background:var(--card); box-shadow:var(--shadow-sm);
+    position:relative;
+    display:flex; align-items:flex-start; gap:12px;
+    border-bottom:1px solid var(--line-soft);
+    padding:10px 4px;
   }
-  .admin-user-row.is-deactivated{opacity:.62; background:var(--ink-50);}
-  .admin-user-main{flex:1 1 200px; min-width:0;}
+  .admin-user-row:last-child{border-bottom:none;}
+  .admin-user-row.is-deactivated{opacity:.62;}
+  /* flex-start, not center: the avatar belongs to the NAME. On a phone a row
+     runs to three or four lines once the email wraps, and centring left the
+     face floating beside the middle of the block with nothing next to it.
+     The menu is an action for the whole row, so it stays centred. */
+  .admin-user-row .avatar{width:34px; height:34px; font-size:12px; flex-shrink:0; margin-top:1px;}
+  .admin-user-main{flex:1 1 auto; min-width:0;}
   /* overflow-wrap:anywhere on the name text itself, not just min-width:0 one
      level up on .admin-user-main: a name with no spaces (there is no length
      limit on it anywhere) has nothing else to break on, and its own default
@@ -4157,21 +4177,55 @@
     font-weight:700; font-size:14px; color:var(--ink); display:flex;
     align-items:center; gap:8px; flex-wrap:wrap; overflow-wrap:anywhere;
   }
-  .admin-user-meta{font-size:11.5px; color:var(--muted-2); margin-top:4px;}
-  .admin-user-actions{display:flex; gap:8px; flex-wrap:wrap;}
-  /* Phone: the same surface-per-record problem the Log, Team and Trends rows
-     already had — a boxed, shadowed card per person, one after another, is a
-     second background colour down the whole roster. The role toggle and every
-     action stay exactly where they are; only the box comes off, for a hairline
-     list in the same register as the rest of the tab on a phone. */
-  @media (max-width:700px){
-    .admin-user-row{
-      border:none; border-bottom:1px solid var(--line-soft); border-radius:0;
-      background:transparent; box-shadow:none; padding:12px 0; margin-bottom:0;
-    }
-    .admin-user-row:last-child{border-bottom:none;}
-    .admin-user-row.is-deactivated{background:transparent;}
+  .admin-user-meta{font-size:11.5px; color:var(--muted-2); margin-top:3px;}
+
+  /* One control per person. Sized for a finger by default and stepped down
+     on a pointer, the same way .role-btn was. */
+  .row-menu-btn{
+    flex-shrink:0; align-self:center; width:44px; height:44px;
+    display:inline-flex; align-items:center; justify-content:center;
+    border:none; border-radius:99px; background:none; cursor:pointer;
+    color:var(--muted);
+    transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap);
   }
+  .row-menu-btn:hover{background:var(--ink-50); color:var(--ink);}
+  .row-menu-btn[aria-expanded="true"]{background:var(--ink-100); color:var(--ink);}
+  @media (min-width:1100px){ .row-menu-btn{width:36px; height:36px;} }
+
+  /* position:fixed, and parented to the body rather than to the row, because
+     #tab-admin scrolls and #tabContentCard is overflow:hidden — a popover
+     positioned inside the row is clipped by both the moment it extends past
+     the row's own box, which is always. */
+  .row-menu{
+    position:fixed; z-index:80;
+    min-width:216px; max-width:min(280px, calc(100vw - 24px));
+    display:flex; flex-direction:column; padding:6px;
+    background:var(--card); border:1px solid var(--line);
+    border-radius:var(--radius-md); box-shadow:var(--shadow-lg);
+  }
+  /* Whose actions these are. The menu can open above the row it belongs to
+     when the row sits low in a long roster, so the anchor alone does not
+     always say. */
+  .row-menu-name{
+    margin:0; padding:6px 10px 8px;
+    font-size:11px; text-transform:uppercase; letter-spacing:.08em; font-weight:700;
+    color:var(--muted-2); overflow-wrap:anywhere;
+  }
+  .row-menu-item{
+    display:block; width:100%; text-align:start;
+    border:none; background:none; cursor:pointer;
+    padding:11px 10px; min-height:44px; border-radius:var(--radius-xs);
+    font-size:13px; font-weight:500; color:var(--ink);
+  }
+  .row-menu-item:hover, .row-menu-item:focus-visible{background:var(--ink-50);}
+  /* Delete destroys the person and every entry they logged. It was a pill the
+     same size, shape and border as Open Record, separated only by text
+     colour. Here it is below a rule, last, and the only red thing in the
+     menu. */
+  .row-menu-sep{height:1px; background:var(--line-soft); margin:6px;}
+  .row-menu-item.danger{color:var(--negative);}
+  .row-menu-item.danger:hover, .row-menu-item.danger:focus-visible{background:var(--negative-bg);}
+  @media (min-width:1100px){ .row-menu-item{min-height:36px; padding:8px 10px;} }
   .admin-badge{
     font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:700;
     padding:2px 8px; border-radius:99px; white-space:nowrap;
@@ -4568,31 +4622,33 @@
     color:var(--excused); background:var(--excused-bg); padding:2px 8px; border-radius:99px;
   }
 
-  /* ---------- Role toggle (Admin tab People list) ----------
+  /* ---------- Segmented pickers ----------
      .user-row and .you-badge lived here for the Team & Access card. That card
      was absorbed into the Admin tab and its rows now use .admin-user-row, so
-     the old rules are gone rather than left looking live. */
-  /* .choice-toggle/.choice-btn share this exact look for any other
-     mutually-exclusive pair/trio of options (see the Notifications
-     composer's "send to" and "send when" pickers) — kept as separate class
-     names from .role-toggle/.role-btn rather than reusing them directly, so
-     a test (or a future reader) counting "role toggles" in the People list
-     isn't also counting an unrelated picker that happens to look the same. */
-  .role-toggle, .choice-toggle{
+     the old rules are gone rather than left looking live.
+
+     .role-toggle/.role-btn have now gone the same way. They were the People
+     list's Employee|Admin switch, repeated once per person — the largest
+     visual mass in the roster, spending it to say "not an admin" eleven
+     times out of twelve. Role is a badge on the row now and a single item in
+     .row-menu, so only the Notifications composer's "send to" and "send
+     when" pickers still need this look. Their .choice-* names were always
+     separate on purpose and are now simply the only ones left. */
+  .choice-toggle{
     display:inline-flex; border:1px solid var(--line); border-radius:99px;
     padding:2px; background:var(--ink-50); flex-shrink:0;
   }
-  .role-btn, .choice-btn{
+  .choice-btn{
     border:none; background:none; cursor:pointer; padding:8px 16px; min-height:44px;
     border-radius:99px; font-size:11.5px; font-weight:500; color:var(--muted);
     transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
   }
-  .role-btn.active, .choice-btn.active{background:var(--gradient-ink); color:#fff; box-shadow:0 1px 5px rgba(17,17,16,.28);}
-  .role-btn:disabled, .choice-btn:disabled{opacity:.5; cursor:default;}
-  @media (min-width:1100px){ .role-btn, .choice-btn{min-height:32px;} }
+  .choice-btn.active{background:var(--gradient-ink); color:#fff; box-shadow:0 1px 5px rgba(17,17,16,.28);}
+  .choice-btn:disabled{opacity:.5; cursor:default;}
+  @media (min-width:1100px){ .choice-btn{min-height:32px;} }
   @media (max-width:480px){
-    .role-toggle, .choice-toggle{width:100%;}
-    .role-btn, .choice-btn{flex:1;}
+    .choice-toggle{width:100%;}
+    .choice-btn{flex:1;}
   }
   /* How many rows sit behind each filter, so an empty one is visibly empty
      before it is clicked rather than after. */
@@ -7128,6 +7184,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=clock-states-1"></script>
+<script type="module" src="app.js?v=people-list-1"></script>
 </body>
 </html>
