@@ -41,7 +41,12 @@ async function boot(opts){
   await backend.install(page, opts.meId, opts.signedOut);
   if(opts.beforeLoad) await opts.beforeLoad({ page, backend });
 
-  await page.goto(server.url + "/index.html");
+  // opts.hash appends a URL fragment. Supabase's password-reset email lands
+  // the visitor on the app with the recovery session IN the fragment, and
+  // that arrival is a distinct boot path -- supabase-js parses and strips it
+  // during its own async init -- so it cannot be reproduced from localStorage
+  // the way an ordinary signed-in boot can.
+  await page.goto(server.url + "/index.html" + (opts.hash || ""));
   if(opts.waitForApp !== false) await page.waitForSelector("#appShell:not([style*='display: none'])", { timeout: 15000 });
   await settle(page);
 

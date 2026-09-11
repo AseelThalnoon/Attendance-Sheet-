@@ -955,6 +955,48 @@ async function run(){
     await h.close();
   }
 
+  // ---- the registration guard must not clobber the reset form -------------
+  // refreshRegistrationVisibility() runs at boot, awaits public_app_flags, and
+  // then backs out of the register form if sign-ups turn out to be closed. It
+  // did that by calling showSignInForm(), which also hides the reset-password
+  // form -- so arriving from a password-reset email with sign-ups closed was a
+  // race between an RPC and the PASSWORD_RECOVERY event. When the RPC landed
+  // second it wiped "choose a new password" and left the visitor on the
+  // sign-in screen with nothing to explain it.
+  //
+  // The delay makes that ordering deterministic rather than hoping for it.
+  {
+    const people = D.roster(3), me = people[0];
+    const h = await boot({ viewport: PHONE, meId: me.id, signedOut: true, waitForApp: false,
+      seed: { profiles: people, entries: [], user_settings: [],
+              app_settings: [{ id: 1, allow_registration: false }] },
+      beforeLoad: ({ backend }) => backend.fail("rpc/public_app_flags", { delayMs: 900 }, 1)
+    });
+    // Put the reset screen up while the flags call is still in flight, which
+    // is what the recovery event does.
+    await h.page.evaluate(() => {
+      document.getElementById("signInForm").style.display = "none";
+      document.getElementById("registerForm").style.display = "none";
+      document.getElementById("resetPasswordForm").style.display = "flex";
+    });
+    await settle(h.page, 1600);   // well past the delayed RPC
+    const r = await h.page.evaluate(() => ({
+      reset: document.getElementById("resetPasswordForm").style.display,
+      signIn: document.getElementById("signInForm").style.display,
+      register: document.getElementById("showRegisterBtn").style.display
+    }));
+    ok(r.reset === "flex",
+      "a visible reset-password form survives the registration flags landing",
+      `the form is display:${r.reset} -- the visitor cannot finish setting a password`);
+    ok(r.signIn === "none",
+      "and the sign-in form is not pulled back over it",
+      `sign-in is display:${r.signIn}`);
+    ok(r.register === "none",
+      "while the flag itself still took effect",
+      "Create an account is still offered with sign-ups closed");
+    await h.close();
+  }
+
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
   if(fail){
     failures.forEach(f => console.log("  FAIL " + f));

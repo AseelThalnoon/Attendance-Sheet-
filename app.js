@@ -103,6 +103,41 @@ if(supabase){
   });
 }
 
+// ...and even catching the event early is not enough, because the event is
+// not the first thing to arrive. supabase-js broadcasts PASSWORD_RECOVERY
+// from inside a setTimeout(..., 0) while resolving initializePromise
+// straight away, and onAuthStateChange replays the current session to each
+// new subscriber as INITIAL_SESSION the moment that promise settles. A
+// microtask beats a macrotask, so BOTH listeners are handed INITIAL_SESSION
+// for the recovery session first, carrying no hint of what it is; the app
+// boots the dashboard on the old password, and the PASSWORD_RECOVERY that
+// lands a tick later cannot take back a sign-in that is already underway.
+// That is what the visitor saw: the emailed link signed them in and never
+// asked for a new password.
+//
+// The fragment itself is the one signal that does not race. Supabase puts
+// "type=recovery" in it and strips it during that same async init, so read
+// it synchronously now, while it is still there, and let it — not the event
+// ordering — decide whether this page load is a password reset.
+var __authHash = (window.location.hash || "").replace(/^#/, "");
+var __recoveryArrival = /(^|&)type=recovery(&|$)/.test(__authHash);
+// A link that has already been used or has expired comes back the same way,
+// as an error in the fragment rather than a session. Nothing read this
+// before, so a spent link dropped the visitor on a blank sign-in screen with
+// no idea why.
+var __authLinkError = (function(){
+  if(!/(^|&)error(_code|_description)?=/.test(__authHash)) return null;
+  function field(name){
+    var m = new RegExp("(^|&)" + name + "=([^&]*)").exec(__authHash);
+    if(!m) return "";
+    try{ return decodeURIComponent(m[2].replace(/\+/g, " ")); }catch(e){ return m[2]; }
+  }
+  var code = field("error_code");
+  if(code === "otp_expired" || field("error") === "access_denied")
+    return "That link has already been used or has expired. Enter your email below and tap \u201cForgot password?\u201d for a fresh one.";
+  return field("error_description") || "That link could not be opened. Enter your email below and tap \u201cForgot password?\u201d for a fresh one.";
+})();
+
 (function(){
   "use strict";
 
@@ -999,6 +1034,8 @@ if(supabase){
       return "There's already an account with that email. Try signing in instead.";
     if(/signups? not allowed|signup is disabled/i.test(msg))
       return "New accounts are turned off. Ask an administrator to create one for you.";
+    if(err.code === "over_email_send_rate_limit" || /email rate limit/i.test(msg))
+      return "Too many reset emails have gone out from this app in the last hour. Wait an hour and try again.";
     if(/rate limit|only request this after|too many requests/i.test(msg))
       return "Too many attempts just now. Wait a minute and try again.";
     if(/same as the old password|should be different/i.test(msg))
@@ -6283,8 +6320,16 @@ if(supabase){
       return;
     }
     btn.style.display = registrationOpen ? "" : "none";
-    // The form itself may already be open from a previous visit in this tab.
-    if(!registrationOpen) showSignInForm();
+    // Back out of the register form only if that is actually what is open.
+    //
+    // This called showSignInForm() unconditionally, which also hides the
+    // reset-password form -- and this function is async and runs at boot, so
+    // it raced the PASSWORD_RECOVERY event. Arriving from a reset email with
+    // sign-ups closed, whichever resolved last won: the RPC landing second
+    // wiped the "choose a new password" form and left the visitor on the
+    // sign-in screen with no way to finish, and no error to explain it.
+    var reg = document.getElementById("registerForm");
+    if(!registrationOpen && reg && reg.style.display !== "none") showSignInForm();
   }
 
   function showAuthScreen(){
@@ -6301,12 +6346,33 @@ if(supabase){
     if(el) el.textContent = msg || "";
   }
 
+  // Where an emailed reset link should land. Deliberately not
+  // window.location.href: that carries whatever fragment is on the page, and
+  // the fragment is exactly where a spent link leaves its
+  // "#error=access_denied&error_code=otp_expired". Send that back as the
+  // redirect target and Supabase appends the new session to a URL that
+  // already has a "#" -- the browser keeps the first fragment, so the fresh
+  // link arrives carrying the OLD error and no token at all. One expired
+  // link then breaks every reset email after it, for as long as the tab
+  // stays open. The bare page is the only stable target.
+  function resetRedirectTarget(){
+    return window.location.origin + window.location.pathname;
+  }
+
   // The email link Supabase sends signs the browser into a short-lived
   // "recovery" session and fires PASSWORD_RECOVERY (see the auth listener
   // below) rather than a normal SIGNED_IN. That session's user is stashed
   // here so the reset form can hand it straight to handleSignedIn() once the
   // new password is set, instead of making them log in a second time.
   var recoverySessionUser = null;
+  // Releases the sticky recovery hold set from the URL fragment at module
+  // load. Until this runs, the auth handler refuses to boot the app, so
+  // every path that legitimately leaves the reset form has to call it or the
+  // visitor is stuck staring at it.
+  function endPasswordRecovery(){
+    __recoveryArrival = false;
+    recoverySessionUser = null;
+  }
   function showResetPasswordScreen(){
     document.getElementById("authScreen").style.display = "flex";
     document.getElementById("appShell").style.display = "none";
@@ -6347,7 +6413,7 @@ if(supabase){
   document.getElementById("resetBackBtn").addEventListener("click", function(){
     // Drop the recovery session too: leaving it set would let the next
     // password submit land on an account the person has just backed away from.
-    recoverySessionUser = null;
+    endPasswordRecovery();
     showSignInForm();
   });
 
@@ -6378,9 +6444,8 @@ if(supabase){
       // Without an explicit redirectTo, Supabase falls back to the project's
       // configured Site URL, which may point somewhere other than this exact
       // page — the emailed link then lands the user off the app entirely,
-      // with no way back to the reset form. Pinning it to the current page
-      // matches the admin-triggered reset a few hundred lines down.
-      var res = await supabase.auth.resetPasswordForEmail(email, {redirectTo: window.location.href});
+      // with no way back to the reset form.
+      var res = await supabase.auth.resetPasswordForEmail(email, {redirectTo: resetRedirectTarget()});
       if(res.error) throw res.error;
       setAuthMsg("signInError", "");
       showToast("If an account exists for " + email + ", a reset link has been sent.", "success");
@@ -6404,7 +6469,10 @@ if(supabase){
       if(res.error) throw res.error;
       showToast("Password updated.", "success");
       var u = recoverySessionUser || (res.data && res.data.user);
-      recoverySessionUser = null;
+      // Before handleSignedIn, not after: the hold is what stops the auth
+      // handler booting the app, and updateUser() fires USER_UPDATED on its
+      // way out of here.
+      endPasswordRecovery();
       if(u) handleSignedIn(u); else showAuthScreen();
     }catch(err){
       setAuthMsg("resetPasswordError", err ? friendlyError(err) : "Couldn't update password.");
@@ -8673,7 +8741,7 @@ if(supabase){
       if(!okReset) return;
       btn.disabled = true;
       try{
-        var r = await supabase.auth.resetPasswordForEmail(user.email, {redirectTo: window.location.href});
+        var r = await supabase.auth.resetPasswordForEmail(user.email, {redirectTo: resetRedirectTarget()});
         if(r.error) throw r.error;
         showToast("Password reset email sent to " + user.email + ".", "success");
       }catch(err){
@@ -10140,7 +10208,18 @@ if(supabase){
     renderOutbox();
     document.getElementById("signInForm").reset();
     document.getElementById("registerForm").reset();
-    setAuthMsg("signInError", ""); setAuthMsg("registerError", ""); setAuthMsg("registerSuccess", "");
+    // A reset link that has expired or already been used comes back here with
+    // the reason in the fragment and no session, so nothing else on this
+    // screen has anything to say about it — the visitor just finds the
+    // sign-in form again and concludes the link did nothing. This is where it
+    // gets said, and it has to be here rather than at boot: a page load with
+    // no session always ends in an INITIAL_SESSION carrying null, which lands
+    // in this function and blanks the field. Cleared after the one use, so a
+    // later genuine sign-out is not greeted with a stale complaint about a
+    // link from an hour ago.
+    setAuthMsg("signInError", __authLinkError || "");
+    __authLinkError = null;
+    setAuthMsg("registerError", ""); setAuthMsg("registerSuccess", "");
     document.getElementById("signInForm").style.display = "flex";
     document.getElementById("registerForm").style.display = "none";
     showAuthScreen();
@@ -10221,11 +10300,28 @@ if(supabase){
       // comment, above createClient()) — in which case it arrives here
       // relabelled INITIAL_SESSION, indistinguishable from an ordinary
       // restored session, unless the early listener already caught it.
-      if(event === "PASSWORD_RECOVERY" || (event === "INITIAL_SESSION" && __earlyRecoverySession)){
-        recoverySessionUser = (session && session.user) || (__earlyRecoverySession && __earlyRecoverySession.user);
+      // __recoveryArrival is the sticky one, and it is what actually holds the
+      // line: PASSWORD_RECOVERY arrives a tick BEHIND the INITIAL_SESSION for
+      // the very same session (see its comment above createClient), so a
+      // branch that only watches the events lets the dashboard boot first and
+      // wins nothing by showing the form afterwards. Read off the fragment
+      // before supabase-js touches it, this is true from the first event on.
+      // It is deliberately not cleared here — only endPasswordRecovery() does
+      // that, once the new password is set or the visitor backs out.
+      if(event !== "SIGNED_OUT" &&
+         (__recoveryArrival || event === "PASSWORD_RECOVERY" ||
+          (event === "INITIAL_SESSION" && __earlyRecoverySession))){
+        var recoveredUser = (session && session.user) ||
+                            (__earlyRecoverySession && __earlyRecoverySession.user);
+        if(recoveredUser) recoverySessionUser = recoveredUser;
         __earlyRecoverySession = null;
-        showResetPasswordScreen();
-        return;
+        // A fragment that says "recovery" but carries no usable session is not
+        // a reset — a truncated link, a hand-typed one. Offering a password
+        // form there would take a new password and have nothing to set it on,
+        // so release the hold and let this be the ordinary signed-out boot it
+        // actually is.
+        if(recoverySessionUser){ showResetPasswordScreen(); return; }
+        endPasswordRecovery();
       }
       // handleSignedIn() is a full cold start: it re-fetches the profile, resets
       // the theme, resets the entry form to today, and — most damagingly — resets
