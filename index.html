@@ -2701,6 +2701,18 @@
      wrapper flex:1 too, which spread its two buttons to opposite ends of the
      row as though they were unrelated. */
   .console-section-head.with-action > :first-child{min-width:0; flex:1;}
+  /* The two buttons do not shrink, so on a narrow screen they take the row and
+     leave the title block whatever is left -- at 320px that was 55px, which
+     rendered "Seasonal Hours" stacked over a description running one or two
+     words per line. The title needs a readable measure more than the buttons
+     need to sit beside it, so below this width they wrap to their own line.
+     Found by the whole-app collision sweep: nothing overlapped and nothing
+     overflowed the page, which is exactly why it had gone unnoticed -- the
+     column simply collapsed. */
+  @media (max-width:560px){
+    .console-section-head.with-action{flex-wrap:wrap;}
+    .console-section-head.with-action > :first-child{flex:1 0 100%;}
+  }
 
   /* The person the panel is about, above the sections rather than inside one —
      it names who you are editing, which every section below is scoped to.
