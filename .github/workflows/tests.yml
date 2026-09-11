@@ -1,0 +1,43 @@
+# The suite only defended anything when someone remembered to run it. In one
+# session it caught three bugs that would otherwise have shipped, so the cost
+# of it not running is measured, not hypothetical.
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # The browser suites are the slow ones; WebKit alone boots four device
+    # profiles. Well clear of the real runtime, short enough that a hang fails
+    # rather than idling for six hours.
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      - name: Install test dependencies
+        working-directory: tests
+        run: npm ci
+
+      # chromium AND webkit. Chromium is not Safari, and the iPad
+      # ReferenceError that hid the Add to Home Screen prompt was invisible in
+      # every Chromium suite in this repository -- WebKit found it on its first
+      # run. --with-deps because WebKit on Linux needs five system packages it
+      # will not tell you about until it fails to launch.
+      - name: Install browsers
+        working-directory: tests
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Run every suite
+        working-directory: tests
+        run: npm test

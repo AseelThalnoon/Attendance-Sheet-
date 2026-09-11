@@ -4177,6 +4177,7 @@ if(supabase){
     });
     var allClearEl = document.getElementById("punctAllClear");
     allClearEl.hidden = !clear;
+
     if(clear){
       allClearEl.textContent = s.ratedDays
         ? "No shortfalls. Every scheduled day in " + punctScopeLabel() + " met its target."
@@ -4255,8 +4256,13 @@ if(supabase){
     var body = document.getElementById("punctBody");
     body.innerHTML = "";
     var empty = document.getElementById("punctEmpty");
+    // Not "No shortfalls in this period. Every scheduled day met its target."
+    // -- that is the sentence already on screen above the chart, in nearly the
+    // same words, and saying it twice is what an earlier pass's own comment
+    // counted as five statements of one fact. An empty list is better spent
+    // saying what would appear in it.
     empty.textContent = s.ratedDays
-      ? "No shortfalls in this period. Every scheduled day met its target."
+      ? "Days that came up short would be listed here."
       : "No attendance recorded for this period yet.";
     empty.style.display = flagged.length ? "none" : "block";
 
@@ -4506,6 +4512,23 @@ if(supabase){
     requestAnimationFrame(function(){ modal.classList.add("show"); });
     document.removeEventListener("keydown", onEntryModalKey);
     document.addEventListener("keydown", onEntryModalKey);
+    // The two things showConfirm() and the notification panel both do, and
+    // this one -- the dialog people actually use every week -- did neither.
+    //
+    // A history entry, so the phone's back gesture closes the form instead of
+    // backgrounding the whole app mid-edit. Closing by any other route pops it
+    // again, exactly as showConfirm does.
+    //
+    // aria-hidden on the page behind, or a screen reader's virtual cursor
+    // walks straight out of the open form into the screen it is covering. The
+    // Tab trap below never stopped that: it constrains Tab, not browsing.
+    if(!wasOpen){
+      entryModalBg = document.getElementById("appShell").style.display !== "none"
+        ? document.getElementById("appShell") : document.getElementById("authScreen");
+      if(entryModalBg) entryModalBg.setAttribute("aria-hidden", "true");
+      history.pushState({ledgerEntryModal:true}, "");
+      window.addEventListener("popstate", onEntryModalPop);
+    }
     // After the open transition, so focus doesn't land mid-flight and scroll
     // the card while it is still being transformed.
     setTimeout(function(){
@@ -4514,15 +4537,22 @@ if(supabase){
     }, 60);
   }
 
-  function closeEntryModal(){
+  var entryModalBg = null;
+  function onEntryModalPop(){ closeEntryModal(true); }
+  function closeEntryModal(fromPop){
     var modal = document.getElementById("entryModal");
     if(!modal || modal.hidden) return;
     modal.classList.remove("show");
     document.removeEventListener("keydown", onEntryModalKey);
+    window.removeEventListener("popstate", onEntryModalPop);
+    if(entryModalBg){ entryModalBg.removeAttribute("aria-hidden"); entryModalBg = null; }
     clearTimeout(entryModalHideTimer);
     entryModalHideTimer = setTimeout(function(){ modal.hidden = true; }, 180);
     if(entryModalReturn && typeof entryModalReturn.focus === "function") entryModalReturn.focus();
     entryModalReturn = null;
+    // The back gesture already consumed the pushed entry; closing any other
+    // way (Escape, Cancel, Save, the overlay) still has to.
+    if(!fromPop && history.state && history.state.ledgerEntryModal) history.back();
   }
 
   function onEntryModalKey(ev){
@@ -6186,10 +6216,81 @@ if(supabase){
     }
   });
 
+  // ---------- Password reveal ----------
+  // Every password field in the app, wired once. The alternative is the same
+  // markup five times and a sixth field arriving without it.
+  //
+  // Toggling .type is what actually reveals the text; it is done on the live
+  // element rather than by swapping inputs so the value, the autocomplete
+  // hint and any password manager attached to the field all survive it.
+  (function initPasswordReveal(){
+    var EYE = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg>';
+    var EYE_OFF = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l16 16"/><path d="M9.9 5.7A9.6 9.6 0 0 1 12 5.5c6.4 0 10 6.5 10 6.5a17 17 0 0 1-3.3 4M6.5 7.8A16.6 16.6 0 0 0 2 12s3.6 6.5 10 6.5a9.8 9.8 0 0 0 3.7-.7"/><path d="M9.8 9.9a2.6 2.6 0 0 0 3.5 3.6"/></svg>';
+    Array.prototype.forEach.call(document.querySelectorAll('input[type="password"]'), function(input){
+      if(!input.parentElement || input.parentElement.classList.contains("pw-wrap")) return;
+      var wrap = document.createElement("span");
+      wrap.className = "pw-wrap";
+      input.parentElement.insertBefore(wrap, input);
+      wrap.appendChild(input);
+
+      var btn = document.createElement("button");
+      btn.type = "button";                 // never submits the form it sits in
+      btn.className = "pw-reveal";
+      btn.innerHTML = EYE;
+      btn.setAttribute("aria-label", "Show password");
+      btn.setAttribute("aria-pressed", "false");
+      wrap.appendChild(btn);
+
+      btn.addEventListener("click", function(){
+        var shown = input.type === "text";
+        input.type = shown ? "password" : "text";
+        btn.innerHTML = shown ? EYE : EYE_OFF;
+        btn.setAttribute("aria-label", shown ? "Show password" : "Hide password");
+        btn.setAttribute("aria-pressed", shown ? "false" : "true");
+        // Keep the caret where it was: switching type moves it to the end,
+        // which mid-word is the kind of small wrongness that gets blamed on
+        // the keyboard.
+        var pos = input.value.length;
+        try{ input.setSelectionRange(pos, pos); }catch(e){}
+        input.focus();
+      });
+    });
+  })();
+
   // ---------- Auth screen ----------
+  // Whether "Create an account" belongs on the sign-in screen is a fact the
+  // signed-out visitor has to be able to read, and applyAppSettings() cannot
+  // tell them: it runs off loadAppSettings(), which needs a session, by which
+  // point this screen is gone. So the Admin section titled "Announcement &
+  // Sign-Up -- the banner everyone sees, and who may register" had no effect
+  // on the screen it names. A stranger filled in the whole form and was
+  // refused by the database trigger at the end of it.
+  //
+  // public_app_flags() is a SECURITY DEFINER read granted to anon, added in
+  // 20260813205003 for exactly this, returning nothing but allow_registration.
+  // It had never been called. Failure leaves the button as it is: the trigger
+  // is still the thing that actually enforces this, and hiding the button on a
+  // network error would be guessing in the more confusing direction.
+  var registrationOpen = null;   // null = not yet known
+  async function refreshRegistrationVisibility(){
+    var btn = document.getElementById("showRegisterBtn");
+    if(!btn || !supabaseConfigured) return;
+    try{
+      var res = await supabase.rpc("public_app_flags");
+      if(res.error) throw res.error;
+      registrationOpen = !(res.data && res.data.allow_registration === false);
+    }catch(err){
+      return;
+    }
+    btn.style.display = registrationOpen ? "" : "none";
+    // The form itself may already be open from a previous visit in this tab.
+    if(!registrationOpen) showSignInForm();
+  }
+
   function showAuthScreen(){
     document.getElementById("authScreen").style.display = "flex";
     document.getElementById("appShell").style.display = "none";
+    refreshRegistrationVisibility();
   }
   function showApp(){
     document.getElementById("authScreen").style.display = "none";
@@ -6218,17 +6319,36 @@ if(supabase){
   if(!supabaseConfigured){
     document.getElementById("authConfigWarning").style.display = "block";
   }
+  // At boot, not only from showAuthScreen(). #authScreen carries no inline
+  // display and is simply what the page IS until a session turns up, so
+  // showAuthScreen() never runs on the path that matters -- arriving signed
+  // out. It still runs on sign-out, where this is also correct.
+  refreshRegistrationVisibility();
 
   document.getElementById("showRegisterBtn").addEventListener("click", function(){
     document.getElementById("signInForm").style.display = "none";
     document.getElementById("registerForm").style.display = "flex";
     setAuthMsg("signInError", "");
   });
-  document.getElementById("showSignInBtn").addEventListener("click", function(){
-    document.getElementById("registerForm").style.display = "none";
+  // Back to sign-in from wherever the auth screen currently is. Was inline in
+  // the one button that needed it; the registration guard and the reset
+  // screen's way back both need the same thing.
+  function showSignInForm(){
+    var reg = document.getElementById("registerForm");
+    var reset = document.getElementById("resetPasswordForm");
+    if(reg) reg.style.display = "none";
+    if(reset) reset.style.display = "none";
     document.getElementById("signInForm").style.display = "flex";
     setAuthMsg("registerError", "");
     setAuthMsg("registerSuccess", "");
+    setAuthMsg("resetPasswordError", "");
+  }
+  document.getElementById("showSignInBtn").addEventListener("click", showSignInForm);
+  document.getElementById("resetBackBtn").addEventListener("click", function(){
+    // Drop the recovery session too: leaving it set would let the next
+    // password submit land on an account the person has just backed away from.
+    recoverySessionUser = null;
+    showSignInForm();
   });
 
   document.getElementById("signInForm").addEventListener("submit", async function(ev){
