@@ -1,3 +1,8 @@
+-- Applied 2026-09-11. The filename carries the version the remote history
+-- actually recorded (20260911143402), not the one this file was written
+-- under -- same correction as fb4cdfd and 56f1d61. supabase db push
+-- compares filenames against that history, so a file whose name does not
+-- match the applied version reads as a migration that never ran.
 -- The notification bell: a per-user read path for messages that were actually
 -- sent to that person, plus somewhere to record what they have already seen.
 --
