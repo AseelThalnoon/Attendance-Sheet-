@@ -2525,6 +2525,12 @@
     font-size:12.5px; font-weight:500; color:var(--warn);
   }
   .settings-warn svg{flex-shrink:0; margin-top:1px;}
+  /* The warning belongs to the toggle above it, but .check-row carries only a
+     top margin and .settings-warn only a bottom one, so the two met at exactly
+     0px -- and both are rounded, so the junction pinched the same way the admin
+     nav rows did. Belonging next to something is not the same as being welded
+     to it. */
+  .check-row + .settings-warn{margin-top:var(--space-2);}
   .settings-hint{font-size:13px; color:var(--muted-2); margin:10px 0 0;}
 
   /* ---------- Settings: Backup & Data ---------- */
@@ -2664,6 +2670,15 @@
      tabs, and arrow keys still walk all eight in order. The grouping is a
      scanning aid for the eye; nothing about the keyboard or the screen-reader
      path changes. */
+  /* The group is the flex child now, so .console-nav's gap falls BETWEEN
+     groups and the rows inside one were left touching edge to edge -- at a
+     16px corner radius that pinches every junction into a pair of white
+     wedges, which reads as two rows colliding. Reported from a phone, where
+     the rows are full width and the radius is at its most obvious.
+     gap:inherit rather than a repeated value: .console-nav is 4px on a
+     pointer and 6px on a phone, and a hand-copied number here would be right
+     at one breakpoint and wrong at the other. */
+  .console-nav-group{display:flex; flex-direction:column; gap:inherit;}
   .console-nav-group + .console-nav-group{margin-top:var(--space-3);}
   .console-nav-group-title{
     margin:0 0 var(--space-1); padding:0 var(--space-3);

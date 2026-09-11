@@ -29,7 +29,7 @@ function ok(cond, label, detail){
 }
 
 const SCAN = () => {
-  const out = { pageOverflow: 0, overlaps: [], offscreen: [], squeezed: [] };
+  const out = { pageOverflow: 0, overlaps: [], offscreen: [], squeezed: [], touching: [] };
   const doc = document.documentElement;
   out.pageOverflow = Math.round(doc.scrollWidth - doc.clientWidth);
   const vw = doc.clientWidth;
@@ -91,6 +91,33 @@ const SCAN = () => {
     }
   });
 
+  // Adjacent cards that TOUCH. Not overlap -- a zero gap passes every overlap
+  // test ever written -- but at a 16px corner radius two rows flush against
+  // each other pinch every junction into a pair of white wedges, and that
+  // reads as a collision to the person looking at it. Which is how the admin
+  // list shipped: wrapping the rows in group divs moved the nav's gap onto the
+  // groups and left the rows inside one with none.
+  all.forEach(el => {
+    const cs = getComputedStyle(el);
+    const radius = parseFloat(cs.borderTopLeftRadius) || 0;
+    const bg = cs.backgroundColor;
+    if(radius < 8) return;
+    if(bg === "rgba(0, 0, 0, 0)" || bg === "transparent") return;
+    const next = el.nextElementSibling;
+    if(!next || !next.getClientRects().length) return;
+    const ncs = getComputedStyle(next);
+    if((parseFloat(ncs.borderTopLeftRadius) || 0) < 8) return;
+    if(ncs.backgroundColor === "rgba(0, 0, 0, 0)" || ncs.backgroundColor === "transparent") return;
+    const a = el.getBoundingClientRect(), b = next.getBoundingClientRect();
+    // Stacked, not side by side.
+    if(Math.abs(a.left - b.left) > 2) return;
+    const gap = b.top - a.bottom;
+    if(gap >= -0.5 && gap < 1){
+      out.touching.push({ a: nameOf(el), b: nameOf(next),
+        gap: Math.round(gap * 10) / 10, radius: Math.round(radius) });
+    }
+  });
+
   const leaves = all.filter(el => {
     const cs = getComputedStyle(el);
     if(["fixed","absolute","sticky"].includes(cs.position)) return false;
@@ -147,6 +174,8 @@ const VIEWPORTS = [
           r.overlaps.slice(0, 3).map(o => `${o.a} over ${o.b} by ${o.ox}x${o.oy}px`).join("\n     "));
         ok(r.offscreen.length === 0, `${at} — nothing is pushed off the right edge`,
           r.offscreen.slice(0, 3).map(o => `${o.el} ends at ${o.right} in ${o.vw}`).join("\n     "));
+        ok(r.touching.length === 0, `${at} — no two rounded cards sit flush against each other`,
+          r.touching.slice(0, 3).map(o => `${o.a} and ${o.b} meet at ${o.gap}px with a ${o.radius}px radius`).join("\n     "));
         ok(r.squeezed.length === 0, `${at} — no text is squeezed into an unreadable column`,
           r.squeezed.slice(0, 3).map(o => `${o.el} is ${o.w}px wide over ${o.lines} lines: "${o.txt}"`).join("\n     "));
       };
