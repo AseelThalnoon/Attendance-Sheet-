@@ -47,7 +47,7 @@ const html = `<!doctype html><meta charset="utf-8"><title>push actions harness</
 ${stubs}
 var entries = [];
 ${slice("async function quickClockOut(entry, btn){", "// ---------- Log ----------")}
-${slice("function consumeShortcutAction(){", "document.getElementById(\"clockInBtn\")")}
+${slice("function consumeShortcutAction(){", "var CLOCK_IN_PATH")}
 window.consumeShortcutAction = consumeShortcutAction;
 window.setEntries = function(list){ entries.length = 0; list.forEach(function(e){ entries.push(e); }); };
 </script>

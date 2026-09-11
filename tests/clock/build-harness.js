@@ -28,6 +28,11 @@ function pulseQuickClock(){}
 function safeGet(){ return null; }
 function safeSet(){ return true; }
 function showQcNote(m){ window.__notes.push(m); }
+// The "done" state's action on every surface opens today's row in the edit
+// dialog. Counted, not performed: this suite measures the punch.
+window.__editCalls = 0;
+function loadEntryIntoForm(id){ window.__editCalls++; }
+function openNewEntryForm(d){ window.__editCalls++; }
 async function showConfirm(){ return true; }
 // Dismissed reminders are now persisted to localStorage, and backend errors are
 // mapped to human sentences before display. Neither is what this suite measures.
@@ -81,19 +86,23 @@ const overnightDeps = [
   line("var LONG_SHIFT_MIN =")
 ].join("\n");
 
-const listeners = ["clockInBtn", "clockOutBtn", "stickyClockInBtn", "stickyClockOutBtn"]
-  .map(id => line(`document.getElementById("${id}").addEventListener("click", function(){ punchClock(`).trim())
+// The three clock controls all dispatch through clockControlClick() now — the
+// Overview panel, the sticky bar and the bottom-nav button run one state model
+// instead of two, so there is one listener shape to pull rather than four.
+const listeners = ["qcClockBtn", "stickyClockBtn", "bnClockBtn"]
+  .map(id => line(`document.getElementById("${id}").addEventListener("click", function(){ clockControlClick(this); });`).trim())
   .join("\n");
 
 const html = `<!doctype html><meta charset="utf-8"><title>clock harness</title>
 <style>
 ${line(".bn-clock.disabled{")}
 </style>
-<button id="clockInBtn">In</button>
-<button id="clockOutBtn">Out</button>
-<button id="stickyClockInBtn">In</button>
-<button id="stickyClockOutBtn">Out</button>
-<button class="bn-clock" id="bnClockBtn">Clock</button>
+<button class="btn qc-btn" id="qcClockBtn" data-clock-action="in"><svg id="qcClockIcon"></svg><span id="qcClockLabel">Clock In Now</span></button>
+<button class="btn qc-btn" id="qcEditBtn" hidden>Edit Today</button>
+<p id="qcDoneText" hidden></p>
+<button class="btn qc-btn" id="stickyClockBtn" data-clock-action="in"><svg id="stickyClockIcon"></svg><span id="stickyClockLabel">In</span></button>
+<button class="bn-clock" id="bnClockBtn"><svg id="bnClockIcon"></svg></button>
+<span id="bnClockLabel">Clock In</span>
 <div id="stickyClock"></div>
 <input id="fIn"><input id="fOut"><input id="fDate">
 <div id="qcStatusNote"></div>
@@ -101,13 +110,11 @@ ${line(".bn-clock.disabled{")}
 ${stubs}
 ${overnightDeps}
 ${outboxDeps}
-${slice("var punchInFlight = false;", "document.getElementById(\"clockInBtn\").addEventListener")}
+${slice("var punchInFlight = false;", "document.getElementById(\"qcClockBtn\").addEventListener")}
 ${listeners}
-// The real bottom-nav listener also refreshes the button's icon/label through
-// render helpers that aren't in scope here; the punchClock dispatch is the
-// part under test.
-document.getElementById("bnClockBtn").addEventListener("click", function(){ punchClock("in"); });
 window.punchClock = punchClock;
+window.renderClockControls = renderClockControls;
+window.clockSurfaceState = clockSurfaceState;
 </script>
 `;
 
@@ -116,4 +123,6 @@ if(!/async function punchClock/.test(html)) throw new Error("harness is missing 
 if(!/punchInFlight/.test(html)) throw new Error("harness is missing the punchInFlight guard");
 if(!/async function resolveOvernightTarget/.test(html)) throw new Error("harness is missing resolveOvernightTarget");
 if(!/function queuePunch/.test(html)) throw new Error("harness is missing the outbox");
+if(!/function openShiftTarget/.test(html)) throw new Error("harness is missing openShiftTarget");
+if(!/function renderClockControls/.test(html)) throw new Error("harness is missing renderClockControls");
 module.exports = { OUT };

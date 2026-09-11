@@ -555,13 +555,18 @@ if(supabase){
     document.getElementById("outboxTitle").textContent = mine.length === 1
       ? "A punch is waiting to upload"
       : mine.length + " punches are waiting to upload";
+    // Written to fit the two lines the phone clamps this to (index.html's
+    // .reminder-text). The old copy ran to three, and the line the clamp cut
+    // was "you don't need to punch again" — the single sentence that answers
+    // the question this banner exists for. "Uploads by itself once you're back
+    // online" went instead: the title already says the punch is waiting to
+    // upload, and saying it twice is what cost the reassurance its place.
     document.getElementById("outboxText").textContent =
       (mine.length === 1
-        ? "Clock-" + (oldest.field === "clockIn" ? "in" : "out") + " at " +
-          formatTime12(oldest.time) + " on " + fmtDate(oldest.date)
-        : "The oldest is " + fmtDate(oldest.date)) +
-      ". It's saved on this device and uploads by itself once you're back online — " +
-      "you don't need to punch again.";
+        ? "Clock-" + (oldest.field === "clockIn" ? "in" : "out") + " " +
+          formatTime12(oldest.time) + ", " + fmtDate(oldest.date)
+        : "Oldest: " + fmtDate(oldest.date)) +
+      ". Saved on this device — don't punch again.";
     banner.classList.add("show");
   }
 
@@ -979,6 +984,25 @@ if(supabase){
       return "The server took too long to respond. Check your connection and try again.";
     if(/Failed to fetch|NetworkError|network/i.test(msg))
       return "Couldn't reach the server. Check your connection and try again.";
+
+    // Auth. These reach the reader at the least forgiving moment in the app —
+    // locked out at the front door, with nothing else on screen — and they were
+    // the one family still shown as the provider wrote them: "Invalid login
+    // credentials" is a status line, not a sentence to a person who cannot get
+    // in. Deliberately silent about WHICH half is wrong: whether an address has
+    // an account is not something a signed-out stranger gets to probe.
+    if(/invalid login credentials|invalid email or password/i.test(msg))
+      return "That email and password don't match an account.";
+    if(/email not confirmed/i.test(msg))
+      return "Confirm your email address first — check your inbox for the link.";
+    if(/user already registered|already been registered/i.test(msg))
+      return "There's already an account with that email. Try signing in instead.";
+    if(/signups? not allowed|signup is disabled/i.test(msg))
+      return "New accounts are turned off. Ask an administrator to create one for you.";
+    if(/rate limit|only request this after|too many requests/i.test(msg))
+      return "Too many attempts just now. Wait a minute and try again.";
+    if(/same as the old password|should be different/i.test(msg))
+      return "That's the password you already have. Choose a different one.";
     return msg;
   }
 
@@ -2409,6 +2433,16 @@ if(supabase){
     var card = document.getElementById("tabContentCard");
     if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
   });
+  // Day one's one escape hatch. A brand-new account runs on the org default
+  // schedule until someone changes it, and every figure the app will show is
+  // measured against that — so the first run offers the schedule before it
+  // offers anything else. Same hop as the header button above: click the real
+  // tab control, then bring the card it opens into view.
+  document.getElementById("firstRunSettingsBtn").addEventListener("click", function(){
+    document.querySelector('.tab-btn[data-tab="settings"]').click();
+    var card = document.getElementById("tabContentCard");
+    if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
+  });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
     // You may always edit your own schedule; editing someone else's requires
     // admin. The database enforces the same rule, so this is a courtesy check
@@ -3089,6 +3123,31 @@ if(supabase){
   // "nothing announced yet".
   var lastAnnouncedMilestoneStreak = null;
 
+  // ---------- Overview, day one ----------
+  // The stat cards, the portrait and the Day Types dial are all lagging
+  // measures. On an account with no entries they render as five zeros and
+  // three empty states stacked above the clock, which on a phone puts the one
+  // action this screen exists for below roughly 4000px of nothing. Swap them
+  // for a single card until the first day lands.
+  //
+  // Gated on !dataLoadFailed() deliberately: an empty `entries` means "nothing
+  // logged" only when the load actually succeeded. After a failure it means
+  // "we don't know", and telling someone with four hundred days of history
+  // that their first day starts here is precisely the defect the load-failure
+  // banner and renderLog()'s own dataLoadFailed() branch exist to prevent.
+  //
+  // isOwnData keeps it off an admin's screen while they are viewing someone
+  // else: "your first day" is the wrong sentence about another person's
+  // record, and an admin cannot punch that clock anyway (see punchClock).
+  function renderOverviewFirstRun(){
+    var panel = document.getElementById("tab-overview");
+    var card = document.getElementById("overviewFirstRun");
+    if(!panel || !card) return;
+    var firstRun = isOwnData && entries.length === 0 && !dataLoadFailed();
+    panel.classList.toggle("is-first-run", firstRun);
+    card.hidden = !firstRun;
+  }
+
   function renderStats(){
     var today = todayStr();
     var mk = monthKey(today);
@@ -3230,7 +3289,7 @@ if(supabase){
       document.getElementById("todayLineValue").textContent = sealText;
     }
 
-    renderBnClock(todayEntry);
+    renderClockControls();
 
     renderLeaveBalance();
   }
@@ -3481,7 +3540,7 @@ if(supabase){
             '<path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>' +
           '</svg>' +
           '<p class="first-run-title">No attendance logged yet</p>' +
-          '<p class="first-run-sub">Tap <strong>Clock In Now</strong> above to log today, or add a day by hand using the form.</p>' +
+          '<p class="first-run-sub">Use <strong>Add Entry</strong> above to record a day by hand, or clock in from the <strong>Overview</strong> tab.</p>' +
         '</div>';
     } else {
       empty.textContent = "No days match these filters.";
@@ -4176,6 +4235,7 @@ if(supabase){
   function renderAll(){
     populateFilters();
     renderStats();
+    renderOverviewFirstRun();
     renderReminder();
     renderBackupReminder();
     renderOutbox();
@@ -4221,16 +4281,19 @@ if(supabase){
       var days = Math.floor((now - last) / dayMs);
       if(days < BACKUP_REMIND_DAYS){ banner.classList.remove("show"); return; }
       document.getElementById("backupTitle").textContent = "Time for a backup";
+      // Two lines on a phone, same as the outbox above. "Your data is saved to
+      // your account" is dropped rather than clamped: the Backup & Data section
+      // this button opens already says it, and keeping it here pushed the
+      // reason to act off the bottom.
       document.getElementById("backupText").textContent =
-        "Your last backup was " + days + " days ago. You've logged " + entries.length +
-        " days. Your data is saved to your account, but an export gives you your own copy to keep.";
+        "Last backup " + days + " days ago, " + entries.length +
+        " days logged. Keep your own copy.";
     } else {
       // Never backed up: wait until there's enough logged to be worth protecting.
       if(entries.length < 5){ banner.classList.remove("show"); return; }
       document.getElementById("backupTitle").textContent = "You haven't backed up yet";
       document.getElementById("backupText").textContent =
-        "You've logged " + entries.length + " days. Your data is saved to your account — " +
-        "an export just gives you your own copy to keep or hand over.";
+        entries.length + " days logged. An export gives you your own copy to keep or hand over.";
     }
     banner.classList.add("show");
   }
@@ -4250,6 +4313,14 @@ if(supabase){
   // again would loop.
   // One scope now the Yearly view is gone: whatever the Log's own filters are
   // showing, which is also what the reader sees on screen when they press it.
+  // Whose record the sheet is for. Same resolution renderPersonCard() uses, so
+  // the printed name and the name on screen can never disagree.
+  function printSubjectName(){
+    var who = (!isOwnData && viewedProfile) ? viewedProfile : currentProfile;
+    if(!who) who = currentUser || null;
+    return (who && (who.full_name || who.email)) || "";
+  }
+
   function buildPrintReport(suppressDialog){
     var mf = getMonthFilter(), yf = getLogYearFilter();
     var rows = filteredEntries();
@@ -4262,6 +4333,10 @@ if(supabase){
     var html =
       '<p class="p-eyebrow">Personal Time Record</p>' +
       '<h1>'+escapeHtml(title)+'</h1>' +
+      // Whose record this is. Without it an admin printing a teammate's month
+      // produced a sheet identical to their own — two signature lines and no
+      // name above them.
+      (printSubjectName() ? '<p class="p-meta">'+escapeHtml(printSubjectName())+'</p>' : '') +
       '<p class="p-meta">'+escapeHtml(subtitle)+'</p>' +
       '<p class="p-meta">Schedule: '+escapeHtml(scheduleSummary())+'</p>' +
       '<p class="p-meta">Generated '+escapeHtml(fmtDateLong(todayStr()))+'</p>' +
@@ -4274,24 +4349,6 @@ if(supabase){
         '<div><span class="k">Target Hours</span><span class="v">'+minutesToHoursStr(s.targetSum)+'</span></div>' +
         '<div><span class="k">Overtime / Under</span><span class="v">'+signed(s.diffSum)+'</span></div>' +
       '</div>';
-
-    if(period === "year"){
-      var byMonth = groupBy(rows, monthKey);
-      var mKeys = Object.keys(byMonth).sort();
-      html += '<h2>Monthly Breakdown</h2><table><thead><tr>' +
-        '<th>Month</th><th class="num">Days</th><th class="num">Total</th><th class="num">Avg / Day</th><th class="num">Target</th><th class="num">Diff</th>' +
-        '</tr></thead><tbody>';
-      mKeys.forEach(function(k){
-        var ms = summarize(byMonth[k]);
-        html += '<tr><td>'+escapeHtml(monthLabel(k))+'</td>' +
-          '<td class="num">'+ms.loggedDays+'</td>' +
-          '<td class="num">'+minutesToHoursStr(ms.workedSum)+'</td>' +
-          '<td class="num">'+(ms.loggedDays?minutesToHoursStr(ms.avgMin):"—")+'</td>' +
-          '<td class="num">'+minutesToHoursStr(ms.targetSum)+'</td>' +
-          '<td class="num">'+signed(ms.diffSum)+'</td></tr>';
-      });
-      html += '</tbody></table>';
-    }
 
     html += '<h2>Daily Record</h2>';
     if(!rows.length){
@@ -4322,7 +4379,19 @@ if(supabase){
     if(!suppressDialog) window.print();
   }
 
-  document.getElementById("printBtn").addEventListener("click", function(){ buildPrintReport(); });
+  // Wrapped, because the last time this threw it did so silently: a free
+  // variable left behind when the Yearly view was removed made every path here
+  // a ReferenceError, #printArea stayed empty, and the print stylesheet — which
+  // hides header, main and footer unconditionally — printed one blank sheet.
+  // No toast, no console line anyone saw, on the only artefact this app makes
+  // for somebody else. A failure says so now.
+  document.getElementById("printBtn").addEventListener("click", function(){
+    try{ buildPrintReport(); }
+    catch(err){
+      console.error(err);
+      showToast("Couldn't build the report: " + friendlyError(err), "error");
+    }
+  });
 
   // The print stylesheet hides the header, main and footer unconditionally and
   // shows only #printArea, which was populated only by the buttons above. So
@@ -4813,6 +4882,20 @@ if(supabase){
     el.className = "qc-note" + (success ? " success" : "");
     void el.offsetWidth; // force reflow so back-to-back punches re-trigger the fade
     el.classList.add("pulse");
+    // This note lives inside #tab-overview, and .tab-panel{display:none} hides
+    // it on every other tab — while the bottom-nav button and the sticky bar
+    // can punch from ALL of them. A punch made from the Log tab wrote the
+    // recorded minute into a hidden node and showed nothing at all: no time,
+    // no toast, only "Not logged" flipping to "Clocked in" up on the seal. The
+    // one fact this app exists to capture, confirmed nowhere — and the surest
+    // way to get someone to punch a second time.
+    //
+    // Measured rather than inferred from the active tab: getClientRects()
+    // catches every reason the note is not on screen, including the panel
+    // being scrolled, hidden or replaced. The toast is the channel every other
+    // outcome in the app already uses, and it carries its own live region, so
+    // this also gives the punch a spoken confirmation it never had.
+    if(!el.getClientRects().length) showToast(msg, success ? "success" : "error");
   }
 
   // The one-shot "confirmed" beat on the seal, separate from its ambient
@@ -4855,25 +4938,42 @@ if(supabase){
   // was the whole defect.
   //
   // Returns the date the clock-out belongs to, or null to abort the punch.
-  async function resolveOvernightTarget(today, timeNow){
+  // The day a clock-out would land on right now, or null when there is nothing
+  // open to close. Pure — no confirm, no toast, no write — so the clock
+  // controls can ask exactly the question the punch is about to ask, and never
+  // offer an action punchClock() would then refuse. resolveOvernightTarget()
+  // below is this plus the confirmation; if the two ever disagree, the button
+  // is lying about what pressing it will do.
+  function openShiftTarget(today, timeNow){
     var todayEntry = entries.find(function(x){ return x.date === today; });
-    // Today has a shift of its own open: nothing ambiguous to resolve.
-    if(todayEntry && todayEntry.clockIn) return today;
+    // A shift that started today is open until it has a clock-out.
+    if(todayEntry && todayEntry.clockIn) return todayEntry.clockOut ? null : today;
 
     var yest = dayBefore(today);
     var prev = entries.find(function(x){
       return x.date === yest && x.clockIn && !x.clockOut &&
              EXCUSED_TYPES.indexOf(x.type) === -1;
     });
-    if(!prev) return today;
-
-    // How long the shift would have run, measured across the midnight boundary.
-    // Past the long-shift ceiling this is a forgotten clock-out rather than a
-    // night shift, and the reminder banner already owns that case — silently
-    // offering to backdate a 20-hour day would turn one missed punch into a
-    // wrong record, which is worse than the row it is trying to avoid.
+    if(!prev) return null;
+    // Past the ceiling this is a forgotten punch rather than a night shift, and
+    // the reminder banner owns that case — see resolveOvernightTarget's note.
     var elapsed = (24*60 - timeToMinutes(prev.clockIn)) + timeToMinutes(timeNow);
-    if(elapsed >= LONG_SHIFT_MIN) return today;
+    return elapsed >= LONG_SHIFT_MIN ? null : yest;
+  }
+
+  async function resolveOvernightTarget(today, timeNow){
+    var todayEntry = entries.find(function(x){ return x.date === today; });
+    // Today has a shift of its own open: nothing ambiguous to resolve.
+    if(todayEntry && todayEntry.clockIn) return today;
+
+    // Nothing open to close, or yesterday's shift is past the long-shift
+    // ceiling: hand back today and let punchClock's own guard decide what to
+    // say. Backdating a 20-hour day would turn one missed punch into a wrong
+    // record, which is worse than the row it is trying to avoid.
+    var yest = openShiftTarget(today, timeNow);
+    if(yest === null) return today;
+    var prev = entries.find(function(x){ return x.date === yest; });
+    var elapsed = (24*60 - timeToMinutes(prev.clockIn)) + timeToMinutes(timeNow);
 
     var ok = await showConfirm(
       "You clocked in on " + fmtDate(yest) + " at " + formatTime12(prev.clockIn) +
@@ -4905,6 +5005,36 @@ if(supabase){
     if(kind === "out"){
       targetDate = await resolveOvernightTarget(today, timeNow);
       if(targetDate === null) return;
+      // resolveOvernightTarget() returns `today` whenever yesterday has no open
+      // shift to close — and that includes the case where nothing is open
+      // anywhere, which is the exact row its own comment says it exists to
+      // prevent. Its guard only fires when yesterday HAS an open shift; with
+      // nothing open at all it falls straight through, and the payload built
+      // below is {clockIn:"", clockOut:"17:03"}. That row is permanent, scores
+      // workedMin null, reads as "missing" on the calendar, and can only be
+      // removed by finding and deleting it by hand.
+      //
+      // Guarded here rather than by disabling a button, because the buttons are
+      // not the only caller: the installed icon's ?action=out shortcut
+      // (consumeShortcutAction) and the push notification's "Clock Out" action
+      // both reach punchClock directly, with no button in between. A control
+      // that cannot offer the action is the right UI; it is not the fix.
+      var closing = entries.find(function(x){ return x.date === targetDate; });
+      if(!closing || !closing.clockIn){
+        // Two different refusals. A shift that is open but past the long-shift
+        // ceiling is not "nothing to close" — it is a forgotten punch, it is
+        // still sitting there, and the reminder banner is the thing that can
+        // actually fix it. Saying "no open shift" about a day that plainly has
+        // one sends the reader looking for a bug instead of a button.
+        var stale = entries.find(function(x){
+          return x.date === dayBefore(today) && x.clockIn && !x.clockOut &&
+                 EXCUSED_TYPES.indexOf(x.type) === -1;
+        });
+        showToast(stale
+          ? "Yesterday's shift is still open, and too old to close from here. Use the reminder at the top of the screen to fix " + fmtDate(dayBefore(today)) + "."
+          : "There's no open shift to close. Clock in first, or add the day by hand from the Log.", "error");
+        return;
+      }
     }
     var isYesterday = targetDate !== today;
     var existing = entries.find(function(x){ return x.date === targetDate; });
@@ -4923,8 +5053,8 @@ if(supabase){
     // them need to be guarded against a double-tap firing overlapping calls,
     // not just the desktop pair.
     var clockBtns = [
-      document.getElementById("clockInBtn"), document.getElementById("clockOutBtn"),
-      document.getElementById("stickyClockInBtn"), document.getElementById("stickyClockOutBtn"),
+      document.getElementById("qcClockBtn"),
+      document.getElementById("stickyClockBtn"),
       document.getElementById("bnClockBtn")
     ].filter(Boolean);
     // Set only now, after the "replace it?" confirmation has resolved — an
@@ -5013,34 +5143,129 @@ if(supabase){
     punchClock(action);
   }
 
-  document.getElementById("clockInBtn").addEventListener("click", function(){ punchClock("in"); });
-  document.getElementById("clockOutBtn").addEventListener("click", function(){ punchClock("out"); });
-  document.getElementById("stickyClockInBtn").addEventListener("click", function(){ punchClock("in"); });
-  document.getElementById("stickyClockOutBtn").addEventListener("click", function(){ punchClock("out"); });
 
   // The bottom nav has one smart button instead of separate In/Out buttons —
   // it shows whichever action makes sense given today's entry, and simply
   // calls the same punchClock() used everywhere else (including its
   // existing "already clocked in, replace?" confirmation).
-  var BN_CLOCK_IN_PATH = 'M5 12h11M12 5l7 7-7 7';
-  var BN_CLOCK_OUT_PATH = 'M19 12H8M11 5l-7 7 7 7';
-  function renderBnClock(todayEntry){
-    var btn = document.getElementById("bnClockBtn");
-    if(!btn) return;
-    var icon = document.getElementById("bnClockIcon");
-    var label = document.getElementById("bnClockLabel");
-    var isOpen = !!(todayEntry && todayEntry.clockIn && !todayEntry.clockOut);
+  var CLOCK_IN_PATH   = 'M5 12h11M12 5l7 7-7 7';
+  var CLOCK_OUT_PATH  = 'M19 12H8M11 5l-7 7 7 7';
+  var CLOCK_DONE_PATH = 'M5 13l4 4L19 7';
 
-    btn.classList.toggle("clocked-in", isOpen);
-    label.textContent = isOpen ? "Clock Out" : "Clock In";
-    icon.innerHTML = '<path d="'+(isOpen ? BN_CLOCK_OUT_PATH : BN_CLOCK_IN_PATH)+'"/>';
-    btn.setAttribute("data-bn-action", isOpen ? "out" : "in");
-    btn.classList.toggle("disabled", !isOwnData);
+  // Which of the three states every clock surface is in.
+  //
+  //   "in"    nothing open; a clock-in starts today
+  //   "out"   a shift is open — today's, or last night's still inside the
+  //           long-shift ceiling — and a clock-out closes it
+  //   "done"  today has both punches; there is no punch left to offer
+  //
+  // Derived from openShiftTarget(), which is the same function the punch uses
+  // to decide where a clock-out lands, so a control can never present an action
+  // that punchClock() will turn around and refuse.
+  function clockSurfaceState(){
+    var today = todayStr();
+    var e = entries.find(function(x){ return x.date === today; });
+    if(e && e.clockIn && e.clockOut) return "done";
+    return openShiftTarget(today, nowTimeStr()) === null ? "in" : "out";
   }
-  document.getElementById("bnClockBtn").addEventListener("click", function(){
-    if(this.classList.contains("disabled")) return;
-    punchClock(this.getAttribute("data-bn-action") || "in");
-  });
+
+  // What a finished day says instead of offering a button.
+  function doneSummary(){
+    var e = entries.find(function(x){ return x.date === todayStr(); });
+    if(!e || !e.clockOut) return "";
+    var worked = "";
+    try{
+      var c = computeEntry(e);
+      if(c.workedMin !== null) worked = " · " + minutesToHoursStr(c.workedMin) + " worked";
+    }catch(err){ /* a malformed row must not blank the whole panel */ }
+    return "Clocked out " + formatTime12(e.clockOut) + worked;
+  }
+
+  // One renderer for all three clock surfaces — the Overview panel, the sticky
+  // bar and the bottom-nav button. They previously ran two different models:
+  // the nav button knew which action was available, while the other two offered
+  // a fixed In/Out pair on every day in every state. Every defect in this area
+  // lived in that gap — a "Clock Out Now" that wrote an orphan row, and a
+  // finished day still offering to overwrite its own start time.
+  function renderClockControls(){
+    var state = isOwnData ? clockSurfaceState() : "in";
+    var isDone = state === "done", isOut = state === "out";
+    var path = isDone ? CLOCK_DONE_PATH : (isOut ? CLOCK_OUT_PATH : CLOCK_IN_PATH);
+    var action = isOut ? "out" : "in";
+    var unavailable = "Clocking in and out is unavailable while you are viewing someone else's record";
+
+    function paint(btnId, iconId, labelId, label, aria){
+      var btn = document.getElementById(btnId);
+      if(!btn) return;
+      btn.disabled = !isOwnData;
+      btn.setAttribute("data-clock-action", isDone ? "edit" : action);
+      btn.setAttribute("aria-label", !isOwnData ? unavailable : aria);
+      var icon = document.getElementById(iconId);
+      if(icon) icon.innerHTML = '<path d="'+path+'"/>';
+      var el = document.getElementById(labelId);
+      if(el) el.textContent = label;
+    }
+
+    // --- Overview panel: the button steps aside entirely on a finished day,
+    //     and the report plus an explicit Edit takes its place. ---
+    var qcBtn = document.getElementById("qcClockBtn");
+    if(qcBtn) qcBtn.hidden = isDone;
+    paint("qcClockBtn", "qcClockIcon", "qcClockLabel",
+          isOut ? "Clock Out Now" : "Clock In Now", isOut ? "Clock out" : "Clock in");
+    var qcEdit = document.getElementById("qcEditBtn");
+    if(qcEdit){
+      qcEdit.hidden = !(isDone && isOwnData);
+      qcEdit.setAttribute("aria-label", "Edit today's entry");
+    }
+    var qcDone = document.getElementById("qcDoneText");
+    if(qcDone){
+      qcDone.hidden = !isDone;
+      qcDone.textContent = isDone ? doneSummary() : "";
+    }
+
+    // --- Sticky bar: no room for a report, so the one button becomes the edit.
+    paint("stickyClockBtn", "stickyClockIcon", "stickyClockLabel",
+          isDone ? "Done" : (isOut ? "Out" : "In"),
+          isDone ? "Today's shift is complete — edit today's entry"
+                 : (isOut ? "Clock out" : "Clock in"));
+
+    // --- Bottom nav. ---
+    var bn = document.getElementById("bnClockBtn");
+    if(bn){
+      bn.classList.toggle("clocked-in", isOut);
+      bn.classList.toggle("is-done", isDone);
+      // The class is what the stylesheet dims and makes pointer-inert; the
+      // attribute is what a keyboard and a screen reader obey. With the class
+      // alone this stayed focusable, announced as enabled, and ran a handler
+      // that returned silently.
+      bn.classList.toggle("disabled", !isOwnData);
+    }
+    paint("bnClockBtn", "bnClockIcon", "bnClockLabel",
+          isDone ? "Done" : (isOut ? "Clock Out" : "Clock In"),
+          isDone ? "Today's shift is complete — edit today's entry"
+                 : (isOut ? "Clock out" : "Clock in"));
+  }
+
+  // Today's row in the edit dialog — the "done" state's action on every
+  // surface. Falls back to a pre-filled new entry if the row has no id yet
+  // (a punch still sitting in the outbox).
+  function editToday(){
+    var e = entries.find(function(x){ return x.date === todayStr(); });
+    if(e && e.id) loadEntryIntoForm(e.id);
+    else openNewEntryForm(todayStr());
+  }
+
+  function clockControlClick(el){
+    if(el.disabled || el.classList.contains("disabled")) return;
+    var action = el.getAttribute("data-clock-action") || "in";
+    if(action === "edit"){ editToday(); return; }
+    punchClock(action);
+  }
+
+  document.getElementById("qcClockBtn").addEventListener("click", function(){ clockControlClick(this); });
+  document.getElementById("qcEditBtn").addEventListener("click", function(){ if(!this.disabled) editToday(); });
+  document.getElementById("stickyClockBtn").addEventListener("click", function(){ clockControlClick(this); });
+  document.getElementById("bnClockBtn").addEventListener("click", function(){ clockControlClick(this); });
 
   // The sticky bar only appears once the main punch card has scrolled out of
   // view. It also steps aside whenever Settings is open, since clocking in
@@ -5944,7 +6169,7 @@ if(supabase){
       if(res.error) throw res.error;
       // onAuthStateChange fires from here and finishes loading the app.
     }catch(err){
-      setAuthMsg("signInError", err.message || "Couldn't sign in.");
+      setAuthMsg("signInError", err ? friendlyError(err) : "Couldn't sign in.");
     }finally{
       btn.disabled = false; btn.textContent = "Sign In";
     }
@@ -5965,7 +6190,7 @@ if(supabase){
       setAuthMsg("signInError", "");
       showToast("If an account exists for " + email + ", a reset link has been sent.", "success");
     }catch(err){
-      setAuthMsg("signInError", err.message || "Couldn't send reset email.");
+      setAuthMsg("signInError", err ? friendlyError(err) : "Couldn't send reset email.");
     }
   });
 
@@ -5987,7 +6212,7 @@ if(supabase){
       recoverySessionUser = null;
       if(u) handleSignedIn(u); else showAuthScreen();
     }catch(err){
-      setAuthMsg("resetPasswordError", err.message || "Couldn't update password.");
+      setAuthMsg("resetPasswordError", err ? friendlyError(err) : "Couldn't update password.");
     }finally{
       btn.disabled = false; btn.textContent = "Set New Password";
     }
@@ -6022,7 +6247,7 @@ if(supabase){
         document.getElementById("registerForm").reset();
       }
     }catch(err){
-      setAuthMsg("registerError", err.message || "Couldn't create account.");
+      setAuthMsg("registerError", err ? friendlyError(err) : "Couldn't create account.");
     }finally{
       btn.disabled = false; btn.textContent = "Create Account";
     }
@@ -6463,13 +6688,11 @@ if(supabase){
     } else {
       banner.classList.remove("show");
     }
-    document.getElementById("clockInBtn").disabled = !isOwnData;
-    document.getElementById("clockOutBtn").disabled = !isOwnData;
     if(qc) qc.style.opacity = isOwnData ? "1" : ".5";
-    document.getElementById("stickyClockInBtn").disabled = !isOwnData;
-    document.getElementById("stickyClockOutBtn").disabled = !isOwnData;
     if(!isOwnData) document.getElementById("stickyClock").classList.remove("show");
-    document.getElementById("bnClockBtn").classList.toggle("disabled", !isOwnData);
+    // Every clock control's enabled state, label and icon come from one place
+    // now, and viewing someone else is one of the states it knows about.
+    renderClockControls();
     // Everyone can reach their own schedule; an admin can additionally edit
     // anyone else's. Hiding the entry point entirely from employees meant a new
     // user silently inherited the Sun–Thu 08:00–16:00 defaults with no way to

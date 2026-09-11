@@ -1090,7 +1090,10 @@
      without the glide. */
   .rail-nav-indicator{
     position:absolute; left:-16px; top:0; width:3px; height:26px;
-    border-radius:0 3px 3px 0; background:var(--gold);
+    /* A 3px-wide bar: the cap is a half-pill, not a corner. Was a literal 3px,
+       which is off the rounded scale and reads as a magic number; the pill
+       token clamps to the same shape at this width. */
+    border-radius:0 var(--radius-pill) var(--radius-pill) 0; background:var(--gold);
     box-shadow:0 0 14px rgba(214,232,92,.55);
     opacity:0; transform:translateY(0);
     transition:transform var(--dur-slow) var(--ease-soft), opacity var(--dur-fast) var(--ease-snap);
@@ -1561,6 +1564,60 @@
   .overview-panel > section:last-child{margin-bottom:0;}
   .overview-panel .portrait-card{min-height:260px;}
 
+  /* ---------- Overview, day one ----------
+     One centred column at every width. The three-column grid below is a
+     layout for data, and on day one there is none to lay out — so rather than
+     leave its "stats", "portrait" and "format" areas standing empty, the
+     first-run panel stops being that grid at all. Specificity, not source
+     order, is what wins here: this selector carries four classes against the
+     grid block's three, so it holds regardless of where the media queries
+     land relative to it. */
+  .overview-panel.is-first-run > .stats-row,
+  .overview-panel.is-first-run > .portrait-card,
+  .overview-panel.is-first-run > .format-card{display:none;}
+  .tab-panel.overview-panel.is-first-run.active{
+    display:flex; flex-direction:column; gap:var(--space-3);
+  }
+  /* The clock is second by explicit order rather than by DOM position: the
+     roster sits above it in source (it belongs beside the portrait in the
+     data layout) and an admin whose team is already clocking in still gets a
+     populated roster here — real information, but not the thing this screen
+     is for on day one. */
+  .overview-panel.is-first-run > .first-run-card{order:1;}
+  .overview-panel.is-first-run > .quick-clock{order:2;}
+  .overview-panel.is-first-run > .today-team{order:3;}
+  /* gap owns the rhythm once the panel is a flex column; the per-section
+     margins would otherwise stack on top of it. */
+  .overview-panel.is-first-run > section,
+  .overview-panel.is-first-run > .quick-clock{margin-bottom:0;}
+  .first-run-card{padding:32px 24px;}
+  /* Two lines at the card's own width rather than one long measure. */
+  .first-run-card .first-run-sub{max-width:34ch;}
+
+  /* Wide screens: hold the column to a readable width instead of stretching
+     one card and one clock panel across 1440px. The panel keeps the frame's
+     "one screen" flex behaviour it has on every other tab. */
+  @media (min-width:1100px){
+    .tab-panel.overview-panel.is-first-run.active{
+      align-items:center; flex:1 1 auto; min-height:0;
+      /* The same scroll shadows .tab-panel.active declares, with the two
+         `local` mask layers repainted in --paper instead of --card. Those
+         masks are the panel's own surface colour, and every other tab is a
+         white panel inside #tabContentCard, so --card is invisible there.
+         Overview is the exception: it sits on the canvas. Full-width sections
+         used to hide the mask anyway; a centred 620px column does not, and
+         white gradients appeared as bands down the top and bottom of the
+         greige. Same effect, matched to the surface it actually paints on. */
+      background:
+        linear-gradient(var(--paper) 30%, rgba(255,255,255,0)) top    /100% 22px no-repeat local,
+        linear-gradient(rgba(255,255,255,0), var(--paper) 70%) bottom /100% 22px no-repeat local,
+        radial-gradient(farthest-side at 50% 0,    rgba(17,17,16,.17), rgba(17,17,16,0)) top    /100% 13px no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(17,17,16,.17), rgba(17,17,16,0)) bottom /100% 13px no-repeat scroll;
+    }
+    .overview-panel.is-first-run > section{width:100%; max-width:620px;}
+  }
+
+
   @media (min-width:1100px){
     /* .tab-panel.active sets display:block at two classes; a media query adds
        no specificity, so this needs three to win regardless of source order. */
@@ -1974,7 +2031,9 @@
   .stat-card::before{
     content:none;
     position:absolute; top:0; left:14px; right:14px; height:3px;
-    background:var(--gradient-gold); border-radius:0 0 3px 3px;
+    /* 3px tall, so these corners are a cap rather than a radius — the pill
+       token clamps to the same shape and keeps it on the scale. */
+    background:var(--gradient-gold); border-radius:0 0 var(--radius-pill) var(--radius-pill);
   }
   .stat-label{
     display:flex; align-items:center; gap:8px; font-size:11px;
@@ -2053,6 +2112,22 @@
   }
 
   /* ---------- Quick clock ---------- */
+  /* ---------- Clock controls, done state ----------
+     .btn is display:inline-flex, which beats [hidden]{display:none} on
+     specificity — the same trap this stylesheet already documents twice. Scoped
+     to .qc-btn rather than all of .btn on purpose: a blanket rule would newly
+     hide every .btn anywhere that carries the attribute, which is a change to
+     behaviour this stylesheet has never had, and not this change's to make. */
+  .qc-btn[hidden]{display:none;}
+  /* The finished day's report, in the panel's own on-dark secondary. Not
+     --muted: that step is measured against the light surfaces, and this sits
+     on the one dark region in the layout. */
+  .qc-done{
+    margin:0; font-size:13px; color:var(--muted-on-dark);
+    display:flex; align-items:center; min-height:44px;
+  }
+  .qc-done[hidden]{display:none;}
+
   .quick-clock{
     position:relative; overflow:hidden;
     display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;
@@ -2680,9 +2755,16 @@
   }
 
   .punct-stats{margin-bottom:24px;}
+  /* This is the tab's whole premise — what counts as a shortfall — and it was
+     set two steps below the body scale and run across the full 1070px frame:
+     a ~180-character measure in 11.5px muted grey on a grey wash, which reads
+     as a disabled field rather than as the sentence that explains the screen.
+     Sized to match the other explanatory text in the app, and held to a
+     readable measure instead of the container's width. */
   .punct-rule{
-    font-size:11.5px; color:var(--muted-2); margin:-4px 0 16px;
-    padding:8px 12px; background:var(--ink-50); border-radius:var(--radius-sm);
+    font-size:12.5px; color:var(--muted-2); margin:-4px 0 16px;
+    padding:10px 14px; background:var(--ink-50); border-radius:var(--radius-sm);
+    max-width:72ch;
   }
   .late-cell{color:var(--negative); font-weight:700;}
   /* The one line that replaces three empty findings cards. Positive, not
@@ -2717,7 +2799,7 @@
   .tabs::-webkit-scrollbar{display:none;}
   .tab-btn{
     background:none; border:none; padding:10px 16px; font-size:13.5px; color:var(--muted);
-    cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; border-radius:var(--radius-xs) 6px 0 0;
+    cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; border-radius:var(--radius-xs) var(--radius-xs) 0 0;
     white-space:nowrap; flex-shrink:0; transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
   .tab-btn.active{color:var(--ink); border-bottom-color:var(--gold); font-weight:500; background:var(--ink-50);}
@@ -2761,6 +2843,10 @@
 
   /* ---------- Skeleton loading states ---------- */
   @keyframes skeletonShimmer{0%{background-position:-200% 0;} 100%{background-position:200% 0;}}
+  /* A thin shimmer bar standing in for a line of text reads as a pill, not as
+     a rounded box. Eight of these carried an off-scale inline radius, repeated
+     in markup where a modifier belongs. */
+  .skeleton.bar{border-radius:var(--radius-pill);}
   .skeleton{
     display:inline-block; border-radius:var(--radius-xs);
     background:linear-gradient(90deg, var(--ink-50) 25%, var(--ink-100) 40%, var(--ink-50) 63%);
@@ -2904,8 +2990,19 @@
   .cal-cell.cal-excused{background:var(--excused-bg);}
   .cal-cell.cal-open .cal-dot{background:var(--warn);}
   .cal-cell.cal-open{background:var(--warn-bg);}
-  .cal-cell.cal-missing .cal-dot{background:var(--negative);}
-  .cal-cell.cal-missing{background:var(--negative-bg);}
+  /* Missing is NOT under-target. "You worked, but came up short" and "you
+     logged nothing at all" are the two states on this grid with the most
+     different consequences, and they were the same crimson tint with the same
+     crimson dot — two legend rows describing one visual state. The hatch is the
+     same one the week timeline already uses for an unfinished bar, so
+     "incomplete" reads the same way in both places, and it carries the
+     difference in texture rather than in hue alone — the grid is scanned by
+     colour, and colour is exactly what a red/green reader cannot split. */
+  .cal-cell.cal-missing .cal-dot{background:var(--muted-2);}
+  .cal-cell.cal-missing{
+    background:repeating-linear-gradient(135deg,
+      var(--line-soft) 0 2px, var(--card) 2px 8px);
+  }
   .cal-cell.cal-off .cal-daynum{color:var(--muted-2);}
   .cal-cell.cal-future .cal-daynum{color:var(--muted-2);}
   /* Today was a lime edge at 1.35:1 and nothing else — and cal-off, cal-future
@@ -3462,14 +3559,28 @@
   @keyframes barLabelIn{from{opacity:0;} to{opacity:1;}}
   .chart-legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:var(--muted);}
   .chart-legend span{display:inline-flex; align-items:center; gap:6px;}
+  /* 2px is deliberately off the rounded scale. This is a 10px square; the
+     scale starts at 8px, which on a box this small is very nearly a circle —
+     and a round swatch reads as a status dot, which is a different thing in
+     this app. A local exception, not a missing token. */
   .swatch{width:10px; height:10px; border-radius:2px; display:inline-block;}
+  /* The two swatches that stand for a texture rather than a flat fill. A
+     legend square that does not paint what its cell paints is worse than no
+     legend: it teaches the grid wrong. Scaled down from the cell's 10px hatch
+     so the stripe still reads at 10px square. */
+  .swatch-open{background:var(--warn);}
+  .swatch-missing{
+    background:repeating-linear-gradient(135deg,
+      var(--line-soft) 0 1px, var(--card) 1px 4px);
+    border:1px solid var(--line);
+  }
   /* --gold-deep, not --gold: the chart itself draws the target line in
      --gold-deep (renderTrendChart in app.js — --gold measures
      1.35:1 on white and fails WCAG 1.4.11's 3:1 floor for meaningful
      graphics), so the legend key has to match what's actually on screen,
      not a lighter, non-compliant stand-in for it. */
   .swatch.target{width:14px; height:0; border-top:2px dashed var(--gold-deep);}
-  .swatch.line{width:14px; height:2px; border-radius:2px; background:var(--ink-600);}
+  .swatch.line{width:14px; height:2px; border-radius:var(--radius-pill); background:var(--ink-600);}
 
   /* ---------- Trend chart (line/area) ---------- */
   /* Drawn in with pathLength="1" set in markup, so stroke-dasharray/offset
@@ -4426,6 +4537,14 @@
   }
   .bn-clock:active{transform:scale(.96);}
   .bn-clock.clocked-in{background:var(--gradient-ink); color:#fff; box-shadow:0 4px 14px rgba(17,17,16,.4);}
+  /* The third state. Gold invites a punch, the ink fill says "you are on the
+     clock" — a finished day is neither, and leaving it gold made the loudest
+     element on the screen advertise the one action that is no longer available.
+     Steps down to the positive pair the rest of the app already uses for "met". */
+  .bn-clock.is-done{
+    background:var(--positive-bg); color:var(--positive);
+    box-shadow:0 4px 12px rgba(17,17,16,.14);
+  }
   .bn-clock.disabled{opacity:.45; pointer-events:none;}
   .bn-clock-label{font-size:11px; font-weight:500; color:var(--muted-2);}
 
@@ -5034,12 +5153,34 @@
        clock come after. -->
   <div class="tab-panel overview-panel active" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview" tabindex="0">
 
+  <!-- Day one. The four figures, the portrait and the Day Types dial are all
+       lagging measures of days that do not exist yet: on an empty account they
+       say "nothing" five times above the fold and push the clock — the only
+       thing worth doing on this screen — off the bottom of a phone. This card
+       stands in their place until the first day is logged; the layout that
+       does it is .overview-panel.is-first-run below.
+       It is NOT shown when the load failed. "You haven't logged anything" and
+       "we couldn't read your record" are different sentences, and saying the
+       first while the second is true is the exact defect renderLoadFailure()
+       exists to prevent. -->
+  <section class="card first-run-card" id="overviewFirstRun" hidden>
+    <div class="first-run-empty">
+      <svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <circle cx="24" cy="24" r="18" stroke="var(--line)" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>
+        <path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>
+      </svg>
+      <p class="first-run-title">Your first day starts here</p>
+      <p class="first-run-sub">Clock in when you start and out when you finish. Hours, punctuality and leave all build themselves from there.</p>
+      <button type="button" class="link-btn" id="firstRunSettingsBtn">Set your working week first</button>
+    </div>
+  </section>
+
   <section class="stats-row" id="statsRow">
     <div class="stat-card">
       <div class="skeleton-overlay">
-        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton bar" style="width:80px; height:9px;"></span>
         <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
-        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+        <span class="skeleton bar" style="width:100px; height:9px; margin-top:2px;"></span>
       </div>
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>Avg / Day</p>
       <p class="stat-value" id="monthAvg">0h</p>
@@ -5052,9 +5193,9 @@
     </div>
     <div class="stat-card">
       <div class="skeleton-overlay">
-        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton bar" style="width:80px; height:9px;"></span>
         <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
-        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+        <span class="skeleton bar" style="width:100px; height:9px; margin-top:2px;"></span>
       </div>
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/></svg>Overtime Bank</p>
       <p class="stat-value" id="otBank">0h</p>
@@ -5063,9 +5204,9 @@
     </div>
     <div class="stat-card">
       <div class="skeleton-overlay">
-        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton bar" style="width:80px; height:9px;"></span>
         <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
-        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+        <span class="skeleton bar" style="width:100px; height:9px; margin-top:2px;"></span>
       </div>
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3-2 4-2 7a4 4 0 0 0 8 0c0-1.5-1-2.5-1-2.5s.5 2-1 3c.5-3-2-4-2-7z"/><path d="M8.5 14a3.5 5 0 1 0 7 0c0-1-.5-2-1.5-3"/></svg>Current Streak</p>
       <p class="stat-value" id="streak">0</p>
@@ -5073,9 +5214,9 @@
     </div>
     <div class="stat-card">
       <div class="skeleton-overlay">
-        <span class="skeleton" style="width:80px; height:9px; border-radius:4px;"></span>
+        <span class="skeleton bar" style="width:80px; height:9px;"></span>
         <span class="skeleton" style="width:60px; height:26px; margin-top:4px;"></span>
-        <span class="skeleton" style="width:100px; height:9px; margin-top:2px; border-radius:4px;"></span>
+        <span class="skeleton bar" style="width:100px; height:9px; margin-top:2px;"></span>
       </div>
       <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M8 3v3M16 3v3M3.5 9.5h17"/><path d="M9 14l2 2 4-4"/></svg>Leave Balance</p>
       <p class="stat-value" id="leaveBalance">0d</p>
@@ -5131,17 +5272,27 @@
       <span class="qc-time" id="liveClock">—</span>
       <span class="qc-date" id="liveDate">—</span>
     </div>
+    <!-- One control, three states; renderClockControls() drives all of it.
+         A fixed In/Out pair could always offer "Clock Out Now", including on a
+         day with nothing open — where it wrote a clock-out onto a day with no
+         clock-in and left a permanent row scoring no hours. The button now
+         carries only the action that is actually available, and a finished day
+         reports the shift instead of offering a punch that would overwrite it. -->
     <div class="quick-clock-actions">
-      <button type="button" class="btn qc-btn" id="clockInBtn">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
-        Clock In Now
+      <p class="qc-done" id="qcDoneText" hidden></p>
+      <button type="button" class="btn qc-btn" id="qcClockBtn" data-clock-action="in">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" id="qcClockIcon"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+        <span id="qcClockLabel">Clock In Now</span>
       </button>
-      <button type="button" class="btn secondary qc-btn" id="clockOutBtn">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H8M11 5l-7 7 7 7"/></svg>
-        Clock Out Now
+      <button type="button" class="btn secondary qc-btn" id="qcEditBtn" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M4 20h4L18 10l-4-4L4 16v4z"/></svg>
+        Edit Today
       </button>
     </div>
-    <p class="qc-note" id="qcStatusNote"></p>
+    <!-- role/aria-live so the punch is spoken, not just drawn. showQcNote()
+         also toasts whenever this node is off screen (another tab), which is
+         where the announcement actually comes from on those surfaces. -->
+    <p class="qc-note" id="qcStatusNote" role="status" aria-live="polite"></p>
   </section>
   </div><!-- /#tab-overview -->
 
@@ -5367,12 +5518,17 @@
            all — each entry is drawn as a bar spanning its real clock-in to
            clock-out. -->
       <div class="weekline" id="weekLine" hidden></div>
+      <!-- Five rows became five facts the grid could not actually tell apart:
+           "Under target" and "Missing" shared one colour, "Leave / excused"
+           showed lime while the cell paints olive, "Open" was not listed at
+           all, and "Day off" spent a row on the muted day number it already
+           has. Each swatch below now paints what its cell paints. -->
       <div class="chart-legend" style="margin-top:14px;">
         <span data-legend="met"><i class="swatch" style="background:var(--positive)"></i>Met target</span>
         <span><i class="swatch" style="background:var(--negative)"></i>Under target</span>
-        <span><i class="swatch" style="background:var(--gold)"></i>Leave / excused</span>
-        <span><i class="swatch" style="background:var(--negative)"></i>Missing</span>
-        <span><i class="swatch" style="background:var(--line)"></i>Day off</span>
+        <span><i class="swatch swatch-open"></i>Still clocked in</span>
+        <span><i class="swatch" style="background:var(--excused)"></i>Leave / excused</span>
+        <span><i class="swatch swatch-missing"></i>Nothing logged</span>
       </div>
       <p class="settings-hint" style="margin-top:10px;">Tap a day to add or edit that entry.</p>
     </div>
@@ -6428,14 +6584,11 @@
 
 <div class="sticky-clock" id="stickyClock">
   <span class="sticky-clock-time" id="stickyClockTime">—</span>
+  <!-- Same one control as the panel above, same state. -->
   <div class="sticky-clock-actions">
-    <button type="button" class="btn small qc-btn" id="stickyClockInBtn">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
-      In
-    </button>
-    <button type="button" class="btn secondary small qc-btn" id="stickyClockOutBtn">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H8M11 5l-7 7 7 7"/></svg>
-      Out
+    <button type="button" class="btn small qc-btn" id="stickyClockBtn" data-clock-action="in">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" id="stickyClockIcon"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+      <span id="stickyClockLabel">In</span>
     </button>
   </div>
 </div>
@@ -6549,6 +6702,11 @@
      new feature renders while the code that drives it never loads, which looks
      exactly like the feature being broken rather than being cached. Bump this
      whenever app.js changes shape enough that a stale copy would misbehave. -->
-<script type="module" src="app.js?v=console-1"></script>
+<!-- Bump this whenever app.js changes. It is the only cache-buster the app
+     has (there is no build step to hash filenames), and it had sat on
+     "console-1" through 38 separate app.js commits — so a browser holding
+     that URL had no reason to ever ask for a newer file, and shipped fixes
+     silently failed to reach anyone already running the app. -->
+<script type="module" src="app.js?v=clock-states-1"></script>
 </body>
 </html>

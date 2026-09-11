@@ -147,6 +147,43 @@ const SCAN = () => {
     await ctx.close();
   }
 
+  // ---------- notice copy must survive the phone's 2-line clamp ----------
+  // Below 760px .reminder-text is -webkit-line-clamp:2 with no expand
+  // affordance, so anything that runs to a third line is not shortened — it is
+  // deleted, silently, from the bottom. That is where the outbox banner used to
+  // lose "you don't need to punch again", which is the entire reason a person
+  // reads it: they punched, they had no signal, and they want to know whether
+  // to punch again. Measured with the longest real values each string can
+  // take, so the copy cannot drift back past the clamp unnoticed.
+  const NOTICES = [
+    ["outboxText", "Clock-out 11:59 PM, Sep 30, 2026. Saved on this device — don't punch again."],
+    ["outboxText", "Oldest: Sep 30, 2026. Saved on this device — don't punch again."],
+    ["backupText", "Last backup 365 days ago, 2000 days logged. Keep your own copy."],
+    ["backupText", "2000 days logged. An export gives you your own copy to keep or hand over."]
+  ];
+  for(const width of [393, 360, 320]){
+    const ctx = await browser.newContext({ viewport: { width, height: 852 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+    const page = await ctx.newPage();
+    await page.goto(PAGE_URL);
+    await page.waitForTimeout(250);
+    await revealApp(page, "light");
+    for(const [id, text] of NOTICES){
+      const res = await page.evaluate(([id, text]) => {
+        const el = document.getElementById(id);
+        if(!el) return { missing: true };
+        const banner = el.closest(".reminder");
+        if(banner) banner.classList.add("show");
+        el.textContent = text;
+        return { sh: el.scrollHeight, ch: el.clientHeight, clamp: getComputedStyle(el).webkitLineClamp };
+      }, [id, text]);
+      ok(!res.missing && res.sh <= res.ch + 1,
+        `[${width}px] #${id} copy fits the 2-line clamp`,
+        res.missing ? "element not found"
+                    : `content ${res.sh}px in ${res.ch}px box (clamp ${res.clamp}) — "${text}"`);
+    }
+    await ctx.close();
+  }
+
   await browser.close();
   console.log(`  collision pass ${pass}   fail ${fail}`);
   if(failures.length){ failures.forEach(f => console.log("  FAIL " + f)); process.exit(1); }
