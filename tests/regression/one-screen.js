@@ -191,6 +191,11 @@ function ok(cond, name, detail){
           // The bar is anchored to the viewport, but the rail owns the left
           // 236px of it. Overlapping put the rail's user block behind a dark
           // panel on every tab but the Overview.
+          // Whether the bar is up at all. Settings and Admin deliberately do
+          // not carry it, so the two assertions below skip there -- and
+          // "skipped" and "correct" are different things, which is what
+          // stickyShown is for.
+          stickyShown: document.getElementById("stickyClock").classList.contains("show"),
           railOverlap: (() => {
             const bar = document.getElementById("stickyClock");
             const rail = document.querySelector(".rail");
@@ -230,6 +235,14 @@ function ok(cond, name, detail){
       }
       ok(m.chrome <= MAX_CHROME_H, `${at} — header and notices stay under ${MAX_CHROME_H}px`,
         `they take ${m.chrome}px before the tab starts`);
+      // Clocking yourself in is not what either of these screens is for, and
+      // the bar would compete with the panel's own controls for the same strip
+      // of screen. updateStickyClockVisibility's comment claimed this for
+      // Settings long before anything implemented it, and it rode over both.
+      if(tab === "settings" || tab === "admin"){
+        ok(m.stickyShown === false, `${at} — the sticky clock bar steps aside`,
+          "the bar is up on a screen that is not about clocking in");
+      }
       if(m.railOverlap !== null){
         ok(m.railOverlap <= 0, `${at} — the sticky clock bar starts clear of the rail`,
           `it runs ${m.railOverlap}px underneath the rail`);

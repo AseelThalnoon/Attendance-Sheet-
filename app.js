@@ -1527,6 +1527,7 @@ if(supabase){
   // database (see 20260909210000_admin_view_user_push_devices.sql) — so an
   // admin troubleshooting "I'm not getting notified" can actually see whether
   // that person has a device registered at all, not just their own.
+  var myPushDeviceCount = 0;
   async function refreshPushDevices(){
     var wrap = document.getElementById("pushDevicesWrap");
     var list = document.getElementById("pushDevicesList");
@@ -1565,6 +1566,10 @@ if(supabase){
     document.getElementById("pushDevicesSubhead").textContent =
       "Devices receiving " + possessive + " notifications";
 
+    // Published for the Notifications nav row, which answers "where will these
+    // actually arrive" without opening the section. Set here rather than
+    // re-queried there: this function has already paid for the round trip.
+    if(isOwnData) myPushDeviceCount = rows.length;
     if(!rows.length){
       list.innerHTML = '<p class="settings-hint" style="margin:0;">No devices yet — notifications ' +
         'would not reach ' + escapeHtml(pronounObj) + ' anywhere.</p>';
@@ -1682,6 +1687,7 @@ if(supabase){
         "there to turn this on." + (isIOS() || isAndroid()
           ? " On a phone, check the operating system's own notification settings for your browser as well."
           : "");
+      setNavDesc("cnavDescNotificationsSelf", "Blocked in this browser's settings", true);
       refreshPushDevices();
       return;
     }
@@ -1702,6 +1708,9 @@ if(supabase){
     // will notifications actually arrive", which is the question people think
     // the toggle is answering.
     await refreshPushDevices();
+    setNavDesc("cnavDescNotificationsSelf", box.checked
+      ? (myPushDeviceCount === 1 ? "On · 1 device" : "On · " + myPushDeviceCount + " devices")
+      : "Off on this browser");
   }
   document.getElementById("sPushEnabled").addEventListener("change", async function(){
     var box = this;
@@ -1883,17 +1892,25 @@ if(supabase){
     // holds something, or a configured seasonal schedule is invisible until you
     // happen to click it. This is what the collapsed accordion's count used to
     // do; it now rides on the nav description instead of a heading.
-    var seasonalDesc = document.getElementById("cnavDescSeasonal");
-    if(seasonalDesc) seasonalDesc.textContent = settings.periods.length
+    setNavDesc("cnavDescSeasonal", settings.periods.length
       ? settings.periods.length + (settings.periods.length === 1 ? " period set" : " periods set")
-      : "Reduced hours for Ramadan and other date ranges";
-    var punctDesc = document.getElementById("cnavDescPunctuality");
-    if(punctDesc) punctDesc.textContent = settings.lateOnlyIfShort
-      ? "When the Log marks a clock time red"
-      : "Marking every late arrival, hours or not";
-    var hoursDesc = document.getElementById("cnavDescHours");
-    if(hoursDesc) hoursDesc.textContent =
-      settings.workDays.length + " days · " + minutesToHoursStr(settings.targetMin) + " · from " + settings.standardIn;
+      : "No seasonal periods set");
+    setNavDesc("cnavDescPunctuality", settings.lateOnlyIfShort
+      ? "Late only when the day is short"
+      : "Marking every late arrival, hours or not");
+    setNavDesc("cnavDescHours",
+      settings.workDays.length + " days · " + minutesToHoursStr(settings.targetMin) + " · from " + settings.standardIn);
+    // Your name is what the rest of the team sees on the roster and in the
+    // activity log, so "not set" is worth flagging rather than describing.
+    var hasName = !!(currentProfile && currentProfile.full_name);
+    var hasPhoto = !!(currentProfile && currentProfile.avatar_updated_at);
+    setNavDesc("cnavDescProfile",
+      !hasName ? "No name set — the team sees your email"
+               : hasPhoto ? "Name and photo set" : "Name set · no photo",
+      !hasName);
+    setNavDesc("cnavDescData", entries.length
+      ? entries.length + (entries.length === 1 ? " day recorded" : " days recorded")
+      : "Nothing recorded yet");
   }
 
   // Keeps the Settings tab in step with WHO it's showing — the label, the
@@ -1986,6 +2003,28 @@ if(supabase){
   // It is a real tablist (arrow keys move between sections, Home/End jump to
   // the ends), because that is what a vertical list of mutually exclusive
   // panels is, and it costs nothing to say so.
+  // One writer for every console nav row. Half these rows used to report live
+  // state ("9 accounts - 1 admin") and half explained what the section was for
+  // ("Mark a holiday for the whole team at once"), which made one directory
+  // read as two lists merged: some rows answered "what is true now", the rest
+  // answered "what is this". They all answer the first question now, and this
+  // is the only thing that writes them, so a row reporting a figure and a row
+  // reporting a problem cannot drift apart.
+  //
+  // needsAttention is what makes a real problem look like one. Organisation
+  // Defaults sitting unset is the single actionable state in the admin console
+  // -- every figure a new account sees is measured against a schedule nobody
+  // chose -- and it was styled exactly like a description.
+  function setNavDesc(id, text, needsAttention){
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.textContent = text;
+    // The row clips to one line; the full value stays reachable on hover.
+    el.title = text;
+    var item = el.closest(".console-nav-item");
+    if(item) item.classList.toggle("needs-attention", !!needsAttention);
+  }
+
   function initConsole(root){
     var items = Array.prototype.slice.call(root.querySelectorAll(".console-nav-item"));
     var sections = Array.prototype.slice.call(root.querySelectorAll(".console-section"));
@@ -2138,6 +2177,13 @@ if(supabase){
 
   function refreshAppearancePanel(){
     var resolved = resolveMode(appearance.mode);
+    // The palette's own button carries its proper name; reading it back beats
+    // a second hand-maintained map of the same seven words.
+    var nameEl = document.querySelector('#paletteGrid .palette-swatch[data-palette="' +
+      appearance.palette + '"] .palette-swatch-name');
+    var paletteName = nameEl ? (nameEl.textContent || "").trim() : appearance.palette;
+    setNavDesc("cnavDescAppearance", paletteName + " · " +
+      (appearance.mode === "system" ? "follows this device" : resolved));
     var seg = document.getElementById("modeSeg");
     if(seg){
       Array.prototype.forEach.call(seg.querySelectorAll("[data-mode]"), function(btn){
@@ -5282,7 +5328,17 @@ if(supabase){
   // the observed panel with it) exactly the same way, so no special case is
   // needed.
   function updateStickyClockVisibility(){
-    var show = !mainClockCurrentlyVisible && isOwnData;
+    // The comment above has claimed since it was written that this bar steps
+    // aside for Settings. Nothing ever implemented it: visibility was driven
+    // purely by whether the Overview quick-clock had scrolled out of view, so
+    // the bar rode over Settings and Admin alike. Implemented here, and
+    // extended to Admin, where the reasoning is stronger -- that screen is
+    // about other people's data, clocking yourself in is not what you opened
+    // it for, and a second full-width dark mass beside the rail spends the One
+    // Dark Region rule's single exception on chrome.
+    var panel = document.querySelector(".tab-panel.active");
+    var quiet = !!panel && (panel.id === "tab-settings" || panel.id === "tab-admin");
+    var show = !mainClockCurrentlyVisible && isOwnData && !quiet;
     stickyClockEl.classList.toggle("show", show);
     // The bar floats over the bottom of the viewport, and above 1100px the
     // frame no longer scrolls out from under it — so the panel underneath has
@@ -5471,6 +5527,11 @@ if(supabase){
     // white panel is left standing under it.
     var tabCard = document.getElementById("tabContentCard");
     if(tabCard) tabCard.hidden = (tab === "overview");
+
+    // Which panel is active now decides whether the sticky clock belongs on
+    // screen, and the IntersectionObserver that normally drives it only fires
+    // on scroll.
+    updateStickyClockVisibility();
 
     // Above 1100px the card hugs its content, so a short tab no longer leaves a
     // tall empty rectangle under it. These three are the exception: a chart and
@@ -8309,6 +8370,9 @@ if(supabase){
       body.appendChild(tr);
     });
 
+    var tableCount = (s.tables && s.tables.length) || 0;
+    setNavDesc("cnavDescStorage", fmtBytes(s.db_size_bytes) + " · " +
+      tableCount + (tableCount === 1 ? " table" : " tables"));
     document.getElementById("adminStatsFooter").textContent =
       "Postgres " + (s.postgres_version || "?") +
       " · Updated " + new Date(s.generated_at || Date.now()).toLocaleTimeString() +
@@ -8811,6 +8875,12 @@ if(supabase){
       document.getElementById("setAllowRegistration").checked = s.allow_registration !== false;
       document.getElementById("setAnnouncementActive").checked = !!s.announcement_active;
       document.getElementById("setAnnouncement").value = s.announcement || "";
+      // Both switches this section owns, on the row itself. Sign-ups being
+      // open is the half worth seeing without opening anything: it is the one
+      // setting here that lets a stranger create an account.
+      setNavDesc("cnavDescApp",
+        (s.announcement_active && s.announcement ? "Banner on" : "Banner off") + " · " +
+        (s.allow_registration === false ? "sign-ups closed" : "sign-ups open"));
       fillDefaultsForm(s.default_settings);
       applyAppSettings(s);
     }catch(err){
@@ -8881,9 +8951,10 @@ if(supabase){
     document.getElementById("dLeaveDays").value = d.annualLeaveDays;
     renderPeriodRows(d.periods, "defaultsPeriodsList");
 
-    document.getElementById("adminDefaultsState").textContent = defaultsAreSet
-      ? "Set — new accounts start here"
-      : "Not set — new accounts fall back to Sun–Thu, 8h";
+    setNavDesc("adminDefaultsState",
+      defaultsAreSet ? "Set — new accounts start here"
+                     : "Not set — using Sun–Thu, 8h",
+      !defaultsAreSet);
   }
 
   function readDefaultsForm(){
@@ -9285,10 +9356,14 @@ if(supabase){
     el.hidden = false;
     el.classList.toggle("is-empty", !reach.subscribed);
     if(!reach.subscribed){
+      setNavDesc("cnavDescNotifications", "Nobody reachable yet");
       el.textContent = "Nobody has notifications switched on yet, so a message sent now would reach no one. " +
         "Each person turns them on under Settings → Notifications, on each device they want them on.";
       return;
     }
+    // The one fact that decides whether sending anything is worth doing.
+    setNavDesc("cnavDescNotifications",
+      reach.subscribed + " of " + reach.people + " reachable");
     el.textContent = reach.subscribed + " of " + reach.people +
       (reach.people === 1 ? " person has" : " people have") + " notifications on, across " +
       reach.devices + (reach.devices === 1 ? " device" : " devices") + ".";
@@ -9602,11 +9677,18 @@ if(supabase){
   function setHealthSummary(needing){
     var el = document.getElementById("cnavDescOverview");
     if(!el) return;
-    if(needing === null){ el.textContent = "Data checks couldn't run"; return; }
+    if(needing === null){
+      el.textContent = "Data checks couldn't run";
+      var failed = el.closest(".console-nav-item");
+      if(failed) failed.classList.remove("needs-attention");
+      return;
+    }
     el.textContent = needing === 0
-      ? "System figures · all data checks clear"
-      : needing === 1 ? "System figures · 1 check needs attention"
-                      : "System figures · " + needing + " checks need attention";
+      ? "All data checks clear"
+      : needing === 1 ? "1 check needs attention"
+                      : needing + " checks need attention";
+    var item = el.closest(".console-nav-item");
+    if(item) item.classList.toggle("needs-attention", needing > 0);
   }
 
   async function renderAdminHealth(){
@@ -9714,6 +9796,30 @@ if(supabase){
   document.getElementById("auditFilterUntil").addEventListener("change", resetAuditPaging);
   document.getElementById("auditFilterSearch").addEventListener("input", resetAuditPaging);
 
+  // How many days this year have been marked for the whole team. Counted as
+  // distinct DATES, not rows: one company holiday writes one entry per person,
+  // so a row count would report nine people off on one day as nine days off.
+  // Bounded, because the honest answer for a small team is a handful and a
+  // runaway query here would be paid on every admin open.
+  async function renderCompanyDaysCount(){
+    try{
+      var y = String(new Date().getFullYear());
+      var res = await supabase.from("entries").select("date")
+        .eq("type", "holiday").gte("date", y + "-01-01").lte("date", y + "-12-31")
+        .limit(2000);
+      if(res.error) throw res.error;
+      var days = {};
+      (res.data || []).forEach(function(r){ days[r.date] = 1; });
+      var n = Object.keys(days).length;
+      setNavDesc("cnavDescBulk", n
+        ? n + (n === 1 ? " day marked in " : " days marked in ") + y
+        : "None marked in " + y);
+    }catch(err){
+      // A figure that could not be read must not read as zero.
+      setNavDesc("cnavDescBulk", "Mark a holiday for the whole team at once");
+    }
+  }
+
   async function renderAdmin(){
     // Belt and braces. The tab button is hidden for employees and every RPC and
     // policy behind this screen re-checks is_admin() server-side, but a stale
@@ -9739,7 +9845,8 @@ if(supabase){
       resetAuditPaging(),
       loadAppSettings(),
       renderNotifyHistory(),
-      renderNotifyReach()
+      renderNotifyReach(),
+      renderCompanyDaysCount()
     ]);
     await renderAdminHealth();
   }
