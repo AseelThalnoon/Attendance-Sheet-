@@ -38,7 +38,7 @@ async function boot(opts){
   page.on("console", m => { if(m.type() === "error") errors.push("console: " + m.text()); });
 
   const backend = createBackend(opts.seed || {});
-  await backend.install(page, opts.meId);
+  await backend.install(page, opts.meId, opts.signedOut);
   if(opts.beforeLoad) await opts.beforeLoad({ page, backend });
 
   await page.goto(server.url + "/index.html");

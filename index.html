@@ -1714,6 +1714,14 @@
   .notif-body .notice-stack > .reminder .reminder-actions{
     margin:var(--space-2) 0 0; gap:var(--space-2); flex-wrap:wrap;
   }
+  /* Back to the 44px floor this app sets for itself. Both shrinks -- 30px in
+     the frame, 40px on a phone -- were paid to keep the notice strip short
+     while it sat on top of every screen, where each row it grew was a row the
+     tab below lost. Inside a panel that scrolls, that pressure is gone and
+     there is nothing left buying the exception. */
+  .notif-body .notice-stack > .reminder .reminder-actions .btn{
+    min-height:44px; padding:var(--space-2) var(--space-3);
+  }
   .notif-body .notice-stack > .reminder svg{width:16px; height:16px; margin-top:2px;}
 
   .notif-item{
@@ -4024,6 +4032,22 @@
     .form-grid{grid-template-columns:1fr; gap:var(--space-3);}
   }
 
+  /* ---------- Password reveal ----------
+     Ten characters minimum, typed blind, and on the register and reset forms
+     typed blind twice. The eye is the standard answer and the field had none.
+     Built by app.js rather than five copies in the markup, so every password
+     input in the app gets it and a sixth one cannot arrive without it. */
+  .pw-wrap{position:relative; display:block;}
+  .pw-wrap > input{padding-right:44px;}
+  .pw-reveal{
+    position:absolute; top:0; right:0; height:100%; width:44px;
+    display:flex; align-items:center; justify-content:center;
+    background:none; border:none; padding:0; cursor:pointer;
+    color:var(--muted); border-radius:var(--radius-sm);
+  }
+  .pw-reveal:hover{color:var(--ink);}
+  .pw-reveal svg{pointer-events:none;}
+
   /* ---------- Auth screen ---------- */
   .auth-screen{
     /* Same dvh pairing as .shell: on iOS the sign-in card was being centred
@@ -5224,6 +5248,10 @@
       </div>
       <p class="auth-error" id="resetPasswordError"></p>
       <button type="submit" class="btn" id="resetPasswordBtn" style="width:100%;">Set New Password</button>
+      <!-- showResetPasswordScreen() hides both other forms, so arriving here
+           with a stale link, the wrong account, or second thoughts left no way
+           out but reloading the page by hand. -->
+      <button type="button" class="link-btn" id="resetBackBtn">Back to sign in</button>
     </form>
   </div>
   <p class="copyright" id="copyrightLineAuth"></p>
@@ -7049,16 +7077,29 @@
         </div>
         <div>
           <label for="fType">Day Type</label>
+          <!-- Nine flat options, and the distinction that actually governs every
+               figure in the app -- whether the day counts toward your hours, is
+               neutral, or is excused -- was nowhere on screen. The groups are
+               the code's own three sets: WORKED_TYPES, NO_TARGET_TYPES and
+               EXCUSED_TYPES. optgroup because it is the native answer: the
+               labels are announced, they cannot be selected by mistake, and
+               they need no styling to survive a palette. -->
           <select id="fType">
-            <option value="regular">Regular</option>
-            <option value="wfh">Work From Home</option>
-            <option value="halfleave">Half Day Leave</option>
-            <option value="leave">Annual Leave</option>
-            <option value="sick">Sick Leave</option>
-            <option value="trip">Business Trip</option>
-            <option value="training">Training</option>
-            <option value="holiday">Public Holiday</option>
-            <option value="other">Other (Excused)</option>
+            <optgroup label="Counts toward your hours">
+              <option value="regular">Regular</option>
+              <option value="halfleave">Half Day Leave</option>
+            </optgroup>
+            <optgroup label="Worked, no target expected">
+              <option value="wfh">Work From Home</option>
+              <option value="trip">Business Trip</option>
+              <option value="training">Training</option>
+            </optgroup>
+            <optgroup label="Excused — no hours expected">
+              <option value="leave">Annual Leave</option>
+              <option value="sick">Sick Leave</option>
+              <option value="holiday">Public Holiday</option>
+              <option value="other">Other (Excused)</option>
+            </optgroup>
           </select>
         </div>
         <div class="full">

@@ -196,6 +196,12 @@ function createBackend(seed){
     // 20260911090000_notification_center.sql: only 'sent' rows, only ones
     // addressed to the caller, newest first, with this user's read state
     // joined on -- and mark is insert-only and idempotent.
+    // The one RPC the signed-OUT screen calls: whether "Create an account"
+    // belongs on it. anon-executable by design (20260813205003).
+    if(name === "public_app_flags"){
+      const cfg = state.app_settings[0] || {};
+      return json({ allow_registration: cfg.allow_registration !== false });
+    }
     if(name === "list_my_notifications"){
       const mine = state.push_notifications
         .filter(n => n.status === "sent" &&
@@ -319,11 +325,16 @@ function createBackend(seed){
     return [STORAGE_KEY, JSON.stringify(session)];
   }
 
-  async function install(page, meId){
+  // signedOut leaves the session out entirely, so the app lands on the auth
+  // screen. Without it every suite here starts signed in, which is why nothing
+  // had ever exercised the signed-out screen against these routes.
+  async function install(page, meId, signedOut){
     state.meId = meId || (state.profiles[0] && state.profiles[0].id);
     const me = state.profiles.find(p => p.id === state.meId) || { id: state.meId, email: "me@example.com" };
-    const [key, value] = sessionScript(me);
-    await page.addInitScript(([k, v]) => { try{ window.localStorage.setItem(k, v); }catch(e){} }, [key, value]);
+    if(!signedOut){
+      const [key, value] = sessionScript(me);
+      await page.addInitScript(([k, v]) => { try{ window.localStorage.setItem(k, v); }catch(e){} }, [key, value]);
+    }
     await page.route(`${HOST}/**`, handle);
   }
 

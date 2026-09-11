@@ -348,7 +348,17 @@ function ok(cond, name, detail){
   async function checkSections(tab, scope){
     const sections = await page.evaluate((s) =>
       Array.from(document.querySelectorAll(s + " .accordion-section"))
+        // A section its own state has removed is not something a person can
+        // open either, so asserting it scrolls into view tests nothing.
+        // Shortfall's flagged-days list is the case: it holds exactly the days
+        // counted above it, so with none it is gone rather than standing there
+        // repeating the all-clear sentence already on screen.
+        .filter(el => el.getClientRects().length)
         .map(el => el.getAttribute("data-section")), scope);
+    // ...but "skipped" and "passed" are different things, and a filter with
+    // nothing left behind it is a walk that proves nothing.
+    ok(sections.length > 0, `${tab}${scope.includes("short") ? " (short)" : ""}: there are sections to open`,
+      "every accordion section is hidden — this check would pass vacuously");
     for(const name of sections){
       const r = await page.evaluate(async ([n, s]) => {
         const panel = document.querySelector(s);
