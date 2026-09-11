@@ -4203,6 +4203,13 @@
     background:var(--card); border:1px solid var(--line);
     border-radius:var(--radius-md); box-shadow:var(--shadow-lg);
   }
+  /* An author display: declaration outranks the UA sheet's [hidden] rule, so
+     display:flex above beats it and the menu closes in the DOM while staying
+     on the screen — the three dots opened a menu that then could not be
+     dismissed by any means. This stylesheet already documents the same trap
+     for .qc-btn, .notif-head .btn, .today-team, .weekline and .entry-modal;
+     .row-menu made it six. */
+  .row-menu[hidden]{display:none;}
   /* Whose actions these are. The menu can open above the row it belongs to
      when the row sits low in a long roster, so the anchor alone does not
      always say. */
@@ -7184,6 +7191,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=people-list-1"></script>
+<script type="module" src="app.js?v=people-menu-2"></script>
 </body>
 </html>

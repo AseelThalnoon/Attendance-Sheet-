@@ -453,7 +453,11 @@ async function boot(browser, server, query){
       if(!row) return { error: "no " + w + " row found" };
       row.querySelector(".row-menu-btn").click();
       const menu = document.getElementById("adminRowMenu");
-      if(!menu || menu.hidden) return { error: "menu did not open" };
+      // getClientRects, not .hidden: .row-menu is display:flex, which outranks
+      // the UA sheet's [hidden]{display:none}, so the property can say closed
+      // while the menu is still painted over the page. That is precisely the
+      // bug that shipped, and reading the property is what let it through.
+      if(!menu || !menu.getClientRects().length) return { error: "menu did not open" };
       const r = menu.getBoundingClientRect();
       return {
         uid: menu.getAttribute("data-uid"),
@@ -486,13 +490,30 @@ async function boot(browser, server, query){
     ok(self.items.some(t => /Open Record|Reset Password/.test(t)),
       "but the harmless actions are still there", JSON.stringify(self.items));
 
+    // A real click at a real coordinate. document.body.click() dispatches the
+    // event straight at the body and would pass against an outside-dismiss
+    // that no real interaction can ever reach — which is exactly the bug that
+    // shipped: on iOS nothing fires for a tap on a plain element at all (see
+    // tests/apple/devices.js for that half).
+    const away = await page.evaluate(() => {
+      const r = document.querySelector("#csec-admin-people .console-section-head h3").getBoundingClientRect();
+      return { x: Math.round(r.left + 4), y: Math.round(r.top + 4) };
+    });
+    await page.mouse.click(away.x, away.y);
+    await page.waitForTimeout(150);
     const closed = await page.evaluate(() => {
-      document.body.click();
       const m = document.getElementById("adminRowMenu");
       const btn = document.querySelector("#adminUsersList .row-menu-btn");
-      return { hidden: !!(m && m.hidden), expanded: btn.getAttribute("aria-expanded") };
+      return {
+        painted: !!(m && m.getClientRects().length),
+        display: m ? getComputedStyle(m).display : "-",
+        hiddenProp: !!(m && m.hidden),
+        expanded: btn.getAttribute("aria-expanded")
+      };
     });
-    ok(closed.hidden, "clicking away closes it", JSON.stringify(closed));
+    ok(!closed.painted,
+      "clicking away takes it off the screen, not just out of the DOM's opinion",
+      JSON.stringify(closed));
     ok(closed.expanded === "false", "and the button stops reporting itself open", JSON.stringify(closed));
   }
   {
