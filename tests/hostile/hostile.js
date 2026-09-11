@@ -241,10 +241,28 @@ async function run(){
 
     const snap = await h.page.evaluate(() => ({
       failBanner: document.getElementById("loadFailBanner").classList.contains("show"),
-      retryVisible: !!document.getElementById("loadFailRetryBtn").getClientRects().length
+      badge: document.getElementById("railNotifBadge").textContent,
+      badgeHidden: document.getElementById("railNotifBadge").hidden,
+      retryExists: !!document.getElementById("loadFailRetryBtn")
     }));
     ok(snap.failBanner, "a failed load shows the persistent failure banner");
-    ok(snap.retryVisible, "the failure banner carries a visible Try Again button");
+    // The banner lives in the notification panel now, so it is no longer
+    // painted on the page. The failure still has to reach someone who opens
+    // nothing, and the badge is what does that -- if this ever reads 0, a
+    // failed load has gone completely silent, which is the whole defect this
+    // block exists to prevent.
+    ok(!snap.badgeHidden && snap.badge !== "0",
+      "a failed load is announced on the bell without opening anything", "badge=" + snap.badge);
+    ok(snap.retryExists, "the failure banner still carries its Try Again button");
+
+    const reachable = await h.page.evaluate(() => {
+      document.getElementById("railNotifBtn").click();
+      return new Promise(r => setTimeout(() => r(
+        !!document.getElementById("loadFailRetryBtn").getClientRects().length), 350));
+    });
+    ok(reachable, "and Try Again is visible once the panel is open");
+    await h.page.keyboard.press("Escape");
+    await settle(h.page, 300);
 
     // The toast clearing must not clear the banner too — that was the bug:
     // a 7-second toast was the only signal the load had failed.
@@ -812,6 +830,129 @@ async function run(){
       missing.map(r => r.text).join("\n     "));
     ok(html.includes(".auth-screen{") && /\.auth-screen\{[^}]*safe-area-inset-top/.test(html),
       "the sign-in screen (the first thing an installed PWA shows) reserves the top safe area too");
+  }
+
+  // ---- notification centre ------------------------------------------------
+  // The bell is the only place the five notices live now, so a badge that
+  // does not track them is a notice nobody ever sees. The badge is driven by
+  // a MutationObserver on the stack; observe() used to be started as a side
+  // effect of the fold logic's finally{}, and removing that fold silently
+  // stopped the observation while leaving the observer object in place --
+  // the badge stuck on its first value forever. This pins it down.
+  {
+    const pad = n => String(n).padStart(2, "0");
+    const dt = new Date(Date.now() - 864e5);
+    const yest = dt.getFullYear() + "-" + pad(dt.getMonth() + 1) + "-" + pad(dt.getDate());
+    const me = D.profile(1, { full_name: "Aseel Thalnoon" });
+    const other = D.profile(2, { full_name: "Sara N" });
+    const iso = mins => new Date(Date.now() - mins * 60000).toISOString();
+
+    const h = await boot({ viewport: DESKTOP, meId: me.id, seed: {
+      profiles: [me, other],
+      entries: [{ id:"e1", user_id: me.id, date: yest, clock_in:"08:00", clock_out:"", type:"regular", note:"" }],
+      user_settings: [{ user_id: me.id, settings: D.SETTINGS }],
+      push_notifications: [
+        { id:"n1", title:"Payday moved", body:"September pay lands on the 28th.",
+          target_type:"all", status:"sent", sent_at: iso(90), created_by: me.id },
+        { id:"n2", title:"You never clocked out", body:"Your shift is still open.",
+          target_type:"users", target_user_ids:[me.id], status:"sent", sent_at: iso(30),
+          created_by: null, action:"clock_out", action_payload:{ date: yest } },
+        { id:"n3", title:"Not for you", body:"Addressed to someone else.",
+          target_type:"users", target_user_ids:[other.id], status:"sent", sent_at: iso(10), created_by: me.id },
+        { id:"n4", title:"Still a draft", body:"Scheduled, not sent.",
+          target_type:"all", status:"pending", created_by: me.id }
+      ],
+      notification_reads: [{ user_id: me.id, notification_id:"n1", read_at: iso(80) }]
+    }});
+    await settle(h.page, 900);
+
+    const before = await h.page.evaluate(() => ({
+      badge: document.getElementById("railNotifBadge").textContent,
+      titles: Array.from(document.querySelectorAll(".notif-item-title")).map(x => x.textContent),
+      unread: document.querySelectorAll(".notif-item:not(.is-read)").length,
+      stackInPanel: !!document.querySelector("#notifOverlay #noticeStack"),
+      stackOnPage: !!document.getElementById("noticeStack").getClientRects().length,
+      viewingBannerOutside: !document.querySelector("#notifOverlay #viewingOtherBanner")
+    }));
+    ok(before.stackInPanel && !before.stackOnPage,
+      "the notices live in the bell's panel, not stacked on top of every screen");
+    ok(before.viewingBannerOutside,
+      "the viewing-someone-else banner is NOT in the panel: it is a mode indicator, and below 760px it is the only thing saying edits land on another person's record");
+    ok(!before.titles.includes("Not for you"),
+      "a message targeted at another user is not readable", JSON.stringify(before.titles));
+    ok(!before.titles.includes("Still a draft"),
+      "an unsent message is not readable", JSON.stringify(before.titles));
+    ok(before.badge === "2",
+      "the badge counts live notices plus unread messages", "badge=" + before.badge);
+    ok(before.unread === 1, "a message already marked read renders as read", "unread=" + before.unread);
+
+    await h.page.evaluate(() => document.getElementById("railNotifBtn").click());
+    await settle(h.page, 700);
+    const opened = await h.page.evaluate(() => ({
+      bgHidden: document.getElementById("appShell").getAttribute("aria-hidden"),
+      focus: document.activeElement && document.activeElement.id,
+      unread: document.querySelectorAll(".notif-item:not(.is-read)").length,
+      badge: document.getElementById("railNotifBadge").textContent
+    }));
+    ok(opened.bgHidden === "true", "opening the panel hides the page behind it from assistive tech");
+    ok(opened.focus === "notifCloseBtn", "focus moves into the panel", "focus=" + opened.focus);
+    ok(opened.unread === 0 && opened.badge === "1",
+      "opening marks messages read and the badge drops to the live notice",
+      "unread=" + opened.unread + " badge=" + opened.badge);
+
+    // Resolve the live notice from inside the panel; the badge must follow.
+    await h.page.evaluate(() => document.getElementById("reminderActions").querySelector("button").click());
+    await settle(h.page, 1500);
+    const after = await h.page.evaluate(() => ({
+      badge: document.getElementById("railNotifBadge").textContent,
+      hidden: document.getElementById("railNotifBadge").hidden,
+      shown: Array.from(document.querySelectorAll("#noticeStack .reminder"))
+        .filter(n => n.classList.contains("show")).length
+    }));
+    ok(after.shown === 0 && after.hidden && after.badge === "0",
+      "the badge clears when the last notice resolves (the MutationObserver is actually observing)",
+      "shown=" + after.shown + " badge=" + after.badge + " hidden=" + after.hidden);
+
+    await h.close();
+  }
+
+  // ---- a notice inside the panel must still be readable -------------------
+  // Above 761px the notice stack lays a notice out as an inline strip -- icon,
+  // title, sentence and buttons as flex siblings on one line -- because on top
+  // of the screen every row it costs is a row the tab below loses. Inside a
+  // 480px panel that inverts: the sentence was squeezed into a column about
+  // one character wide and wrapped ~100 characters straight down the page.
+  // Nothing threw and no test caught it; it was visible only in a screenshot.
+  for(const [vp, label] of [[DESKTOP, "desktop"], [PHONE, "phone"]]){
+    const pad = n => String(n).padStart(2, "0");
+    const dt = new Date(Date.now() - 864e5);
+    const yest = dt.getFullYear() + "-" + pad(dt.getMonth() + 1) + "-" + pad(dt.getDate());
+    const me = D.profile(1, { full_name: "Aseel Thalnoon" });
+    const h = await boot({ viewport: vp, meId: me.id, seed: {
+      profiles: [me],
+      entries: [{ id:"e1", user_id: me.id, date: yest, clock_in:"08:00", clock_out:"", type:"regular", note:"" }],
+      user_settings: [{ user_id: me.id, settings: D.SETTINGS }]
+    }});
+    await settle(h.page, 700);
+    await h.page.evaluate(() => document.getElementById("notifBtn").click());
+    await settle(h.page, 600);
+    const m = await h.page.evaluate(() => {
+      const t = document.getElementById("reminderText");
+      const b = t.getBoundingClientRect();
+      return {
+        textW: Math.round(b.width),
+        panelW: Math.round(document.querySelector(".notif-panel").getBoundingClientRect().width),
+        lines: Math.round(b.height / parseFloat(getComputedStyle(t).lineHeight)),
+        chars: (t.textContent || "").length
+      };
+    });
+    ok(m.textW > m.panelW * 0.5,
+      `[${label}] a notice's sentence gets the panel's width rather than being squeezed by its siblings`,
+      `text ${m.textW}px inside a ${m.panelW}px panel`);
+    ok(m.lines < 8,
+      `[${label}] and wraps to a sane number of lines`,
+      `${m.lines} lines for ${m.chars} characters`);
+    await h.close();
   }
 
   console.log(`  hostile  pass ${pass}   fail ${fail}`);

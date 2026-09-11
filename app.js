@@ -2491,7 +2491,7 @@ if(supabase){
     // gone. The load has to succeed before the form is allowed to overwrite it.
     if(dataLoadFailed()){
       showToast("This schedule never loaded, so the form isn't showing the saved one. " +
-                "Use Try Again at the top of the screen first.", "error");
+                "Open Alerts and use Try Again first.", "error");
       return;
     }
 
@@ -3524,7 +3524,7 @@ if(supabase){
           '</svg>' +
           '<p class="first-run-title">Couldn\'t load this record</p>' +
           '<p class="first-run-sub">' + escapeHtml(friendlyError(dataLoadError)) +
-            ' This is not an empty month — use <strong>Try Again</strong> at the top of the screen.</p>' +
+            ' This is not an empty month — open <strong>Alerts</strong> and use Try Again.</p>' +
         '</div>';
     } else if(entries.length === 0){
       // The dashed ring echoes the Day Types donut on Overview — an "empty"
@@ -4984,7 +4984,7 @@ if(supabase){
     if(ok) return yest;
     // Deliberately nothing rather than falling back to today: a clock-out on a
     // day with no clock-in is the exact row this function exists to prevent.
-    showToast("Nothing recorded. Use the reminder at the top of the page to fix " +
+    showToast("Nothing recorded. Open Alerts and use the reminder there to fix " +
               fmtDate(yest) + ", or edit the day directly.", "error");
     return null;
   }
@@ -5031,7 +5031,7 @@ if(supabase){
                  EXCUSED_TYPES.indexOf(x.type) === -1;
         });
         showToast(stale
-          ? "Yesterday's shift is still open, and too old to close from here. Use the reminder at the top of the screen to fix " + fmtDate(dayBefore(today)) + "."
+          ? "Yesterday's shift is still open, and too old to close from here. Open Alerts to fix " + fmtDate(dayBefore(today)) + "."
           : "There's no open shift to close. Clock in first, or add the day by hand from the Log.", "error");
         return;
       }
@@ -5531,6 +5531,10 @@ if(supabase){
       var action = btn.getAttribute("data-rail-action");
       if(action === "admin"){
         document.getElementById("adminBtn").click();
+        return;
+      }
+      if(action === "notifications"){
+        document.getElementById("notifBtn").click();
         return;
       }
       var realTab = document.querySelector('.tab-btn[data-tab="'+btn.getAttribute("data-rail-tab")+'"]');
@@ -6268,38 +6272,243 @@ if(supabase){
   // already in the state you asked for — and the resulting microtask loop
   // starved the main thread badly enough that the load event never fired.
   var noticeObserver = null;
-  function syncNoticeStack(){
+  // ---------- Notification centre ----------
+  // The five notices used to stack at the top of every screen and collapse to
+  // one with a "2 more notices" fold. They are list rows inside the bell's
+  // panel now. Nothing about how they are rendered changed: the same five
+  // functions still write to the same ids and toggle the same .show class --
+  // only their container moved, which is why none of them had to learn that
+  // this panel exists.
+  var pushNotifs = [];            // sent messages, from list_my_notifications()
+  var pushNotifsLoaded = false;
+  var pushNotifsError = null;
+  var notifPanelClose = null;     // set while the panel is open
+
+  function liveNoticeCount(){
     var stack = document.getElementById("noticeStack");
-    var more = document.getElementById("noticeMore");
-    if(!stack || !more) return;
-    if(noticeObserver) noticeObserver.disconnect();
-    try{
-      var shown = Array.prototype.filter.call(
-        stack.querySelectorAll(".reminder"),
-        function(n){ return n.classList.contains("show"); }
-      );
-      shown.forEach(function(n, i){ n.classList.toggle("is-folded", i > 0); });
-      var extra = Math.max(0, shown.length - 1);
-      more.hidden = extra === 0;
-      if(extra){
-        var open = stack.classList.contains("is-open");
-        more.textContent = open
-          ? "Show less"
-          : extra + (extra === 1 ? " more notice" : " more notices");
-        more.setAttribute("aria-expanded", open ? "true" : "false");
-      } else {
-        stack.classList.remove("is-open");
+    if(!stack) return 0;
+    return Array.prototype.filter.call(
+      stack.querySelectorAll(".reminder"),
+      function(n){ return n.classList.contains("show"); }
+    ).length;
+  }
+
+  function unreadPushCount(){
+    return pushNotifs.reduce(function(n, x){ return n + (x.read ? 0 : 1); }, 0);
+  }
+
+  // Everything currently true plus everything unread. A live notice has no
+  // read state on purpose: it is a condition, not a message, and it stops
+  // counting when it stops being true rather than when it has been looked at.
+  function notificationCount(){ return liveNoticeCount() + unreadPushCount(); }
+
+  function syncNotificationBell(){
+    var n = notificationCount();
+    [["notifBadge","notifBtn"], ["railNotifBadge","railNotifBtn"]].forEach(function(pair){
+      var badge = document.getElementById(pair[0]);
+      var btn = document.getElementById(pair[1]);
+      if(badge){
+        badge.hidden = n === 0;
+        badge.textContent = n > 9 ? "9+" : String(n);
       }
-    } finally {
-      if(noticeObserver) noticeObserver.observe(stack, {
-        subtree: true, attributes: true, attributeFilter: ["class"]
-      });
+      if(btn){
+        // The count belongs in the accessible name, not only in a coloured
+        // pill: "Notifications" alone tells a screen-reader user nothing about
+        // whether opening it is worth the trip.
+        btn.setAttribute("aria-label", n === 0
+          ? "Notifications"
+          : "Notifications, " + n + " needing attention");
+      }
+    });
+    var empty = document.getElementById("notifEmpty");
+    // "Nothing needs you right now" is a claim about the data. It must not be
+    // made while the messages failed to load -- the list already says so, and
+    // the two together tell the reader opposite things. Same distinction
+    // renderLoadFailure() draws between "empty" and "we don't know".
+    if(empty) empty.hidden = liveNoticeCount() > 0 || pushNotifs.length > 0 || !!pushNotifsError;
+    var markAll = document.getElementById("notifMarkAllBtn");
+    if(markAll) markAll.hidden = unreadPushCount() === 0;
+  }
+
+  function relativeWhen(iso){
+    var t = Date.parse(iso);
+    if(!isFinite(t)) return "";
+    var mins = Math.floor((Date.now() - t) / 60000);
+    if(mins < 1) return "just now";
+    if(mins < 60) return mins + "m ago";
+    var hrs = Math.floor(mins / 60);
+    if(hrs < 24) return hrs + "h ago";
+    var days = Math.floor(hrs / 24);
+    if(days < 7) return days + "d ago";
+    return fmtDate(String(iso).slice(0, 10));
+  }
+
+  async function loadPushNotifications(){
+    if(!supabaseConfigured || !currentUser) return;
+    try{
+      var res = await supabase.rpc("list_my_notifications", {p_limit: 50});
+      if(res.error) throw res.error;
+      pushNotifs = Array.isArray(res.data) ? res.data : [];
+      pushNotifsError = null;
+    }catch(err){
+      // Not a toast: this is background chrome, and a bell that cannot reach
+      // the server is not worth interrupting anyone over. The panel says so
+      // when it is opened, which is the only moment it matters.
+      pushNotifsError = err;
+      pushNotifs = [];
+    }
+    pushNotifsLoaded = true;
+    renderPushNotifications();
+    syncNotificationBell();
+  }
+
+  function renderPushNotifications(){
+    var list = document.getElementById("notifList");
+    if(!list) return;
+    if(pushNotifsError){
+      list.innerHTML = '<p class="notif-empty">Couldn\'t load your messages. ' +
+        escapeHtml(friendlyError(pushNotifsError)) + '</p>';
+      return;
+    }
+    list.innerHTML = pushNotifs.map(function(n){
+      // Only 'clock_out' carries an in-app action today. An unrecognised
+      // action renders as a plain message rather than a dead button --
+      // send-push can grow a new one before this client knows about it.
+      var act = "";
+      if(n.action === "clock_out" && n.action_payload && n.action_payload.date){
+        act = '<div class="notif-item-actions">' +
+          '<button type="button" class="btn small" data-notif-clockout="' +
+            escapeAttr(n.action_payload.date) + '">Clock Out</button>' +
+        '</div>';
+      }
+      return '<div class="notif-item' + (n.read ? ' is-read' : '') + '" data-notif-id="' + escapeAttr(n.id) + '">' +
+        '<span class="notif-dot' + (n.read ? ' is-read' : '') + '" aria-hidden="true"></span>' +
+        '<div class="notif-item-body">' +
+          '<p class="notif-item-title" dir="auto">' + escapeHtml(n.title) + '</p>' +
+          '<p class="notif-item-text" dir="auto">' + escapeHtml(n.body) + '</p>' +
+          '<p class="notif-item-meta">' + escapeHtml(relativeWhen(n.sent_at)) +
+            (n.from_system ? " \u00b7 Automatic" : "") +
+            (n.read ? "" : " \u00b7 Unread") + '</p>' +
+          act +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  async function markPushRead(ids){
+    if(!ids.length) return;
+    // Optimistic: the dot clearing is the whole feedback, and a failed mark
+    // costs nothing worse than the message still looking unread next time.
+    ids.forEach(function(id){
+      var row = pushNotifs.find(function(x){ return x.id === id; });
+      if(row) row.read = true;
+    });
+    renderPushNotifications();
+    syncNotificationBell();
+    try{
+      var res = await supabase.rpc("mark_notifications_read", {p_ids: ids});
+      if(res.error) throw res.error;
+    }catch(err){
+      console.error(err);
     }
   }
 
-  document.getElementById("noticeMore").addEventListener("click", function(){
-    document.getElementById("noticeStack").classList.toggle("is-open");
-    syncNoticeStack();
+  document.getElementById("notifList").addEventListener("click", function(ev){
+    var btn = ev.target.closest("[data-notif-clockout]");
+    if(!btn) return;
+    var date = btn.getAttribute("data-notif-clockout");
+    var entry = entries.find(function(e){ return e.date === date; });
+    // Same path the push notification's own action button takes (see
+    // consumeShortcutAction): a specific past day, closed through
+    // quickClockOut rather than punchClock, which always targets today.
+    if(entry && entry.clockIn && !entry.clockOut){
+      if(notifPanelClose) notifPanelClose();
+      quickClockOut(entry, null);
+    } else {
+      showToast("That shift is already closed.", "error");
+    }
+  });
+
+  document.getElementById("notifMarkAllBtn").addEventListener("click", function(){
+    markPushRead(pushNotifs.filter(function(n){ return !n.read; }).map(function(n){ return n.id; }));
+  });
+
+  // The panel. Same contract showConfirm() established -- background hidden
+  // from assistive tech, focus trapped and restored, Escape and the phone's
+  // back gesture both closing it -- because a dialog that gets any one of
+  // those wrong is a dialog a keyboard or screen-reader user gets stuck in.
+  function openNotificationPanel(){
+    if(notifPanelClose) return;
+    var overlay = document.getElementById("notifOverlay");
+    var panel = overlay.querySelector(".notif-panel");
+    var opener = document.activeElement;
+
+    overlay.hidden = false;
+    requestAnimationFrame(function(){ overlay.classList.add("show"); });
+    document.getElementById("notifBtn").setAttribute("aria-expanded", "true");
+
+    var bgRoot = document.getElementById("appShell").style.display !== "none"
+      ? document.getElementById("appShell") : document.getElementById("authScreen");
+    bgRoot.setAttribute("aria-hidden", "true");
+
+    function focusable(){
+      return Array.prototype.slice.call(
+        panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      ).filter(function(el){ return !el.disabled && el.offsetParent !== null; });
+    }
+    function onKey(ev){
+      if(ev.key === "Escape"){ ev.preventDefault(); close(); return; }
+      if(ev.key !== "Tab") return;
+      var f = focusable();
+      if(!f.length) return;
+      var first = f[0], last = f[f.length - 1];
+      if(ev.shiftKey && document.activeElement === first){ ev.preventDefault(); last.focus(); }
+      else if(!ev.shiftKey && document.activeElement === last){ ev.preventDefault(); first.focus(); }
+    }
+    function onOverlayClick(ev){ if(ev.target === overlay) close(); }
+
+    history.pushState({ledgerNotif:true}, "");
+    function onPop(){ close(true); }
+
+    var closed = false;
+    function close(fromPop){
+      if(closed) return;
+      closed = true;
+      notifPanelClose = null;
+      window.removeEventListener("popstate", onPop);
+      document.removeEventListener("keydown", onKey);
+      overlay.removeEventListener("click", onOverlayClick);
+      bgRoot.removeAttribute("aria-hidden");
+      overlay.classList.remove("show");
+      document.getElementById("notifBtn").setAttribute("aria-expanded", "false");
+      setTimeout(function(){ overlay.hidden = true; }, 180);
+      // Back to whatever opened it -- but only if that is still on screen. The
+      // rail proxies through the header button, which is display:none above
+      // 760px, and the two bells swap at that breakpoint: restoring focus to a
+      // hidden control drops it on <body> and the keyboard loses its place.
+      var back = (opener && typeof opener.focus === "function" && opener.offsetParent !== null)
+        ? opener
+        : [document.getElementById("railNotifBtn"), document.getElementById("notifBtn")]
+            .filter(function(el){ return el && el.offsetParent !== null; })[0];
+      if(back) back.focus();
+      if(!fromPop && history.state && history.state.ledgerNotif) history.back();
+    }
+    notifPanelClose = close;
+    window.addEventListener("popstate", onPop);
+    document.addEventListener("keydown", onKey);
+    overlay.addEventListener("click", onOverlayClick);
+    document.getElementById("notifCloseBtn").focus();
+
+    // Opening is what marks messages read -- they are all on screen at once,
+    // so per-item read tracking would be a fiction. Live notices are not
+    // touched: they clear when the condition clears.
+    if(!pushNotifsLoaded) loadPushNotifications();
+    else markPushRead(pushNotifs.filter(function(n){ return !n.read; }).map(function(n){ return n.id; }));
+  }
+
+  document.getElementById("notifBtn").addEventListener("click", openNotificationPanel);
+  document.getElementById("notifCloseBtn").addEventListener("click", function(){
+    if(notifPanelClose) notifPanelClose();
   });
 
   // The banners each toggle .show from their own render path, so rather than
@@ -6307,8 +6516,14 @@ if(supabase){
   (function watchNotices(){
     var stack = document.getElementById("noticeStack");
     if(!stack || typeof MutationObserver === "undefined") return;
-    noticeObserver = new MutationObserver(syncNoticeStack);
-    syncNoticeStack();
+    noticeObserver = new MutationObserver(syncNotificationBell);
+    // observe() used to live in syncNoticeStack's finally{}, because that
+    // function toggled .is-folded on the very nodes it was watching and had to
+    // disconnect around its own writes. The bell writes nothing inside the
+    // stack -- the badges it updates are outside it -- so there is no loop to
+    // break and the observation is simply started once, here.
+    noticeObserver.observe(stack, {subtree: true, attributes: true, attributeFilter: ["class"]});
+    syncNotificationBell();
   })();
 
   document.getElementById("sApplyAll").addEventListener("change", syncApplyAllScope);
@@ -9657,6 +9872,9 @@ if(supabase){
     // Org-wide settings (announcement banner, registration toggle) apply to
     // everyone, so this runs regardless of admin status.
     await loadAppSettings();
+    // The bell's history. Fire-and-forget, like renderTodayTeam(): it is
+    // chrome, and it must not hold sign-in behind a network call.
+    loadPushNotifications().catch(function(){});
     setTimeout(updateTabsScrollHint, 0);
     // Fire-and-forget: eligible only once ever per browser (see the guard
     // inside), and sign-in must not sit waiting on a permission dialog.

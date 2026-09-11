@@ -1199,7 +1199,14 @@
   }
   .icon-btn:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
   .icon-btn.danger{color:var(--negative);}
-  .head-actions{display:flex; align-items:center; gap:8px;}
+  /* Wraps, because this row grew a fourth pill. Four labelled 44px pills do
+     not fit 393px, and the alternative -- dropping Alerts to a bare icon --
+     walks straight back into what the comment on #headRight warns about: this
+     row is the phone's only route to these controls, and it was deliberately
+     given words instead of three identical discs. A second line costs header
+     height on one breakpoint; an unlabelled disc costs everyone who cannot
+     tell a bell from a shield at 15px. */
+  .head-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;}
   /* Admin is reachable from the rail on desktop; this stays for narrow widths
      where the rail is gone, and keeps its own current-page state since the
      Admin panel is a destination rather than a tab. */
@@ -1546,6 +1553,130 @@
     }
     .reminder-actions{margin-top:var(--space-2);}
     .reminder-actions .btn{min-height:40px; padding:var(--space-2) var(--space-3); font-size:12.5px;}
+  }
+
+  /* ---------- Notification centre ----------
+     The bell lives on two surfaces and only ever one at a time: the rail above
+     760px, the header row below it. Same split Admin and Settings already use,
+     so nothing new is duplicated on screen. */
+  .notif-bell-host{position:relative;}
+  .notif-badge{
+    position:absolute; top:4px; right:4px;
+    min-width:17px; height:17px; padding:0 4px; box-sizing:border-box;
+    border-radius:var(--radius-pill);
+    background:var(--negative-solid); color:#fff;
+    font-size:10px; font-weight:700; line-height:17px; text-align:center;
+    font-variant-numeric:tabular-nums; pointer-events:none;
+  }
+  .notif-badge[hidden]{display:none;}
+  #notifBtn{position:relative;}
+  /* The rail item is a full-width row, so the count sits at its end rather
+     than clipped to a corner the way it does on the header's pill. */
+  .rail-notif-badge{position:static; margin-left:auto;}
+  #railNotifBtn{position:relative;}
+
+  .notif-overlay{
+    position:fixed; inset:0; z-index:120;
+    background:rgba(17,17,16,.44);
+    display:flex; align-items:flex-start; justify-content:center;
+    padding:56px 16px 16px;
+    opacity:0; transition:opacity var(--dur-fast) var(--ease-snap);
+  }
+  .notif-overlay[hidden]{display:none;}
+  .notif-overlay.show{opacity:1;}
+  .notif-panel{
+    width:100%; max-width:480px; max-height:100%;
+    display:flex; flex-direction:column;
+    background:var(--card); border-radius:var(--radius);
+    box-shadow:var(--shadow-lg); overflow:hidden;
+    transform:translateY(-8px); transition:transform var(--dur-fast) var(--ease-snap);
+  }
+  .notif-overlay.show .notif-panel{transform:translateY(0);}
+  .notif-head{
+    display:flex; align-items:center; gap:var(--space-2);
+    padding:var(--space-4) var(--space-4) var(--space-3);
+    border-bottom:1px solid var(--line-soft); flex:0 0 auto;
+  }
+  .notif-title{font-family:var(--font-display); font-size:16px; margin:0; margin-right:auto;}
+  .notif-close{
+    display:flex; align-items:center; justify-content:center;
+    width:32px; height:32px; flex-shrink:0;
+    background:none; border:none; border-radius:var(--radius-sm);
+    color:var(--muted); cursor:pointer;
+  }
+  .notif-close:hover{background:var(--ink-50); color:var(--ink);}
+  /* The panel scrolls; there is no fold. The stack used to collapse to one
+     notice with a "2 more notices" button because it sat on top of the page
+     and every extra row pushed the actual screen down. Inside a panel that
+     pressure is gone, and a list that hides its own contents behind a second
+     tap is worse than one that scrolls. */
+  .notif-body{
+    flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+    padding:var(--space-3) var(--space-4) var(--space-4);
+    scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+  }
+  /* Inside the panel the notices are list rows, not page-width banners: no
+     card of their own, separated by a hairline. */
+  .notif-body .notice-stack > .reminder{
+    margin:0; border-radius:0; box-shadow:none; border:none;
+    border-bottom:1px solid var(--line-soft);
+    padding:var(--space-3) 0;
+  }
+  .notif-body .notice-stack > .reminder.show{display:flex;}
+  .notif-body .notice-stack > .reminder.is-folded{display:flex;}
+  /* Undo the frame's inline strip. Above 761px a notice lays its title, its
+     sentence and its buttons out as flex siblings on one line, because up
+     there it sits on top of the screen and every row it costs is a row the tab
+     below loses. In a 480px panel that reasoning inverts: the sentence gets
+     squeezed to a column about one character wide and wraps down the page,
+     which is exactly what it looked like. Inside the panel the space is
+     vertical and it scrolls, so the notice stacks the way it was designed to
+     before the frame ever asked it not to. */
+  .notif-body .notice-stack > .reminder .reminder-body{display:block;}
+  .notif-body .notice-stack > .reminder .reminder-title{margin:0 0 2px;}
+  .notif-body .notice-stack > .reminder .reminder-text{margin:0;}
+  .notif-body .notice-stack > .reminder .reminder-actions{
+    margin:var(--space-2) 0 0; gap:var(--space-2); flex-wrap:wrap;
+  }
+  .notif-body .notice-stack > .reminder svg{width:16px; height:16px; margin-top:2px;}
+
+  .notif-item{
+    display:flex; gap:var(--space-3); align-items:flex-start;
+    padding:var(--space-3) 0; border-bottom:1px solid var(--line-soft);
+  }
+  .notif-item:last-child{border-bottom:none;}
+  /* Unread is carried by a dot AND by the title's weight -- a single accent
+     dot is the only thing marking these apart, and DESIGN.md holds a mark
+     that is the sole carrier of a fact to the same floor as the sentence it
+     replaced. */
+  .notif-dot{
+    width:7px; height:7px; border-radius:50%; flex-shrink:0; margin-top:6px;
+    background:var(--gold-deep);
+  }
+  .notif-dot.is-read{background:transparent;}
+  .notif-item-body{min-width:0; flex:1 1 auto;}
+  .notif-item-title{margin:0 0 2px; font-size:13.5px; font-weight:500; color:var(--ink);}
+  .notif-item.is-read .notif-item-title{font-weight:400; color:var(--muted-2);}
+  .notif-item-text{margin:0; font-size:12.5px; color:var(--muted); line-height:1.5;}
+  .notif-item-meta{margin:4px 0 0; font-size:11px; color:var(--muted-2);}
+  .notif-item-actions{display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;}
+  .notif-empty{
+    margin:0; padding:var(--space-6) 0; text-align:center;
+    font-size:13px; color:var(--muted);
+  }
+  .notif-empty[hidden]{display:none;}
+  /* .btn is display:inline-flex, which outranks [hidden]{display:none} -- the
+     same trap .qc-btn[hidden] exists for. Without this, "Mark all read" shows
+     permanently, including when there is nothing unread to mark. */
+  .notif-head .btn[hidden]{display:none;}
+
+  @media (max-width:760px){
+    /* A sheet, not a floating card: on a phone the panel is the screen. */
+    .notif-overlay{padding:0; align-items:stretch;}
+    .notif-panel{max-width:none; border-radius:0; max-height:none;}
+    /* Clear of the bottom nav and the home indicator. */
+    .notif-body{padding-bottom:calc(var(--space-8) + env(safe-area-inset-bottom, 0px));}
+    .notif-head{padding-top:calc(var(--space-4) + env(safe-area-inset-top, 0px));}
   }
 
   /* ---------- Stat cards ---------- */
@@ -4984,6 +5115,11 @@
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
       <span>Admin</span>
     </button>
+    <button type="button" class="rail-item" data-rail-action="notifications" id="railNotifBtn">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16S18 14 18 9z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
+      <span>Alerts</span>
+      <span class="notif-badge rail-notif-badge" id="railNotifBadge" hidden></span>
+    </button>
     <button type="button" class="rail-item" data-rail-tab="settings">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21v-7M5 10V3M12 21v-11M12 6V3M19 21v-3M19 14V3"/><path d="M2.5 14h5M9.5 6h5M16.5 18h5"/></svg>
       <span>Settings</span>
@@ -5029,6 +5165,14 @@
          gone and there is nothing else to reach these three from. -->
     <div class="head-right" id="headRight">
       <div class="head-actions">
+        <!-- The real notifications control. The rail item below 1 proxies to
+             this same button, the way Admin and Settings already do, so the
+             panel has one implementation rather than two. -->
+        <button type="button" class="head-action" id="notifBtn" title="Notifications" aria-haspopup="dialog" aria-expanded="false">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16S18 14 18 9z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
+          <span>Alerts</span>
+          <span class="notif-badge" id="notifBadge" hidden></span>
+        </button>
         <button type="button" class="head-action" id="adminBtn" style="display:none;" aria-current="false" title="Organisation admin">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
           <span>Admin</span>
@@ -5070,19 +5214,41 @@
        At 393x852 these two stacked cost 132px + 150px and pushed the first
        figure to y=438 — 51% of the screen gone before a number, on the device
        PRODUCT.md calls the primary one. The same two cost 39px each at 1440. -->
-  <div class="notice-stack" id="noticeStack">
-  <div class="reminder announcement-banner" id="announcementBanner">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
-    <div class="reminder-body">
-      <p class="reminder-text" id="announcementText" dir="auto"></p>
-    </div>
-  </div>
-
+  <!-- NOT a notification, and deliberately still in the page: this says edits
+       on this screen save to somebody else's record. Below 760px the rail and
+       its viewer switcher are gone, so this banner is the only thing on screen
+       saying so — and unlike the load failure (which punchClock and the
+       settings Save both refuse outright), nothing guards a hand-entered day
+       against landing on the wrong person. A mode indicator has to be visible
+       without opening anything. -->
   <div class="reminder viewing-other-banner" id="viewingOtherBanner">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
     <div class="reminder-body">
       <p class="reminder-title" id="viewingOtherTitle"></p>
       <p class="reminder-text">You're an admin viewing another employee's attendance. Edits here save to their record, not yours.</p>
+    </div>
+  </div>
+
+  <!-- The notification centre. The five notices below used to stack at the top
+       of every screen; they live in here now, alongside the messages an admin
+       actually sent. They are still rendered by the same five functions
+       writing to the same ids — only the container moved, so none of that
+       logic had to learn about this panel. -->
+  <div class="notif-overlay" id="notifOverlay" hidden>
+    <div class="notif-panel" role="dialog" aria-modal="true" aria-labelledby="notifPanelTitle">
+      <div class="notif-head">
+        <h2 class="notif-title" id="notifPanelTitle">Notifications</h2>
+        <button type="button" class="btn ghost small" id="notifMarkAllBtn" hidden>Mark all read</button>
+        <button type="button" class="notif-close" id="notifCloseBtn" aria-label="Close notifications">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="notif-body" id="notifBody">
+  <div class="notice-stack" id="noticeStack">
+  <div class="reminder announcement-banner" id="announcementBanner">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+    <div class="reminder-body">
+      <p class="reminder-text" id="announcementText" dir="auto"></p>
     </div>
   </div>
 
@@ -5139,9 +5305,17 @@
     </div>
   </div>
 
-  <!-- Collapsed to the first notice on a phone; the rest are counted here and
-       open on tap. Rendered by syncNoticeStack() in app.js. -->
-  <button type="button" class="notice-more" id="noticeMore" hidden></button>
+  </div><!-- /#noticeStack -->
+
+        <!-- Messages an admin sent, newest first. Read through
+             list_my_notifications(), which is a SECURITY DEFINER read path --
+             push_notifications itself stays admin-only, because the row
+             carries target_user_ids and a recipient has no business reading
+             who else was on it. -->
+        <div class="notif-list" id="notifList"></div>
+        <p class="notif-empty" id="notifEmpty" hidden>Nothing needs you right now.</p>
+      </div><!-- /.notif-body -->
+    </div>
   </div>
 
 
