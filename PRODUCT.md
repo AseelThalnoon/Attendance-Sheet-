@@ -38,6 +38,12 @@ to GitHub Pages.
 - Admin work (people, org defaults, company-wide days, activity log, storage)
   lives in one dedicated Admin screen, not the tab strip used for the
   individual's own attendance views.
+- In-app notices (announcement, open shift, backup due, unsent punch, failed
+  load) do not sit on top of the screen: they are rows in a notification panel
+  opened from a bell that carries a count, alongside the messages an admin
+  sent. The bell is in the rail above 760px and the header row below it. The
+  one exception is the "you are viewing someone else's record" banner, which
+  stays in the page because it is a mode indicator rather than a notification.
 - Offline is scoped to punches and nothing else: a clock-in/out made with no
   connection is queued on the device and uploads when the connection returns.
   Hand-entered days, settings changes and admin actions still require a
@@ -51,10 +57,12 @@ to GitHub Pages.
   is planned.
 - No cross-tab sync; no optimistic concurrency (two admins editing the same
   day overwrite each other, `updated_at` exists but is unchecked).
-- No scheduled reminder to clock out. The in-app banner only reaches someone
-  who has already opened the app, and the installed icon carries a badge for
-  open shifts; a notification that arrives with the app closed needs a push
-  subscription and a server-side scheduler, which does not exist yet.
+- Web push exists: `push_subscriptions`, `push_notifications` and
+  `push_deliveries`, a `send-push` edge function, and a scheduled clock-out
+  reminder guarded to at most one per open shift per day. An admin composes
+  and targets messages from the Admin console and can see which devices
+  actually received them. The installed icon still carries its own badge for
+  open shifts, independently of push.
 - Punch times come from the device clock and are therefore unverifiable —
   acceptable given the confirmed low-stakes/personal-tracking success bar.
 - English only, no RTL layout; user-authored text is bidi-isolated with
