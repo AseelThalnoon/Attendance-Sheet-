@@ -22,12 +22,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: tests/package-lock.json
 
+      # No cache and `npm install`, not `npm ci`: lockfiles are gitignored here
+      # on purpose (.gitignore:15 and :40), so there is nothing for either to
+      # resolve -- which is exactly how this workflow failed on its first run,
+      # eight seconds in, with "Some specified paths were not resolved".
+      # The cost is that playwright floats within ^1.49.0 rather than pinning,
+      # so a CI run can use a newer build than a local one. That is the
+      # project's existing choice about lockfiles, not this workflow's to make.
       - name: Install test dependencies
         working-directory: tests
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       # chromium AND webkit. Chromium is not Safari, and the iPad
       # ReferenceError that hid the Add to Home Screen prompt was invisible in
