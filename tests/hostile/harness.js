@@ -18,12 +18,19 @@ async function boot(opts){
   const engine = playwright[opts.engine || "chromium"];
   if(!engine) throw new Error("unknown engine: " + opts.engine);
   const browser = await engine.launch();
-  const context = await browser.newContext(opts.device ? Object.assign({}, opts.device) : {
+  // Block the service worker. app.js registers sw.js, and page.route() does not
+  // intercept requests a service worker makes -- so once it is running, some
+  // fetches bypass the scripted backend entirely and hit the real Supabase,
+  // which answers 401. Chromium happened to register it late enough that this
+  // rarely showed; WebKit is quicker and it surfaced on every device. A suite
+  // whose backend can be bypassed is not testing what it says it is.
+  const swBlock = { serviceWorkers: "block" };
+  const context = await browser.newContext(opts.device ? Object.assign({}, opts.device, swBlock) : Object.assign(swBlock, {
     viewport: opts.viewport || DESKTOP,
     deviceScaleFactor: opts.viewport === PHONE ? 3 : 1,
     isMobile: opts.viewport === PHONE,
     hasTouch: opts.viewport === PHONE
-  });
+  }));
   const page = await context.newPage();
 
   const errors = [];
