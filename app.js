@@ -1788,8 +1788,18 @@ if(supabase){
   // on every admin viewer switch and every settings save.
   async function maybeShowPushPromptModal(){
     if(pushPromptModalShown || !isOwnData || pushPromptSnoozed()) return;
-    if(Notification.permission === "denied") return;
-    if(pushSupported() && Notification.permission === "granted" && (await currentPushSubscription())) return;
+    // Notification is ABSENT on iPadOS Safari and on iOS Safari before 16.4 --
+    // reading .permission there is a ReferenceError, not undefined. And the one
+    // caller that reaches here on those platforms is autoPromptPushIfEligible's
+    // own !pushSupported() branch, which is exactly the case this modal exists
+    // for: the instructional variant explaining Add to Home Screen. So the
+    // checks that need Notification have to sit BEHIND the support test rather
+    // than in front of it, or the only thing that tells an iPad user how to
+    // turn notifications on throws before it can say anything.
+    if(pushSupported()){
+      if(Notification.permission === "denied") return;
+      if(Notification.permission === "granted" && (await currentPushSubscription())) return;
+    }
     pushPromptModalShown = true;
     showPushPromptModal();
   }
