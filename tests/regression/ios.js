@@ -70,6 +70,55 @@ function ok(cond, label, detail){
     "the bottom nav specifically does -- it is the bar a thumb uses",
     "in landscape its first or last destination sits under the notch");
 
+  // ---- properties Safari still wants prefixed ----
+  // WebKit either needs the -webkit- form or has only ever had it. An
+  // unprefixed declaration on its own is not a degraded effect on Apple
+  // hardware, it is no effect: backdrop-filter does nothing, a mask does not
+  // clip, a themed scrollbar stays the system one. Checked per CSS block, so
+  // "the file contains both somewhere" is not mistaken for "this rule has
+  // both".
+  {
+    const css = html.slice(html.indexOf("<style>"), html.lastIndexOf("</style>"));
+    // Crude but sufficient: split on "}" and treat each fragment as a block.
+    const blocks = css.split("}");
+    const NEED = ["backdrop-filter", "mask", "appearance", "user-select", "box-decoration-break"];
+    const unpaired = [];
+    for(const b of blocks){
+      for(const prop of NEED){
+        // the property, not preceded by a dash (so -webkit-mask does not match "mask")
+        const bare = new RegExp("(^|[;{\\s])" + prop + "\\s*:", "m");
+        if(!bare.test(b)) continue;
+        if(b.includes("-webkit-" + prop + ":")) continue;
+        const sel = (b.split("{")[0] || "").trim().split("\n").pop().slice(0, 60);
+        unpaired.push(`${prop} in "${sel}"`);
+      }
+    }
+    ok(unpaired.length === 0,
+      "every Safari-prefixed property is declared in both forms in the same rule",
+      unpaired.slice(0, 5).join(", "));
+
+    // scrollbar-width/-color is the inverse case: Safari only gained the
+    // standard properties in 18.2, so a themed scrollbar needs the -webkit-
+    // pseudo-element or it stays the system one on every Apple device.
+    // Per selector, not per count: "the file has 14 -webkit- rules somewhere"
+    // says nothing about whether THIS scroll surface has one, and a count
+    // comparison stays green while an individual rule is deleted.
+    const unthemed = [];
+    for(const b of blocks){
+      if(!/scrollbar-width\s*:\s*thin/.test(b)) continue;
+      const sel = (b.split("{")[0] || "").trim().split("\n").pop().trim();
+      if(!sel) continue;
+      // The selector may be compound; take its last simple part, which is what
+      // the ::-webkit- rule is written against.
+      const base = sel.split(",")[0].trim();
+      if(!css.includes(base + "::-webkit-scrollbar-thumb")) unthemed.push(base);
+    }
+    ok(unthemed.length === 0,
+      "every themed scrollbar has its own ::-webkit-scrollbar-thumb rule",
+      unthemed.join(", ") + " -- Safari only gained scrollbar-width in 18.2, so these " +
+      "show the system scrollbar beside themed ones on Apple hardware");
+  }
+
   // ---- launch screens ----
   const splash = [...html.matchAll(/rel="apple-touch-startup-image"\s+href="([^"]+)"/g)].map(m => m[1]);
   ok(splash.length > 0, "launch screens are declared",
