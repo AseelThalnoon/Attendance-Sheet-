@@ -4849,7 +4849,9 @@ var __authLinkError = (function(){
       // let a click anywhere in the cell toggle it instead of just the box.
       var cell = ev.target.closest("td.select-col");
       var box = cell && cell.querySelector(".row-select");
-      if(box){ box.checked = !box.checked; box.dispatchEvent(new Event("change", {bubbles:true})); }
+      // A direct click on the checkbox already toggled it and fired its own
+      // native "change" — redoing that here would flip it right back.
+      if(box && ev.target !== box){ box.checked = !box.checked; box.dispatchEvent(new Event("change", {bubbles:true})); }
       if(box) return;
       // On a phone the per-row Edit/Delete pair is dropped — two buttons on
       // every one of 39 rows is 78 targets for an action you take on maybe
