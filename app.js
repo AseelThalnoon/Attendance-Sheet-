@@ -4168,8 +4168,6 @@ var __authLinkError = (function(){
   // ---------- Punctuality ----------
   function renderPunctuality(){
     var scope = punctEntries();
-    document.getElementById("punctRule").textContent =
-      "Showing " + punctScopeLabel() + ".";
     var s = summarize(scope);
 
     document.getElementById("punctCount").textContent =
