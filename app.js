@@ -3440,9 +3440,19 @@ var __authLinkError = (function(){
   // wake-up, or a notification permission. It is not a substitute for a real
   // scheduled reminder — that needs a server, and is tracked separately — but
   // it is the whole of what the client can honestly do on its own.
+  // Same "actually overdue" test renderReminder uses for its target day: a
+  // still-open shift from a past day always counts, but today's only counts
+  // once it has run past the reminder threshold. Without that second half,
+  // the badge lit up the instant anyone clocked in — which isn't a forgotten
+  // clock-out, just a normal shift in progress.
   function openShiftCount(){
+    var today = todayStr();
+    var nowMin = new Date().getHours()*60 + new Date().getMinutes();
     return entries.filter(function(e){
-      return e.clockIn && !e.clockOut && EXCUSED_TYPES.indexOf(e.type) === -1;
+      if(!e.clockIn || e.clockOut || EXCUSED_TYPES.indexOf(e.type) !== -1) return false;
+      if(e.date < today) return true;
+      if(e.date === today) return (nowMin - timeToMinutes(e.clockIn)) >= settings.remindAfterHours*60;
+      return false;
     }).length;
   }
 
