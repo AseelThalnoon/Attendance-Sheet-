@@ -3048,17 +3048,6 @@
   }
 
   .punct-stats{margin-bottom:24px;}
-  /* This is the tab's whole premise — what counts as a shortfall — and it was
-     set two steps below the body scale and run across the full 1070px frame:
-     a ~180-character measure in 11.5px muted grey on a grey wash, which reads
-     as a disabled field rather than as the sentence that explains the screen.
-     Sized to match the other explanatory text in the app, and held to a
-     readable measure instead of the container's width. */
-  .punct-rule{
-    font-size:12.5px; color:var(--muted-2); margin:-4px 0 16px;
-    padding:10px 14px; background:var(--ink-50); border-radius:var(--radius-sm);
-    max-width:72ch;
-  }
   .late-cell{color:var(--negative); font-weight:700;}
   /* The one line that replaces three empty findings cards. Positive, not
      neutral: nothing to flag is the good outcome on this tab, and it should
@@ -5988,7 +5977,6 @@
 
     <div class="tab-panel" id="tab-punctuality" role="tabpanel" aria-labelledby="tabbtn-punctuality" tabindex="0">
       <h2 class="sr-only">Shortfall</h2>
-      <p class="punct-rule" id="punctRule"></p>
       <div class="stats-row punct-stats">
         <div class="stat-card">
           <p class="stat-label">Target Hours Met</p>
