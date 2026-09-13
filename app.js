@@ -4169,8 +4169,7 @@ var __authLinkError = (function(){
   function renderPunctuality(){
     var scope = punctEntries();
     document.getElementById("punctRule").textContent =
-      "Every scheduled day that finished short of its target hours, regardless of when you clocked in or out — " +
-      "arrive late or leave early and still make the hours up, and the day isn't flagged. Showing " + punctScopeLabel() + ".";
+      "Showing " + punctScopeLabel() + ".";
     var s = summarize(scope);
 
     document.getElementById("punctCount").textContent =
