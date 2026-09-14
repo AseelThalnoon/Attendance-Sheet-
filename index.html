@@ -103,7 +103,16 @@
      only reads the apple- prefixed one, and Chromium warns on it. -->
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- default, not black-translucent. black-translucent runs the app under the
+     status bar and iOS then draws the clock and battery in WHITE and keeps
+     them white whatever is behind: there is no CSS that gets dark icons on a
+     light ground under that style. So it forces a dark band, and on a phone
+     -- where the rail this app takes its near-black from does not exist --
+     that band reads as the app being cut off rather than as chrome. "black"
+     is no better; it paints an opaque black bar instead. "default" gives a
+     light strip with dark symbols and starts the app below it, which also
+     removes at the source the overlap the scrim below was built to hide. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Attendance">
 
 <style>
@@ -1618,7 +1627,12 @@
   .status-bar-scrim{
     position:fixed; top:0; left:0; right:0; z-index:300;
     height:env(safe-area-inset-top, 0px);
-    background:var(--ink-950);
+    /* --paper, not --ink-950. Under "default" the app no longer renders beneath
+       the status bar, so this strip should be zero-height -- but if a device
+       still reports a top inset it now continues the page rather than cutting a
+       black bar across it, and iOS's dark symbols stay legible on it. It keeps
+       occluding anything that does scroll up here; that was always the job. */
+    background:var(--paper);
     pointer-events:none;
   }
 
@@ -5592,15 +5606,16 @@
 </div>
 
 <!-- ============ MAIN APP (hidden until signed in) ============ -->
-<!-- Standalone on iOS draws the page UNDER the status bar: the
-     apple-mobile-web-app-status-bar-style above is black-translucent and the
-     viewport is viewport-fit=cover. The header reserves the inset, so nothing
-     collides at the top of the page -- but nothing stopped SCROLLED content
-     passing through that strip, and the Today bar slid under the clock and the
-     battery. This band occludes it. It also gives the status bar's glyphs, which
-     black-translucent always renders white, something they can be read against:
-     on the light canvas they were white on greige. Zero-height everywhere the
-     inset is zero, so it costs nothing on desktop or Android. -->
+<!-- This band dates from when the status bar style was black-translucent, which
+     draws the page UNDER the status bar: the header reserved the inset, but
+     nothing stopped SCROLLED content passing through the strip, and the Today
+     bar slid under the clock and the battery. The style is "default" now, so
+     iOS keeps the page out of that strip itself and the collision cannot happen
+     -- the band stays because it costs nothing (zero-height wherever the inset
+     is zero, which is everywhere off iOS) and still occludes anything that does
+     reach it on a device that reports a top inset anyway. It takes --paper, so
+     where it does have height it continues the page instead of cutting a dark
+     bar across the top of a light app. -->
 <div class="status-bar-scrim" aria-hidden="true"></div>
 <div id="appShell" style="display:none;">
 
