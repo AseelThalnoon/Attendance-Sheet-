@@ -272,7 +272,11 @@ const VIEWPORTS = [
       window.scrollTo(0, 400);
       await new Promise(r => setTimeout(r, 200));
     }, NOTCH);
-    const strip = await h.page.screenshot({ clip: { x: 0, y: 0, width: 393, height: NOTCH } });
+    // NOTCH - 2, not NOTCH: the clip's last row lands exactly on the band's own
+    // bottom edge and picks up sub-pixel bleed from whatever sits beneath it,
+    // which showed up as a handful of dark pixels in an otherwise flat strip.
+    // Sample strictly inside the band; the edge is not what is being tested.
+    const strip = await h.page.screenshot({ clip: { x: 0, y: 0, width: 393, height: NOTCH - 2 } });
     // Decode enough of the PNG to know it is one flat colour: re-encode via the
     // browser, which already has a decoder.
     const flat = await h.page.evaluate(async b64 => {
@@ -283,7 +287,11 @@ const VIEWPORTS = [
       c.width = img.width; c.height = img.height;
       c.getContext("2d").drawImage(img, 0, 0);
       const d = c.getContext("2d").getImageData(0, 0, img.width, img.height).data;
-      let min = 255, max = 0;
+      // 765, not 255: lum is a SUM of three channels, so it runs 0-765. Seeded
+      // at 255 the minimum never updates on a strip whose pixels are all
+      // brighter than that, and simply reports its own seed. That went unnoticed
+      // while the band was painted near-black and every lum was about 3.
+      let min = 765, max = 0;
       for(let i = 0; i < d.length; i += 4){
         const lum = d[i] + d[i+1] + d[i+2];
         if(lum < min) min = lum;
@@ -291,9 +299,17 @@ const VIEWPORTS = [
       }
       return { min, max };
     }, strip.toString("base64"));
-    ok(flat.max < 60,
+    // Flat, not dark. This asserted luminance < 60 while the band was painted
+    // --ink-950 for a black-translucent status bar, which forces white system
+    // symbols and so forces a dark strip. The app is "default" now: iOS draws
+    // dark symbols on a light strip and the band took the page's own colour, so
+    // a darkness threshold would only be testing the old palette choice. What
+    // the band is actually for survives the change unaltered -- nothing bleeds
+    // through it -- and a uniform strip is how you see that, at any colour,
+    // since scrolled text and edges show up as luminance variance.
+    ok(flat.max - flat.min < 30,
       "with a notch-sized inset, scrolled content is fully occluded by the band",
-      `the strip contains pixels up to luminance ${flat.max} -- content is showing through`);
+      `the strip varies in luminance by ${flat.max - flat.min} -- content is showing through`);
 
     await h.close();
   }

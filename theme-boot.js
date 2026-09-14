@@ -56,10 +56,13 @@
   // move with the palette or an installed app keeps a near-black bar over a
   // Terracotta interface. It is set from the computed token rather than a
   // second table of hexes, so it cannot fall out of step with the palette.
+  // --paper, not --rail: the rail is a desktop surface that does not exist on a
+  // phone, and tinting the chrome to it put a near-black strip above a light
+  // app. The page's own ground is what the strip actually adjoins.
   window.__applyThemeColor = function () {
     var meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) return;
-    var v = getComputedStyle(root).getPropertyValue("--rail").trim();
+    var v = getComputedStyle(root).getPropertyValue("--paper").trim();
     if (v) meta.setAttribute("content", v);
   };
 
