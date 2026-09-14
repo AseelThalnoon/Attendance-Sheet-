@@ -70,6 +70,27 @@ function ok(cond, label, detail){
     "the bottom nav specifically does -- it is the bar a thumb uses",
     "in landscape its first or last destination sits under the notch");
 
+  // ---- Dynamic Island / notch, over a dialog ----
+  // These two overlays are z-index 190 and 210; .status-bar-scrim paints the top
+  // inset opaque at 300. So a card tall enough to reach its own max-height had
+  // its title and close button covered by the scrim rather than merely crowded
+  // by the island -- and in landscape the island takes a side instead. A flat
+  // padding cannot see any of that.
+  for(const sel of [".entry-modal{", ".modal-overlay{"]){
+    const rule = html.slice(html.indexOf(sel), html.indexOf(sel) + 600);
+    const sides = ["top", "right", "bottom", "left"]
+      .filter(side => new RegExp("safe-area-inset-" + side).test(rule));
+    ok(sides.length === 4,
+      `${sel.slice(0, -1)} reserves the safe area on all four sides`,
+      `only reserves: ${sides.join(", ") || "none"}`);
+  }
+  // Padding alone just pushes an unchanged-height card past the bottom edge;
+  // the card's own ceiling has to come down by the same insets.
+  const cardRule = html.slice(html.indexOf(".entry-modal-card{"), html.indexOf(".entry-modal-card{") + 600);
+  ok(/max-height:[^;]*safe-area-inset-top[^;]*safe-area-inset-bottom/.test(cardRule),
+    "the entry card's max-height subtracts the top and bottom insets",
+    "it would be pushed down by the padding while keeping its full height");
+
   // ---- properties Safari still wants prefixed ----
   // WebKit either needs the -webkit- form or has only ever had it. An
   // unprefixed declaration on its own is not a degraded effect on Apple

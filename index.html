@@ -5227,17 +5227,28 @@
   /* ---------- Entry dialog ----------
      Below .modal-overlay's z-index on purpose: the "replace it?" and "is that
      shift right?" confirmations open on top of this form, not behind it. */
+  /* The insets, not a flat 20px. Both of these overlays sit at z-index 190/210,
+     under the .status-bar-scrim at 300 that paints the top inset opaque -- so on
+     a Dynamic Island phone a tall card's own header scrolled up under the island
+     and was covered by the scrim rather than merely overlapped. In landscape the
+     island takes a bite out of one side instead, which is the same problem the
+     toast stack already solves with left/right insets. */
   .entry-modal{
     position:fixed; inset:0; z-index:190;
     background:rgba(17,17,16,.42);
     -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
-    display:flex; align-items:center; justify-content:center; padding:20px;
+    display:flex; align-items:center; justify-content:center;
+    padding:calc(20px + env(safe-area-inset-top, 0px))
+            calc(20px + env(safe-area-inset-right, 0px))
+            calc(20px + env(safe-area-inset-bottom, 0px))
+            calc(20px + env(safe-area-inset-left, 0px));
     opacity:0; transition:opacity var(--dur-base) var(--ease-soft);
   }
   .entry-modal[hidden]{display:none;}
   .entry-modal.show{opacity:1;}
   .entry-modal-card{
-    position:relative; width:100%; max-width:560px; max-height:calc(100dvh - 40px);
+    position:relative; width:100%; max-width:560px;
+    max-height:calc(100dvh - 40px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
     overflow-y:auto; overscroll-behavior:contain;
     scrollbar-width:thin; scrollbar-color:var(--line) transparent;
     background:var(--card); border-radius:var(--radius);
@@ -5260,7 +5271,11 @@
   .modal-overlay{
     position:fixed; inset:0; z-index:210;
     background:rgba(6,25,23,.45); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
-    display:flex; align-items:center; justify-content:center; padding:20px;
+    display:flex; align-items:center; justify-content:center;
+    padding:calc(20px + env(safe-area-inset-top, 0px))
+            calc(20px + env(safe-area-inset-right, 0px))
+            calc(20px + env(safe-area-inset-bottom, 0px))
+            calc(20px + env(safe-area-inset-left, 0px));
     opacity:0; transition:opacity var(--dur-base) var(--ease-soft);
   }
   .modal-overlay.show{opacity:1;}
