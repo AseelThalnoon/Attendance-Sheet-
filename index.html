@@ -1645,8 +1645,16 @@
   .rail-notif-badge{margin-left:auto;}
   #railNotifBtn{position:relative;}
 
+  /* z-index:160, not the rail's 120: the bottom nav is 150, and below 760px
+     it is fixed to the bottom of the same screen this panel becomes a sheet
+     on. At 120 the nav rendered on top of the panel's own bottom edge --
+     visible over the last row, and still clickable under a dialog that is
+     supposed to be exclusive, since aria-hidden only removes it from the
+     accessibility tree, not from hit-testing. Still below the entry modal
+     (190): "Edit Manually" on the still-open reminder inside this panel
+     opens that modal on top of it, by design. */
   .notif-overlay{
-    position:fixed; inset:0; z-index:120;
+    position:fixed; inset:0; z-index:160;
     background:rgba(17,17,16,.44);
     display:flex; align-items:flex-start; justify-content:center;
     padding:56px 16px 16px;
@@ -1692,12 +1700,19 @@
   .notif-body::-webkit-scrollbar{width:8px;}
   .notif-body::-webkit-scrollbar-track{background:transparent;}
   .notif-body::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
-  /* Inside the panel the notices are list rows, not page-width banners: no
-     card of their own, separated by a hairline. */
+  /* One row template for the whole panel. A system condition (an open shift,
+     a failed load) used to render as a full-bleed tinted banner up top, and a
+     message an admin actually sent rendered as a plain dotted row below, with
+     nothing on screen explaining the handoff between the two -- it read as
+     two features stapled together. Every row is the same shape now (a
+     coloured icon chip, then title/text/meta) and the chip is the only thing
+     that changes: info/warn/negative reads as "routine" / "needs something
+     from you" / "broken" whether the row came from the client or an admin. */
+  .notif-body .notice-stack{display:flex; flex-direction:column;}
   .notif-body .notice-stack > .reminder{
-    margin:0; border-radius:0; box-shadow:none; border:none;
+    margin:0; border-radius:0; box-shadow:none; border:none; background:none;
     border-bottom:1px solid var(--line-soft);
-    padding:var(--space-3) 0;
+    padding:var(--space-3) 0; gap:var(--space-3);
   }
   .notif-body .notice-stack > .reminder.show{display:flex;}
   /* Undo the frame's inline strip. Above 761px a notice lays its title, its
@@ -1709,8 +1724,19 @@
      vertical and it scrolls, so the notice stacks the way it was designed to
      before the frame ever asked it not to. */
   .notif-body .notice-stack > .reminder .reminder-body{display:block;}
-  .notif-body .notice-stack > .reminder .reminder-title{margin:0 0 2px;}
-  .notif-body .notice-stack > .reminder .reminder-text{margin:0;}
+  .notif-body .notice-stack > .reminder .reminder-title{
+    margin:0 0 2px; font-size:13.5px; font-weight:500; color:var(--ink);
+  }
+  /* display/-webkit-line-clamp/overflow are reset explicitly, not left to
+     cascade: the phone-width .reminder-text rule below clamps a page banner
+     to two lines to buy back screen space, and a class selector doesn't know
+     this element moved into a panel that scrolls -- without this reset that
+     clamp (and its trailing ellipsis) would silently still apply here below
+     760px, on the device PRODUCT.md calls primary. */
+  .notif-body .notice-stack > .reminder .reminder-text{
+    display:block; -webkit-line-clamp:unset; overflow:visible;
+    margin:0; font-size:12.5px; color:var(--muted); line-height:1.5;
+  }
   .notif-body .notice-stack > .reminder .reminder-actions{
     margin:var(--space-2) 0 0; gap:var(--space-2); flex-wrap:wrap;
   }
@@ -1722,33 +1748,72 @@
   .notif-body .notice-stack > .reminder .reminder-actions .btn{
     min-height:44px; padding:var(--space-2) var(--space-3);
   }
-  .notif-body .notice-stack > .reminder svg{width:16px; height:16px; margin-top:2px;}
+  /* The icon itself now lives inside .notif-icon-chip; nothing here sizes it
+     directly any more. Color is reset to inherit explicitly, not left to the
+     cascade: the base ".reminder svg{color:var(--warn)}" rule (declared once,
+     for the page-level banner this class used to be) is a direct match on
+     this exact svg, and a direct match always wins over an inherited value
+     no matter how specific the ancestor's rule is -- without this every icon
+     would render warn-amber regardless of which chip it sits inside. */
+  .notif-body .notice-stack > .reminder svg{width:16px; height:16px;}
+  .notif-body .notice-stack > .reminder .notif-icon-chip svg{color:inherit; margin-top:0;}
+
+  /* Priority order, independent of where each div happens to sit in the
+     markup: a broken load outranks a routine backup nudge regardless of
+     source order. Same three tiers the chip colours below carry. */
+  #loadFailBanner{order:1;}
+  #outboxBanner{order:2;}
+  #reminderBanner{order:3;}
+  #backupBanner{order:4;}
+  #announcementBanner{order:5;}
+
+  /* The one colour scale shared by every row in the panel, client condition
+     or admin message alike. info: nothing to do. warn: needs an action.
+     negative: something's broken. */
+  .notif-icon-chip{
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    width:32px; height:32px; border-radius:50%; margin-top:1px;
+  }
+  .notif-icon-chip svg{width:16px; height:16px;}
+  .notif-icon-chip--info{background:var(--ink-50); color:var(--ink-600);}
+  .notif-icon-chip--warn{background:var(--warn-bg); color:var(--warn);}
+  .notif-icon-chip--negative{background:var(--negative-bg); color:var(--negative);}
+  /* An unread message rings its chip. A system condition has no read state
+     of its own -- it is true or it isn't -- so it never carries this ring;
+     the ring means exactly one thing everywhere it shows up. */
+  .notif-icon-chip.is-unread{
+    box-shadow:0 0 0 2px var(--card), 0 0 0 3.5px var(--gold-deep);
+  }
 
   .notif-item{
     display:flex; gap:var(--space-3); align-items:flex-start;
     padding:var(--space-3) 0; border-bottom:1px solid var(--line-soft);
   }
   .notif-item:last-child{border-bottom:none;}
-  /* Unread is carried by a dot AND by the title's weight -- a single accent
-     dot is the only thing marking these apart, and DESIGN.md holds a mark
-     that is the sole carrier of a fact to the same floor as the sentence it
-     replaced. */
-  .notif-dot{
-    width:7px; height:7px; border-radius:50%; flex-shrink:0; margin-top:6px;
-    background:var(--gold-deep);
-  }
-  .notif-dot.is-read{background:transparent;}
   .notif-item-body{min-width:0; flex:1 1 auto;}
   .notif-item-title{margin:0 0 2px; font-size:13.5px; font-weight:500; color:var(--ink);}
   .notif-item.is-read .notif-item-title{font-weight:400; color:var(--muted-2);}
   .notif-item-text{margin:0; font-size:12.5px; color:var(--muted); line-height:1.5;}
   .notif-item-meta{margin:4px 0 0; font-size:11px; color:var(--muted-2);}
   .notif-item-actions{display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;}
+  /* The panel's own empty state used to be bare centred text -- the one
+     screen in the app most likely to render empty, since it's opened often
+     and often has nothing in it, was the one place that didn't bother. Same
+     dashed-circle language as the overview's first-run card, and the same
+     "positive, not neutral" colour the punctuality tab already uses for
+     "nothing to flag" -- an empty notification list is good news, not a
+     placeholder for content that failed to show up. */
   .notif-empty{
-    margin:0; padding:var(--space-6) 0; text-align:center;
-    font-size:13px; color:var(--muted);
+    display:flex; flex-direction:column; align-items:center; gap:var(--space-2);
+    margin:0; padding:var(--space-7) 0; text-align:center;
   }
   .notif-empty[hidden]{display:none;}
+  .notif-empty-text{margin:0; font-size:13px; color:var(--muted);}
+  /* The messages-failed-to-load state is a row like any other -- a broken
+     fetch reads on the same negative chip as a broken record load above it,
+     instead of falling back to plain unstyled text. */
+  .notif-list-error{display:flex; gap:var(--space-3); align-items:flex-start; padding:var(--space-3) 0;}
+  .notif-list-error .notif-item-text{margin:0;}
   /* .btn is display:inline-flex, which outranks [hidden]{display:none} -- the
      same trap .qc-btn[hidden] exists for. Without this, "Mark all read" shows
      permanently, including when there is nothing unread to mark. */
@@ -3019,32 +3084,26 @@
   .muted-inline{color:var(--muted); font-weight:400; font-size:11px;}
   .spark-holder{display:inline-block; line-height:0;}
 
-  .backup-reminder svg{color:var(--ink-600);}
-  .backup-reminder .reminder-title{color:var(--ink-600);}
-
-  /* The record failed to load. The only notice in the stack that reports a
-     broken state rather than an outstanding task, so it is the only one in
-     --negative; the rest stay in --warn. */
-  .load-fail-reminder{background:var(--negative-bg); border-color:var(--negative);}
-  .load-fail-reminder svg{color:var(--negative);}
-  .load-fail-reminder .reminder-title{color:var(--negative);}
-
-  /* A failed load is not a nudge, so it does not wear the warn palette the
-     other notices share. --negative/--negative-bg carry the generator's
-     contrast guarantee in all twelve compositions (see DESIGN.md, Status). */
-  .load-fail-reminder{background:var(--negative-bg); border-color:var(--negative);}
-  .load-fail-reminder svg{color:var(--negative);}
-  .load-fail-reminder .reminder-title{color:var(--negative);}
+  /* Severity used to live here too (background/border-color per class, on
+     top of the warn palette every other notice shared) -- it now lives only
+     on the .notif-icon-chip each of these wears in the notification panel,
+     the one place any of them render. Nothing left to set at this selector. */
 
   /* Both notice titles that carry a person's name — this one and the viewing
      banner — interpolate profiles.full_name, which has no length limit at the
      database or in the form that writes it. Two lines, then an ellipsis: at
      172 characters the untrimmed version took the notice from one row to nine
-     and pushed the chrome past the 155px ceiling one-screen.js holds. */
+     and pushed the chrome past the 155px ceiling one-screen.js holds.
+     white-space:normal is declared explicitly, not left to the cascade: the
+     base .reminder-title rule sets white-space:nowrap for its own one-line
+     ellipsis, this selector never touched that property, and a name long
+     enough to need two lines was rendering as one line hard-truncated at the
+     first word instead -- the -webkit-line-clamp below never got a chance to
+     wrap, because nowrap forecloses wrapping before line-clamp ever sees it. */
   .load-fail-reminder .reminder-title,
   .viewing-other-banner .reminder-title{
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
-    overflow:hidden; overflow-wrap:anywhere;
+    white-space:normal; overflow:hidden; overflow-wrap:anywhere;
   }
 
   .punct-stats{margin-bottom:24px;}
@@ -4118,8 +4177,8 @@
   .rail-logout-btn:hover{background:rgba(240,185,201,.14); color:var(--negative-on-dark);}
   @media (min-width:1100px){ .rail-logout-btn{width:30px; height:30px;} }
   .viewing-other-banner{border-left-color:var(--gold); background:var(--excused-bg);}
-  .announcement-banner{border-left-color:var(--ink-600); background:var(--ink-50);}
-  .announcement-banner svg{color:var(--ink-600);}
+  /* announcement-banner's own colour lived here; it now carries only its
+     .notif-icon-chip in the notification panel, the one place it renders. */
 
   /* ---------- Admin panel ---------- */
   /* A narrower floor than the general .stats-row: these four sit in a console
@@ -5512,14 +5571,14 @@
       <div class="notif-body" id="notifBody">
   <div class="notice-stack" id="noticeStack">
   <div class="reminder announcement-banner" id="announcementBanner">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+    <span class="notif-icon-chip notif-icon-chip--info" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg></span>
     <div class="reminder-body">
       <p class="reminder-text" id="announcementText" dir="auto"></p>
     </div>
   </div>
 
   <div class="reminder" id="reminderBanner">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 2"/></svg>
+    <span class="notif-icon-chip notif-icon-chip--warn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 2"/></svg></span>
     <div class="reminder-body">
       <p class="reminder-title" id="reminderTitle"></p>
       <p class="reminder-text" id="reminderText"></p>
@@ -5529,7 +5588,7 @@
   </div>
 
   <div class="reminder backup-reminder" id="backupBanner">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+    <span class="notif-icon-chip notif-icon-chip--info" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></span>
     <div class="reminder-body">
       <p class="reminder-title" id="backupTitle"></p>
       <p class="reminder-text" id="backupText"></p>
@@ -5545,7 +5604,7 @@
        gets said, so the punch itself never has to look like it failed.
        Rendered by renderOutbox() in app.js. -->
   <div class="reminder outbox-reminder" id="outboxBanner">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-9M8.5 14.5 12 11l3.5 3.5"/><path d="M20 16.6A5 5 0 0 0 17 8h-1.3A8 8 0 1 0 4 15.9"/></svg>
+    <span class="notif-icon-chip notif-icon-chip--warn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-9M8.5 14.5 12 11l3.5 3.5"/><path d="M20 16.6A5 5 0 0 0 17 8h-1.3A8 8 0 1 0 4 15.9"/></svg></span>
     <div class="reminder-body">
       <p class="reminder-title" id="outboxTitle"></p>
       <p class="reminder-text" id="outboxText"></p>
@@ -5561,7 +5620,7 @@
        and leaves a screen reading "No attendance logged yet" to someone with
        four hundred days of it. Rendered by renderLoadFailure() in app.js. -->
   <div class="reminder load-fail-reminder" id="loadFailBanner">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4M12 17.2h.01"/></svg>
+    <span class="notif-icon-chip notif-icon-chip--negative" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4M12 17.2h.01"/></svg></span>
     <div class="reminder-body">
       <p class="reminder-title" id="loadFailTitle"></p>
       <p class="reminder-text" id="loadFailText"></p>
@@ -5579,7 +5638,13 @@
              carries target_user_ids and a recipient has no business reading
              who else was on it. -->
         <div class="notif-list" id="notifList"></div>
-        <p class="notif-empty" id="notifEmpty" hidden>Nothing needs you right now.</p>
+        <div class="notif-empty" id="notifEmpty" hidden>
+          <svg width="40" height="40" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+            <circle cx="24" cy="24" r="18" stroke="var(--line)" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>
+            <path d="M16 24.5l5.5 5.5L33 18" stroke="var(--positive)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <p class="notif-empty-text">Nothing needs you right now.</p>
+        </div>
       </div><!-- /.notif-body -->
     </div>
   </div>

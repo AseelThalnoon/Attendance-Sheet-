@@ -6630,27 +6630,46 @@ var __authLinkError = (function(){
     syncNotificationBell();
   }
 
+  // Same envelope/clock glyphs and info/warn chip scale the system notices
+  // above them wear, so a message renders on the same three-tier taxonomy
+  // rather than looking like an unrelated feature bolted underneath.
+  var NOTIF_MAIL_ICON = '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M4 7l8 6 8-6"/>';
+  var NOTIF_CLOCK_ICON = '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 2"/>';
+
   function renderPushNotifications(){
     var list = document.getElementById("notifList");
     if(!list) return;
     if(pushNotifsError){
-      list.innerHTML = '<p class="notif-empty">Couldn\'t load your messages. ' +
-        escapeHtml(friendlyError(pushNotifsError)) + '</p>';
+      list.innerHTML = '<div class="notif-list-error">' +
+        '<span class="notif-icon-chip notif-icon-chip--negative" aria-hidden="true">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4M12 17.2h.01"/></svg>' +
+        '</span>' +
+        '<p class="notif-item-text">Couldn\'t load your messages. ' +
+          escapeHtml(friendlyError(pushNotifsError)) + '</p>' +
+      '</div>';
       return;
     }
     list.innerHTML = pushNotifs.map(function(n){
       // Only 'clock_out' carries an in-app action today. An unrecognised
       // action renders as a plain message rather than a dead button --
       // send-push can grow a new one before this client knows about it.
+      var isClockOut = n.action === "clock_out" && n.action_payload && n.action_payload.date;
       var act = "";
-      if(n.action === "clock_out" && n.action_payload && n.action_payload.date){
+      if(isClockOut){
         act = '<div class="notif-item-actions">' +
           '<button type="button" class="btn small" data-notif-clockout="' +
             escapeAttr(n.action_payload.date) + '">Clock Out</button>' +
         '</div>';
       }
+      // A message that still needs something from you (close this shift)
+      // reads warn, same as an open shift or an unsent punch above it; a
+      // plain FYI reads info, same as the announcement banner.
+      var chipClass = isClockOut ? "notif-icon-chip--warn" : "notif-icon-chip--info";
+      var icon = isClockOut ? NOTIF_CLOCK_ICON : NOTIF_MAIL_ICON;
       return '<div class="notif-item' + (n.read ? ' is-read' : '') + '" data-notif-id="' + escapeAttr(n.id) + '">' +
-        '<span class="notif-dot' + (n.read ? ' is-read' : '') + '" aria-hidden="true"></span>' +
+        '<span class="notif-icon-chip ' + chipClass + (n.read ? '' : ' is-unread') + '" aria-hidden="true">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + icon + '</svg>' +
+        '</span>' +
         '<div class="notif-item-body">' +
           '<p class="notif-item-title" dir="auto">' + escapeHtml(n.title) + '</p>' +
           '<p class="notif-item-text" dir="auto">' + escapeHtml(n.body) + '</p>' +
