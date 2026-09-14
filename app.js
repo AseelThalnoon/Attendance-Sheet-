@@ -3926,6 +3926,24 @@ var __authLinkError = (function(){
     return "under";
   }
 
+  // A compact hours form for the phone grid, where "8h 24m" has no chance in a
+  // 41px cell: one decimal still separates 8.4h from 6.2h at a glance. Both
+  // forms are rendered and CSS picks one, rather than the format depending on
+  // a width JS measured once — a calendar that was correct until the window
+  // was resized is the same defect as one that was never correct.
+  function hoursCompact(mins){
+    if(mins === null || mins === undefined || isNaN(mins)) return "";
+    return (Math.round(mins / 6) / 10) + "h";
+  }
+  // "8:03 AM" does not fit that cell either, and on an hours grid the meridiem
+  // is the part a reader can infer.
+  function timeNoMeridiem(t){ return formatTime12(t).replace(/\s*[AP]M$/i, ""); }
+  // "Sick Leave" truncated to "Sick L..." in a 41px cell. Only the four
+  // EXCUSED_TYPES ever reach the calendar's type branch, so only they need a
+  // short form; the full label still shows everywhere there is room for it.
+  var CAL_TYPE_SHORT = { leave:"Leave", sick:"Sick", holiday:"Holiday", other:"Excused" };
+  function calTypeShort(t){ return CAL_TYPE_SHORT[t] || typeLabel(t); }
+
   function renderCalendar(){
     var y = calendarViewDate.getFullYear(), m = calendarViewDate.getMonth();
     document.getElementById("calMonthLabel").textContent =
@@ -3935,35 +3953,158 @@ var __authLinkError = (function(){
     var startDow = firstOfMonth.getDay();
     var daysInMonth = new Date(y, m+1, 0).getDate();
 
-    var html = DAY_NAMES.map(function(d){ return '<div class="cal-dow">'+d+'</div>'; }).join("");
-    for(var i=0;i<startDow;i++) html += '<div class="cal-cell cal-empty"></div>';
+    // The week's own shape, from settings.workDays rather than from an
+    // assumption about which columns the weekend lands in. A non-working column
+    // is narrower and washed cream; the boundary rule goes on the first
+    // non-working column that follows a working one. Sun-Thu is only this
+    // account's default -- a Mon-Fri account gets the narrow columns at both
+    // ends, and someone who works all seven gets an even grid and no wash,
+    // which is correct rather than a special case.
+    var offCol = [], anyOff = false;
+    for(var dw=0; dw<7; dw++){
+      offCol[dw] = settings.workDays.indexOf(dw) === -1;
+      if(offCol[dw]) anyOff = true;
+    }
+    // Only the first column of a run gets the rule: a two-day weekend is one
+    // boundary, not two.
+    function isWeekBoundary(dw){ return anyOff && offCol[dw] && !offCol[(dw+6)%7]; }
+    var grid = document.getElementById("calendarGrid");
+    grid.style.gridTemplateColumns = offCol.map(function(off){
+      return off ? "minmax(0,.62fr)" : "minmax(0,1fr)";
+    }).join(" ");
+
+    var html = DAY_NAMES.map(function(d, dw){
+      return '<div class="cal-dow' + (offCol[dw] ? ' cal-dow-off' : '') +
+        (isWeekBoundary(dw) ? ' cal-dow-weekstart' : '') + '">'+d+'</div>';
+    }).join("");
+    for(var i=0;i<startDow;i++){
+      html += '<div class="cal-cell cal-empty' + (offCol[i] ? ' cal-weekend' : '') +
+        (isWeekBoundary(i) ? ' cal-weekstart' : '') + '"></div>';
+    }
+
+    // Month totals, over the days that actually carry an entry -- the Shortfall
+    // tab owns the harder question of what unlogged working days cost. This
+    // line answers "how did the month I am looking at go", which is otherwise
+    // not on this screen at all.
+    var sumWorked = 0, sumTarget = 0, daysLogged = 0;
 
     for(var day=1; day<=daysInMonth; day++){
       var dStr = y+"-"+pad2(m+1)+"-"+pad2(day);
       var status = calendarDayStatus(dStr);
       var isToday = dStr === todayStr();
       var entry = entries.find(function(e){ return e.date === dStr; });
+      var c = entry ? computeEntry(entry) : null;
+      var worked = c && c.workedMin !== null ? c.workedMin : null;
+      if(worked !== null){ sumWorked += worked; daysLogged++; if(c.targetMin) sumTarget += c.targetMin; }
+
       var title = entry ? (typeLabel(entry.type) + (entry.clockIn ? " · " + formatTime12(entry.clockIn) : "")) : "No entry";
+      // The hours are on the cell now, so they belong in the label the screen
+      // reader gets too -- otherwise the one view that finally states the
+      // number states it to everyone except the reader who cannot see it.
+      if(worked !== null) title += " · " + minutesToHoursStr(worked);
       // Status was previously carried by background colour and a coloured dot
       // alone — indistinguishable for colour-blind users and invisible to a
       // screen reader, whose only cue was the bare day number.
       var statusWord = CAL_STATUS_LABELS[status] || status;
       var calLabel = fmtDateLong(dStr) + ", " + statusWord +
         (entry ? ", " + title : "") + (isToday ? ", today" : "");
+
+      // What the cell says out loud. A worked day states its hours; an open one
+      // states when it started (a running total would be wrong the moment it
+      // was painted, and this grid has no clock driving it); an excused one
+      // names the reason. Everything else stays empty on purpose.
+      var value = "";
+      if(status === "met" || status === "under"){
+        value = '<span class="cal-val" aria-hidden="true">' +
+            '<b class="cal-val-full">'+escapeHtml(minutesToHoursStr(worked))+'</b>' +
+            '<b class="cal-val-short">'+escapeHtml(hoursCompact(worked))+'</b>' +
+          '</span>';
+      } else if(status === "open" && entry.clockIn){
+        value = '<span class="cal-val is-time" aria-hidden="true">' +
+            '<b class="cal-val-full">'+escapeHtml(formatTime12(entry.clockIn))+'</b>' +
+            '<b class="cal-val-short">'+escapeHtml(timeNoMeridiem(entry.clockIn))+'</b>' +
+          '</span>';
+      } else if(status === "excused" && entry){
+        value = '<span class="cal-val is-type" aria-hidden="true">' +
+            '<b class="cal-val-full">'+escapeHtml(typeLabel(entry.type))+'</b>' +
+            '<b class="cal-val-short">'+escapeHtml(calTypeShort(entry.type))+'</b>' +
+          '</span>';
+      }
+
+      // The shortfall, said rather than drawn. This replaces the tint and the
+      // target bar together: a bar could show that a day was short but never by
+      // how much, and both channels were colour. "1h 45m short" is the fact
+      // itself, and it survives a reader who cannot tell the two bars apart.
+      // minutesOnlyStr, not minutesToHoursStr -- this app already decided that
+      // "0h 31m" reads like a typo.
+      var short = "";
+      if(status === "under" && c.targetMin > 0 && worked !== null){
+        var behind = minutesOnlyStr(c.targetMin - worked);
+        // "1h 45m short" wraps to two lines in a 52px cell and takes the row
+        // with it; the phone gets the same signed shorthand the hours use.
+        short = '<span class="cal-short" aria-hidden="true">' +
+            '<b class="cal-val-full">'+escapeHtml(behind)+' short</b>' +
+            '<b class="cal-val-short">−'+escapeHtml(behind.replace(/\s/g, ""))+'</b>' +
+          '</span>';
+      } else if(status === "missing"){
+        short = '<span class="cal-short" aria-hidden="true">Not logged</span>';
+      }
+
+      var dow = (startDow + day - 1) % 7;
       // Row-by-row reveal on month navigation; capped so a 5-6 week month
       // doesn't drag the animation out past a quick, routine transition.
       var gridIndex = startDow + day - 1;
       var cellDelay = Math.min(gridIndex, 20) * 12;
       html +=
-        '<button type="button" class="cal-cell cal-'+status+(isToday?' cal-today':'')+'" data-date="'+dStr+'" ' +
+        '<button type="button" class="cal-cell cal-'+status+(isToday?' cal-today':'') +
+          (offCol[dow] ? ' cal-weekend' : '') + (isWeekBoundary(dow) ? ' cal-weekstart' : '') +
+          '" data-date="'+dStr+'" ' +
           'title="'+escapeAttr(title)+'" aria-label="'+escapeAttr(calLabel)+'"' +
           (isToday ? ' aria-current="date"' : '') +
           ' style="animation-delay:'+cellDelay+'ms">' +
           '<span class="cal-daynum" aria-hidden="true">'+day+'</span>' +
-          '<span class="cal-dot" aria-hidden="true"></span>' +
+          value + short +
         '</button>';
     }
+    // Fill the last row out. The hairline is per cell, so without these the
+    // final rule stops under the last date instead of closing the month.
+    var filled = startDow + daysInMonth;
+    while(filled % 7){
+      html += '<div class="cal-cell cal-empty' + (offCol[filled % 7] ? ' cal-weekend' : '') +
+        (isWeekBoundary(filled % 7) ? ' cal-weekstart' : '') + '"></div>';
+      filled++;
+    }
     document.getElementById("calendarGrid").innerHTML = html;
+    renderCalendarSummary(daysLogged, sumWorked, sumWorked - sumTarget);
+  }
+
+  function renderCalendarSummary(days, workedMin, diffMin){
+    var host = document.getElementById("calSummary");
+    if(!host) return;
+    if(!days){
+      host.innerHTML = '<span class="cal-sum-empty">Nothing logged this month yet.</span>';
+      return;
+    }
+    var diff = diffMin === 0
+      ? '<span><b>On target</b></span>'
+      : '<span class="'+(diffMin > 0 ? "is-over" : "is-under")+'">' +
+          '<b>'+escapeHtml(minutesToHoursStr(Math.abs(diffMin)))+'</b> ' +
+          (diffMin > 0 ? "over target" : "under target") +
+        '</span>';
+    host.innerHTML =
+      '<span><b>'+days+'</b> '+(days === 1 ? "day" : "days")+' logged</span>' +
+      '<span><b>'+escapeHtml(minutesToHoursStr(workedMin))+'</b> worked</span>' +
+      diff;
+  }
+
+  // "10:00 AM" is 52px of an axis column that is 44px wide on a phone, and the
+  // timeline's own overflow:auto cropped the difference off the left -- so the
+  // label read "0:00 AM", and 12:00 PM read "2:00 PM", which is not a broken
+  // time but a different real one. On a fixed hourly scale the ":00" is the
+  // part carrying no information, so it goes and the label fits.
+  function hourTickLabel(h){
+    var hh = ((h % 24) + 24) % 24;
+    return (hh % 12 === 0 ? 12 : hh % 12) + " " + (hh < 12 ? "AM" : "PM");
   }
 
   // ---------- Week timeline ----------
@@ -4020,7 +4161,7 @@ var __authLinkError = (function(){
     var tickStep = (WL_END_HOUR - WL_START_HOUR) > 18 ? 3 : 2;
     for(var h=WL_START_HOUR; h<=WL_END_HOUR; h+=tickStep){
       var pct = ((h - WL_START_HOUR) * 60 / span) * 100;
-      axis += '<span style="top:'+pct.toFixed(2)+'%">'+formatTime12(pad2(h)+":00")+'</span>';
+      axis += '<span style="top:'+pct.toFixed(2)+'%">'+hourTickLabel(h)+'</span>';
     }
     html += axis + '</div>';
 
@@ -4071,7 +4212,15 @@ var __authLinkError = (function(){
     var grid = document.getElementById("calendarGrid");
     var week = document.getElementById("weekLine");
     var label = document.getElementById("calMonthLabel");
-    if(calMode === "week"){
+    // Only the week timeline has a legend now -- it is the one view that still
+    // carries status as a ring on an ink bar, a hatch and a leave chip. The
+    // month grid states everything it knows in words and needs none.
+    var isWeek = calMode === "week";
+    var legendWeek = document.getElementById("calLegendWeek");
+    var summary = document.getElementById("calSummary");
+    if(legendWeek) legendWeek.hidden = !isWeek;
+    if(summary) summary.hidden = isWeek;
+    if(isWeek){
       grid.hidden = true; grid.style.display = "none";
       week.hidden = false;
       renderWeekLine();

@@ -3215,14 +3215,31 @@
   .skeleton-row{display:flex; gap:14px; align-items:center;}
 
   /* ---------- Calendar grid ---------- */
+  /* Two groups with the gap between them, rather than five controls and a void
+     in the middle: stepping through time on the left, choosing what you are
+     looking at on the right. space-between rather than a margin-left:auto on
+     one child, so that when the row wraps on a phone both halves stay whole
+     instead of the toggle stranding itself mid-row. */
   .calendar-nav{
-    display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;
+    display:flex; align-items:center; flex-wrap:wrap;
+    justify-content:space-between; gap:10px; margin-bottom:14px;
   }
+  .cal-nav-step, .cal-nav-view{display:flex; align-items:center; gap:var(--space-2);}
+  .cal-nav-step{gap:var(--space-1);}
   /* 44px on a phone, like every other control below 1100px — these are the
      month arrows and Today, which is the most-tapped cluster on this tab. The
      pointer block below takes them back to 30px. */
   .calendar-nav .btn.ghost.small{padding:8px 10px; min-height:44px; flex-shrink:0;}
   .calendar-month-label{font-size:16px; color:var(--ink); min-width:140px; text-align:center;}
+  @media (max-width:560px){
+    /* One line each, both full width: at this size the two groups cannot share
+       a row, and a half-width group left-aligned under a full-width one is the
+       ragged edge this replaces. */
+    .calendar-nav{flex-wrap:wrap;}
+    .cal-nav-step{flex:1 1 100%; justify-content:space-between;}
+    .cal-nav-view{flex:1 1 100%; justify-content:space-between;}
+    .calendar-month-label{min-width:0; flex:1 1 auto;}
+  }
 
   /* ---------- Week timeline ----------
      A time axis down the left, one column per day, and each entry drawn as an
@@ -3249,7 +3266,16 @@
     grid-column:1; position:relative; font-size:11px; color:var(--muted);
     font-variant-numeric:tabular-nums;
   }
-  .wl-axis span{position:absolute; right:10px; transform:translateY(-50%); white-space:nowrap;}
+  /* left:0 as well as right, so the label is BOUNDED by its own column. With
+     right alone the box was shrink-to-fit and free to run off the left edge,
+     where .weekline's overflow:auto silently cropped it — "10 AM" lost its 1
+     and became "0 AM", and 12 PM became 2 PM, which is not a broken label but
+     a different real time. Bounded, an over-long label ellipses instead, which
+     at least looks wrong when it is wrong. */
+  .wl-axis span{
+    position:absolute; left:0; right:8px; transform:translateY(-50%);
+    text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
   .wl-col{
     position:relative; border-left:1px dashed var(--line);
     min-height:220px; min-width:44px;
@@ -3288,84 +3314,160 @@
   }
   @media (max-width:760px){
     .weekline{grid-template-columns:44px repeat(7, minmax(40px,1fr)); padding:10px 8px 8px;}
+    /* 10px, so "10 AM" clears the 36px this column leaves with room to spare
+       rather than by a pixel or two. */
+    .wl-axis{font-size:10px;}
     .wl-bar{font-size:0; padding:0;} /* keep the span visible, drop the label */
   }
 
-  /* No border: the grid sits inside #tabContentCard, and its own wash against
-     the card already separates it. The edge was the card-in-card line DESIGN.md
-     rules out. */
+  /* The month is a grid of days, not thirty cards. No wash behind it, no gap
+     between cells, no tile of its own for each day: the cells sit straight on
+     #tabContentCard and a hairline per row is the whole structure. What used to
+     be carried by five background tints is carried by the hours themselves.
+
+     grid-template-columns is set inline by renderCalendar, not here: the width
+     of each column depends on whether that weekday is a WORKING day, and
+     settings.workDays is configurable. Sun–Thu is only this account's default,
+     so a rule hard-coding "the last two are the weekend" would be wrong for
+     anyone who works Mon–Fri. The fallback below is the even split. */
   .calendar-grid{
-    display:grid; grid-template-columns:repeat(7, 1fr); gap:6px;
-    border-radius:var(--radius-md); padding:var(--space-2);
-    background:var(--ink-50);
+    display:grid; grid-template-columns:repeat(7, 1fr); gap:0;
   }
   .cal-dow{
-    text-align:center; font-size:11px; text-transform:uppercase; letter-spacing:.06em;
-    color:var(--muted); padding-bottom:4px;
+    font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:.09em;
+    color:var(--muted-2); padding:0 var(--space-2-5) 7px;
   }
+  /* A non-working weekday's label steps back the same way its column does. */
+  .cal-dow.cal-dow-off{font-weight:400; color:var(--muted);}
   .cal-cell{
-    aspect-ratio:1; border-radius:var(--radius-sm); border:1px solid transparent;
-    background:var(--card); cursor:pointer; padding:4px 2px;
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
-    font-family:inherit; transition:transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-fast) var(--ease-snap);
+    position:relative;
+    border:none; border-top:1px solid var(--line-soft); border-radius:0;
+    min-height:84px; background:none; cursor:pointer; padding:9px 10px 13px;
+    display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:4px;
+    font-family:inherit; text-align:left;
+    transition:background-color var(--dur-fast) var(--ease-snap);
   }
-  .cal-cell.cal-empty{visibility:hidden; cursor:default; pointer-events:none;}
+  /* Not visibility:hidden any more. A blank leading or trailing cell has no
+     card to hide now, and it still owes the grid two things: its share of the
+     row's hairline, so the rule runs the full width instead of stopping after
+     the last date, and its column's cream if it falls in the weekend, so the
+     band is continuous from the top of the month to the bottom. */
+  .cal-cell.cal-empty{cursor:default; pointer-events:none;}
   /* Row-by-row reveal on month navigation (delay staggered in JS); the grid
      is rebuilt from scratch on every nav click, so this retriggers cleanly.
      Empty leading cells are invisible filler and skip the entrance. */
   .cal-cell:not(.cal-empty){animation:calCellIn .3s var(--ease-soft) backwards;}
   @keyframes calCellIn{from{opacity:0; transform:scale(.9);} to{opacity:1; transform:scale(1);}}
-  .cal-daynum{font-family:var(--font-num); font-size:12.5px; font-weight:500; color:var(--ink);}
-  /* The dot is a meaningful graphical object under WCAG 1.4.11, so it is
-     measured against 3:1 on the tint it actually sits on, not on white. The
-     excused dot used --gold on --excused-bg and landed at 1.16:1 — the Fill-Only
-     Rule governs lime as *text*, so lime as a shape walked straight into the
-     1.35:1 the rule exists to prevent. --excused is the same hue dark enough to
-     carry meaning, exactly as --gold-deep does for the chart's target line. */
-  .cal-dot{width:6px; height:6px; border-radius:50%; background:var(--muted-2);}
-  .cal-cell.cal-met .cal-dot{background:var(--positive);}
-  .cal-cell.cal-met{background:var(--positive-bg);}
-  .cal-cell.cal-under .cal-dot{background:var(--negative);}
-  .cal-cell.cal-under{background:var(--negative-bg);}
-  .cal-cell.cal-excused .cal-dot{background:var(--excused);}
-  .cal-cell.cal-excused{background:var(--excused-bg);}
-  .cal-cell.cal-open .cal-dot{background:var(--warn);}
-  .cal-cell.cal-open{background:var(--warn-bg);}
-  /* Missing is NOT under-target. "You worked, but came up short" and "you
-     logged nothing at all" are the two states on this grid with the most
-     different consequences, and they were the same crimson tint with the same
-     crimson dot — two legend rows describing one visual state. The hatch is the
-     same one the week timeline already uses for an unfinished bar, so
-     "incomplete" reads the same way in both places, and it carries the
-     difference in texture rather than in hue alone — the grid is scanned by
-     colour, and colour is exactly what a red/green reader cannot split. */
-  .cal-cell.cal-missing .cal-dot{background:var(--muted-2);}
-  .cal-cell.cal-missing{
-    background:repeating-linear-gradient(135deg,
-      var(--line-soft) 0 2px, var(--card) 2px 8px);
+  /* The day number stops being the cell's headline. It is how you find a date,
+     which is a small job; the hours are what the cell is now for. */
+  .cal-daynum{font-size:11px; font-weight:500; color:var(--muted-2); line-height:1;}
+  /* Weight 500, not 900: with the tints gone the hours are the only thing in
+     the cell, and they no longer have to shout over a coloured ground to be
+     found. */
+  .cal-val{
+    font-family:var(--font-num); font-size:15px; font-weight:500; line-height:1.1;
+    color:var(--ink); letter-spacing:-.01em;
+    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .cal-cell.cal-off .cal-daynum{color:var(--muted-2);}
+  /* A clock-in time and a leave word are not quantities, so they sit a step
+     down from the hours. Both are --muted rather than an accent: olive now
+     means exactly one thing on this grid — a day that came up short — and a
+     shift still running or a booked leave day is not that. */
+  .cal-val.is-time, .cal-val.is-type{
+    font-family:inherit; font-size:11px; font-weight:500; color:var(--muted);
+    letter-spacing:0;
+  }
+  .cal-val.is-type b{font-weight:500;}
+  /* Both forms ship and CSS picks; see hoursCompact() for why. */
+  .cal-val-short{display:none;}
+  .cal-val-full{display:inline;}
+
+  /* The shortfall, in words. This replaces both the coloured tint and the
+     target bar: "1h 45m short" states the fact the bar could only gesture at,
+     and it is legible with no colour vision at all — which is more than either
+     of the two channels it replaces managed between them. --excused, not
+     --negative: a day under target is a thing to notice, not an alarm, and the
+     olive belongs to Atrium's own accent family where the crimson read as an
+     error state on a grid where most days are fine. */
+  .cal-short{
+    font-size:11px; font-weight:500; line-height:1.2; color:var(--excused);
+  }
+  .cal-short b{font-weight:500;}
+  /* The working week, drawn. A non-working day is narrower AND washed cream --
+     two channels, neither of them hue-dependent -- so the shape of the week is
+     visible before a single date is read. Which columns these are is decided by
+     settings.workDays in renderCalendar, never assumed here. */
+  .cal-cell.cal-weekend{background:var(--surface-cream);}
+  .cal-cell.cal-weekend .cal-daynum{color:var(--muted);}
+  /* The one vertical rule on the grid, on the first off-column after a working
+     one: it marks where the working week ends. With a split weekend (Fri off,
+     Sat worked, Sun off) there is legitimately more than one. */
+  .cal-cell.cal-weekstart{border-left:1px solid var(--line);}
+  .cal-dow.cal-dow-weekstart{border-left:1px solid var(--line); margin-left:-1px;}
   .cal-cell.cal-future .cal-daynum{color:var(--muted-2);}
-  /* Today was a lime edge at 1.35:1 and nothing else — and cal-off, cal-future
-     and cal-today otherwise share the same white cell and the same grey dot, so
-     the one day you look for first was the one the calendar marked most faintly.
-     Ink carries the ring now (12.6:1), and the number goes bold: colour is no
-     longer the only channel, which is what 1.4.1 asks of a status this important. */
-  .cal-cell.cal-today{border-color:var(--ink); box-shadow:0 0 0 2px var(--ink);}
-  .cal-cell.cal-today .cal-daynum{font-weight:900;}
+  .cal-cell:hover{background:var(--ink-50);}
+  .cal-cell.cal-weekend:hover{background:var(--excused-bg);}
+  /* Today is the one filled shape in the month, and it is on the date itself
+     rather than around the whole cell: a ring around a cell that no longer has
+     a card of its own was drawing a box where the design had just removed 30 of
+     them. Ink on ink-on-white at 12.6:1, and the fill is not colour-dependent. */
+  .cal-cell.cal-today .cal-daynum{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:21px; height:21px; padding:0 5px; box-sizing:border-box;
+    margin:-3px 0 0 -4px; border-radius:var(--radius-pill);
+    background:var(--ink); color:var(--card); font-weight:500;
+  }
+
+  /* The month's totals, directly under the month they total. */
+  .cal-summary{
+    display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-5);
+    margin-top:var(--space-3); font-size:12px; color:var(--muted);
+  }
+  .cal-summary[hidden]{display:none;}
+  .cal-summary b{
+    font-family:var(--font-num); font-size:14px; font-weight:900;
+    color:var(--ink); letter-spacing:-.01em; margin-right:4px;
+  }
+  .cal-summary .is-over b{color:var(--positive);}
+  /* --excused, matching .cal-short: one accent means "came up short" on this
+     screen, and the month's total is the same fact as a cell's, added up. */
+  .cal-summary .is-under b{color:var(--excused);}
+  .cal-sum-empty{color:var(--muted-2);}
+  .cal-legend[hidden]{display:none;}
+  /* Each week swatch paints what the timeline actually paints: an ink bar with
+     the status ring on it, the running hatch, and the leave chip. */
+  .swatch-wl-met{background:var(--ink); box-shadow:inset 0 0 0 2px var(--mint);}
+  .swatch-wl-under{background:var(--ink); box-shadow:inset 0 0 0 2px var(--blush);}
+  .swatch-wl-open{
+    background:repeating-linear-gradient(135deg,
+      var(--ink-700) 0 3px, var(--ink-800) 3px 6px);
+  }
+  .swatch-wl-chip{background:var(--excused-bg); box-shadow:inset 0 0 0 1px var(--excused); border-radius:99px;}
+  @media (max-width:560px){
+    /* The compact form. The narrowed weekend columns give this back some room --
+       five working columns at 1fr against two at .62fr make a working cell
+       ~52px wide on a 393px screen where an even seventh was 41.6px -- but
+       "8h 24m" still does not fit one, so the cell swaps rather than truncating
+       the number it exists to show. */
+    .cal-val-full{display:none;}
+    .cal-val-short{display:inline;}
+    .cal-val{font-size:12px;}
+    .cal-val.is-time, .cal-val.is-type{font-size:9.5px;}
+    .cal-short{font-size:9px;}
+    .cal-daynum{font-size:9.5px;}
+    .cal-cell{min-height:52px; padding:5px 5px 8px; gap:2px;}
+    .cal-dow{padding:0 5px 6px; font-size:9px;}
+    .cal-cell.cal-today .cal-daynum{min-width:17px; height:17px; padding:0 4px; margin:-2px 0 0 -3px;}
+  }
   @media (max-width:480px){
-    .calendar-grid{gap:4px; padding:8px;}
-    .cal-daynum{font-size:11px;}
     .calendar-month-label{font-size:14px; min-width:110px;}
-    /* The one target in the app that cannot be a 44px square. Seven columns in
-       a 393px viewport leaves 41.6px of width per cell after the card, the grid
-       padding and six gaps, and 320px leaves 33px — the only ways to 44 wide
-       are a horizontal scrollbar on a month grid or a week that does not fit on
-       one line. The height is not constrained the same way, so the cell drops
-       its square aspect and takes the full 44 vertically: 41.6x44 rather than
-       41.6x41.6. Well clear of 2.5.8's 24px AA floor; short of 2.5.5's AAA
-       square on width alone, and recorded rather than rounded away. */
-    .cal-cell{aspect-ratio:auto; min-height:44px;}
+    /* The one target in the app that cannot be a 44px square: seven columns in
+       a 393px viewport cannot each be 44 wide without a horizontal scrollbar on
+       a month grid. The height is not constrained the same way, so the cell
+       takes the full 44 vertically and then some. Well clear of 2.5.8's 24px AA
+       floor; short of 2.5.5's AAA square on width alone, and recorded rather
+       than rounded away. */
+    .cal-cell{min-height:48px;}
   }
   /* Inside the frame the month has to fit the screen it is handed, so the grid
      takes whatever the panel has left and the week rows share it. That means
@@ -3391,9 +3493,27 @@
       flex:1 1 auto; min-height:0;
       grid-template-rows:auto; grid-auto-rows:minmax(0,1fr);
     }
-    /* The number and its dot are centred in the cell, so a shorter box just
-       brings them closer together — nothing to reflow. */
-    #tab-calendar .cal-cell{aspect-ratio:auto; min-height:0;}
+    /* The cell's content is top-left aligned now, so a shorter box just crops
+       empty space below it — nothing to reflow. */
+    #tab-calendar .cal-cell{min-height:0;}
+    /* A 150px-wide cell can afford the hours at a size worth reading; at the
+       12.5px the old dot-and-number cell used, a wall-calendar-sized box was
+       carrying phone-sized content. */
+    #tab-calendar .cal-val{font-size:18px;}
+    #tab-calendar .cal-val.is-time, #tab-calendar .cal-val.is-type{font-size:12px;}
+    #tab-calendar .cal-daynum{font-size:12px;}
+    /* The week timeline gets the same deal the month grid does: fill the frame
+       rather than sitting 220px tall in the top third of it with 400px of
+       nothing underneath. grid-template-rows for exactly the reason the month
+       grid records above — left to auto rows, the free height was split evenly
+       between the day headers and the columns, so a 45px strip of SUN..SAT was
+       handed 330px and wore the rest as a blank band while the timeline it
+       labels started a third of the way down the card. */
+    #tabContentCard #tab-calendar .weekline{
+      flex:1 1 auto; min-height:0;
+      grid-template-rows:auto minmax(0,1fr) auto;
+    }
+    #tab-calendar .wl-col{min-height:0;}
   }
 
   /* gap:6px between controls, not 10px: a toolbar is one object, and the space
@@ -3910,11 +4030,6 @@
      legend: it teaches the grid wrong. Scaled down from the cell's 10px hatch
      so the stripe still reads at 10px square. */
   .swatch-open{background:var(--warn);}
-  .swatch-missing{
-    background:repeating-linear-gradient(135deg,
-      var(--line-soft) 0 1px, var(--card) 1px 4px);
-    border:1px solid var(--line);
-  }
   /* --gold-deep, not --gold: the chart itself draws the target line in
      --gold-deep (renderTrendChart in app.js — --gold measures
      1.35:1 on white and fails WCAG 1.4.11's 3:1 floor for meaningful
@@ -6004,19 +6119,29 @@
 
     <div class="tab-panel" id="tab-calendar" role="tabpanel" aria-labelledby="tabbtn-calendar" tabindex="0">
       <h2 class="sr-only">Calendar</h2>
+      <!-- Two groups, not five loose controls. Stepping and the label are one
+           object on the left; choosing what you are looking at is the other,
+           on the right. Previously the mode toggle carried an inline
+           margin-left:auto and "Today" sat past it, so the row read as three
+           clusters around a dead gap, and wrapped on a phone into a toggle
+           floating left of centre with nothing to align to. -->
       <div class="calendar-nav">
-        <button type="button" class="btn ghost small" id="calPrevBtn" aria-label="Previous month">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
-        <span class="calendar-month-label display" id="calMonthLabel">—</span>
-        <button type="button" class="btn ghost small" id="calNextBtn" aria-label="Next month">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-        </button>
-        <div class="cal-mode" role="group" aria-label="Calendar view" style="margin-left:auto;">
-          <button type="button" class="cal-mode-btn active" data-cal-mode="month" aria-pressed="true">Month</button>
-          <button type="button" class="cal-mode-btn" data-cal-mode="week" aria-pressed="false">Week</button>
+        <div class="cal-nav-step">
+          <button type="button" class="btn ghost small" id="calPrevBtn" aria-label="Previous month">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <span class="calendar-month-label display" id="calMonthLabel">—</span>
+          <button type="button" class="btn ghost small" id="calNextBtn" aria-label="Next month">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
         </div>
-        <button type="button" class="btn ghost small" id="calTodayBtn">Today</button>
+        <div class="cal-nav-view">
+          <button type="button" class="btn ghost small" id="calTodayBtn">Today</button>
+          <div class="cal-mode" role="group" aria-label="Calendar view">
+            <button type="button" class="cal-mode-btn active" data-cal-mode="month" aria-pressed="true">Month</button>
+            <button type="button" class="cal-mode-btn" data-cal-mode="week" aria-pressed="false">Week</button>
+          </div>
+        </div>
       </div>
       <div class="calendar-grid" id="calendarGrid"></div>
 
@@ -6030,14 +6155,29 @@
            showed lime while the cell paints olive, "Open" was not listed at
            all, and "Day off" spent a row on the muted day number it already
            has. Each swatch below now paints what its cell paints. -->
-      <div class="chart-legend" style="margin-top:14px;">
-        <span data-legend="met"><i class="swatch" style="background:var(--positive)"></i>Met target</span>
-        <span><i class="swatch" style="background:var(--negative)"></i>Under target</span>
-        <span><i class="swatch swatch-open"></i>Still clocked in</span>
-        <span><i class="swatch" style="background:var(--excused)"></i>Leave / excused</span>
-        <span><i class="swatch swatch-missing"></i>Nothing logged</span>
+      <!-- The month's own totals. Every other figure in the app is either a
+           lifetime average or a single day; "how is the month I am looking at
+           actually going" was the one question this screen could not answer
+           about the thing it spends the whole screen drawing. Days with an
+           entry only — what unlogged working days cost is the Shortfall tab's
+           question, and answering it twice in two different scopes is how two
+           screens start disagreeing. -->
+      <div class="cal-summary" id="calSummary"></div>
+
+      <!-- The month grid has no legend, because it no longer encodes anything
+           that needs decoding: a short day says "1h 45m short", an unlogged one
+           says "Not logged", a leave day names itself, and the weekend is a
+           narrower cream column. Five swatches explaining five tints went with
+           the five tints. Week mode keeps its own, because the timeline really
+           does carry status as a ring and a hatch. -->
+      <div class="chart-legend cal-legend" id="calLegendWeek" hidden>
+        <span><i class="swatch swatch-wl-met"></i>Met target</span>
+        <span><i class="swatch swatch-wl-under"></i>Under target</span>
+        <span><i class="swatch swatch-wl-open"></i>Still clocked in</span>
+        <span><i class="swatch swatch-wl-chip"></i>Leave / excused</span>
       </div>
-      <p class="settings-hint" style="margin-top:10px;">Tap a day to add or edit that entry.</p>
+      <!-- "Tap" on a pointer is the wrong verb, and this app is used on both. -->
+      <p class="settings-hint" style="margin-top:10px;">Choose a day to add or edit its entry.</p>
     </div>
 
     <div class="tab-panel" id="tab-punctuality" role="tabpanel" aria-labelledby="tabbtn-punctuality" tabindex="0">
