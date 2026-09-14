@@ -4148,28 +4148,58 @@ var __authLinkError = (function(){
     if(WL_END_HOUR - WL_START_HOUR > 24){ WL_START_HOUR = 0; WL_END_HOUR = 24; }
     var span = (WL_END_HOUR - WL_START_HOUR) * 60;
 
+    // The same week shape the month grid draws, from the same setting: a
+    // non-working column is narrower and cream, and the boundary rule goes on
+    // the first one that follows a working day.
+    var offCol = [], anyOff = false;
+    for(var dw=0; dw<7; dw++){
+      offCol[dw] = settings.workDays.indexOf(dw) === -1;
+      if(offCol[dw]) anyOff = true;
+    }
+    function isWeekBoundary(dw){ return anyOff && offCol[dw] && !offCol[(dw+6)%7]; }
+    var axisCol = window.matchMedia && window.matchMedia("(max-width:760px)").matches ? "44px" : "56px";
+    host.style.gridTemplateColumns = axisCol + " " + days.map(function(d){
+      return offCol[d.getDay()] ? "minmax(0,.62fr)" : "minmax(0,1fr)";
+    }).join(" ");
+
     var html = '<div class="wl-dayhead"></div>';
     days.forEach(function(d){
       var isToday = dstr(d) === todayStr();
-      html += '<div class="wl-dayhead'+(isToday?' is-today':'')+'">'+
-        DAY_NAMES[d.getDay()]+'<b>'+d.getDate()+'</b></div>';
+      var dw = d.getDay();
+      html += '<div class="wl-dayhead'+(isToday?' is-today':'')+(offCol[dw]?' is-off':'')+
+        (isWeekBoundary(dw)?' is-weekstart':'')+'">'+
+        DAY_NAMES[dw]+'<b>'+d.getDate()+'</b></div>';
     });
 
     // Hour axis. Labelled every two hours so the column does not become a
     // stack of touching numerals on a phone.
+    var ticks = [];
     var axis = '<div class="wl-axis" style="grid-row:2;">';
     var tickStep = (WL_END_HOUR - WL_START_HOUR) > 18 ? 3 : 2;
     for(var h=WL_START_HOUR; h<=WL_END_HOUR; h+=tickStep){
       var pct = ((h - WL_START_HOUR) * 60 / span) * 100;
+      ticks.push(pct);
       axis += '<span style="top:'+pct.toFixed(2)+'%">'+hourTickLabel(h)+'</span>';
     }
     html += axis + '</div>';
+    // Every labelled hour gets a rule across the columns, so a bar's edges land
+    // against something readable instead of floating beside a list of times.
+    var hourRules = ticks.map(function(p){
+      return '<div class="wl-hour" style="top:'+p.toFixed(2)+'%"></div>';
+    }).join("");
 
     var any = false;
     days.forEach(function(d){
       var ds = dstr(d);
       var isToday = ds === todayStr();
-      var cell = '<div class="wl-col'+(isToday?' is-today':'')+'" style="grid-row:2;">';
+      var dwc = d.getDay();
+      var cell = '<div class="wl-col'+(offCol[dwc]?' is-weekend':'')+
+        (isWeekBoundary(dwc)?' is-weekstart':'')+'" style="grid-row:2;">' + hourRules;
+      // Same source of truth the month grid reads, so the two views can never
+      // disagree about whether a day counts as unlogged.
+      if(calendarDayStatus(ds) === "missing"){
+        cell += '<div class="wl-missing">Not logged</div>';
+      }
       var entry = entries.find(function(e){ return e.date === ds; });
       if(entry){
         any = true;
@@ -4187,10 +4217,19 @@ var __authLinkError = (function(){
           var top = Math.max(0, Math.min(100, ((from - WL_START_HOUR*60) / span) * 100));
           var bot = Math.max(0, Math.min(100, ((toRaw - WL_START_HOUR*60) / span) * 100));
           var height = Math.max(2.2, bot - top);
-          var cls = c.open ? "is-open" : (c.diffMin !== null && c.diffMin >= 0 ? "is-met" : "is-under");
-          var label = formatTime12(entry.clockIn) + (entry.clockOut ? "–" + formatTime12(entry.clockOut) : "");
-          cell += '<div class="wl-bar '+cls+'" style="top:'+top.toFixed(2)+'%; height:'+height.toFixed(2)+'%" '+
+          // "8:03 AM – now" rather than a bare start time: an open shift is the
+          // one bar whose end is not a fact yet, and saying so is what lets the
+          // hatch stop needing a legend to explain it.
+          var label = formatTime12(entry.clockIn) +
+            (entry.clockOut ? "–" + formatTime12(entry.clockOut) : c.open ? " – now" : "");
+          cell += '<div class="wl-bar'+(c.open ? " is-open" : "")+'" style="top:'+top.toFixed(2)+'%; height:'+height.toFixed(2)+'%" '+
             'title="'+escapeAttr(typeLabel(entry.type)+" · "+label)+'">'+escapeHtml(label)+'</div>';
+          // The shortfall, in the month's words and the month's olive, pinned
+          // just under the bar it belongs to.
+          if(!c.open && c.targetMin > 0 && c.workedMin !== null && c.workedMin < c.targetMin){
+            cell += '<div class="wl-short" style="top:calc('+bot.toFixed(2)+'% + 3px)">' +
+              escapeHtml(minutesOnlyStr(c.targetMin - c.workedMin)) + ' short</div>';
+          }
         } else {
           cell += '<div class="wl-chip" title="'+escapeAttr(typeLabel(entry.type))+'">'+
             escapeHtml(typeLabel(entry.type))+'</div>';
@@ -4212,13 +4251,10 @@ var __authLinkError = (function(){
     var grid = document.getElementById("calendarGrid");
     var week = document.getElementById("weekLine");
     var label = document.getElementById("calMonthLabel");
-    // Only the week timeline has a legend now -- it is the one view that still
-    // carries status as a ring on an ink bar, a hatch and a leave chip. The
-    // month grid states everything it knows in words and needs none.
+    // Neither view carries a legend any more; both state what they know in
+    // words. The month's totals line still belongs to the month.
     var isWeek = calMode === "week";
-    var legendWeek = document.getElementById("calLegendWeek");
     var summary = document.getElementById("calSummary");
-    if(legendWeek) legendWeek.hidden = !isWeek;
     if(summary) summary.hidden = isWeek;
     if(isWeek){
       grid.hidden = true; grid.style.display = "none";

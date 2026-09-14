@@ -3245,23 +3245,44 @@
      A time axis down the left, one column per day, and each entry drawn as an
      ink bar positioned and sized by its real clock times. The month grid
      answers "which days went well"; this answers "when did I actually work". */
+  /* Same treatment the month grid got: no wash, no border, no radius. This sat
+     inside #tabContentCard as a tinted rounded panel — a card inside a card,
+     which is the one thing DESIGN.md rules out — while the month beside it had
+     just stopped doing exactly that. grid-template-columns is set inline by
+     renderWeekLine for the same reason the month's is: which columns are
+     working days comes from settings.workDays, not from an assumption. */
   .weekline{
     display:grid; grid-template-columns:56px repeat(7, 1fr);
-    background:var(--ink-50); border-radius:var(--radius-md); padding:14px 14px 10px;
-    border:1px solid var(--line-soft); overflow-x:auto;
+    padding:4px 0 12px; overflow-x:auto;
   }
   /* Month mode sets weekLine.hidden, but an author display beats the UA's
      [hidden]{display:none} no matter the specificity — so the timeline sat
      under every month as an empty grey bar. Same defect the reminder banners
      had with their inline display. */
   .weekline[hidden]{display:none;}
+  /* Left-aligned, matching the month's day cells — the date sits in the corner
+     of the column it belongs to rather than floating over the middle of it. */
   .wl-dayhead{
-    grid-row:1; text-align:center; padding-bottom:10px;
-    font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:.08em;
-    color:var(--muted); white-space:nowrap;
+    grid-row:1; text-align:left; padding:0 var(--space-2-5) 9px;
+    font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:.09em;
+    color:var(--muted-2); white-space:nowrap;
   }
-  .wl-dayhead.is-today{color:var(--ink);}
-  .wl-dayhead b{display:block; font-size:14px; font-weight:700; letter-spacing:-.01em; margin-top:2px;}
+  .wl-dayhead.is-off{font-weight:400; color:var(--muted);}
+  .wl-dayhead b{
+    display:block; font-size:13px; font-weight:500; letter-spacing:-.01em;
+    color:var(--ink-600); margin-top:3px;
+  }
+  .wl-dayhead.is-off b{color:var(--muted);}
+  /* Today wears the month's ink pill, not a lime flood down the whole column:
+     one filled shape, in the same place, meaning the same thing in both views. */
+  /* display:flex, not inline-flex: inline-flex is an inline-level box and put
+     the pill on the same line as the weekday name, so "MON 14" ran together
+     where every other column reads as a name over a number. */
+  .wl-dayhead.is-today b{
+    display:flex; width:max-content; align-items:center; justify-content:center;
+    min-width:21px; height:21px; padding:0 5px; box-sizing:border-box;
+    border-radius:var(--radius-pill); background:var(--ink); color:var(--card);
+  }
   .wl-axis{
     grid-column:1; position:relative; font-size:11px; color:var(--muted);
     font-variant-numeric:tabular-nums;
@@ -3276,29 +3297,74 @@
     position:absolute; left:0; right:8px; transform:translateY(-50%);
     text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
+  /* Hairline, not dashed: the month grid separates its columns with a plain
+     1px --line-soft and seven dashed verticals were the busiest thing left on
+     this tab. */
   .wl-col{
-    position:relative; border-left:1px dashed var(--line);
-    min-height:220px; min-width:44px;
+    position:relative; border-left:1px solid var(--line-soft);
+    border-top:1px solid var(--line-soft);
+    min-height:220px; min-width:40px;
   }
-  .wl-col.is-today{background:rgba(214,232,92,.16);}
+  /* The working week, same two channels as the month: narrower column (set
+     inline from settings.workDays) plus the cream wash, and one --line rule
+     where the working week ends. */
+  .wl-col.is-weekend{background:var(--surface-cream);}
+  .wl-col.is-weekstart{border-left:1px solid var(--line);}
+  .wl-dayhead.is-weekstart{border-left:1px solid var(--line); margin-left:-1px;}
+  /* Faint rules at the labelled hours. Without them a bar's top and bottom had
+     nothing to land against and the axis was decoration: you could see that a
+     shift was long without being able to read when it started. */
+  .wl-hour{
+    position:absolute; left:0; right:0; height:0;
+    border-top:1px solid var(--line-soft); pointer-events:none;
+  }
   /* radius-sm, not the 99px pill .wl-chip uses: a chip is always short, so a
      full round reads as a badge, but a shift bar's height tracks the hours
      worked and can grow past its own width on a wide desktop column — 99px
      rounded both ends into a full circle right when the column got roomy
      enough to make the bar legible. A fixed small radius stays a rounded
      rectangle at any height. */
+  /* Pale, not ink. A full working day is a 300px-tall block, and filled with
+     --ink it was the only large dark region on a tab that had just given up
+     every other heavy element — the month next door has no dark fill at all,
+     only the 21px today pill. --surface-gray reads as a step down from the
+     white card AND from the cream weekend column, the --line edge keeps it
+     legible where the two grounds are close, and the label goes to --ink,
+     which is easier to read at 11px than white-on-black was. All four tokens
+     are defined in every palette, so this flips correctly in dark mode
+     instead of staying a black slab on a dark ground. */
   .wl-bar{
-    position:absolute; left:4px; right:4px; border-radius:var(--radius-sm);
-    background:var(--ink); color:#fff; overflow:hidden;
+    position:absolute; left:6px; right:6px; border-radius:var(--radius-xs);
+    background:var(--surface-gray); border:1px solid var(--line);
+    color:var(--ink); overflow:hidden; box-sizing:border-box;
     display:flex; align-items:center; justify-content:center;
     font-size:11px; font-weight:500; min-height:18px;
     padding:0 6px; text-align:center;
   }
-  /* Status is a ring on the bar, which keeps the accents as fills and keeps
-     the label on ink where it stays legible. */
-  .wl-bar.is-met{box-shadow:inset 0 0 0 2px var(--mint);}
-  .wl-bar.is-under{box-shadow:inset 0 0 0 2px var(--blush);}
-  .wl-bar.is-open{background:repeating-linear-gradient(135deg, var(--ink-700) 0 6px, var(--ink-800) 6px 12px);}
+  /* The mint and blush status rings are gone. They were the week's version of
+     the month's five tints: a hue-only code that needed a legend to read, on
+     top of a bar whose own height already says how long the day was. A day
+     that came up short says so underneath, in the same words and the same
+     olive the month uses. The hatch stays — it is texture, not colour, and
+     "still running" has no length to show yet — but it is drawn in the same
+     two pale tokens now rather than in near-black. */
+  .wl-bar.is-open{
+    background:repeating-linear-gradient(135deg,
+      var(--line) 0 5px, var(--surface-gray) 5px 10px);
+  }
+  .wl-short{
+    position:absolute; left:4px; right:4px; text-align:center;
+    font-size:10px; font-weight:500; line-height:1.2; color:var(--excused);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  /* A working day that was never logged, said the way the month says it. An
+     empty column on its own is ambiguous here: a past day nobody clocked and a
+     day that has not happened yet look identical. */
+  .wl-missing{
+    position:absolute; top:6px; left:4px; right:4px; text-align:center;
+    font-size:10px; font-weight:500; line-height:1.2; color:var(--excused);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
   /* An all-day entry with no clock times (leave, holiday) has no span to draw,
      so it becomes a chip pinned to the top of the column rather than a bar
      floating at an arbitrary hour. */
@@ -3313,11 +3379,17 @@
     font-size:12.5px; padding:24px 0 16px;
   }
   @media (max-width:760px){
-    .weekline{grid-template-columns:44px repeat(7, minmax(40px,1fr)); padding:10px 8px 8px;}
+    /* The axis column keeps its 44px; the day columns' widths come from
+       renderWeekLine, which narrows the non-working ones. */
+    .weekline{padding:4px 0 12px;}
     /* 10px, so "10 AM" clears the 36px this column leaves with room to spare
        rather than by a pixel or two. */
     .wl-axis{font-size:10px;}
+    .wl-dayhead{padding:0 5px 8px; font-size:9px;}
+    .wl-dayhead b{font-size:11.5px;}
+    .wl-dayhead.is-today b{min-width:17px; height:17px; padding:0 4px;}
     .wl-bar{font-size:0; padding:0;} /* keep the span visible, drop the label */
+    .wl-short{font-size:9px;}
   }
 
   /* The month is a grid of days, not thirty cards. No wash behind it, no gap
@@ -3433,16 +3505,6 @@
      screen, and the month's total is the same fact as a cell's, added up. */
   .cal-summary .is-under b{color:var(--excused);}
   .cal-sum-empty{color:var(--muted-2);}
-  .cal-legend[hidden]{display:none;}
-  /* Each week swatch paints what the timeline actually paints: an ink bar with
-     the status ring on it, the running hatch, and the leave chip. */
-  .swatch-wl-met{background:var(--ink); box-shadow:inset 0 0 0 2px var(--mint);}
-  .swatch-wl-under{background:var(--ink); box-shadow:inset 0 0 0 2px var(--blush);}
-  .swatch-wl-open{
-    background:repeating-linear-gradient(135deg,
-      var(--ink-700) 0 3px, var(--ink-800) 3px 6px);
-  }
-  .swatch-wl-chip{background:var(--excused-bg); box-shadow:inset 0 0 0 1px var(--excused); border-radius:99px;}
   @media (max-width:560px){
     /* The compact form. The narrowed weekend columns give this back some room --
        five working columns at 1fr against two at .62fr make a working cell
@@ -6164,18 +6226,12 @@
            screens start disagreeing. -->
       <div class="cal-summary" id="calSummary"></div>
 
-      <!-- The month grid has no legend, because it no longer encodes anything
-           that needs decoding: a short day says "1h 45m short", an unlogged one
-           says "Not logged", a leave day names itself, and the weekend is a
-           narrower cream column. Five swatches explaining five tints went with
-           the five tints. Week mode keeps its own, because the timeline really
-           does carry status as a ring and a hatch. -->
-      <div class="chart-legend cal-legend" id="calLegendWeek" hidden>
-        <span><i class="swatch swatch-wl-met"></i>Met target</span>
-        <span><i class="swatch swatch-wl-under"></i>Under target</span>
-        <span><i class="swatch swatch-wl-open"></i>Still clocked in</span>
-        <span><i class="swatch swatch-wl-chip"></i>Leave / excused</span>
-      </div>
+      <!-- Neither view has a legend now, because neither encodes anything that
+           needs decoding. A short day says "1h 45m short" in both of them, an
+           unlogged one says "Not logged", a leave day names itself, an open
+           shift's bar reads "8:03 AM – now", and the weekend is a narrower
+           cream column. The swatches went with the tints and rings they were
+           explaining. -->
       <!-- "Tap" on a pointer is the wrong verb, and this app is used on both. -->
       <p class="settings-hint" style="margin-top:10px;">Choose a day to add or edit its entry.</p>
     </div>
