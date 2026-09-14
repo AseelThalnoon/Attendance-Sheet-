@@ -5109,6 +5109,22 @@
     font-size:11px; font-weight:500; letter-spacing:.005em;
     max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
+  /* The 64px clock button takes 12px out of the row that the 52px one did not,
+     six from each side, and at 360px that was exactly enough to push "Overview"
+     into its own ellipsis — the label ellipsises rather than wraps above 340px,
+     so it clipped instead of failing loudly. The 2px of horizontal padding on
+     each item buys the 4px back; it was never doing anything a label needed,
+     since the icon and text are both centred. The ≤340px block already zeroes
+     this padding for the same reason. */
+  @media (max-width:400px){
+    .bn-item{padding-left:0; padding-right:0;}
+    /* And a step down in size. Zeroing the padding alone still left "Overview"
+       about 5px wider than its slot at 360px, where it did not fail loudly --
+       text-overflow:ellipsis simply served "Overvie..." and scrollWidth went on
+       reporting that everything fit. 10px is the size an iOS tab label uses and
+       it clears the slot with room to spare. */
+    .bn-item span{font-size:10px;}
+  }
   /* --ink was --ink-700 here. That token's other six uses are all dark FILLS
      carrying white text (the avatar tile, --gradient-ink, the open-shift
      hatch, the checkbox accent), so it stays dark in both modes — which left
@@ -5131,21 +5147,36 @@
      "Overtime". */
   @media (max-width:340px){
     .bn-item{padding-left:0; padding-right:0;}
+    /* One line, always. This used to wrap: "Over&shy;view" and "Calen&shy;dar"
+       broke across two lines here, which made those two tabs taller than the
+       four beside them. nowrap holds every label on one line at every width --
+       soft hyphens cannot break a nowrap line, so the &shy; in the markup
+       simply stops applying rather than needing to come out.
+       9.5px is what the arithmetic allows: at 320px the widest label
+       ("Overview") needs 41px and the slot is 41px. That is the floor -- below
+       about 310px the row runs out of room and the label ellipsises, which is
+       the honest failure for a width no current phone reports. */
     .bn-item span{
-      font-size:11px; letter-spacing:0; white-space:normal; line-height:1.15;
-      text-align:center; text-overflow:clip; overflow-wrap:anywhere;
+      font-size:9.5px; letter-spacing:0; white-space:nowrap; line-height:1.15;
+      text-align:center; overflow:hidden; text-overflow:ellipsis;
     }
     .bn-clock-label{font-size:11px;}
   }
 
   .bn-clock-wrap{display:flex; flex-direction:column; align-items:center; gap:2px; flex:0 0 auto;}
+  /* 64px, not 52. This is the control the app exists for and the one most
+     people open it to press, and it was within 8px of the ordinary tab items
+     beside it. The size IS the affordance here: nothing else in the nav is
+     round, raised, or filled, so growing it costs no extra ink and makes the
+     thing people came to tap the obvious thing to tap. */
   .bn-clock{
-    width:52px; height:52px; border-radius:50%; margin-top:-24px;
+    width:64px; height:64px; border-radius:50%; margin-top:-30px;
     background:var(--gradient-gold); border:3px solid var(--card);
     color:var(--ink-on-gold); display:flex; align-items:center; justify-content:center;
-    box-shadow:0 4px 14px rgba(214,232,92,.45); cursor:pointer;
+    box-shadow:0 4px 16px rgba(214,232,92,.5); cursor:pointer;
     transition:transform var(--dur-fast) var(--ease-snap), background var(--dur-fast) var(--ease-snap);
   }
+  .bn-clock svg{width:27px; height:27px;}
   .bn-clock:active{transform:scale(.96);}
   .bn-clock.clocked-in{background:var(--gradient-ink); color:#fff; box-shadow:0 4px 14px rgba(17,17,16,.4);}
   /* The third state. Gold invites a punch, the ink fill says "you are on the
@@ -5167,12 +5198,12 @@
        raised clock button pokes another ~24px above that, plus real iOS
        devices add safe-area-inset-bottom on top. Pad generously so nothing
        in the footer ever sits underneath it. */
-    body{padding-bottom:108px;}
+    body{padding-bottom:116px;}
     /* Without this, scrollIntoView() (ours or the browser's own anchor
        navigation) has no idea the bottom nav covers part of the viewport,
        and can happily scroll a target element to a position that's
        actually hidden behind it. */
-    html{scroll-padding-bottom:108px;}
+    html{scroll-padding-bottom:116px;}
   }
 
   /* Phone landscape: the bar plus the raised clock button took ~108px out of a
