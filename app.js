@@ -303,82 +303,28 @@ var __authLinkError = (function(){
   return field("error_description") || "That link could not be opened. Enter your email below and tap \u201cForgot password?\u201d for a fresh one.";
 })();
 
+// The first two pieces to come out of the IIFE below. Static imports are
+// hoisted, so these run before anything above them regardless of where the
+// lines sit; they are here rather than at the top of the file so they read
+// next to the code that closes over them. Both modules are leaves — they call
+// nothing outside themselves and read no app state — which is what made them
+// movable at all. See src/constants.js for why the declarations inside them
+// kept their original `var` wording.
+import {
+  DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
+  EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
+  DISMISS_KEY, SNOOZE_KEY, BACKUP_KEY, BACKUP_REMIND_DAYS,
+  PUSH_PROMPT_SNOOZE_KEY, PUSH_PROMPT_SNOOZE_DAYS,
+  DEFAULT_SETTINGS, VAPID_PUBLIC_KEY
+} from "./src/constants.js";
+import {
+  uid, pad2, timeToMinutes, formatTime12, minutesToHoursStr, minutesOnlyStr,
+  signed, dateFromStr, dateToStr, todayStr, dayBefore,
+  fmtDate, fmtDateLong, fmtDateShort, fmtDateNoYear
+} from "./src/time.js";
+
 (function(){
   "use strict";
-
-  var DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  var DAY_FULL  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  var TYPE_LABELS = {
-    // "WFH" here against "Work From Home" in the picker meant the day you
-    // chose and the day you later read back were named differently, in the
-    // only one of the nine types that disagreed with itself. The table has
-    // room — "Half Day Leave" and "Public Holiday" are the same length.
-    regular:"Regular", wfh:"Work From Home", halfleave:"Half Day Leave", leave:"Annual Leave",
-    sick:"Sick Leave", trip:"Business Trip", training:"Training", holiday:"Public Holiday",
-    // "Other" alone gave no clue that this is an EXCUSED absence — it reads as
-    // a shrug, and sat in a list where every other option states what it is.
-    // The stored value is untouched; this is the display label only, so the
-    // log, calendar, print report and audit history all relabel together.
-    other:"Other (Excused)"
-  };
-  // An entry's type can be anything the database holds. Indexing TYPE_LABELS
-  // directly rendered the literal string "undefined" in the log, the calendar
-  // tooltip, the print report and the audit detail for any unrecognised value.
-  function typeLabel(t){ return TYPE_LABELS[t] || (t ? String(t) : "Regular"); }
-
-  var CAL_STATUS_LABELS = {
-    met:"met target", under:"under target", excused:"leave or excused",
-    open:"still clocked in", missing:"no entry", off:"day off", future:"upcoming"
-  };
-
-  // "other" is a catch-all excused absence — real usage is things like
-  // marriage or bereavement leave that don't fit the named categories, always
-  // logged with no clock times. It's excused in exactly the same way Sick
-  // Leave is: no work target owed, and (per the person who owns this ledger)
-  // no annual-leave-balance impact either — see the leave-balance calc below,
-  // which only deducts for "leave"/"halfleave".
-  var EXCUSED_TYPES = ["leave","sick","holiday","other"];
-  // Half days expect half the normal target rather than being fully excused.
-  var HALF_TYPES = ["halfleave"];
-  // Day types whose hours count toward averages, totals and the overtime bank.
-  // WFH, business trip and training carry no fixed target (see NO_TARGET_TYPES
-  // below) and are meant to be neutral: logging 10 hours or 0 on one of these
-  // days must not move the average, the bank or the target-accomplished rate
-  // either way, so they're excluded here the same as leave/sick/holiday.
-  var WORKED_TYPES = ["regular","halfleave"];
-  function countsAsWorked(type){ return WORKED_TYPES.indexOf(type || "regular") !== -1; }
-
-  // These are excused from a fixed daily target — a day working from home, at
-  // a client site or in training doesn't carry the same 9-to-5 expectation a
-  // Regular day does, and (per WORKED_TYPES above) doesn't roll into the
-  // totals/bank at all, so there is nothing to fall short of or gain credit
-  // for, whatever gets logged and whether or not clock times are recorded.
-  var NO_TARGET_TYPES = ["wfh","trip","training"];
-
-  var DISMISS_KEY  = "attendance_ledger_dismissed_v1";
-  var SNOOZE_KEY   = "attendance_ledger_backup_snooze_v1";
-  var BACKUP_KEY   = "attendance_ledger_lastbackup_v1";
-  var BACKUP_REMIND_DAYS = 14;
-  var PUSH_PROMPT_SNOOZE_KEY = "attendance_ledger_push_prompt_snooze_v1";
-  var PUSH_PROMPT_SNOOZE_DAYS = 7;
-
-  var DEFAULT_SETTINGS = {
-    workDays:[0,1,2,3,4],
-    targetMin:480,
-    graceMin:10,
-    lateOnlyIfShort:true,
-    periods:[],
-    standardIn:"08:00",
-    standardOut:"16:00",
-    remindAfterHours:9,
-    annualLeaveDays:21
-  };
-
-  // VAPID public keys are meant to be public — the private half never leaves
-  // the send-push Edge Function's own secrets. This one is paired with
-  // whatever VAPID_PRIVATE_KEY is set as that function's secret; the two
-  // must be regenerated and redeployed together, never independently.
-  var VAPID_PUBLIC_KEY = "BJlxibKyLbjnTvhH6hFdlNHSugC15FqdNxT55UJbY0RJtn3DGIWMTX4XG0FKB-K1H8SbvGcWYhLpmCD58OiD-es";
 
   // ---------- Auth / multi-user state ----------
   var currentUser = null;      // {id, email} — the signed-in Supabase auth user
@@ -891,76 +837,6 @@ var __authLinkError = (function(){
   }
 
   // ---------- Helpers ----------
-  function uid(){ return "e" + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
-  function pad2(n){ return String(n).padStart(2,"0"); }
-
-  function timeToMinutes(t){
-    if(!t) return null;
-    var p = t.split(":");
-    return (+p[0])*60 + (+p[1]);
-  }
-  // Display-only. Values stay in 24h "HH:MM" because <input type="time"> requires it.
-  function formatTime12(t){
-    if(!t) return "";
-    var p = t.split(":");
-    var h = +p[0];
-    var period = h >= 12 ? "PM" : "AM";
-    var h12 = h % 12; if(h12 === 0) h12 = 12;
-    return h12 + ":" + p[1] + " " + period;
-  }
-  function minutesToHoursStr(mins){
-    if(mins === null || mins === undefined || isNaN(mins)) return "—";
-    var sign = mins < 0 ? "-" : "";
-    var v = Math.abs(Math.round(mins));
-    var h = Math.floor(v/60), m = v%60;
-    return sign + h + "h" + (m ? " " + m + "m" : "");
-  }
-  // For values that are naturally small and minutes-only (how late, how early) —
-  // "0h 31m" reads like a typo; "31m" is what it actually is. Still falls back
-  // to "Xh Ym" past 60 so an unusually late day doesn't show "95m".
-  function minutesOnlyStr(mins){
-    if(mins === null || mins === undefined || isNaN(mins)) return "—";
-    var sign = mins < 0 ? "-" : "";
-    var v = Math.abs(Math.round(mins));
-    if(v < 60) return sign + v + "m";
-    return minutesToHoursStr(mins);
-  }
-  function signed(mins){
-    if(mins === null || isNaN(mins)) return "—";
-    return (mins >= 0 ? "+" : "") + minutesToHoursStr(mins);
-  }
-  function dateFromStr(s){
-    var p = s.split("-");
-    return new Date(+p[0], +p[1]-1, +p[2]);
-  }
-  function dateToStr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
-  function todayStr(){ return dateToStr(new Date()); }
-  // Calendar-day arithmetic, not 24-hour arithmetic: dateFromStr builds a local
-  // midnight and setDate rolls the month and the DST boundary for us, where
-  // subtracting 86400000ms would land on the wrong day twice a year.
-  function dayBefore(dateStr){
-    var d = dateFromStr(dateStr);
-    d.setDate(d.getDate() - 1);
-    return dateToStr(d);
-  }
-  function fmtDate(s){
-    return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
-  }
-  function fmtDateLong(s){
-    return dateFromStr(s).toLocaleDateString(undefined,{weekday:"long", month:"long", day:"numeric", year:"numeric"});
-  }
-  // Weekday + month + day, no year — for lists already scoped to one month
-  // (the Team roster's recent-days lines, the activity feed), where the year
-  // and often the month too would just repeat what the toolbar already says.
-  function fmtDateShort(s){
-    return dateFromStr(s).toLocaleDateString(undefined,{weekday:"short", month:"short", day:"numeric"});
-  }
-  // Month and day alone, for a list whose year is already fixed by a control
-  // above it — the Log's own Year select, which makes ", 2026" the same four
-  // characters repeated down every row of the month.
-  function fmtDateNoYear(s){
-    return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric"});
-  }
   function isScheduled(dateStr){
     return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
   }

@@ -20,9 +20,33 @@ const SRC = process.env.ATTENDANCE_SRC || path.join(__dirname, "..", "index.html
 // and every existing suite keeps working unchanged.
 const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "app.js");
 
+// app.js is being taken apart a piece at a time (it reached ten thousand lines
+// in one IIFE), and the pieces land in src/ as ES modules. Reading the whole
+// directory rather than naming files keeps this from needing an edit per
+// extraction. Sorted so the concatenation is stable between runs -- a slice()
+// that spans two files would otherwise capture different text depending on
+// readdir order, which is the kind of failure that reproduces on one machine
+// out of three.
+//
+// The modules are appended AFTER app.js on purpose. Every anchor pair that
+// reaches into moved code now has both ends inside the same module, so nothing
+// spans the boundary; the one pair that did (DEFAULT_SETTINGS to the Auth
+// banner, in regression/audit-logic.js) was re-anchored when the constants
+// moved rather than left to silently swallow the file.
+const SRC_DIR = path.join(__dirname, "..", "src");
+
+function moduleSources(){
+  if(!fs.existsSync(SRC_DIR)) return [];
+  return fs.readdirSync(SRC_DIR)
+    .filter(f => f.endsWith(".js"))
+    .sort()
+    .map(f => fs.readFileSync(path.join(SRC_DIR, f), "utf8"));
+}
+
 function source(){
   const parts = [];
   if(fs.existsSync(APP_SRC)) parts.push(fs.readFileSync(APP_SRC, "utf8"));
+  parts.push(...moduleSources());
   parts.push(fs.readFileSync(SRC, "utf8"));
   return parts.join("\n").split("\n");
 }

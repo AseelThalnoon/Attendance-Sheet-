@@ -13,7 +13,7 @@
 // Bump alongside the ?v= query on app.js in index.html. activate() deletes
 // every cache whose key is not this one, so a bump is what forces an
 // installed PWA to drop the old shell and precache the new one.
-const CACHE_NAME = "attendance-ledger-shell-v12";
+const CACHE_NAME = "attendance-ledger-shell-v13";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
@@ -33,6 +33,13 @@ const SHELL_FILES = [
   "./",
   "./index.html",
   "./app.js",
+  // app.js is an ES module and these are its static imports, so they are not
+  // optional extras — a miss here fails the module graph and the app never
+  // executes, which is the same silent dead-shell failure the vendored
+  // Supabase build was moved in-tree to prevent. Every new file under src/
+  // has to be added here as it is extracted.
+  "./src/constants.js",
+  "./src/time.js",
   // Blocking, in <head>, and the reason an offline boot does not flash the
   // default palette before settling on the chosen one. A miss here is not
   // survivable the way a font miss is: the page would paint Atrium at someone
