@@ -4420,9 +4420,89 @@
     font-size:19px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
     animation:fadeIn .5s var(--ease-soft) .1s backwards;
   }
-  .auth-aside-mark{line-height:0;}
-  .auth-aside-mark svg{width:26px; height:26px; display:block;}
   .auth-dot{color:var(--gold);}
+
+  /* ---------- The mark, at a size that shows what it is ----------
+     This mark is drawn to be read small. Enlarged, its construction becomes
+     the problem: the two legs cross rather than stopping short of each other,
+     so the lime dot stops looking nested in an apex and starts looking like a
+     head on a figure. brandkit/logo/attendance-mark.svg is the same geometry,
+     so that is the identity rather than a bad copy of it, and redrawing it is
+     not a stylesheet's call.
+
+     So the motion does the work the static form cannot. The legs swing in from
+     wider than they rest, cross, and the dot drops into the gap they make --
+     which means the crossing is something you WATCH happen rather than a
+     shape you have to decode. The construction is the point, not a flaw to
+     be hidden at 32px.
+
+     Then it keeps time. A slow counter-sway, each leg opposite the other,
+     about a degree and a half over six seconds. That is a metronome, and this
+     is an app that measures hours: the one continuous motion on the screen is
+     the mark doing the product's own job. Small enough to be felt at the edge
+     of attention rather than watched. */
+  .auth-hero-mark{
+    margin:0; color:#fff; line-height:0;
+    animation:fadeFlat .5s var(--ease-soft) .15s backwards;
+  }
+  .auth-hero-mark svg{width:clamp(104px, 13vw, 156px); height:auto; display:block; overflow:visible;}
+
+  /* Rotation is on the rect, never the <g>. The g carries a transform
+     ATTRIBUTE that places and angles the leg; a CSS transform there replaces
+     it and throws the mark apart. Inside the g the rect stands upright with
+     its base at the local origin, so 50%/100% is exactly the pivot the leg
+     swings from. */
+  .auth-hero-mark rect{
+    transform-box:fill-box; transform-origin:50% 100%;
+    animation:
+      markSwingIn 1.05s var(--ease-soft) .18s backwards,
+      markKeepTime 6.2s ease-in-out 1.25s infinite alternate;
+  }
+  /* An optical size, which is the ordinary answer to a mark that was drawn
+     small being shown large. The bars are 18 of 100 units wide -- right at
+     26px, far too heavy at 156, where two white slabs fuse below the crossing
+     and the whole thing reads as a figure with a head rather than a monogram.
+     Thinning them to 11 keeps every angle and position exactly as drawn and
+     changes only the weight, the same way a display cut of a typeface is the
+     text cut with the stems pulled in.
+     Set through SVG geometry properties rather than a transform so the stroke
+     thins without the shape scaling or the pivots moving. Scoped to this hero:
+     brandkit/, the favicon, the PWA icons and the rail are all untouched. */
+  .auth-hero-mark rect{width:11px; x:-5.5px;}
+  .auth-hero-mark g:nth-of-type(1) rect{
+    animation-name:markSwingIn, markKeepTimeL; animation-delay:.18s, 1.25s;
+  }
+  .auth-hero-mark g:nth-of-type(2) rect{
+    animation-name:markSwingInR, markKeepTimeR; animation-delay:.26s, 1.25s;
+  }
+  .auth-hero-mark circle{
+    transform-box:fill-box; transform-origin:50% 50%;
+    animation:markDotLand .5s var(--ease-soft) .92s backwards;
+  }
+
+  /* Both legs rise from nothing and settle open. Signs are mirrored because
+     each rect lives inside its own already-rotated <g>: positive is outward
+     for the left leg and inward for the right. */
+  @keyframes markSwingIn{
+    from{transform:rotate(-13deg) scaleY(.12);}
+    62% {transform:rotate(2.5deg) scaleY(1.02);}
+    to  {transform:rotate(0deg)   scaleY(1);}
+  }
+  @keyframes markSwingInR{
+    from{transform:rotate(13deg)   scaleY(.12);}
+    62% {transform:rotate(-2.5deg) scaleY(1.02);}
+    to  {transform:rotate(0deg)    scaleY(1);}
+  }
+  @keyframes markKeepTimeL{
+    from{transform:rotate(-1.5deg);} to{transform:rotate(1.5deg);}
+  }
+  @keyframes markKeepTimeR{
+    from{transform:rotate(1.5deg);} to{transform:rotate(-1.5deg);}
+  }
+  @keyframes markDotLand{
+    from{opacity:0; transform:translateY(-16px) scale(.35);}
+    to  {opacity:1; transform:translateY(0) scale(1);}
+  }
 
   /* px, not ch. `ch` resolves against THIS element's font-size, and the
      headline inside it is 40px while this box inherits the body's 14 -- 19ch
@@ -4495,8 +4575,15 @@
      head on a figure. That is a property of the mark itself (brandkit/logo/
      attendance-mark.svg is the same geometry, so it is the identity and not a
      bad copy of it), and it is not this stylesheet's to redraw. */
-  .auth-mark{margin:0 0 18px; color:var(--ink); line-height:0;}
-  .auth-mark svg{width:32px; height:32px;}
+  /* Below 1080 the panel is gone, so this is the only mark on screen and it
+     takes the hero's job at the size a form column can carry. */
+  .auth-mark{margin:0 0 20px; color:var(--ink); line-height:0;}
+  .auth-mark svg{width:56px; height:56px; overflow:visible;}
+  /* 56px is already past where the drawn weight holds -- the bars fuse and the
+     mark reads as a figure rather than a monogram, the same failure the hero
+     has at 156. A lighter optical size, less aggressive than the hero's,
+     because this one is under half the size. */
+  .auth-mark rect{width:13px; x:-6.5px;}
   /* The panel carries the mark above this width. */
   @media (min-width:1080px){ .auth-mark{display:none;} }
 
@@ -4525,15 +4612,21 @@
      replaces it rather than composing with it, which threw the mark apart.
      Inside the g the rect is upright in its own space, so scaling it there is
      the leg growing along its own axis whichever way it leans. */
-  .auth-mark rect, .auth-aside-mark rect{
+  .auth-mark rect{
     transform-box:fill-box; transform-origin:50% 100%;
-    animation:barGrow .5s var(--ease-soft) backwards;
+    animation:
+      markSwingIn .95s var(--ease-soft) .1s backwards,
+      markKeepTime 6.2s ease-in-out 1.1s infinite alternate;
   }
-  .auth-mark g:nth-of-type(1) rect, .auth-aside-mark g:nth-of-type(1) rect{animation-delay:.08s;}
-  .auth-mark g:nth-of-type(2) rect, .auth-aside-mark g:nth-of-type(2) rect{animation-delay:.18s;}
-  .auth-mark circle, .auth-aside-mark circle{
+  .auth-mark g:nth-of-type(1) rect{
+    animation-name:markSwingIn, markKeepTimeL; animation-delay:.10s, 1.1s;
+  }
+  .auth-mark g:nth-of-type(2) rect{
+    animation-name:markSwingInR, markKeepTimeR; animation-delay:.18s, 1.1s;
+  }
+  .auth-mark circle{
     transform-box:fill-box; transform-origin:50% 50%;
-    animation:trendDotIn .42s var(--ease-soft) .42s backwards;
+    animation:markDotLand .45s var(--ease-soft) .78s backwards;
   }
 
   .auth-form > *{animation:fadeIn .45s var(--ease-soft) backwards;}
@@ -4607,6 +4700,10 @@
   @media (prefers-reduced-motion: reduce){
     .auth-aside::before,
     .auth-form .btn:disabled::before{animation:none !important;}
+    /* The mark keeps its built state and stops keeping time. Losing the swing
+       loses nothing that carries meaning; the form is still an A. */
+    .auth-hero-mark rect, .auth-mark rect{animation:none !important;}
+    .auth-hero-mark circle, .auth-mark circle{animation:none !important;}
   }
   /* The 10-character rule is enforced twice (minlength on the input, and the
      length check in the submit handler) but was stated nowhere — you found out
@@ -5892,10 +5989,16 @@
        app keeps too. Hidden below 900px, where there is no room for a second
        column and the form is the whole screen. -->
   <aside class="auth-aside">
+    <!-- Wordmark only. The mark is the hero below and two of it on one
+         panel, at two sizes, is the same thing said twice. -->
     <p class="auth-aside-brand">
-      <span class="auth-aside-mark"><svg viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(35,90) rotate(20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><g transform="translate(65,90) rotate(-20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><circle cx="50" cy="24.2" r="8" fill="var(--gold)"/></svg></span>
       <span>Attendance<span class="auth-dot">.</span></span>
     </p>
+
+    <!-- The panel had a brand at the top, a statement at the bottom and a
+         large nothing between them. The mark goes there, at a size where its
+         construction is actually visible, and builds itself on arrival. -->
+    <p class="auth-hero-mark" aria-hidden="true"><svg viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(35,90) rotate(20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><g transform="translate(65,90) rotate(-20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><circle cx="50" cy="24.2" r="8" fill="var(--gold)"/></svg></p>
     <div class="auth-aside-copy">
       <p class="auth-aside-line">Every hour,<br>accounted for.</p>
       <p class="auth-aside-sub">Clock in, clock out, and let the month add itself up.</p>
@@ -7933,6 +8036,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=ledger-type-1"></script>
+<script type="module" src="app.js?v=mark-hero-1"></script>
 </body>
 </html>
