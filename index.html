@@ -4426,9 +4426,33 @@
   .auth-aside-copy{max-width:420px;}
   .auth-aside-line{
     font-family:var(--font-display); font-size:40px; line-height:1.1;
-    letter-spacing:-.03em; margin:0 0 14px; color:#fff;
+    letter-spacing:-.03em; margin:0 0 18px; color:#fff;
     animation:fadeIn .6s var(--ease-soft) .22s backwards;
   }
+  /* The one authored moment on this screen, and it belongs to the product
+     rather than to logins in general: a measure fills under the statement,
+     in the same --gradient-gold the Overview's target bar fills with. The
+     sentence says "accounted for" and the rule underneath it finishes the
+     accounting. It is the app's own progress grammar, used once, as the
+     signature of the screen you sign in from.
+     It lives on the panel deliberately. This is an Operate surface and the
+     form opposite must not make anyone wait to type; the side with nothing
+     to do on it is where an 820ms entrance is free. */
+  .auth-aside-line::after{
+    content:""; display:block; height:3px; width:132px; margin-top:18px;
+    border-radius:var(--radius-pill); background:var(--gradient-gold);
+    /* No transform in the base state, deliberately. The first version set
+       scaleX(0) here and filled `backwards`, which only covers the delay --
+       so the measure drew itself and then snapped shut again the instant the
+       animation ended, and the panel was left with a gap where the rule had
+       just been. Resting full and animating FROM zero is also the rule the
+       craft floor states: animate out of an already-visible default, so a
+       stylesheet that loads without ever running the keyframe still shows the
+       finished thing rather than nothing. */
+    transform-origin:0 50%;
+    animation:authMeasureFill .82s var(--ease-soft) .42s backwards;
+  }
+  @keyframes authMeasureFill{from{transform:scaleX(0);} to{transform:scaleX(1);}}
   .auth-aside-sub{
     margin:0; font-size:13.5px; line-height:1.6; color:var(--muted-on-dark);
     max-width:32ch;
@@ -4473,10 +4497,6 @@
   @media (min-width:900px){ .auth-mark{display:none;} }
 
   .auth-head{margin:0 0 24px;}
-  .auth-eyebrow{
-    margin:0 0 8px; font-size:11px; font-weight:500;
-    text-transform:uppercase; letter-spacing:.14em; color:var(--muted);
-  }
   .auth-title{font-size:32px; color:var(--ink); margin:0 0 6px; font-weight:700; letter-spacing:-.03em; line-height:1.1;}
   .auth-title span{color:var(--gold-deep);}
   .auth-sub{margin:0; font-size:13.5px; line-height:1.55; color:var(--muted);}
@@ -4518,13 +4538,17 @@
      the same staircase replayed there made choosing "Create an account" feel
      like the app had to think about it. They keep the plain fade and arrive
      together. */
-  #signInForm > *:nth-child(1){animation-delay:.30s;}
-  #signInForm > *:nth-child(2){animation-delay:.38s;}
-  #signInForm > *:nth-child(3){animation-delay:.425s;}
-  #signInForm > *:nth-child(4){animation-delay:.47s;}
-  #signInForm > *:nth-child(5){animation-delay:.515s;}
-  #signInForm > *:nth-child(6){animation-delay:.56s;}
-  #signInForm > *:nth-child(7){animation-delay:.605s;}
+  /* Halved. The first version walked the form in over 605ms and the last
+     control landed past a second, which on a surface whose whole job is to be
+     typed into is latency wearing a costume. The stagger still reads as a
+     sequence at 28ms; it just stops being something to sit through. */
+  #signInForm > *:nth-child(1){animation-delay:.10s;}
+  #signInForm > *:nth-child(2){animation-delay:.128s;}
+  #signInForm > *:nth-child(3){animation-delay:.156s;}
+  #signInForm > *:nth-child(4){animation-delay:.184s;}
+  #signInForm > *:nth-child(5){animation-delay:.212s;}
+  #signInForm > *:nth-child(6){animation-delay:.24s;}
+  #signInForm > *:nth-child(7){animation-delay:.268s;}
 
   /* ---------- Focus ----------
      The one piece of motion here that answers something rather than decorating
@@ -4545,6 +4569,40 @@
   }
   .auth-form input:focus{
     box-shadow:0 6px 26px rgba(214,232,92,.34);
+  }
+
+  /* ---------- Submitting ----------
+     The handler already disables the button and swaps the label to
+     "Signing in...", which says what is happening but not that it is still
+     happening: a dark disabled rectangle looks identical at 200ms and at
+     eight seconds on a bad connection. The sheen .btn already carries for
+     hover runs on a loop instead, so the wait has a pulse. Nothing about the
+     label or the disabled state changes -- this is the same information with
+     a heartbeat on it. */
+  .auth-form .btn:disabled::before{
+    transform:translateX(-120%);
+    /* ease-in-out at 1.4s, matching skeletonShimmer, which is this project's
+       existing answer to "something is loading". linear at 1.15s was a
+       marquee: a band scrolling at constant speed reads as a decoration
+       running, where a sweep that accelerates and settles reads as an attempt
+       being made. Same vocabulary as the skeletons, one surface over. */
+    animation:authBtnSweep 1.4s ease-in-out infinite;
+  }
+  @keyframes authBtnSweep{
+    from{transform:translateX(-120%);}
+    to{transform:translateX(120%);}
+  }
+
+  /* The blanket reduced-motion rule at the top of this file drops every
+     duration to .001ms, which is exactly right for a finite entrance -- it
+     lands instantly on its end state -- and exactly wrong for a loop, which
+     it converts into a million iterations a second rather than stopping it.
+     Both loops on this screen are named here and switched off properly.
+     The button keeps its label and its disabled state, which is the part
+     that carries meaning; the panel keeps its wash, just held still. */
+  @media (prefers-reduced-motion: reduce){
+    .auth-aside::before,
+    .auth-form .btn:disabled::before{animation:none !important;}
   }
   /* The 10-character rule is enforced twice (minlength on the input, and the
      length check in the submit handler) but was stated nowhere — you found out
@@ -5854,7 +5912,6 @@
 
 <form id="signInForm" class="auth-form">
       <header class="auth-head">
-        <p class="auth-eyebrow">Attendance Ledger</p>
         <h1 class="display auth-title">Welcome back<span>.</span></h1>
         <p class="auth-sub">Enter your email and password.</p>
       </header>
@@ -5877,7 +5934,6 @@
 
 <form id="registerForm" class="auth-form" style="display:none;">
       <header class="auth-head">
-        <p class="auth-eyebrow">Attendance Ledger</p>
         <h1 class="display auth-title">Create your account<span>.</span></h1>
         <p class="auth-sub">This takes a minute, once.</p>
       </header>
@@ -5908,7 +5964,6 @@
 
 <form id="resetPasswordForm" class="auth-form" style="display:none;">
       <header class="auth-head">
-        <p class="auth-eyebrow">Attendance Ledger</p>
         <h1 class="display auth-title">Set a new password<span>.</span></h1>
         <p class="auth-sub">Choose something you have not used here before.</p>
       </header>
@@ -7874,6 +7929,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=auth-split-1"></script>
+<script type="module" src="app.js?v=auth-motion-1"></script>
 </body>
 </html>
