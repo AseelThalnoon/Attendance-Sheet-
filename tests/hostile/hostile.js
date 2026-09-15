@@ -14,6 +14,15 @@ const fs = require("fs");
 const path = require("path");
 const { boot, goTab, settle, DESKTOP, PHONE } = require("./harness");
 const D = require("./data");
+// This file keeps its own extraction logic below (it needs a brace-matched
+// grab that extract.js does not offer), but it must not keep its own idea of
+// WHERE the app's JavaScript lives. It read app.js directly, and the day
+// VAPID_PUBLIC_KEY moved to src/constants.js that read silently returned
+// nothing: the key came back undefined and the suite died in
+// urlBase64ToUint8Array rather than reporting a missing constant. source()
+// is the one place that knows about src/, so the next extraction cannot
+// break this the same way.
+const { source } = require("../extract");
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -25,8 +34,7 @@ function ok(cond, label, detail){
 async function run(){
   // ---- initialsOf: astral emoji must not produce a lone surrogate --------
   {
-    const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "..", "app.js");
-    const src = fs.readFileSync(APP_SRC, "utf8").split("\n");
+    const src = source();
     const start = src.findIndex(l => l.trim().startsWith("function initialsOf(name){"));
     if(start === -1) throw new Error("extract: initialsOf not found in app.js");
     const end = start + src.slice(start).findIndex(l => l.trim() === "}");
@@ -56,8 +64,7 @@ async function run(){
   // half of the same feature: a subscription held over from a different VAPID
   // key produces a row nothing can ever deliver to, silently.
   {
-    const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "..", "app.js");
-    const lines = fs.readFileSync(APP_SRC, "utf8").split("\n");
+    const lines = source();
     const grab = (startsWith, endsWith) => {
       const s = lines.findIndex(l => l.trim().startsWith(startsWith));
       if(s === -1) throw new Error("extract: not found: " + startsWith);
@@ -625,8 +632,7 @@ async function run(){
   // platforms most people read it on: iOS needs the app on the Home Screen
   // before push exists at all, and Android hides the switch in the OS.
   {
-    const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "..", "app.js");
-    const lines = fs.readFileSync(APP_SRC, "utf8").split("\n");
+    const lines = source();
     const grab = (a, b) => {
       const s = lines.findIndex(l => l.trim().startsWith(a));
       const e = s + lines.slice(s).findIndex(l => l.trim().startsWith(b));
