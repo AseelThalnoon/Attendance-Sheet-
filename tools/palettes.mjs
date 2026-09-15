@@ -369,16 +369,20 @@ const PALETTES = [
         // authored here in the same warm-cream/gold/teal family as the rest
         // of this palette rather than left to fall back to Atrium's lime one.
         iris:"linear-gradient(135deg, #F2E4C8 0%, #E3CB8F 38%, #E6EFEC 68%, #F2E4C8 100%)",
-        // Character beyond colour. Radius: main's own four-step scale, tighter
-        // than Atrium's soft-cornered system throughout. Type: main's own
-        // three-family split (a serif display face is exactly what Atrium's
-        // Weight Rule forbids itself — Ledger is not bound by a rule written
-        // for a different world). Both are system-font stacks, matching how
-        // main actually shipped rather than substituting a self-hosted face
-        // it never had.
-        "radius-xs":"6px", "radius-sm":"8px", "radius-md":"10px", "radius-lg":"14px",
-        "font-display":'"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif',
-        "font-num":'Calibri,"Segoe UI",Candara,Optima,"Trebuchet MS",sans-serif'
+        // Character beyond colour: main's own four-step radius scale, tighter
+        // than Atrium's soft-cornered system throughout.
+        //
+        // The type overrides that used to sit here are gone. Ledger carried a
+        // serif display face and a separate numeral stack, on the argument
+        // that a revived world is not bound by a rule written for a different
+        // one -- and that argument was sound in isolation and wrong in the
+        // app. Switching appearance is a colour preference; it is offered in
+        // Settings beside six other palettes, and picking this one silently
+        // reset every heading and every figure in the product to fonts none
+        // of the others use. A palette that changes the typeface is not a
+        // palette. Ledger is its colours now, and it reads in Switzer like
+        // everything else.
+        "radius-xs":"6px", "radius-sm":"8px", "radius-md":"10px", "radius-lg":"14px"
       }
     },
     dark: {

@@ -292,10 +292,12 @@ It is the same personal, localStorage choice as the other six, generated from
 the same file, and measured by the same test — one shipped value
 (`--muted` at 4.26:1 on its own paper) failed that measurement and was
 corrected the same way Atrium's own first draft was. What *is* deliberately
-different is character: Ledger is the one composition in this file that also
-carries its own type and shape — a serif display face, its own tighter radius
-scale — because the ask was specifically for the old world's full character,
-not a recolour of this one. See **Palettes and modes** below, and `ledger`'s
+different is shape: Ledger is the one composition in this file that also
+carries its own tighter radius scale, because the ask was for the old world's
+character rather than a recolour of this one. It carried its own type too —
+a serif display face and a separate numeral stack — until that was withdrawn
+on request: a palette switch that also swapped the typeface was changing more
+than the control it sits behind offers to change. See **Palettes and modes** below, and `ledger`'s
 own entry in `tools/palettes.mjs` for exactly what carries over unmeasured
 (the type and radius, which have no contrast requirement) versus what was
 re-verified (every colour).
@@ -1000,10 +1002,15 @@ layer; only their palette, radii and type moved.
   exist.
 - **Don't** set text in an accent fill (lime, mint, blush and their equivalents)
   on a light ground.
-- **Don't** reintroduce a second typeface to distinguish headings or numerals
-  *within Atrium*. Ledger's own serif display face and numeral stack are the
-  one documented exception (see **Palettes and modes**) — a revived world
-  keeping its own history, not this rule being quietly abandoned.
+- **Don't** reintroduce a second typeface to distinguish headings or numerals.
+  This had one documented exception — Ledger's serif display face and separate
+  numeral stack — and that exception has been withdrawn, on request. The
+  reasoning that earned it was sound about Ledger and wrong about the app:
+  appearance is offered in Settings as a colour preference beside six other
+  palettes, and picking one of them silently reset every heading and every
+  figure in the product to fonts none of the others use. A palette that changes
+  the typeface is not a palette. Ledger is its colours and its radius scale now,
+  and it sets in Switzer like everything else.
 - **Don't** hand-edit the generated palette blocks in `index.html`. The values
   carry a contrast guarantee that only the generator can restate.
 - **Don't** invert the ink ramp for dark mode. Only `--ink-600` flips; see

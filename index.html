@@ -668,8 +668,6 @@
     --radius-sm:8px;
     --radius-md:10px;
     --radius-lg:14px;
-    --font-display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
-    --font-num:Calibri,"Segoe UI",Candara,Optima,"Trebuchet MS",sans-serif;
   }
   html[data-theme="dark"][data-palette="atrium"], .theme-preview[data-theme="dark"][data-palette="atrium"]{
     --ink-950:#040301;
@@ -4342,26 +4340,130 @@
   .pw-reveal svg{pointer-events:none;}
 
   /* ---------- Auth screen ---------- */
+  /* ---------- The sign-in screen ----------
+     Two columns: an ink panel that says what this is, and a paper column that
+     asks who you are. The card used to be a 380px box centred in an otherwise
+     empty field, which read as a form someone had to put somewhere rather than
+     as the front of anything.
+
+     The ink panel is the rail before there is an app to hang one in -- same
+     surface, same mark, same single accent -- so the screen is recognisably
+     this app's rather than any login. It is also the screen's ONE dark region,
+     which is the rule DESIGN.md keeps everywhere else. */
   .auth-screen{
     /* Same dvh pairing as .shell: on iOS the sign-in card was being centred
        against a viewport taller than the screen, which pushed it up under the
        address bar on the very first screen an installed PWA shows. */
     min-height:100vh; min-height:100dvh;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    /* This is the very first screen an installed PWA shows — before sign-in,
-       there is no rail, no bottom nav, nothing else on screen claiming the
-       notch/home-indicator clearance the rest of the app is careful about.
-       Content is centered rather than pinned to the top, so a card tall
-       enough to need the full viewport still gets real clearance from both
-       edges once scrolled, not just a bare 32px that assumed a browser
-       chrome bar was going to be there. */
-    padding:calc(32px + env(safe-area-inset-top)) 20px calc(32px + env(safe-area-inset-bottom));
+    display:grid; grid-template-columns:1fr;
     background-color:var(--paper);
-    /* The auth screen keeps a soft wash so it is not a flat greige field, but
-       the ruled-paper texture went with the ledger metaphor. */
+  }
+  @media (min-width:900px){
+    /* 0.92fr, not 1fr: the form column needs the wider half. An even split put
+       the card's 380px in the middle of a 720px column at 1440 and reopened the
+       floating-in-a-void problem on the side that matters. */
+    .auth-screen{grid-template-columns:0.92fr 1fr;}
+  }
+
+  .auth-aside{
+    display:none; position:relative; overflow:hidden;
+    background:var(--rail); color:#fff;
+    /* Top inset for the same reason the rail takes a left one: the panel's
+       dark ground should reach the screen edge, but its CONTENTS should not
+       run under a sensor housing. Landscape on a notched phone is the case. */
+    padding:calc(40px + env(safe-area-inset-top)) calc(40px + env(safe-area-inset-left, 0px)) 40px;
+    flex-direction:column; justify-content:space-between;
+  }
+  @media (min-width:900px){ .auth-aside{display:flex;} }
+  /* The wash, and the one thing on this screen that keeps moving. Two soft
+     accent blooms drifting against near-black -- slow enough (32s) to read as
+     light changing rather than as something animating, which is the difference
+     between atmosphere and a screensaver. On a pseudo-element with a transform
+     so it composites rather than repainting the panel, and inset:0 with the
+     gradients fading out well inside their own box, so drifting cannot expose
+     an edge or add scrollable overflow. */
+  .auth-aside::before{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    /* One bloom, low and left, pooling under the headline the way a lamp
+       would. Two competing washes only made olive haze: lime over near-black
+       mixes toward mud long before it reads as light, so this is a tighter
+       core and a much longer falloff rather than more of it.
+       Every stop is the same hue at a lower alpha, and the last one is
+       rgba(...,0) rather than `transparent`. They are not the same thing --
+       CSS `transparent` means transparent BLACK, so a lime-to-transparent ramp
+       interpolates through grey and leaves a visible dirty ring partway down
+       the falloff. On a near-black panel that ring was the most noticeable
+       thing on the screen, and the drift animation swept it around. */
     background-image:
-      radial-gradient(900px 420px at 12% -10%, rgba(214,232,92,.16), transparent 60%),
-      radial-gradient(700px 380px at 95% 105%, rgba(169,220,198,.14), transparent 62%);
+      radial-gradient(820px 600px at 14% 90%,
+        rgba(214,232,92,.155) 0%,
+        rgba(197,229,124,.075) 34%,
+        rgba(176,223,170,.032) 55%,
+        rgba(169,220,198,.012) 72%,
+        rgba(169,220,198,0) 88%);
+    animation:authAsideDrift 32s var(--ease-soft) infinite alternate;
+  }
+  @keyframes authAsideDrift{
+    from{transform:translate3d(-1.5%,-1%,0) scale(1);}
+    to{transform:translate3d(1.5%,1%,0) scale(1.05);}
+  }
+  .auth-aside > *{position:relative;}
+
+  .auth-aside-brand{
+    display:flex; align-items:center; gap:10px; margin:0;
+    font-size:19px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    animation:fadeIn .5s var(--ease-soft) .1s backwards;
+  }
+  .auth-aside-mark{line-height:0;}
+  .auth-aside-mark svg{width:26px; height:26px; display:block;}
+  .auth-dot{color:var(--gold);}
+
+  /* px, not ch. `ch` resolves against THIS element's font-size, and the
+     headline inside it is 40px while this box inherits the body's 14 -- 19ch
+     measured about 133px and broke the line after every word. */
+  .auth-aside-copy{max-width:420px;}
+  .auth-aside-line{
+    font-family:var(--font-display); font-size:40px; line-height:1.1;
+    letter-spacing:-.03em; margin:0 0 18px; color:#fff;
+    animation:fadeIn .6s var(--ease-soft) .22s backwards;
+  }
+  /* The one authored moment on this screen, and it belongs to the product
+     rather than to logins in general: a measure fills under the statement,
+     in the same --gradient-gold the Overview's target bar fills with. The
+     sentence says "accounted for" and the rule underneath it finishes the
+     accounting. It is the app's own progress grammar, used once, as the
+     signature of the screen you sign in from.
+     It lives on the panel deliberately. This is an Operate surface and the
+     form opposite must not make anyone wait to type; the side with nothing
+     to do on it is where an 820ms entrance is free. */
+  .auth-aside-line::after{
+    content:""; display:block; height:3px; width:132px; margin-top:18px;
+    border-radius:var(--radius-pill); background:var(--gradient-gold);
+    /* No transform in the base state, deliberately. The first version set
+       scaleX(0) here and filled `backwards`, which only covers the delay --
+       so the measure drew itself and then snapped shut again the instant the
+       animation ended, and the panel was left with a gap where the rule had
+       just been. Resting full and animating FROM zero is also the rule the
+       craft floor states: animate out of an already-visible default, so a
+       stylesheet that loads without ever running the keyframe still shows the
+       finished thing rather than nothing. */
+    transform-origin:0 50%;
+    animation:authMeasureFill .82s var(--ease-soft) .42s backwards;
+  }
+  @keyframes authMeasureFill{from{transform:scaleX(0);} to{transform:scaleX(1);}}
+  .auth-aside-sub{
+    margin:0; font-size:13.5px; line-height:1.6; color:var(--muted-on-dark);
+    max-width:32ch;
+    animation:fadeIn .6s var(--ease-soft) .32s backwards;
+  }
+
+  .auth-main{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    /* The first screen an installed PWA shows has no rail and no bottom nav, so
+       nothing else is claiming the notch or home-indicator clearance the rest
+       of the app is careful about. Centred rather than pinned, so a tall card
+       still clears both edges once it scrolls. */
+    padding:calc(32px + env(safe-area-inset-top)) 20px calc(32px + env(safe-area-inset-bottom));
   }
   .auth-screen .copyright{margin-top:24px;}
   .auth-card{
@@ -4370,9 +4472,136 @@
     padding:34px 28px 28px; box-shadow:var(--shadow-lg);
     animation:cardIn .5s var(--ease-soft) backwards;
   }
-  .auth-title{font-size:30px; color:var(--ink); margin:0 0 24px; font-weight:700; letter-spacing:-.03em;}
+  /* Below 900px the ink panel is gone and this is the whole screen, so the card
+     stops pretending to be a card: no surface of its own against the paper, no
+     shadow, just the form at the width the screen gives it. A raised white box
+     on a phone is a desktop habit. */
+  /* The card surface only ever existed to give the form an edge when it was
+     floating alone in an empty field. It is not floating now: below 900px the
+     form IS the screen, and above it the ink panel opposite gives it all the
+     edge it needs. A raised white box in either case is a box drawn around
+     something that was already bounded. */
+  .auth-card{background:none; box-shadow:none; padding:0; max-width:400px;}
+
+  /* 32px: a step up from the rail's 22, and no further. The mark is built to
+     be read small -- the legs cross rather than leaving a gap, so at hero size
+     the lime dot stops looking nested at the apex and starts looking like a
+     head on a figure. That is a property of the mark itself (brandkit/logo/
+     attendance-mark.svg is the same geometry, so it is the identity and not a
+     bad copy of it), and it is not this stylesheet's to redraw. */
+  .auth-mark{margin:0 0 18px; color:var(--ink); line-height:0;}
+  .auth-mark svg{width:32px; height:32px;}
+  /* The panel carries the mark above this width. */
+  @media (min-width:900px){ .auth-mark{display:none;} }
+
+  .auth-head{margin:0 0 24px;}
+  .auth-title{font-size:32px; color:var(--ink); margin:0 0 6px; font-weight:700; letter-spacing:-.03em; line-height:1.1;}
+  .auth-title span{color:var(--gold-deep);}
+  .auth-sub{margin:0; font-size:13.5px; line-height:1.55; color:var(--muted);}
+
   .auth-form{display:flex; flex-direction:column; gap:14px;}
   .auth-form label{margin-bottom:6px;}
+
+  /* ---------- Arrival ----------
+     The screen assembles in reading order, which is also the order the form
+     gets filled in. Every keyframe below already existed for something else --
+     barGrow draws the Punctuality bars, trendDotIn pops the chart dots, fadeIn
+     is the app's general arrival -- so this is one motion vocabulary pointed at
+     a new screen rather than a second one invented for it.
+
+     The blanket prefers-reduced-motion rule at the top of this stylesheet drops
+     every duration to .001ms. Each animation here ends on its visible state, so
+     reduced motion gets a still complete page rather than an empty one. */
+
+  /* The two legs grow from their own bases, then the dot lands. The transform
+     is on the rect rather than its <g>: the g carries a transform ATTRIBUTE
+     placing and rotating the leg, and a CSS transform on the same element
+     replaces it rather than composing with it, which threw the mark apart.
+     Inside the g the rect is upright in its own space, so scaling it there is
+     the leg growing along its own axis whichever way it leans. */
+  .auth-mark rect, .auth-aside-mark rect{
+    transform-box:fill-box; transform-origin:50% 100%;
+    animation:barGrow .5s var(--ease-soft) backwards;
+  }
+  .auth-mark g:nth-of-type(1) rect, .auth-aside-mark g:nth-of-type(1) rect{animation-delay:.08s;}
+  .auth-mark g:nth-of-type(2) rect, .auth-aside-mark g:nth-of-type(2) rect{animation-delay:.18s;}
+  .auth-mark circle, .auth-aside-mark circle{
+    transform-box:fill-box; transform-origin:50% 50%;
+    animation:trendDotIn .42s var(--ease-soft) .42s backwards;
+  }
+
+  .auth-form > *{animation:fadeIn .45s var(--ease-soft) backwards;}
+  /* The cascade is scoped to the sign-in form, which is the one the page opens
+     on. Register and Reset are reached by a click, and a click wants an answer:
+     the same staircase replayed there made choosing "Create an account" feel
+     like the app had to think about it. They keep the plain fade and arrive
+     together. */
+  /* Halved. The first version walked the form in over 605ms and the last
+     control landed past a second, which on a surface whose whole job is to be
+     typed into is latency wearing a costume. The stagger still reads as a
+     sequence at 28ms; it just stops being something to sit through. */
+  #signInForm > *:nth-child(1){animation-delay:.10s;}
+  #signInForm > *:nth-child(2){animation-delay:.128s;}
+  #signInForm > *:nth-child(3){animation-delay:.156s;}
+  #signInForm > *:nth-child(4){animation-delay:.184s;}
+  #signInForm > *:nth-child(5){animation-delay:.212s;}
+  #signInForm > *:nth-child(6){animation-delay:.24s;}
+  #signInForm > *:nth-child(7){animation-delay:.268s;}
+
+  /* ---------- Focus ----------
+     The one piece of motion here that answers something rather than decorating
+     it. On a column of near-identical boxes a border that blooms says which one
+     has the caret without anyone having to hunt for the caret itself.
+     A bloom and nothing else: no ring, no border change. The first attempt had
+     all three, and stacked under the 2px ink :focus-visible outline every
+     control in this app already gets, a focused field wore three concentric
+     edges and read as an error state. The outline stays THE indicator -- that
+     is the stylesheet's own decision a thousand lines up, where lime is
+     rejected as a general focus colour precisely because this card is light --
+     and the glow is atmosphere behind it, never a substitute. Which is also
+     why it hangs off :focus rather than :focus-visible: a pointer click gets
+     the bloom alone, a keyboard gets the outline with the bloom behind it. */
+  .auth-form input{
+    transition:border-color var(--dur-base) var(--ease-snap),
+               box-shadow var(--dur-slow) var(--ease-soft);
+  }
+  .auth-form input:focus{
+    box-shadow:0 6px 26px rgba(214,232,92,.34);
+  }
+
+  /* ---------- Submitting ----------
+     The handler already disables the button and swaps the label to
+     "Signing in...", which says what is happening but not that it is still
+     happening: a dark disabled rectangle looks identical at 200ms and at
+     eight seconds on a bad connection. The sheen .btn already carries for
+     hover runs on a loop instead, so the wait has a pulse. Nothing about the
+     label or the disabled state changes -- this is the same information with
+     a heartbeat on it. */
+  .auth-form .btn:disabled::before{
+    transform:translateX(-120%);
+    /* ease-in-out at 1.4s, matching skeletonShimmer, which is this project's
+       existing answer to "something is loading". linear at 1.15s was a
+       marquee: a band scrolling at constant speed reads as a decoration
+       running, where a sweep that accelerates and settles reads as an attempt
+       being made. Same vocabulary as the skeletons, one surface over. */
+    animation:authBtnSweep 1.4s ease-in-out infinite;
+  }
+  @keyframes authBtnSweep{
+    from{transform:translateX(-120%);}
+    to{transform:translateX(120%);}
+  }
+
+  /* The blanket reduced-motion rule at the top of this file drops every
+     duration to .001ms, which is exactly right for a finite entrance -- it
+     lands instantly on its end state -- and exactly wrong for a loop, which
+     it converts into a million iterations a second rather than stopping it.
+     Both loops on this screen are named here and switched off properly.
+     The button keeps its label and its disabled state, which is the part
+     that carries meaning; the panel keeps its wash, just held still. */
+  @media (prefers-reduced-motion: reduce){
+    .auth-aside::before,
+    .auth-form .btn:disabled::before{animation:none !important;}
+  }
   /* The 10-character rule is enforced twice (minlength on the input, and the
      length check in the submit handler) but was stated nowhere — you found out
      by being rejected. Same muted treatment as .settings-hint, which is the
@@ -4388,6 +4617,21 @@
   }
   .auth-error{
     font-size:12px; color:var(--negative); margin:0; min-height:1px;
+  }
+  /* A failed sign-in used to appear with no transition at all: the form looked
+     identical before and after, one line of red simply existed where a moment
+     ago there was none, and on a second identical attempt nothing on screen
+     changed to say the attempt had even been made. :not(:empty) starts
+     matching the moment the handler writes the message, which is what starts
+     this -- no JavaScript change needed, and nothing runs while the line is
+     blank. It is a slide, not a shake: the message is worth reading, and
+     shaking it says "wrong" twice while making it harder to read once. */
+  .auth-error:not(:empty){
+    animation:authErrorIn .32s var(--ease-soft) backwards;
+  }
+  @keyframes authErrorIn{
+    from{opacity:0; transform:translateY(-4px);}
+    to{opacity:1; transform:translateY(0);}
   }
   .auth-success{
     font-size:12.5px; color:var(--positive); margin:0; line-height:1.5;
@@ -5636,16 +5880,39 @@
 
 <!-- ============ AUTH SCREEN ============ -->
 <div id="authScreen" class="auth-screen">
-  <div class="auth-card">
-    <h1 class="display auth-title">Attendance Ledger</h1>
+  <!-- The ink panel. This is the rail, before there is an app to put one in:
+       the same near-black surface, the same mark, the same one accent. It is
+       the only dark region on this screen, which is the rule the rest of the
+       app keeps too. Hidden below 900px, where there is no room for a second
+       column and the form is the whole screen. -->
+  <aside class="auth-aside">
+    <p class="auth-aside-brand">
+      <span class="auth-aside-mark"><svg viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(35,90) rotate(20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><g transform="translate(65,90) rotate(-20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><circle cx="50" cy="24.2" r="8" fill="var(--gold)"/></svg></span>
+      <span>Attendance<span class="auth-dot">.</span></span>
+    </p>
+    <div class="auth-aside-copy">
+      <p class="auth-aside-line">Every hour,<br>accounted for.</p>
+      <p class="auth-aside-sub">Clock in, clock out, and let the month add itself up.</p>
+    </div>
+  </aside>
 
-    <div id="authConfigWarning" class="auth-config-warning" style="display:none;">
+  <div class="auth-main">
+    <div class="auth-card">
+      <!-- The mark again, for the widths where the panel above is gone. Only
+           ever one of the two is on screen. -->
+      <p class="auth-mark" aria-hidden="true"><svg viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(35,90) rotate(20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><g transform="translate(65,90) rotate(-20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><circle cx="50" cy="24.2" r="8" fill="var(--gold)"/></svg></p>
+
+      <div id="authConfigWarning" class="auth-config-warning" style="display:none;">
       This page isn't connected to a database yet. Open the file and set
       <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> near the top of the
       <code>&lt;script&gt;</code> block — see <code>supabase-schema.sql</code> for setup steps.
     </div>
 
-    <form id="signInForm" class="auth-form">
+<form id="signInForm" class="auth-form">
+      <header class="auth-head">
+        <h1 class="display auth-title">Welcome back<span>.</span></h1>
+        <p class="auth-sub">Enter your email and password.</p>
+      </header>
       <div>
         <label for="siEmail">Email</label>
         <input type="email" id="siEmail" autocomplete="username" maxlength="254" required>
@@ -5663,7 +5930,11 @@
       </div>
     </form>
 
-    <form id="registerForm" class="auth-form" style="display:none;">
+<form id="registerForm" class="auth-form" style="display:none;">
+      <header class="auth-head">
+        <h1 class="display auth-title">Create your account<span>.</span></h1>
+        <p class="auth-sub">This takes a minute, once.</p>
+      </header>
       <div>
         <label for="regName">Full Name</label>
         <input type="text" id="regName" autocomplete="name" maxlength="120" dir="auto" required>
@@ -5689,8 +5960,11 @@
       </div>
     </form>
 
-    <form id="resetPasswordForm" class="auth-form" style="display:none;">
-      <p style="margin:0;">Choose a new password for your account.</p>
+<form id="resetPasswordForm" class="auth-form" style="display:none;">
+      <header class="auth-head">
+        <h1 class="display auth-title">Set a new password<span>.</span></h1>
+        <p class="auth-sub">Choose something you have not used here before.</p>
+      </header>
       <div>
         <label for="newPassword">New Password</label>
         <input type="password" id="newPassword" autocomplete="new-password" required minlength="10" aria-describedby="newPasswordHint">
@@ -5707,8 +5981,9 @@
            out but reloading the page by hand. -->
       <button type="button" class="link-btn" id="resetBackBtn">Back to sign in</button>
     </form>
+    </div>
+    <p class="copyright" id="copyrightLineAuth"></p>
   </div>
-  <p class="copyright" id="copyrightLineAuth"></p>
 </div>
 
 <!-- ============ MAIN APP (hidden until signed in) ============ -->
@@ -7652,6 +7927,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=design-pass-2"></script>
+<script type="module" src="app.js?v=ledger-type-1"></script>
 </body>
 </html>
