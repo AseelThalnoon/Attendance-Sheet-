@@ -1128,7 +1128,10 @@
     background:var(--rail); color:#fff;
     /* The rail's own left edge IS the screen's left edge, so in landscape its
        contents run under the sensor housing. The dark ground already extends
-       beneath it, which is the right look; only the contents move. */
+       beneath it, which is the right look; only the contents move. Rounding
+       stays off that edge for the same reason — only the seam against the
+       canvas, top-right and bottom-right, gets it. */
+    border-radius:0 var(--radius-md) var(--radius-md) 0;
     display:flex; flex-direction:column;
     padding:24px 16px 16px calc(16px + env(safe-area-inset-left, 0px));
   }
