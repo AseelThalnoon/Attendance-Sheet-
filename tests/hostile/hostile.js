@@ -126,7 +126,12 @@ async function run(){
     // enabling notifications reported a connection problem that was not one.
     const fe = build("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36");
     vm.runInContext(
-      grab("function explainedError", "// ---------- Bulk-operation guard"), fe);
+      // Ends at the export list, not at the Bulk-operation guard banner it
+      // used to name: explainedError/friendlyError moved to src/errors.js and
+      // that banner stayed in app.js, so the old pair straddled two files.
+      // Every module ends in an export block, and errors.js's own is the first
+      // one after explainedError, so this lands on the end of that file.
+      grab("function explainedError", "export {"), fe);
     const explained = fe.explainedError(
       fe.describeSubscribeFailure(new Error("Registration failed - push service error")));
     ok(/push service \(Google's\)/.test(fe.friendlyError(explained)),

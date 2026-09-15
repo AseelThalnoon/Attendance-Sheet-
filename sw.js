@@ -13,7 +13,7 @@
 // Bump alongside the ?v= query on app.js in index.html. activate() deletes
 // every cache whose key is not this one, so a bump is what forces an
 // installed PWA to drop the old shell and precache the new one.
-const CACHE_NAME = "attendance-ledger-shell-v13";
+const CACHE_NAME = "attendance-ledger-shell-v14";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
@@ -39,6 +39,9 @@ const SHELL_FILES = [
   // Supabase build was moved in-tree to prevent. Every new file under src/
   // has to be added here as it is extracted.
   "./src/constants.js",
+  "./src/entries.js",
+  "./src/errors.js",
+  "./src/storage.js",
   "./src/time.js",
   // Blocking, in <head>, and the reason an offline boot does not flash the
   // default palette before settling on the chosen one. A miss here is not
