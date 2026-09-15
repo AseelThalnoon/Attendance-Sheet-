@@ -3538,6 +3538,24 @@
     .cal-dow{padding:0 5px 6px; font-size:9px;}
     .cal-cell.cal-today .cal-daynum{min-width:17px; height:17px; padding:0 4px; margin:-2px 0 0 -3px;}
   }
+  /* The same swap again, for the band where the rail is the reason there is no
+     room. Above 760px the rail takes 236px off the front of every row, so the
+     calendar is NARROWER at 768px than at 560px with no rail: a working cell
+     measures 74px here against 80px there, and a weekend cell 47px. Nothing
+     escapes the card — .cal-val is a block with overflow:hidden and clips to
+     an ellipsis — but "Other (Excused)" rendered into 47px reads "Other (Exc…",
+     which is the failure the 560px block above names: a cell truncating the
+     value it exists to show instead of swapping to the form that fits.
+     Only the labels and their sizes change. The cell's own metrics are the
+     desktop ones and stay that way; this band has a narrow grid, not a phone.
+     899px is not a new number — it is where the settings console already stops
+     being one column, which is the same question about what the rail leaves. */
+  @media (min-width:761px) and (max-width:899px){
+    .cal-val-full{display:none;}
+    .cal-val-short{display:inline;}
+    .cal-val{font-size:12px;}
+    .cal-val.is-time, .cal-val.is-type{font-size:9.5px;}
+  }
   @media (max-width:480px){
     .calendar-month-label{font-size:14px; min-width:110px;}
     /* The one target in the app that cannot be a 44px square: seven columns in
