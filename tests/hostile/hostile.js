@@ -1140,6 +1140,53 @@ async function run(){
     await h.close();
   }
 
+  // ---- A name in Arabic reads as a name in Arabic ------------------------
+  // escapeHtml already strips bidi OVERRIDE characters, which is the spoofing
+  // vector and a different job from this one. Stripping overrides does not set
+  // direction: a name in Arabic or Hebrew still resolves its neutral
+  // characters -- a separator, a bracket, a trailing dot, any Latin run inside
+  // it -- against whatever direction the containing element has, and in an LTR
+  // page that lands the punctuation on the wrong end of the name. Five render
+  // sites were missing dir="auto" while eight others had it, which is the kind
+  // of gap that only shows up on someone else's alphabet.
+  {
+    const people = D.roster(5);
+    const me = people[0]; me.role = "admin"; me.full_name = "Aseel Thalnoon";
+    people[1].full_name = "أسيل ذوالنون";        // pure Arabic
+    people[2].full_name = "محمد (Admin)";        // Arabic wrapped around Latin
+    const h = await boot({ viewport: DESKTOP, meId: me.id, seed: {
+      profiles: people,
+      entries: D.entriesFor(me.id, 8),
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS }))
+    }});
+    await goTab(h.page, "admin");
+    await settle(h.page, 1200);
+
+    const r = await h.page.evaluate(() => {
+      const arabic = /[\u0600-\u06FF]/;
+      const carriers = [...document.querySelectorAll('[dir="auto"]')]
+        .filter(e => arabic.test(e.textContent));
+      const stray = [...document.querySelectorAll("option, td, .team-name, .admin-user-name")]
+        .filter(e => arabic.test(e.textContent) && e.closest('[dir="auto"]') === null
+                     && e.getAttribute("dir") !== "auto");
+      return {
+        carriers: carriers.length,
+        resolvedRtl: carriers.filter(e => getComputedStyle(e).direction === "rtl").length,
+        strayCount: stray.length,
+        strayFirst: stray.length ? (stray[0].className || stray[0].tagName) : null
+      };
+    });
+
+    ok(r.carriers > 0, "the admin screens render the Arabic names at all", JSON.stringify(r));
+    ok(r.carriers === r.resolvedRtl,
+      "every element carrying an Arabic name resolves right-to-left",
+      `${r.resolvedRtl} of ${r.carriers}`);
+    ok(r.strayCount === 0,
+      "no element renders an Arabic name without directional isolation",
+      `${r.strayCount} stray, first: ${r.strayFirst}`);
+    await h.close();
+  }
+
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
   if(fail){
     failures.forEach(f => console.log("  FAIL " + f));

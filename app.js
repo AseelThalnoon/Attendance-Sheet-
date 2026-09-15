@@ -774,6 +774,15 @@ import { makeSchedule } from "./src/schedule.js";
   // visually reverse the rest of a line in the log table AND in the printed,
   // signed report — a spoofing vector on a document someone puts their name to,
   // not merely a rendering quirk.
+  // Two halves, and they are not the same job. This strips bidi OVERRIDE
+  // characters, which is the spoofing vector -- an RLO in a name visually
+  // reverses the rest of the line in a signed report. It does not set
+  // direction, so a name in Arabic or Hebrew still resolves its neutral
+  // characters -- separators, parentheses, a trailing dot, any Latin run
+  // inside it -- against whatever direction the containing element has. In an
+  // LTR page that puts the punctuation on the wrong end of the name. The
+  // answer to that is dir="auto" on the element the name is written into, and
+  // every site in this file that renders a person's own text now carries it.
   var BIDI_CONTROLS = /[‪-‮⁦-⁩‎‏؜]/g;
   function stripBidi(s){ return s == null ? "" : String(s).replace(BIDI_CONTROLS, ""); }
 
@@ -4415,7 +4424,7 @@ import { makeSchedule } from "./src/schedule.js";
           '<td class="num">'+(c.targetMin?minutesToHoursStr(c.targetMin):"—")+'</td>' +
           '<td class="num">'+(c.diffMin===null?"—":signed(c.diffMin))+'</td>' +
           '<td>'+escapeHtml(typeLabel(e.type))+'</td>' +
-          '<td>'+escapeHtml(e.note)+'</td></tr>';
+          '<td dir="auto">'+escapeHtml(e.note)+'</td></tr>';
       });
       html += '</tbody></table>';
     }
@@ -7208,7 +7217,7 @@ import { makeSchedule } from "./src/schedule.js";
     sel.innerHTML = allProfiles.map(function(p){
       var label = (p.id === currentUser.id ? "Me — " : "") + (p.full_name || p.email) +
         (p.role === "admin" ? " (Admin)" : "");
-      return '<option value="'+p.id+'">'+escapeHtml(label)+'</option>';
+      return '<option dir="auto" value="'+p.id+'">'+escapeHtml(label)+'</option>';
     }).join("");
     sel.value = allProfiles.some(function(p){ return p.id === prev; }) ? prev : currentUser.id;
   }
@@ -9104,7 +9113,7 @@ import { makeSchedule } from "./src/schedule.js";
     var prev = sel.value;
     sel.innerHTML = '<option value="">Anyone</option>' +
       adminUsersCache.map(function(u){
-        return '<option value="'+escapeAttr(u.id)+'">'+escapeHtml(u.full_name || u.email)+'</option>';
+        return '<option dir="auto" value="'+escapeAttr(u.id)+'">'+escapeHtml(u.full_name || u.email)+'</option>';
       }).join("");
     sel.value = adminUsersCache.some(function(u){ return u.id === prev; }) ? prev : "";
   }
@@ -9163,7 +9172,7 @@ import { makeSchedule } from "./src/schedule.js";
       // moving them in the DOM.
       tr.innerHTML =
         "<td class='c-figure' data-label='When'><span class=\"cell-label\">When</span>"+escapeHtml(fmtRelative(r.created_at))+"</td>"+
-        "<td class='c-primary' data-label='Who'><span class=\"cell-label\">Who</span>"+escapeHtml(r.actor_email || "System")+"</td>"+
+        "<td class='c-primary' dir='auto' data-label='Who'><span class=\"cell-label\">Who</span>"+escapeHtml(r.actor_email || "System")+"</td>"+
         "<td class='c-status' data-label='Action'><span class=\"cell-label\">Action</span><span class='audit-action "+auditActionClass(r.action)+"'>"+
           escapeHtml(AUDIT_LABELS[r.action] || r.action)+"</span></td>"+
         "<td class='c-meta c-bare"+(affected === "—" ? " c-off" : "")+"' data-label='Affected'><span class=\"cell-label\">Affected</span>"+escapeHtml(affected)+"</td>"+
@@ -9645,7 +9654,7 @@ import { makeSchedule } from "./src/schedule.js";
       var checked = notifySelectedIds.has(u.id);
       return '<label class="check-row" style="margin-top:4px;">'+
         '<input type="checkbox" data-notify-person="'+escapeAttr(u.id)+'"'+(checked ? " checked" : "")+'>'+
-        '<span>'+escapeHtml(u.full_name || u.email)+'</span>'+
+        '<span dir="auto">'+escapeHtml(u.full_name || u.email)+'</span>'+
       '</label>';
     }).join("") : '<p class="settings-hint" style="margin:0;">No one matches that search.</p>';
   }
