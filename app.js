@@ -325,6 +325,7 @@ import {
 import { safeGet, safeSet, normalizeSettings } from "./src/storage.js";
 import { rowToEntry, entryToRow } from "./src/entries.js";
 import { explainedError, friendlyError } from "./src/errors.js";
+import { makeSchedule } from "./src/schedule.js";
 
 (function(){
   "use strict";
@@ -341,6 +342,21 @@ import { explainedError, friendlyError } from "./src/errors.js";
 
   var entries = [];
   var settings = Object.assign({}, DEFAULT_SETTINGS);
+
+  // The schedule rules live in src/schedule.js and read settings through this
+  // getter, so the roster's `settings = personSettings; ... finally { settings
+  // = saved; }` swap keeps working exactly as it did -- the module reads
+  // whatever is current when it is called rather than a copy taken earlier.
+  //
+  // Bound here, next to the state it reads, rather than where the functions
+  // used to sit: these were hoisted function declarations and are const
+  // bindings now, so anything calling them above this line would hit the
+  // temporal dead zone. Directly under the declaration is the earliest point
+  // that cannot happen.
+  const {
+    isScheduled, targetMinPerDay, scheduleFor, workDaysLabel, scheduleSummary,
+    computeEntry, weekStartDow, weekStartDate, weekKey
+  } = makeSchedule(function(){ return settings; });
 
   // Persisted across reloads. These were plain in-memory values, so "Dismiss" on
   // an open-shift reminder and "Later" on the backup prompt both reset on every
@@ -744,152 +760,6 @@ import { explainedError, friendlyError } from "./src/errors.js";
   }
 
   // ---------- Helpers ----------
-  function isScheduled(dateStr){
-    return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
-  }
-  // A generic single-day fallback for charts/labels that need *some* target
-  // before any entries exist to average from. Resolves today's seasonal
-  // period (Ramadan, summer hours) rather than the flat org default, so it
-  // doesn't quietly show 8h while a 5h period is actually in force.
-  function targetMinPerDay(){ return scheduleFor(todayStr()).targetMin; }
-
-  // Resolves the schedule in force on a given date. Seasonal periods (Ramadan,
-  // summer hours) override the base schedule for the dates they cover.
-  function scheduleFor(dateStr){
-    var list = settings.periods || [];
-    for(var i=0;i<list.length;i++){
-      var p = list[i];
-      if(p.start && p.end && dateStr >= p.start && dateStr <= p.end){
-        return {
-          targetMin: p.targetMin != null ? p.targetMin : settings.targetMin,
-          standardIn: p.standardIn || settings.standardIn,
-          standardOut: p.standardOut || settings.standardOut,
-          name: p.name || "Seasonal hours"
-        };
-      }
-    }
-    return {
-      targetMin: settings.targetMin,
-      standardIn: settings.standardIn,
-      standardOut: settings.standardOut,
-      name: ""
-    };
-  }
-
-  // Shared by the Settings summary line and the audit log's schedule diff,
-  // so "Sun–Thu" means the same thing and is spelled the same way in both.
-  function workDaysLabel(days){
-    days = days.slice().sort(function(a,b){return a-b;});
-    // Show as a range when the days are contiguous, otherwise list them.
-    var contiguous = days.every(function(d,i){ return i === 0 || d === days[i-1]+1; });
-    if(days.length === 1) return DAY_FULL[days[0]];
-    if(contiguous) return DAY_NAMES[days[0]] + "–" + DAY_NAMES[days[days.length-1]];
-    return days.map(function(d){ return DAY_NAMES[d]; }).join(", ");
-  }
-
-  function scheduleSummary(){
-    var label = workDaysLabel(settings.workDays);
-    var today = scheduleFor(todayStr());
-    var base = formatTime12(today.standardIn) + "–" + formatTime12(today.standardOut) +
-               " · " + label + " · Target " + minutesToHoursStr(today.targetMin) + "/day";
-    return today.name ? base + " · " + today.name : base;
-  }
-
-  function computeEntry(e){
-    var excused = EXCUSED_TYPES.indexOf(e.type) !== -1;
-    // Leave/sick/holiday plus WFH/trip/training: none of these owe a fixed
-    // daily target, so there is nothing for a blank row to fall short of.
-    var noTarget = excused || NO_TARGET_TYPES.indexOf(e.type) !== -1;
-    var half = HALF_TYPES.indexOf(e.type) !== -1;
-    var scheduled = isScheduled(e.date);
-    var sched = scheduleFor(e.date);
-
-    var targetMin = 0;
-    if(scheduled && !noTarget){
-      targetMin = half ? Math.round(sched.targetMin / 2) : sched.targetMin;
-    }
-
-    // Worked hours first — punctuality can depend on whether the target was met.
-    var workedMin = null;
-    if(e.clockIn && e.clockOut){
-      var gross = timeToMinutes(e.clockOut) - timeToMinutes(e.clockIn);
-      if(gross < 0) gross += 24*60; // overnight shift
-      workedMin = Math.max(0, gross);
-    } else if(noTarget && !e.clockIn){
-      // Nothing clocked and nothing owed: zero, not a shortfall. A clock-in
-      // with no clock-out yet still falls through to the open-day handling
-      // below regardless of type — a running WFH/trip/training shift is an
-      // open day like any other, not a free pass to look closed.
-      workedMin = 0;
-    }
-
-    // Punctuality is only meaningful on a scheduled, non-excused day.
-    var lateMin = 0, earlyMin = 0;
-    var grace = settings.graceMin || 0;
-    var countable = scheduled && !excused;
-
-    // When "only if short" is on, making up the hours clears the flag. A day
-    // that's still open can't be judged yet, so it isn't flagged either way —
-    // but it must not be counted as *on time* either. `pending` marks that
-    // distinction so the On Time tab can exclude the day rather than silently
-    // score it clean and then flip it to late once the user clocks out.
-    var metTarget = workedMin !== null && workedMin >= targetMin;
-    var pending = settings.lateOnlyIfShort && workedMin === null && !!e.clockIn && countable;
-    var forgiven = settings.lateOnlyIfShort && (metTarget || workedMin === null);
-
-    if(countable && e.clockIn && !forgiven){
-      var lm = timeToMinutes(e.clockIn) - timeToMinutes(sched.standardIn);
-      if(lm > grace) lateMin = lm;
-    }
-    // A half day is meant to end early, so leaving early isn't a departure flag.
-    if(countable && !half && e.clockIn && e.clockOut && !forgiven){
-      var em = timeToMinutes(sched.standardOut) - timeToMinutes(e.clockOut);
-      if(em > grace) earlyMin = em;
-    }
-
-    // An off-day (weekend, or any day outside the configured work days) is
-    // neutral the same way an excused/no-target day is: whatever gets logged
-    // — 20 hours or nothing — must not read as credit or a shortfall.
-    var neutral = noTarget || !scheduled;
-
-    if(workedMin !== null && !(noTarget && !e.clockIn)){
-      return {
-        workedMin:workedMin, targetMin:targetMin,
-        diffMin: neutral ? 0 : workedMin - targetMin,
-        excused:excused, half:half, scheduled:scheduled, open:false,
-        lateMin:lateMin, earlyMin:earlyMin, sched:sched, pending:false
-      };
-    }
-    return {
-      workedMin: noTarget ? 0 : null, targetMin:targetMin,
-      diffMin: noTarget ? 0 : null, excused:excused, half:half, scheduled:scheduled,
-      open: !!(e.clockIn && !e.clockOut),
-      lateMin:lateMin, earlyMin:0, sched:sched, pending:pending
-    };
-  }
-
-  // The week starts on the first configured working day rather than always
-  // Sunday. Hardcoding Sunday was right for the Sun–Thu default but split every
-  // week in half for a Mon–Fri organisation, so weekly cards straddled two
-  // working weeks and the "vs. last week" trend compared mismatched periods.
-  function weekStartDow(){
-    var days = (settings.workDays || []).slice().sort(function(a,b){ return a-b; });
-    if(!days.length) return 0;
-    // Contiguous runs that wrap the week boundary (e.g. Sat–Wed) should start at
-    // the run's beginning, not at the lowest numeric day.
-    for(var i=0;i<days.length;i++){
-      var prev = days[(i - 1 + days.length) % days.length];
-      if(((days[i] - prev + 7) % 7) !== 1) return days[i];
-    }
-    return days[0];
-  }
-  function weekStartDate(dateStr){
-    var d = dateFromStr(dateStr);
-    var offset = (d.getDay() - weekStartDow() + 7) % 7;
-    d.setDate(d.getDate() - offset);
-    return d;
-  }
-  function weekKey(dateStr){ return dateToStr(weekStartDate(dateStr)); }
   function monthKey(dateStr){ var d = dateFromStr(dateStr); return d.getFullYear()+"-"+pad2(d.getMonth()+1); }
   function yearKey(dateStr){ return String(dateFromStr(dateStr).getFullYear()); }
   function monthLabel(key){
@@ -8168,10 +8038,19 @@ import { explainedError, friendlyError } from "./src/errors.js";
     return map;
   }
 
-  // summarize(), computeEntry() and scheduleFor() all read the module-level
-  // `settings`. Rather than change the signature of functions the regression
-  // suite extracts verbatim, swap the value for the duration of one synchronous
-  // call. Nothing awaits in between, so nothing else can observe the swap.
+  // summarize(), computeEntry() and scheduleFor() all read `settings` -- the
+  // first from this file, the other two from src/schedule.js, which reaches it
+  // through the getter it was built with. Rather than change the signature of
+  // functions the regression suite extracts verbatim, swap the value for the
+  // duration of one synchronous call. Nothing awaits in between, so nothing
+  // else can observe the swap.
+  //
+  // The getter is what keeps that true across the module boundary: schedule.js
+  // reads whatever is current when it is called, so it sees the swap without
+  // knowing it happened. Hand that module a settings object instead, or let it
+  // hold its own copy, and these three functions would go on looking correct
+  // while reporting one person's hours against another's working week.
+  // tests/regression/settings-swap.js exists to fail if that ever changes.
   function summarizeAs(personSettings, rows){
     var saved = settings;
     settings = personSettings;

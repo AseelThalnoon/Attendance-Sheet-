@@ -18,6 +18,13 @@ const code = [
   slice("var DEFAULT_SETTINGS = {", "// VAPID public keys"),
   "var settings = Object.assign({}, DEFAULT_SETTINGS);",
   "var entries = [];",
+  // The schedule rules moved to src/schedule.js, which reads settings through
+  // a getter so app.js can swap in another person's settings and restore them
+  // (see the roster's finally blocks). The functions sliced below therefore
+  // say getSettings() where they used to say settings; this hands the sandbox
+  // the same indirection, still pointed at the `settings` the cases below
+  // reassign, so every test after this reads exactly as it did.
+  "var getSettings = function(){ return settings; };",
   slice("function pad2(n)", "// Display-only."),
   slice("function timeToMinutes(t)", "// Display-only."),
   slice("function formatTime12(t)", "function minutesToHoursStr"),

@@ -34,6 +34,7 @@ const SUITES = [
   "push/test-push-actions.js",
   "regression/audit-logic.js",
   "regression/audit-dom.js",
+  "regression/settings-swap.js",
   "regression/admin-tab.js",
   "regression/palette-contrast.js",
   "regression/one-screen.js",
