@@ -69,6 +69,7 @@ function createBackend(seed){
     push_subscriptions: (seed && seed.push_subscriptions) || [],
     push_deliveries: (seed && seed.push_deliveries) || [],
     notification_reads: (seed && seed.notification_reads) || [],
+    client_errors: (seed && seed.client_errors) || [],
     // Faults, keyed by a substring of the request path ("entries", "rpc/admin_list_users").
     // Value: {status, message} | "hang" | {delayMs, ...}
     faults: new Map(),
@@ -228,6 +229,24 @@ function createBackend(seed){
         added++;
       });
       return json(added);
+    }
+    if(name === "admin_client_errors"){
+      // Mirrors the real function: newest first, optional kind filter, and the
+      // reporter's email/name joined in from profiles rather than left as the
+      // uuid the table actually stores.
+      const rows = state.client_errors
+        .filter(r => !args.filter_kind || r.kind === args.filter_kind)
+        .slice()
+        .sort((a, b) => String(b.occurred_at).localeCompare(String(a.occurred_at)))
+        .slice(0, Math.min(args.limit_n || 100, 500))
+        .map(r => {
+          const who = state.profiles.find(p => p.id === r.user_id);
+          return Object.assign({}, r, {
+            reporter_email: who ? who.email : null,
+            reporter_name: who ? who.full_name : null
+          });
+        });
+      return json(rows);
     }
     return json({ message: "unknown rpc " + name }, 404);
   }

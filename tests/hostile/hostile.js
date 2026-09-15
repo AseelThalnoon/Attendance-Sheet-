@@ -1052,6 +1052,84 @@ async function run(){
     await h.close();
   }
 
+  // ---- Crash reports render, and hostile ones do not break the page -------
+  // The crash log is the one table whose contents are written by a machine
+  // rather than a person. A thrown Error carries URLs, minified symbols and
+  // file paths, and none of those contain a space to wrap at -- so the column
+  // has to break mid-token or the whole admin panel goes sideways. It did:
+  // a 70-character unbreakable string in this section pushed a 320px screen
+  // 227px past its own edge.
+  {
+    const people = D.roster(3);
+    const me = people[0];
+    me.role = "admin";
+    const NASTY = "Failed to fetch https://example.invalid/a/very/long/unbroken/path/that/has/nowhere/to/wrap/at/all/x.json";
+    const h = await boot({ viewport: PHONE, meId: me.id, seed: {
+      profiles: people,
+      entries: D.entriesFor(me.id, 5),
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })),
+      client_errors: [
+        { id:"c1", user_id: people[1].id, occurred_at:"2026-09-14T10:00:00Z", kind:"error",
+          message:"Cannot read properties of undefined (reading 'length')",
+          source:"https://example.com/app.js", line:4127, col:19, build:"crash-console-1",
+          url:"/index.html", user_agent:"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1" },
+        { id:"c2", user_id: me.id, occurred_at:"2026-09-15T09:00:00Z", kind:"unhandledrejection",
+          message: NASTY, source:null, line:null, col:null, build:"crash-console-1",
+          url:"/index.html", user_agent:"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36" },
+        { id:"c3", user_id: me.id, occurred_at:"2026-09-13T08:00:00Z", kind:"resource",
+          message:"Failed to load img: /missing.png", source:null, line:null, col:null,
+          build:"modules-3", url:"/index.html", user_agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/141.0" }
+      ]
+    }});
+    await goTab(h.page, "admin");
+    await settle(h.page, 500);
+    await h.page.evaluate(() => document.getElementById("cnav-admin-crashes").click());
+    await settle(h.page, 600);
+
+    const view = await h.page.evaluate(() => ({
+      rows: document.querySelectorAll("#crashBody tr").length,
+      text: document.getElementById("crashBody").innerText,
+      empty: getComputedStyle(document.getElementById("crashEmpty")).display,
+      count: document.getElementById("crashCount").textContent,
+      overflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    }));
+
+    ok(view.rows === 3, "every recorded crash is listed", JSON.stringify(view.rows));
+    ok(view.empty === "none", "the empty state is not shown alongside rows", view.empty);
+    ok(/3 reports/.test(view.count), "the nav row carries the count", view.count);
+    // Newest first: the unhandled rejection is the most recent of the three.
+    ok(view.text.indexOf("Unhandled rejection") < view.text.indexOf("Uncaught error"),
+      "the newest report is at the top");
+    // The raw kind values are storage, not language.
+    ok(!/unhandledrejection/.test(view.text) && /Missing file/.test(view.text),
+      "the kind reads as words rather than as the stored value", view.text.slice(0, 120));
+    // A 120-character user-agent answers "which browser" in about four.
+    ok(/Safari 18 on iOS/.test(view.text) && /Firefox 141 on Windows/.test(view.text),
+      "the user agent is reduced to the browser and platform", view.text.slice(0, 200));
+    ok(/app\.js:4127/.test(view.text),
+      "a report that knows where it came from says so", view.text.slice(0, 200));
+    ok(view.overflow <= 1,
+      "an unbreakable 100-character message does not push the page sideways",
+      `document is ${view.overflow}px wider than the viewport`);
+
+    // The kind filter is the reason the column exists: a missing file is a bad
+    // deploy, an uncaught error is a bug, and they are not the same errand.
+    await h.page.evaluate(() => {
+      const sel = document.getElementById("crashFilterKind");
+      sel.value = "resource";
+      sel.dispatchEvent(new Event("change", {bubbles: true}));
+    });
+    await settle(h.page, 500);
+    const filtered = await h.page.evaluate(() => ({
+      rows: document.querySelectorAll("#crashBody tr").length,
+      text: document.getElementById("crashBody").innerText
+    }));
+    ok(filtered.rows === 1 && /Missing file/.test(filtered.text),
+      "filtering by kind narrows the table to that kind", JSON.stringify(filtered.rows));
+
+    await h.close();
+  }
+
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
   if(fail){
     failures.forEach(f => console.log("  FAIL " + f));

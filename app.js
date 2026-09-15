@@ -9140,6 +9140,115 @@ import { makeSchedule } from "./src/schedule.js";
     showToast("Exported " + auditRowsCache.length + " log entries.", "success");
   });
 
+  // ---------- Crash reports ----------
+  // The reading half of the crash handler at the top of this file. That wrote
+  // rows nobody could reach without opening the Supabase dashboard, which is
+  // not a place this app asks anyone to go.
+  var CRASH_KIND_LABELS = {
+    error: "Uncaught error",
+    unhandledrejection: "Unhandled rejection",
+    // Named for what it means rather than what fired. A failed <img> or
+    // <script> raises the same DOM event as a thrown exception and almost
+    // never means the same thing: it is a stale installed copy or a bad
+    // deploy, not a fault in the code.
+    resource: "Missing file"
+  };
+
+  // Chrome's user-agent string is ~120 characters that answer "which browser"
+  // in about four. The rest is noise in a five-column table, and the full
+  // string is still in the row for anyone querying the table directly.
+  function browserLabel(ua){
+    ua = String(ua || "");
+    if(!ua) return "—";
+    var m = /(Firefox)\/([\d.]+)/.exec(ua)
+         || /(Edg)\/([\d.]+)/.exec(ua)
+         || /(Chrome)\/([\d.]+)/.exec(ua)
+         || /Version\/([\d.]+).*(Safari)/.exec(ua);
+    if(!m) return "Unknown browser";
+    var name = m[2] && !/^\d/.test(m[2]) ? m[2] : m[1];
+    var version = /^\d/.test(m[1]) ? m[1] : m[2];
+    if(name === "Edg") name = "Edge";
+    var os = /iPhone|iPad/.test(ua) ? "iOS"
+           : /Android/.test(ua) ? "Android"
+           : /Mac OS X/.test(ua) ? "macOS"
+           : /Windows/.test(ua) ? "Windows"
+           : /Linux/.test(ua) ? "Linux" : "";
+    return name + " " + String(version).split(".")[0] + (os ? " on " + os : "");
+  }
+
+  // The line that says what actually happened. The message alone is often
+  // "Script error." or a bare type name, so the file and line it came from
+  // carry as much of the answer as the sentence does.
+  function crashWhere(r){
+    if(!r.source) return "";
+    var file = String(r.source).split("/").pop().split("?")[0];
+    return file + (r.line ? ":" + r.line + (r.col ? ":" + r.col : "") : "");
+  }
+
+  async function renderCrashLog(){
+    var kind = document.getElementById("crashFilterKind").value || null;
+    var body = document.getElementById("crashBody");
+    var empty = document.getElementById("crashEmpty");
+    var count = document.getElementById("crashCount");
+    var res;
+    try{
+      res = await supabase.rpc("admin_client_errors", {limit_n: 200, filter_kind: kind});
+      if(res.error) throw res.error;
+    }catch(err){
+      // The likely failure is the migration not having been applied yet, which
+      // arrives as a missing function. Worth distinguishing from a real
+      // outage, because "nothing is wrong, this view just is not finished" is
+      // a different thing to read than "this is broken".
+      //
+      // The migration's filename belongs in the console, not on screen: an
+      // administrator cannot act on it, the developer who can is the one with
+      // devtools open, and a 70-character unbreakable path in a centred empty
+      // state pushed the admin panel 227px past the edge of a 320px screen.
+      var missing = /admin_client_errors|does not exist|schema cache/i.test(err.message || "");
+      if(missing && window.console && console.error){
+        console.error("[crash log] admin_client_errors is missing — apply " +
+          "supabase/migrations/20260915120000_client_errors_admin_view_and_prune.sql");
+      }
+      body.innerHTML = "";
+      empty.style.display = "block";
+      empty.textContent = missing
+        ? "Crashes are being recorded, but this view is not finished setting up yet."
+        : "Couldn't load crash reports: " + friendlyError(err);
+      count.textContent = "Unavailable";
+      return;
+    }
+
+    var rows = res.data || [];
+    body.innerHTML = "";
+    empty.textContent = "Nothing has crashed. That is the result you want here.";
+    empty.style.display = rows.length ? "none" : "block";
+    count.textContent = rows.length
+      ? rows.length + (rows.length >= 200 ? "+" : "") + " report" + (rows.length === 1 ? "" : "s")
+      : "Nothing recorded";
+
+    rows.forEach(function(r){
+      var tr = document.createElement("tr");
+      var where = crashWhere(r);
+      var who = r.reporter_name || r.reporter_email || "—";
+      // Same cell order as every other mobile-rows table, so a screen reader
+      // reads it in thead order while c-figure/c-status/c-meta place it.
+      tr.innerHTML =
+        "<td class='c-figure' data-label='When'><span class=\"cell-label\">When</span>"+escapeHtml(fmtRelative(r.occurred_at))+"</td>"+
+        "<td class='c-status' data-label='Kind'><span class=\"cell-label\">Kind</span>"+
+          escapeHtml(CRASH_KIND_LABELS[r.kind] || r.kind || "—")+"</td>"+
+        "<td class='c-note' dir='auto' data-label='What happened'><span class=\"cell-label\">What happened</span>"+
+          escapeHtml(r.message || "—")+(where ? " <span class='c-off'>("+escapeHtml(where)+")</span>" : "")+"</td>"+
+        "<td class='c-primary' data-label='Whose screen'><span class=\"cell-label\">Whose screen</span>"+
+          escapeHtml(who)+"<br><span class='c-off'>"+escapeHtml(browserLabel(r.user_agent))+"</span></td>"+
+        "<td class='c-meta c-bare"+(r.build ? "" : " c-off")+"' data-label='Build'><span class=\"cell-label\">Build</span>"+
+          escapeHtml(r.build || "—")+"</td>";
+      body.appendChild(tr);
+    });
+  }
+
+  document.getElementById("refreshCrashBtn").addEventListener("click", renderCrashLog);
+  document.getElementById("crashFilterKind").addEventListener("change", renderCrashLog);
+
   // Quoted always: notes and names carry commas, quotes and newlines, and a
   // leading =, + or - would be executed as a formula by a spreadsheet.
   function csvCell(v){
@@ -10124,6 +10233,7 @@ import { makeSchedule } from "./src/schedule.js";
       renderAdminStats(),
       loadAdminPeople(),
       resetAuditPaging(),
+      renderCrashLog(),
       loadAppSettings(),
       renderNotifyHistory(),
       renderNotifyReach(),
