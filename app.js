@@ -6282,7 +6282,15 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   function showAuthScreen(){
-    document.getElementById("authScreen").style.display = "flex";
+    // "" and not "flex". This element's layout belongs to the stylesheet, and
+    // the stylesheet changed it to a grid when the sign-in screen became two
+    // columns -- an inline "flex" here beat the grid and collapsed the form
+    // column to its content width, so signing out landed you on a sign-in
+    // screen with the fields shoved against the left edge. A fresh page load
+    // never set the inline style, which is why it only appeared after a
+    // sign-in/sign-out round trip. Clearing the property lets the CSS answer,
+    // whatever the CSS decides to be next.
+    document.getElementById("authScreen").style.display = "";
     document.getElementById("appShell").style.display = "none";
     refreshRegistrationVisibility();
   }
@@ -6323,7 +6331,8 @@ import { makeSchedule } from "./src/schedule.js";
     recoverySessionUser = null;
   }
   function showResetPasswordScreen(){
-    document.getElementById("authScreen").style.display = "flex";
+    // Same as showAuthScreen: the stylesheet owns this element's display.
+    document.getElementById("authScreen").style.display = "";
     document.getElementById("appShell").style.display = "none";
     document.getElementById("signInForm").style.display = "none";
     document.getElementById("registerForm").style.display = "none";
@@ -6765,7 +6774,28 @@ import { makeSchedule } from "./src/schedule.js";
       {title:"Sign out?", confirmText:"Sign out", danger:true}
     );
     if(!ok) return;
-    await supabase.auth.signOut();
+    // signOut() defaults to a global scope, which is a network call to revoke
+    // the refresh token everywhere. On an installed PWA -- offline, on a dead
+    // connection, or holding a session the server has already forgotten --
+    // that call rejects, nothing catches it, and the person stays signed in
+    // having been asked to confirm and told nothing. "Sign out does not work"
+    // is exactly what that looks like from the outside.
+    //
+    // The local fallback is the point: it clears the session on THIS device
+    // without talking to anyone, so the one thing the button promises always
+    // happens. The refresh token stays live server-side until it expires,
+    // which is worth saying plainly -- but a sign-out that half works beats
+    // one that silently does nothing, and the alternative was neither.
+    try{
+      await supabase.auth.signOut();
+    }catch(err){
+      try{
+        await supabase.auth.signOut({scope:"local"});
+        showToast("Signed out on this device. The server could not be reached.", "info");
+      }catch(err2){
+        showToast("Couldn't sign out: " + friendlyError(err), "error");
+      }
+    }
   });
   // The rail's sign-out control proxies to the real button above rather than
   // duplicating its logic — the same pattern .rail-item already uses for
