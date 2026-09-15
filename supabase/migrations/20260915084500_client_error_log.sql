@@ -1,6 +1,11 @@
--- STATUS: NOT YET APPLIED. Run this against the live project before the
--- matching app.js change can record anything; until then the client's insert
--- fails, is swallowed by design, and crashes reach the console only.
+-- STATUS: APPLIED to the live project on 2026-09-15.
+--
+-- Verified afterwards: the table is present with RLS enabled, all twelve
+-- columns carry their CHECK constraints, and the foreign key to auth.users is
+-- in place. The database linter reports client_errors under no finding at all
+-- -- in particular not rls_enabled_no_policy, which is what an ENABLE ROW
+-- LEVEL SECURITY with both policies silently missing would have looked like:
+-- a table nobody can read and nobody can write, failing closed and quietly.
 --
 -- Every failure this app ANTICIPATED already had somewhere to go: a Postgres
 -- code became a sentence through friendlyError(), a dead connection became the
