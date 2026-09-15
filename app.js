@@ -3072,7 +3072,12 @@ import { makeSchedule } from "./src/schedule.js";
       }
       cursor.setDate(cursor.getDate()-1);
     }
-    document.getElementById("streak").textContent = streak;
+    // "3d", not a bare "3". Three of the four figures in this row carry their
+    // unit inline — 9h 13m, +11h 16m, 17d — and this one was the only number
+    // on the row that needed its own caption read before it meant anything.
+    // Days is also the same unit the Leave Balance beside it uses, so the row
+    // now reads consistently across all four.
+    document.getElementById("streak").textContent = streak + "d";
     // Marks a genuine milestone the day the streak reaches it — never
     // permanent, since tomorrow it's just one more day and the exact match
     // stops firing on its own. Kept to the ledger's own quiet register: no

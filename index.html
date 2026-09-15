@@ -1311,6 +1311,21 @@
        mis-tap on Sign out costs the most. Shrink the pills instead. */
     .head-action{padding:0 var(--space-3); font-size:11px; letter-spacing:.06em; gap:var(--space-1-5);}
   }
+  /* Four labelled pills do not fit one phone line and are not meant to — the
+     note above is right that the labels are worth more than the row. What was
+     wrong is what the wrap did with them: justify-content:flex-end pushed the
+     overflow to the right, so Sign out landed alone on its own line, right-
+     aligned, crimson, on a raised card. The rarest and most destructive
+     control on the screen was given the most isolation and the loudest
+     treatment, directly above the greeting.
+     Packing left puts the wrapped pill under the group it belongs to and in
+     line with the title, and the danger pill drops its card surface: still
+     labelled, still 44px, still one tap — just no longer the first thing the
+     eye lands on. */
+  @media (max-width:760px){
+    .head-actions{justify-content:flex-start;}
+    .head-action.danger{background:none; box-shadow:none; border-color:var(--line);}
+  }
 
   main{max-width:1280px; margin:0 auto; padding:24px 32px 0;}
 
@@ -4283,8 +4298,17 @@
     .stat-trend{margin:4px 0 0; min-height:13px;}
     .hero-progress{margin-top:8px;}
   }
+  /* auto-fit rather than the flat 1fr this used to be, for the reason the
+     .form-grid note above already gives: a fixed column count either squeezes
+     the small phones or wastes the ordinary ones, and minmax lets the grid
+     answer for itself. A flat single column meant a 393px phone — the size
+     this app is mostly used at — spent about 1,400px of scrolling on four
+     numbers, roughly two full screens before the clock card. At 393 there is
+     361px of content width, so two 175px columns fit comfortably; at 320
+     there is 288px and it drops back to one, which is the width the old rule
+     was really protecting. 170px is the same floor form-grid.js asserts. */
   @media (max-width:420px){
-    .stats-row{grid-template-columns:1fr;}
+    .stats-row{grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));}
   }
   @media (max-width:480px){
     /* Native date/time <input> controls render very differently across
@@ -7628,6 +7652,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=design-pass-1"></script>
+<script type="module" src="app.js?v=design-pass-2"></script>
 </body>
 </html>
