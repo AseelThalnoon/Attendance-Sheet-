@@ -883,8 +883,18 @@ async function run(){
       `found ${portraitRules.length}`);
     ok(missing.length === 0, "every portrait-relevant header.ledger-head breakpoint reserves the top safe area",
       missing.map(r => r.text).join("\n     "));
-    ok(html.includes(".auth-screen{") && /\.auth-screen\{[^}]*safe-area-inset-top/.test(html),
+    // The selector moved when the sign-in screen became two columns. It cannot
+    // be .auth-screen any more: that is now the grid holding both the ink panel
+    // and the form column, and padding there would inset the panel too, which
+    // is meant to reach the screen edge exactly as the rail does. The guarantee
+    // is unchanged and still checked -- the column that actually holds the form
+    // at every width reserves the inset, and below 900px it IS the whole
+    // screen. The panel is checked separately: its ground bleeds to the edge
+    // while its contents clear the housing, which is the rail's own bargain.
+    ok(html.includes(".auth-main{") && /\.auth-main\{[^}]*safe-area-inset-top/.test(html),
       "the sign-in screen (the first thing an installed PWA shows) reserves the top safe area too");
+    ok(/\.auth-aside\{[^}]*safe-area-inset-top/.test(html),
+      "and the ink panel keeps its own contents out of the sensor housing");
   }
 
   // ---- notification centre ------------------------------------------------
