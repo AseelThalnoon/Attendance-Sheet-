@@ -4370,9 +4370,75 @@
     padding:34px 28px 28px; box-shadow:var(--shadow-lg);
     animation:cardIn .5s var(--ease-soft) backwards;
   }
+  /* 32px: a step up from the rail's 22, and no further. The mark is built to
+     be read small — the legs cross rather than leaving a gap, so at hero size
+     the lime dot stops looking nested at the apex and starts looking like a
+     head on a figure. That is a property of the mark itself (brandkit/logo/
+     attendance-mark.svg is the same geometry, so it is the identity and not a
+     bad copy of it), and it is not this stylesheet's to redraw. Kept at glyph
+     scale, where it reads the way it does everywhere else in the app. */
+  .auth-mark{margin:0 0 14px; color:var(--ink); line-height:0;}
+  .auth-mark svg{width:32px; height:32px;}
   .auth-title{font-size:30px; color:var(--ink); margin:0 0 24px; font-weight:700; letter-spacing:-.03em;}
+  .auth-title span{color:var(--gold-deep);}
   .auth-form{display:flex; flex-direction:column; gap:14px;}
   .auth-form label{margin-bottom:6px;}
+
+  /* ---------- The sign-in screen assembles itself ----------
+     Motion here is doing one job: this is the only screen in the app with
+     nothing on it yet, so the entrance is what tells you the thing you are
+     signing into was built with care. It is also the one screen where a beat
+     of delay costs nothing, because the person is about to type.
+
+     Every keyframe below already existed for something else -- barGrow draws
+     the Punctuality bars, trendDotIn pops the chart dots, fadeIn is the
+     app's general arrival. Reusing them keeps one motion vocabulary rather
+     than inventing a second one for the front door.
+
+     The whole block is covered by the blanket prefers-reduced-motion rule at
+     the top of this stylesheet, which drops every duration to .001ms. Each
+     animation ends on the visible state, so at that duration everything is
+     simply there -- reduced motion gets a still page, not an empty one. */
+
+  /* The two legs grow up from their own base, then the lime dot lands. The
+     transform is on the rect rather than its <g> on purpose: the g carries a
+     transform ATTRIBUTE that places and rotates the leg, and a CSS transform
+     on the same element would replace it and throw the mark apart. Inside the
+     g the rect sits in its own upright space, so scaling it there is the leg
+     growing along its own axis, whichever way the leg leans. */
+  .auth-mark rect{
+    transform-box:fill-box; transform-origin:50% 100%;
+    animation:barGrow .5s var(--ease-soft) backwards;
+  }
+  .auth-mark g:nth-of-type(1) rect{animation-delay:.08s;}
+  .auth-mark g:nth-of-type(2) rect{animation-delay:.18s;}
+  .auth-mark circle{
+    transform-box:fill-box; transform-origin:50% 50%;
+    animation:trendDotIn .42s var(--ease-soft) .42s backwards;
+  }
+
+  /* Title, then the fields, then the button, then the way out -- reading
+     order, which is also the order someone fills the form in. 45ms apart:
+     enough to read as a sequence, short enough that the whole card has
+     settled before a hand reaches the first field. */
+  .auth-title{animation:fadeIn .45s var(--ease-soft) .3s backwards;}
+  .auth-form > *{animation:fadeIn .45s var(--ease-soft) backwards;}
+  /* The cascade is scoped to the sign-in form, which is the one the page opens
+     on. Register and Reset are reached by a click, and a click wants an
+     answer: the same 380-605ms staircase replayed there made choosing "Create
+     an account" feel like the app had to think about it. They keep the plain
+     fade above and arrive together. */
+  #signInForm > *:nth-child(1){animation-delay:.38s;}
+  #signInForm > *:nth-child(2){animation-delay:.425s;}
+  #signInForm > *:nth-child(3){animation-delay:.47s;}
+  #signInForm > *:nth-child(4){animation-delay:.515s;}
+  #signInForm > *:nth-child(5){animation-delay:.56s;}
+  #signInForm > *:nth-child(6){animation-delay:.605s;}
+
+  /* Focus is the one piece of motion here that answers something rather than
+     decorating it: on a screen of two near-identical boxes, a border that
+     moves tells you which one has the caret without needing to find it. */
+  .auth-form input{transition:border-color var(--dur-base) var(--ease-snap), box-shadow var(--dur-base) var(--ease-snap);}
   /* The 10-character rule is enforced twice (minlength on the input, and the
      length check in the submit handler) but was stated nowhere — you found out
      by being rejected. Same muted treatment as .settings-hint, which is the
@@ -4388,6 +4454,21 @@
   }
   .auth-error{
     font-size:12px; color:var(--negative); margin:0; min-height:1px;
+  }
+  /* A failed sign-in used to appear with no transition at all: the form looked
+     identical before and after, one line of red simply existed where a moment
+     ago there was none, and on a second identical attempt nothing on screen
+     changed to say the attempt had even been made. :not(:empty) starts
+     matching the moment the handler writes the message, which is what starts
+     this -- no JavaScript change needed, and nothing runs while the line is
+     blank. It is a slide, not a shake: the message is worth reading, and
+     shaking it says "wrong" twice while making it harder to read once. */
+  .auth-error:not(:empty){
+    animation:authErrorIn .32s var(--ease-soft) backwards;
+  }
+  @keyframes authErrorIn{
+    from{opacity:0; transform:translateY(-4px);}
+    to{opacity:1; transform:translateY(0);}
   }
   .auth-success{
     font-size:12.5px; color:var(--positive); margin:0; line-height:1.5;
@@ -5637,7 +5718,23 @@
 <!-- ============ AUTH SCREEN ============ -->
 <div id="authScreen" class="auth-screen">
   <div class="auth-card">
-    <h1 class="display auth-title">Attendance Ledger</h1>
+    <!-- The same mark the rail carries, and the same geometry: two leaning
+         rounded bars forming the legs of an "A" with the lime dot nested at
+         their apex. This screen is the first thing anyone ever sees of this
+         app and it was carrying the product name as plain text while the
+         identity sat one screen further in. aria-hidden because the h1 below
+         already names the app; this is the same fact drawn. -->
+    <p class="auth-mark" aria-hidden="true">
+      <svg viewBox="0 0 100 100">
+        <g transform="translate(35,90) rotate(20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g>
+        <g transform="translate(65,90) rotate(-20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g>
+        <circle cx="50" cy="24.2" r="8" fill="var(--gold)"/>
+      </svg>
+    </p>
+    <!-- The accent-coloured period the rail wordmark already ends on. One
+         accent read twice, as a letterform and as a mark -- see DESIGN.md's
+         note on the mark, which describes exactly this pairing. -->
+    <h1 class="display auth-title">Attendance Ledger<span>.</span></h1>
 
     <div id="authConfigWarning" class="auth-config-warning" style="display:none;">
       This page isn't connected to a database yet. Open the file and set
@@ -7652,6 +7749,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=design-pass-2"></script>
+<script type="module" src="app.js?v=auth-polish-1"></script>
 </body>
 </html>
