@@ -1371,7 +1371,16 @@
        to the same line as a suffix naming the tab you are on. */
     header.ledger-head{padding:12px 32px 0;}
     .head-inner{align-items:baseline;}
-    .head-title{font-size:20px; letter-spacing:-.02em;}
+    /* 28, not the 20 this started at. Shrinking the greeting from 40 is right
+       — it buys height back for the tab, which is what people came for — but
+       20px put the page title UNDER the stat figures it sits above: 20 against
+       their 24, with a card heading at 21 in between. The largest text in the
+       top third of the screen was a supporting number, and the only thing
+       naming the page was the smallest thing on it.
+       28 is the first step that reads as a title again: clear of the 24px
+       figure and the 21px card heading, still 12px off the 40px base, and it
+       costs about 8px of the chrome budget one-screen.js caps at 155. */
+    .head-title{font-size:28px; letter-spacing:-.02em;}
   }
 
   /* ---------- One screen per tab ----------
@@ -7619,6 +7628,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=crash-console-1"></script>
+<script type="module" src="app.js?v=design-pass-1"></script>
 </body>
 </html>

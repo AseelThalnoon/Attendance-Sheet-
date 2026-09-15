@@ -6847,10 +6847,29 @@ import { makeSchedule } from "./src/schedule.js";
   // types the old buckets already covered, then the status hues for the
   // rest, which read as loosely on-theme (sick=red, holiday=green) without
   // requiring the palette to grow.
+  // Nine fills, and every one of them a fill-role token. Five of these used to
+  // be text colours — --warn is a brown for words, --positive a dark green for
+  // words, --ink-600, --muted-2, --negative-solid the same — and at slice size
+  // they read as mud beside the pastels rather than as categories. DESIGN.md's
+  // Fill-Only Rule is the other half of that: --gold-deep exists because it is
+  // "the one lime dark enough to set text in", which is the same statement in
+  // reverse. The ring is allowed to stay pastel because it is bounded, not
+  // because the colours are strong — see .format-ring-edge, where the ink
+  // hairline is what clears 3:1 for WCAG 1.4.11 and the legend carries the
+  // label and percentage as text so colour is never the only channel.
+  //
+  // The order is not arbitrary either. It follows the app's own taxonomy, so
+  // reading the ring tells you something before you read the legend:
+  //   worked    (WORKED_TYPES)    greens
+  //   no target (NO_TARGET_TYPES) limes and cream
+  //   excused   (EXCUSED_TYPES)   pinks, sand and grey
+  // Within a family the more common type takes the deeper value.
   var DAY_TYPE_COLORS = {
-    regular:"var(--mint)", wfh:"var(--gold)", halfleave:"var(--gold-light)",
-    leave:"var(--blush)", sick:"var(--negative-solid)", trip:"var(--ink-600)",
-    training:"var(--warn)", holiday:"var(--positive)", other:"var(--muted-2)"
+    regular:"var(--mint)",            halfleave:"var(--positive-bg)",
+    wfh:"var(--gold)",                trip:"var(--gold-light)",
+    training:"var(--surface-cream)",
+    leave:"var(--blush)",             sick:"var(--negative-bg)",
+    holiday:"var(--warn-line)",       other:"var(--surface-gray)"
   };
 
   // Largest-remainder rounding, so the shares always total 100. Rounding each
@@ -7106,7 +7125,9 @@ import { makeSchedule } from "./src/schedule.js";
       return '<div class="tt-row">'+
         avatarSlotHtml(r.p)+
         '<span class="tt-name" dir="auto">'+escapeHtml(name)+'</span>'+
-        '<span class="team-status '+r.st.cls+'">'+escapeHtml(r.st.label)+'</span>'+
+        // The short form here, the full one on the Team cards: this row is the
+        // dense one, and it is the row that was rendering "D…".
+        '<span class="team-status '+r.st.cls+'">'+escapeHtml(r.st.short || r.st.label)+'</span>'+
         '<span class="tt-check'+checkCls+'" aria-hidden="true">'+
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'+
         '</span>'+
@@ -8082,16 +8103,25 @@ import { makeSchedule } from "./src/schedule.js";
   function teamStatus(rows, personSettings){
     var today = todayStr();
     var e = rows.find(function(r){ return r.date === today; });
-    if(e && e.clockIn && !e.clockOut) return {cls:"in", label:"Clocked in"};
-    if(e && EXCUSED_TYPES.indexOf(e.type) !== -1) return {cls:"excused", label:typeLabel(e.type)};
-    if(e && e.clockIn && e.clockOut) return {cls:"done", label:"Done today"};
-    if(!scheduledFor(personSettings, today)) return {cls:"off", label:"Day off"};
+    // `short` is for the Overview's "In today" list and nothing else. That row
+    // deliberately lets the pill give way before the name does (see .tt-row
+    // .team-status) because the check circle beside it already carries
+    // settled-vs-outstanding — but giving way was implemented as an ellipsis,
+    // and "Done today" squeezed next to a long name rendered as "D…", which
+    // reads as a rendering fault rather than as a decision. A word that fits
+    // is the same intent without the broken-looking stub, and it reuses the
+    // compact vocabulary the calendar cells already speak.
+    if(e && e.clockIn && !e.clockOut) return {cls:"in", label:"Clocked in", short:"In"};
+    if(e && EXCUSED_TYPES.indexOf(e.type) !== -1)
+      return {cls:"excused", label:typeLabel(e.type), short:calTypeShort(e.type)};
+    if(e && e.clockIn && e.clockOut) return {cls:"done", label:"Done today", short:"Done"};
+    if(!scheduledFor(personSettings, today)) return {cls:"off", label:"Day off", short:"Off"};
     // "Not logged" alone read as a verdict on the whole card — which sits
     // right above real monthly totals ("32h 5m worked · 133% of target"),
     // so a person with a strong month still carried a badge that looked
     // like it was denying that. Naming "today" makes it unambiguous this
     // pill answers a different, narrower question than the rest of the card.
-    return {cls:"missing", label:"Not logged today"};
+    return {cls:"missing", label:"Not logged today", short:"Not logged"};
   }
 
   async function renderTeam(){
