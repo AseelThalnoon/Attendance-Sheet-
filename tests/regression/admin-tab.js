@@ -379,10 +379,12 @@ async function boot(browser, server, query){
         panelHeight: Math.round(document.getElementById("tab-admin").getBoundingClientRect().height),
       };
     });
-    // 8: 7 since "Themes & Layouts" was removed with the theme picker, +1 for
-    // the Notifications section added alongside push notifications.
-    ok(s.count === 8, "the console is split into eight sections", JSON.stringify(s.count));
-    ok(s.sections === 8, "every nav row has a section behind it", JSON.stringify(s.sections));
+    // 9: 7 since "Themes & Layouts" was removed with the theme picker, +1 for
+    // the Notifications section added alongside push notifications, +1 for
+    // Crash Reports, which gave the rows written by the global error handler
+    // somewhere to be read that is not the Supabase dashboard.
+    ok(s.count === 9, "the console is split into nine sections", JSON.stringify(s.count));
+    ok(s.sections === 9, "every nav row has a section behind it", JSON.stringify(s.sections));
     ok(s.paired && s.controls, "each nav row points at the section it selects", JSON.stringify(s));
     ok(s.shown.length === 1 && s.selected.length === 1 && s.shown[0] === s.selected[0],
       "exactly one section shows, and the nav agrees which", JSON.stringify(s));
@@ -402,7 +404,11 @@ async function boot(browser, server, query){
       item.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
       const moved = {
         audit: item.getAttribute("aria-selected"),
-        next: root.querySelector('.console-nav-item[data-console-target="admin-storage"]')
+        // Crash Reports, not Storage: it sits between Activity Log and Storage
+        // in the Monitor group, so it is what ArrowDown from the audit row
+        // reaches. The assertion is about the arrow key moving one row, so the
+        // row it names has to be whichever one is actually next.
+        next: root.querySelector('.console-nav-item[data-console-target="admin-crashes"]')
                   .getAttribute("aria-selected")
       };
       return {before, after, moved};

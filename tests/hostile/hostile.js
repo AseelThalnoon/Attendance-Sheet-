@@ -14,6 +14,15 @@ const fs = require("fs");
 const path = require("path");
 const { boot, goTab, settle, DESKTOP, PHONE } = require("./harness");
 const D = require("./data");
+// This file keeps its own extraction logic below (it needs a brace-matched
+// grab that extract.js does not offer), but it must not keep its own idea of
+// WHERE the app's JavaScript lives. It read app.js directly, and the day
+// VAPID_PUBLIC_KEY moved to src/constants.js that read silently returned
+// nothing: the key came back undefined and the suite died in
+// urlBase64ToUint8Array rather than reporting a missing constant. source()
+// is the one place that knows about src/, so the next extraction cannot
+// break this the same way.
+const { source } = require("../extract");
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -25,8 +34,7 @@ function ok(cond, label, detail){
 async function run(){
   // ---- initialsOf: astral emoji must not produce a lone surrogate --------
   {
-    const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "..", "app.js");
-    const src = fs.readFileSync(APP_SRC, "utf8").split("\n");
+    const src = source();
     const start = src.findIndex(l => l.trim().startsWith("function initialsOf(name){"));
     if(start === -1) throw new Error("extract: initialsOf not found in app.js");
     const end = start + src.slice(start).findIndex(l => l.trim() === "}");
@@ -56,8 +64,7 @@ async function run(){
   // half of the same feature: a subscription held over from a different VAPID
   // key produces a row nothing can ever deliver to, silently.
   {
-    const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "..", "app.js");
-    const lines = fs.readFileSync(APP_SRC, "utf8").split("\n");
+    const lines = source();
     const grab = (startsWith, endsWith) => {
       const s = lines.findIndex(l => l.trim().startsWith(startsWith));
       if(s === -1) throw new Error("extract: not found: " + startsWith);
@@ -119,7 +126,12 @@ async function run(){
     // enabling notifications reported a connection problem that was not one.
     const fe = build("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36");
     vm.runInContext(
-      grab("function explainedError", "// ---------- Bulk-operation guard"), fe);
+      // Ends at the export list, not at the Bulk-operation guard banner it
+      // used to name: explainedError/friendlyError moved to src/errors.js and
+      // that banner stayed in app.js, so the old pair straddled two files.
+      // Every module ends in an export block, and errors.js's own is the first
+      // one after explainedError, so this lands on the end of that file.
+      grab("function explainedError", "export {"), fe);
     const explained = fe.explainedError(
       fe.describeSubscribeFailure(new Error("Registration failed - push service error")));
     ok(/push service \(Google's\)/.test(fe.friendlyError(explained)),
@@ -625,8 +637,7 @@ async function run(){
   // platforms most people read it on: iOS needs the app on the Home Screen
   // before push exists at all, and Android hides the switch in the OS.
   {
-    const APP_SRC = process.env.ATTENDANCE_APP_SRC || path.join(__dirname, "..", "..", "app.js");
-    const lines = fs.readFileSync(APP_SRC, "utf8").split("\n");
+    const lines = source();
     const grab = (a, b) => {
       const s = lines.findIndex(l => l.trim().startsWith(a));
       const e = s + lines.slice(s).findIndex(l => l.trim().startsWith(b));
@@ -1038,6 +1049,84 @@ async function run(){
     ok(r.register === "none",
       "while the flag itself still took effect",
       "Create an account is still offered with sign-ups closed");
+    await h.close();
+  }
+
+  // ---- Crash reports render, and hostile ones do not break the page -------
+  // The crash log is the one table whose contents are written by a machine
+  // rather than a person. A thrown Error carries URLs, minified symbols and
+  // file paths, and none of those contain a space to wrap at -- so the column
+  // has to break mid-token or the whole admin panel goes sideways. It did:
+  // a 70-character unbreakable string in this section pushed a 320px screen
+  // 227px past its own edge.
+  {
+    const people = D.roster(3);
+    const me = people[0];
+    me.role = "admin";
+    const NASTY = "Failed to fetch https://example.invalid/a/very/long/unbroken/path/that/has/nowhere/to/wrap/at/all/x.json";
+    const h = await boot({ viewport: PHONE, meId: me.id, seed: {
+      profiles: people,
+      entries: D.entriesFor(me.id, 5),
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })),
+      client_errors: [
+        { id:"c1", user_id: people[1].id, occurred_at:"2026-09-14T10:00:00Z", kind:"error",
+          message:"Cannot read properties of undefined (reading 'length')",
+          source:"https://example.com/app.js", line:4127, col:19, build:"crash-console-1",
+          url:"/index.html", user_agent:"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1" },
+        { id:"c2", user_id: me.id, occurred_at:"2026-09-15T09:00:00Z", kind:"unhandledrejection",
+          message: NASTY, source:null, line:null, col:null, build:"crash-console-1",
+          url:"/index.html", user_agent:"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36" },
+        { id:"c3", user_id: me.id, occurred_at:"2026-09-13T08:00:00Z", kind:"resource",
+          message:"Failed to load img: /missing.png", source:null, line:null, col:null,
+          build:"modules-3", url:"/index.html", user_agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/141.0" }
+      ]
+    }});
+    await goTab(h.page, "admin");
+    await settle(h.page, 500);
+    await h.page.evaluate(() => document.getElementById("cnav-admin-crashes").click());
+    await settle(h.page, 600);
+
+    const view = await h.page.evaluate(() => ({
+      rows: document.querySelectorAll("#crashBody tr").length,
+      text: document.getElementById("crashBody").innerText,
+      empty: getComputedStyle(document.getElementById("crashEmpty")).display,
+      count: document.getElementById("crashCount").textContent,
+      overflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    }));
+
+    ok(view.rows === 3, "every recorded crash is listed", JSON.stringify(view.rows));
+    ok(view.empty === "none", "the empty state is not shown alongside rows", view.empty);
+    ok(/3 reports/.test(view.count), "the nav row carries the count", view.count);
+    // Newest first: the unhandled rejection is the most recent of the three.
+    ok(view.text.indexOf("Unhandled rejection") < view.text.indexOf("Uncaught error"),
+      "the newest report is at the top");
+    // The raw kind values are storage, not language.
+    ok(!/unhandledrejection/.test(view.text) && /Missing file/.test(view.text),
+      "the kind reads as words rather than as the stored value", view.text.slice(0, 120));
+    // A 120-character user-agent answers "which browser" in about four.
+    ok(/Safari 18 on iOS/.test(view.text) && /Firefox 141 on Windows/.test(view.text),
+      "the user agent is reduced to the browser and platform", view.text.slice(0, 200));
+    ok(/app\.js:4127/.test(view.text),
+      "a report that knows where it came from says so", view.text.slice(0, 200));
+    ok(view.overflow <= 1,
+      "an unbreakable 100-character message does not push the page sideways",
+      `document is ${view.overflow}px wider than the viewport`);
+
+    // The kind filter is the reason the column exists: a missing file is a bad
+    // deploy, an uncaught error is a bug, and they are not the same errand.
+    await h.page.evaluate(() => {
+      const sel = document.getElementById("crashFilterKind");
+      sel.value = "resource";
+      sel.dispatchEvent(new Event("change", {bubbles: true}));
+    });
+    await settle(h.page, 500);
+    const filtered = await h.page.evaluate(() => ({
+      rows: document.querySelectorAll("#crashBody tr").length,
+      text: document.getElementById("crashBody").innerText
+    }));
+    ok(filtered.rows === 1 && /Missing file/.test(filtered.text),
+      "filtering by kind narrows the table to that kind", JSON.stringify(filtered.rows));
+
     await h.close();
   }
 

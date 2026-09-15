@@ -3538,6 +3538,24 @@
     .cal-dow{padding:0 5px 6px; font-size:9px;}
     .cal-cell.cal-today .cal-daynum{min-width:17px; height:17px; padding:0 4px; margin:-2px 0 0 -3px;}
   }
+  /* The same swap again, for the band where the rail is the reason there is no
+     room. Above 760px the rail takes 236px off the front of every row, so the
+     calendar is NARROWER at 768px than at 560px with no rail: a working cell
+     measures 74px here against 80px there, and a weekend cell 47px. Nothing
+     escapes the card — .cal-val is a block with overflow:hidden and clips to
+     an ellipsis — but "Other (Excused)" rendered into 47px reads "Other (Exc…",
+     which is the failure the 560px block above names: a cell truncating the
+     value it exists to show instead of swapping to the form that fits.
+     Only the labels and their sizes change. The cell's own metrics are the
+     desktop ones and stay that way; this band has a narrow grid, not a phone.
+     899px is not a new number — it is where the settings console already stops
+     being one column, which is the same question about what the rail leaves. */
+  @media (min-width:761px) and (max-width:899px){
+    .cal-val-full{display:none;}
+    .cal-val-short{display:inline;}
+    .cal-val{font-size:12px;}
+    .cal-val.is-time, .cal-val.is-type{font-size:9.5px;}
+  }
   @media (max-width:480px){
     .calendar-month-label{font-size:14px; min-width:110px;}
     /* The one target in the app that cannot be a 44px square: seven columns in
@@ -4491,6 +4509,22 @@
   .audit-action.a-delete{background:var(--negative-bg); color:var(--negative);}
   .audit-action.a-admin{background:var(--excused-bg); color:var(--excused);}
   .audit-detail{font-size:11.5px; color:var(--muted-2); white-space:normal;}
+  /* Every column in this table can carry a string with nowhere to wrap, which
+     is not true of any other table in the app. The message is written by a
+     thrown Error — URLs, minified symbols, file paths, none of them containing
+     a space. The name beside it is written by a person, and this project's own
+     fixtures include one with no spaces at all on purpose. The build is a
+     version tag.
+
+     white-space:normal does not help with any of them: it breaks between
+     words, and there are none. Worse, the mobile row is a grid whose tracks
+     are `auto`, and an auto track will not shrink below its content's
+     min-content width — so one unbreakable token does not overflow its own
+     cell, it widens the whole grid and takes the page with it. The phone
+     measured 1412px of sideways scroll on a 393px screen, from a single name.
+     overflow-wrap:anywhere is the one value that lowers min-content, so it has
+     to be the whole row rather than the columns that looked risky. */
+  #crashBody td{overflow-wrap:anywhere;}
   .admin-badge.unconfigured{background:var(--negative-bg); color:var(--negative);}
 
   /* Data health. Findings are listed even when the count is zero — an admin
@@ -5029,6 +5063,42 @@
     border-radius:var(--radius-xs); margin-top:-2px;
   }
   @media (min-width:1100px){ .toast-close{min-width:32px; min-height:32px;} }
+
+  /* ---------- Crash notice ----------
+     The one banner that has to render when nothing else does, so it borrows no
+     JavaScript from the app it is reporting on — app.js builds it out of bare
+     createElement calls. Only the stylesheet is shared, which is safe: it is
+     in this file and already parsed, so it cannot be the thing that broke.
+
+     Top of the viewport rather than the toast stack's bottom, because this is
+     a state the page is IN, not a message about something that just happened;
+     and above every dialog in the z-index ladder (400 is the skip link, 300
+     the notification panel, 210 the crop modal), since a crash behind a modal
+     is exactly the one nobody can read. */
+  .crash-notice{
+    position:fixed; top:0; left:0; right:0; z-index:500;
+    display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap;
+    /* The top inset is the same clearance the header takes: an installed PWA
+       paints this under the status bar / Dynamic Island otherwise, and a
+       notice nobody can read is not a notice. */
+    padding:calc(var(--space-3) + env(safe-area-inset-top)) calc(var(--space-4) + env(safe-area-inset-right, 0px)) var(--space-3) calc(var(--space-4) + env(safe-area-inset-left, 0px));
+    background:var(--negative-bg); color:var(--negative);
+    border-bottom:1px solid var(--negative);
+    box-shadow:var(--shadow-md);
+  }
+  .crash-notice-msg{
+    flex:1; min-width:180px; margin:0;
+    font-size:13px; line-height:1.45; font-weight:500;
+  }
+  .crash-notice-actions{display:flex; align-items:center; gap:var(--space-2); flex-shrink:0;}
+  .crash-notice-close{
+    flex-shrink:0; background:none; border:none; cursor:pointer; color:inherit;
+    font-size:20px; line-height:1; min-width:44px; min-height:44px;
+    display:inline-flex; align-items:center; justify-content:center;
+    border-radius:var(--radius-xs);
+  }
+  @media (min-width:1100px){ .crash-notice-close{min-width:30px; min-height:30px;} }
+
   @media (max-width:480px){
     .toast-stack{bottom:calc(12px + env(safe-area-inset-bottom)); padding:0 10px;}
     .toast{max-width:100%;}
@@ -6909,6 +6979,14 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-crashes" id="cnav-admin-crashes" aria-selected="false" aria-controls="csec-admin-crashes">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Crash Reports</span>
+              <span class="console-nav-desc"><span id="crashCount">What broke, on whose screen</span></span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
           <button type="button" class="console-nav-item" role="tab" data-console-target="admin-storage" id="cnav-admin-storage" aria-selected="false" aria-controls="csec-admin-storage">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
             <span class="console-nav-text">
@@ -7333,6 +7411,43 @@
 
         </div>
       </div>
+      <!-- ---------- Crash Reports ---------- -->
+      <div class="console-section" data-section="admin-crashes" id="csec-admin-crashes" role="tabpanel" aria-labelledby="cnav-admin-crashes" tabindex="0">
+        <div class="console-section-head">
+          <h3>Crash Reports</h3>
+          <p>
+            Exceptions the app could not handle, recorded from the browser they happened in. A crash used to stop the
+            render where it threw and tell nobody — this is that, written down. Missing files are listed separately
+            from faults in the code, because a missing file is usually a stale install or a bad deploy rather than a
+            bug. Kept for 90 days, then deleted automatically.
+          </p>
+        </div>
+        <div>
+          <div class="form-grid" id="adminCrashFilters">
+            <div>
+              <label for="crashFilterKind">Kind</label>
+              <select id="crashFilterKind">
+                <option value="">Everything</option>
+                <option value="error">Uncaught errors</option>
+                <option value="unhandledrejection">Unhandled rejections</option>
+                <option value="resource">Missing files</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions" style="margin-bottom:14px;">
+            <button type="button" class="btn ghost small" id="refreshCrashBtn">Refresh</button>
+          </div>
+          <div class="table-wrap mobile-rows">
+            <table>
+              <thead>
+                <tr><th>When</th><th>Kind</th><th>What happened</th><th>Whose screen</th><th>Build</th></tr>
+              </thead>
+              <tbody id="crashBody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="crashEmpty" style="display:none;">Nothing has crashed. That is the result you want here.</div>
+        </div>
+      </div>
       <!-- ---------- Storage ---------- -->
       <div class="console-section" data-section="admin-storage" id="csec-admin-storage" role="tabpanel" aria-labelledby="cnav-admin-storage" tabindex="0">
         <div class="console-section-head">
@@ -7504,6 +7619,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=people-menu-2"></script>
+<script type="module" src="app.js?v=crash-console-1"></script>
 </body>
 </html>

@@ -81,6 +81,171 @@ const supabase = supabaseConfigured
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: fetchWithTimeout } })
   : null;
 
+// ============================================================================
+// CRASH REPORTING
+//
+// Everything below this line runs inside one long IIFE, and an exception
+// thrown anywhere in it used to be silent: rendering stopped where it threw,
+// whatever had already been painted stayed on screen looking finished, and
+// the only person who found out was whoever happened to be holding the phone.
+// friendlyError() further down covers the failures this app EXPECTS — a
+// Postgres code, a dead connection, an expired token. This covers the ones it
+// does not.
+//
+// Two rules shape the whole block. It must not depend on the app working:
+// the notice is assembled from bare createElement calls rather than
+// showToast(), because the condition it reports is "the app is broken" and a
+// helper 1000 lines into the IIFE may be exactly what is broken. And it must
+// never throw: an exception raised inside an error handler is the one kind
+// nothing else here can catch, so every path is wrapped.
+// ============================================================================
+
+// The script tag carries a cache-busting query (index.html: app.js?v=...).
+// Reading it back off import.meta.url means a report names the build that
+// produced it without anyone having to remember to bump a second constant.
+const CLIENT_BUILD = (function(){
+  try{ return new URL(import.meta.url).searchParams.get("v") || "unversioned"; }
+  catch(e){ return "unknown"; }
+})();
+
+// A render loop that throws on every frame would otherwise write a row per
+// frame. Identical failures are recorded once, and the session is capped.
+const CRASH_REPORT_LIMIT = 8;
+var crashSeen = Object.create(null);
+var crashCount = 0;
+var crashNoticeShown = false;
+
+// Browsers raise ResizeObserver's loop notice as a real ErrorEvent. It is
+// harmless, it arrives in bursts, and left in it would bury genuine reports
+// under itself and put a "something went wrong" banner over a working screen.
+function isBenignCrash(msg){
+  return /ResizeObserver loop (limit exceeded|completed with undelivered notifications)/i.test(msg);
+}
+
+function showCrashNotice(){
+  if(crashNoticeShown) return;
+  crashNoticeShown = true;
+  try{
+    var bar = document.createElement("div");
+    bar.className = "crash-notice";
+    // alert, not status: this interrupts, and a screen reader user staring at
+    // a half-rendered tab is exactly who most needs telling.
+    bar.setAttribute("role", "alert");
+
+    var msg = document.createElement("p");
+    msg.className = "crash-notice-msg";
+    msg.textContent = "Something in the app stopped working. What's on screen " +
+      "may be incomplete or out of date — reloading usually fixes it.";
+
+    var reload = document.createElement("button");
+    reload.type = "button";
+    // Borrowing .btn is safe in a way that borrowing showToast() is not: the
+    // stylesheet is in index.html and has already loaded, so it cannot be the
+    // thing that broke. It also keeps the button on the palette and on the
+    // One Module touch floor for free.
+    reload.className = "btn small crash-notice-btn";
+    reload.textContent = "Reload";
+    reload.addEventListener("click", function(){ window.location.reload(); });
+
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "crash-notice-close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.addEventListener("click", function(){ bar.remove(); });
+
+    var actions = document.createElement("div");
+    actions.className = "crash-notice-actions";
+    actions.appendChild(reload);
+    actions.appendChild(close);
+
+    bar.appendChild(msg);
+    bar.appendChild(actions);
+    (document.body || document.documentElement).appendChild(bar);
+  }catch(e){ /* if even this fails there is nothing left to try */ }
+}
+
+// Fire-and-forget. A failure to record a failure is not worth a second error:
+// no await, no retry, nothing surfaced. Inserts are authenticated-only (see
+// the client_errors policy), so a crash on the signed-out screen reaches the
+// console and nowhere else — the alternative is an anon-writable table behind
+// a public URL, which is a spam target rather than a diagnostic.
+function persistCrash(kind, message, info){
+  if(!supabase) return;
+  try{
+    supabase.from("client_errors").insert({
+      kind: kind,
+      message: message,
+      stack: info.stack ? String(info.stack).slice(0, 4000) : null,
+      source: info.source ? String(info.source).slice(0, 500) : null,
+      line: info.line || null,
+      col: info.col || null,
+      build: CLIENT_BUILD,
+      // Pathname and search only. The fragment is where Supabase puts access
+      // and recovery tokens on an auth round-trip, and a crash table is not
+      // the place to copy one.
+      url: String(window.location.pathname + window.location.search).slice(0, 500),
+      user_agent: String(navigator.userAgent || "").slice(0, 500)
+    }).then(null, function(){});
+  }catch(e){ /* offline, signed out, or no such table yet — all survivable */ }
+}
+
+function reportCrash(kind, info){
+  try{
+    var message = String(info.message || "Unknown error").slice(0, 500);
+    if(isBenignCrash(message)) return;
+
+    // Unconditional, and first: whoever has devtools open sees every one of
+    // these whatever the network or the table is doing.
+    if(window.console && console.error) console.error("[crash]", kind, info);
+
+    var sig = kind + "|" + message + "|" + (info.source || "") + ":" + (info.line || 0);
+    if(crashSeen[sig]) return;
+    crashSeen[sig] = true;
+    if(crashCount >= CRASH_REPORT_LIMIT) return;
+    crashCount++;
+
+    // Being offline is not a crash, and this app already says so in its own
+    // words — the outbox queues the punch and the notice panel explains it.
+    // A banner claiming the app broke would be both wrong and a second
+    // message about the same thing.
+    if(info.notify !== false && navigator.onLine !== false) showCrashNotice();
+
+    persistCrash(kind, message, info);
+  }catch(e){ /* an error handler that throws is worse than one that misses */ }
+}
+
+// Capture phase, because the two events sharing this name behave differently:
+// a failed <img>/<script>/<link> fires "error" on the element itself and does
+// not bubble, so a listener on window only ever sees it going down.
+window.addEventListener("error", function(ev){
+  var el = ev.target;
+  if(el && el !== window && el.tagName){
+    // A missing asset is not a broken app. Recorded, but no banner.
+    reportCrash("resource", {
+      message: "Failed to load " + String(el.tagName).toLowerCase() + ": " +
+        String(el.currentSrc || el.src || el.href || "").slice(0, 300),
+      notify: false
+    });
+    return;
+  }
+  reportCrash("error", {
+    message: ev.message || (ev.error && ev.error.message),
+    stack: ev.error && ev.error.stack,
+    source: ev.filename,
+    line: ev.lineno,
+    col: ev.colno
+  });
+}, true);
+
+window.addEventListener("unhandledrejection", function(ev){
+  var reason = ev.reason;
+  reportCrash("unhandledrejection", {
+    message: (reason && reason.message) || String(reason),
+    stack: reason && reason.stack
+  });
+});
+
 // Opening a password-reset email link makes supabase-js detect the session in
 // the URL and fire a ONE-SHOT "PASSWORD_RECOVERY" event during its own async
 // init — which starts the instant createClient() above runs, before this
@@ -138,82 +303,32 @@ var __authLinkError = (function(){
   return field("error_description") || "That link could not be opened. Enter your email below and tap \u201cForgot password?\u201d for a fresh one.";
 })();
 
+// The first two pieces to come out of the IIFE below. Static imports are
+// hoisted, so these run before anything above them regardless of where the
+// lines sit; they are here rather than at the top of the file so they read
+// next to the code that closes over them. Both modules are leaves — they call
+// nothing outside themselves and read no app state — which is what made them
+// movable at all. See src/constants.js for why the declarations inside them
+// kept their original `var` wording.
+import {
+  DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
+  EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
+  DISMISS_KEY, SNOOZE_KEY, BACKUP_KEY, BACKUP_REMIND_DAYS,
+  PUSH_PROMPT_SNOOZE_KEY, PUSH_PROMPT_SNOOZE_DAYS,
+  DEFAULT_SETTINGS, VAPID_PUBLIC_KEY
+} from "./src/constants.js";
+import {
+  uid, pad2, timeToMinutes, formatTime12, minutesToHoursStr, minutesOnlyStr,
+  signed, dateFromStr, dateToStr, todayStr, dayBefore,
+  fmtDate, fmtDateLong, fmtDateShort, fmtDateNoYear
+} from "./src/time.js";
+import { safeGet, safeSet, normalizeSettings } from "./src/storage.js";
+import { rowToEntry, entryToRow } from "./src/entries.js";
+import { explainedError, friendlyError } from "./src/errors.js";
+import { makeSchedule } from "./src/schedule.js";
+
 (function(){
   "use strict";
-
-  var DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  var DAY_FULL  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  var TYPE_LABELS = {
-    // "WFH" here against "Work From Home" in the picker meant the day you
-    // chose and the day you later read back were named differently, in the
-    // only one of the nine types that disagreed with itself. The table has
-    // room — "Half Day Leave" and "Public Holiday" are the same length.
-    regular:"Regular", wfh:"Work From Home", halfleave:"Half Day Leave", leave:"Annual Leave",
-    sick:"Sick Leave", trip:"Business Trip", training:"Training", holiday:"Public Holiday",
-    // "Other" alone gave no clue that this is an EXCUSED absence — it reads as
-    // a shrug, and sat in a list where every other option states what it is.
-    // The stored value is untouched; this is the display label only, so the
-    // log, calendar, print report and audit history all relabel together.
-    other:"Other (Excused)"
-  };
-  // An entry's type can be anything the database holds. Indexing TYPE_LABELS
-  // directly rendered the literal string "undefined" in the log, the calendar
-  // tooltip, the print report and the audit detail for any unrecognised value.
-  function typeLabel(t){ return TYPE_LABELS[t] || (t ? String(t) : "Regular"); }
-
-  var CAL_STATUS_LABELS = {
-    met:"met target", under:"under target", excused:"leave or excused",
-    open:"still clocked in", missing:"no entry", off:"day off", future:"upcoming"
-  };
-
-  // "other" is a catch-all excused absence — real usage is things like
-  // marriage or bereavement leave that don't fit the named categories, always
-  // logged with no clock times. It's excused in exactly the same way Sick
-  // Leave is: no work target owed, and (per the person who owns this ledger)
-  // no annual-leave-balance impact either — see the leave-balance calc below,
-  // which only deducts for "leave"/"halfleave".
-  var EXCUSED_TYPES = ["leave","sick","holiday","other"];
-  // Half days expect half the normal target rather than being fully excused.
-  var HALF_TYPES = ["halfleave"];
-  // Day types whose hours count toward averages, totals and the overtime bank.
-  // WFH, business trip and training carry no fixed target (see NO_TARGET_TYPES
-  // below) and are meant to be neutral: logging 10 hours or 0 on one of these
-  // days must not move the average, the bank or the target-accomplished rate
-  // either way, so they're excluded here the same as leave/sick/holiday.
-  var WORKED_TYPES = ["regular","halfleave"];
-  function countsAsWorked(type){ return WORKED_TYPES.indexOf(type || "regular") !== -1; }
-
-  // These are excused from a fixed daily target — a day working from home, at
-  // a client site or in training doesn't carry the same 9-to-5 expectation a
-  // Regular day does, and (per WORKED_TYPES above) doesn't roll into the
-  // totals/bank at all, so there is nothing to fall short of or gain credit
-  // for, whatever gets logged and whether or not clock times are recorded.
-  var NO_TARGET_TYPES = ["wfh","trip","training"];
-
-  var DISMISS_KEY  = "attendance_ledger_dismissed_v1";
-  var SNOOZE_KEY   = "attendance_ledger_backup_snooze_v1";
-  var BACKUP_KEY   = "attendance_ledger_lastbackup_v1";
-  var BACKUP_REMIND_DAYS = 14;
-  var PUSH_PROMPT_SNOOZE_KEY = "attendance_ledger_push_prompt_snooze_v1";
-  var PUSH_PROMPT_SNOOZE_DAYS = 7;
-
-  var DEFAULT_SETTINGS = {
-    workDays:[0,1,2,3,4],
-    targetMin:480,
-    graceMin:10,
-    lateOnlyIfShort:true,
-    periods:[],
-    standardIn:"08:00",
-    standardOut:"16:00",
-    remindAfterHours:9,
-    annualLeaveDays:21
-  };
-
-  // VAPID public keys are meant to be public — the private half never leaves
-  // the send-push Edge Function's own secrets. This one is paired with
-  // whatever VAPID_PRIVATE_KEY is set as that function's secret; the two
-  // must be regenerated and redeployed together, never independently.
-  var VAPID_PUBLIC_KEY = "BJlxibKyLbjnTvhH6hFdlNHSugC15FqdNxT55UJbY0RJtn3DGIWMTX4XG0FKB-K1H8SbvGcWYhLpmCD58OiD-es";
 
   // ---------- Auth / multi-user state ----------
   var currentUser = null;      // {id, email} — the signed-in Supabase auth user
@@ -227,6 +342,21 @@ var __authLinkError = (function(){
 
   var entries = [];
   var settings = Object.assign({}, DEFAULT_SETTINGS);
+
+  // The schedule rules live in src/schedule.js and read settings through this
+  // getter, so the roster's `settings = personSettings; ... finally { settings
+  // = saved; }` swap keeps working exactly as it did -- the module reads
+  // whatever is current when it is called rather than a copy taken earlier.
+  //
+  // Bound here, next to the state it reads, rather than where the functions
+  // used to sit: these were hoisted function declarations and are const
+  // bindings now, so anything calling them above this line would hit the
+  // temporal dead zone. Directly under the declaration is the earliest point
+  // that cannot happen.
+  const {
+    isScheduled, targetMinPerDay, scheduleFor, workDaysLabel, scheduleSummary,
+    computeEntry, weekStartDow, weekStartDate, weekKey
+  } = makeSchedule(function(){ return settings; });
 
   // Persisted across reloads. These were plain in-memory values, so "Dismiss" on
   // an open-shift reminder and "Later" on the backup prompt both reset on every
@@ -244,102 +374,6 @@ var __authLinkError = (function(){
   })();
   function persistDismissals(){
     safeSet(DISMISS_KEY, JSON.stringify(dismissedReminders));
-  }
-
-  // ---------- Storage ----------
-  function safeGet(key){
-    try{ return localStorage.getItem(key); }catch(err){ return null; }
-  }
-  function safeSet(key, val){
-    try{ localStorage.setItem(key, val); return true; }
-    catch(err){
-      document.getElementById("storageNote").textContent =
-        "Auto-save isn't available in this browser. Export a JSON backup before closing the page.";
-      return false;
-    }
-  }
-  // Accepts settings from storage or an imported backup and returns a valid object.
-  // Older versions stored a decimal `targetHours`; convert it to minutes.
-  function normalizeSettings(raw){
-    raw = raw || {};
-    var out = Object.assign({}, DEFAULT_SETTINGS, raw);
-    // Check `raw`, not `out` — the default targetMin would otherwise mask the migration.
-    if(raw.targetMin == null && raw.targetHours != null){
-      out.targetMin = Math.round(parseFloat(raw.targetHours) * 60);
-    }
-    delete out.targetHours;
-    out.targetMin = Math.round(Number(out.targetMin));
-    if(!isFinite(out.targetMin) || out.targetMin < 0 || out.targetMin > 24*60){
-      out.targetMin = DEFAULT_SETTINGS.targetMin;
-    }
-    if(!Array.isArray(out.workDays) || !out.workDays.length){
-      out.workDays = DEFAULT_SETTINGS.workDays.slice();
-    }
-    out.workDays = out.workDays
-      .map(Number)
-      .filter(function(d){ return d >= 0 && d <= 6; })
-      .filter(function(d, i, a){ return a.indexOf(d) === i; })
-      .sort(function(a, b){ return a - b; });
-    if(!out.workDays.length) out.workDays = DEFAULT_SETTINGS.workDays.slice();
-    var r = Number(out.remindAfterHours);
-    out.remindAfterHours = (isFinite(r) && r > 0 && r <= 24) ? r : DEFAULT_SETTINGS.remindAfterHours;
-
-    var g = Math.round(Number(out.graceMin));
-    out.graceMin = (isFinite(g) && g >= 0 && g <= 240) ? g : DEFAULT_SETTINGS.graceMin;
-
-    var lv = Number(out.annualLeaveDays);
-    out.annualLeaveDays = (isFinite(lv) && lv >= 0 && lv <= 365) ? lv : DEFAULT_SETTINGS.annualLeaveDays;
-
-    out.lateOnlyIfShort = out.lateOnlyIfShort !== false;
-
-    // Seasonal periods: keep only entries with a valid, ordered date range.
-    out.periods = (Array.isArray(out.periods) ? out.periods : [])
-      .map(function(p){
-        p = p || {};
-        var tm = Math.round(Number(p.targetMin));
-        return {
-          id: p.id || ("p" + Math.random().toString(36).slice(2,8)),
-          name: String(p.name || "").trim() || "Seasonal hours",
-          start: /^\d{4}-\d{2}-\d{2}$/.test(p.start) ? p.start : "",
-          end: /^\d{4}-\d{2}-\d{2}$/.test(p.end) ? p.end : "",
-          targetMin: (isFinite(tm) && tm > 0 && tm <= 24*60) ? tm : out.targetMin,
-          standardIn: /^\d{2}:\d{2}$/.test(p.standardIn) ? p.standardIn : out.standardIn,
-          standardOut: /^\d{2}:\d{2}$/.test(p.standardOut) ? p.standardOut : out.standardOut
-        };
-      })
-      .filter(function(p){ return p.start && p.end && p.start <= p.end; })
-      .sort(function(a,b){ return a.start.localeCompare(b.start); })
-      // Drop any period that overlaps one already kept. Sorted by start date, so
-      // an overlap can only be with the immediately preceding survivor.
-      .filter(function(p, i, arr){
-        for(var j=0;j<i;j++){ if(arr[j] && arr[j].end >= p.start && arr[j].start <= p.end) return false; }
-        return true;
-      });
-
-    return out;
-  }
-
-  // ---------- Row <-> app-object mapping ----------
-  function rowToEntry(row){
-    return {
-      id: row.id,
-      user_id: row.user_id,
-      date: row.date,
-      clockIn: row.clock_in || "",
-      clockOut: row.clock_out || "",
-      type: row.type || "regular",
-      note: row.note || ""
-    };
-  }
-  function entryToRow(entry, userId){
-    return {
-      user_id: userId,
-      date: entry.date,
-      clock_in: entry.clockIn || null,
-      clock_out: entry.clockOut || null,
-      type: entry.type || "regular",
-      note: entry.note || ""
-    };
   }
 
   // ---------- Supabase data access ----------
@@ -726,222 +760,6 @@ var __authLinkError = (function(){
   }
 
   // ---------- Helpers ----------
-  function uid(){ return "e" + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
-  function pad2(n){ return String(n).padStart(2,"0"); }
-
-  function timeToMinutes(t){
-    if(!t) return null;
-    var p = t.split(":");
-    return (+p[0])*60 + (+p[1]);
-  }
-  // Display-only. Values stay in 24h "HH:MM" because <input type="time"> requires it.
-  function formatTime12(t){
-    if(!t) return "";
-    var p = t.split(":");
-    var h = +p[0];
-    var period = h >= 12 ? "PM" : "AM";
-    var h12 = h % 12; if(h12 === 0) h12 = 12;
-    return h12 + ":" + p[1] + " " + period;
-  }
-  function minutesToHoursStr(mins){
-    if(mins === null || mins === undefined || isNaN(mins)) return "—";
-    var sign = mins < 0 ? "-" : "";
-    var v = Math.abs(Math.round(mins));
-    var h = Math.floor(v/60), m = v%60;
-    return sign + h + "h" + (m ? " " + m + "m" : "");
-  }
-  // For values that are naturally small and minutes-only (how late, how early) —
-  // "0h 31m" reads like a typo; "31m" is what it actually is. Still falls back
-  // to "Xh Ym" past 60 so an unusually late day doesn't show "95m".
-  function minutesOnlyStr(mins){
-    if(mins === null || mins === undefined || isNaN(mins)) return "—";
-    var sign = mins < 0 ? "-" : "";
-    var v = Math.abs(Math.round(mins));
-    if(v < 60) return sign + v + "m";
-    return minutesToHoursStr(mins);
-  }
-  function signed(mins){
-    if(mins === null || isNaN(mins)) return "—";
-    return (mins >= 0 ? "+" : "") + minutesToHoursStr(mins);
-  }
-  function dateFromStr(s){
-    var p = s.split("-");
-    return new Date(+p[0], +p[1]-1, +p[2]);
-  }
-  function dateToStr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
-  function todayStr(){ return dateToStr(new Date()); }
-  // Calendar-day arithmetic, not 24-hour arithmetic: dateFromStr builds a local
-  // midnight and setDate rolls the month and the DST boundary for us, where
-  // subtracting 86400000ms would land on the wrong day twice a year.
-  function dayBefore(dateStr){
-    var d = dateFromStr(dateStr);
-    d.setDate(d.getDate() - 1);
-    return dateToStr(d);
-  }
-  function fmtDate(s){
-    return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
-  }
-  function fmtDateLong(s){
-    return dateFromStr(s).toLocaleDateString(undefined,{weekday:"long", month:"long", day:"numeric", year:"numeric"});
-  }
-  // Weekday + month + day, no year — for lists already scoped to one month
-  // (the Team roster's recent-days lines, the activity feed), where the year
-  // and often the month too would just repeat what the toolbar already says.
-  function fmtDateShort(s){
-    return dateFromStr(s).toLocaleDateString(undefined,{weekday:"short", month:"short", day:"numeric"});
-  }
-  // Month and day alone, for a list whose year is already fixed by a control
-  // above it — the Log's own Year select, which makes ", 2026" the same four
-  // characters repeated down every row of the month.
-  function fmtDateNoYear(s){
-    return dateFromStr(s).toLocaleDateString(undefined,{month:"short", day:"numeric"});
-  }
-  function isScheduled(dateStr){
-    return settings.workDays.indexOf(dateFromStr(dateStr).getDay()) !== -1;
-  }
-  // A generic single-day fallback for charts/labels that need *some* target
-  // before any entries exist to average from. Resolves today's seasonal
-  // period (Ramadan, summer hours) rather than the flat org default, so it
-  // doesn't quietly show 8h while a 5h period is actually in force.
-  function targetMinPerDay(){ return scheduleFor(todayStr()).targetMin; }
-
-  // Resolves the schedule in force on a given date. Seasonal periods (Ramadan,
-  // summer hours) override the base schedule for the dates they cover.
-  function scheduleFor(dateStr){
-    var list = settings.periods || [];
-    for(var i=0;i<list.length;i++){
-      var p = list[i];
-      if(p.start && p.end && dateStr >= p.start && dateStr <= p.end){
-        return {
-          targetMin: p.targetMin != null ? p.targetMin : settings.targetMin,
-          standardIn: p.standardIn || settings.standardIn,
-          standardOut: p.standardOut || settings.standardOut,
-          name: p.name || "Seasonal hours"
-        };
-      }
-    }
-    return {
-      targetMin: settings.targetMin,
-      standardIn: settings.standardIn,
-      standardOut: settings.standardOut,
-      name: ""
-    };
-  }
-
-  // Shared by the Settings summary line and the audit log's schedule diff,
-  // so "Sun–Thu" means the same thing and is spelled the same way in both.
-  function workDaysLabel(days){
-    days = days.slice().sort(function(a,b){return a-b;});
-    // Show as a range when the days are contiguous, otherwise list them.
-    var contiguous = days.every(function(d,i){ return i === 0 || d === days[i-1]+1; });
-    if(days.length === 1) return DAY_FULL[days[0]];
-    if(contiguous) return DAY_NAMES[days[0]] + "–" + DAY_NAMES[days[days.length-1]];
-    return days.map(function(d){ return DAY_NAMES[d]; }).join(", ");
-  }
-
-  function scheduleSummary(){
-    var label = workDaysLabel(settings.workDays);
-    var today = scheduleFor(todayStr());
-    var base = formatTime12(today.standardIn) + "–" + formatTime12(today.standardOut) +
-               " · " + label + " · Target " + minutesToHoursStr(today.targetMin) + "/day";
-    return today.name ? base + " · " + today.name : base;
-  }
-
-  function computeEntry(e){
-    var excused = EXCUSED_TYPES.indexOf(e.type) !== -1;
-    // Leave/sick/holiday plus WFH/trip/training: none of these owe a fixed
-    // daily target, so there is nothing for a blank row to fall short of.
-    var noTarget = excused || NO_TARGET_TYPES.indexOf(e.type) !== -1;
-    var half = HALF_TYPES.indexOf(e.type) !== -1;
-    var scheduled = isScheduled(e.date);
-    var sched = scheduleFor(e.date);
-
-    var targetMin = 0;
-    if(scheduled && !noTarget){
-      targetMin = half ? Math.round(sched.targetMin / 2) : sched.targetMin;
-    }
-
-    // Worked hours first — punctuality can depend on whether the target was met.
-    var workedMin = null;
-    if(e.clockIn && e.clockOut){
-      var gross = timeToMinutes(e.clockOut) - timeToMinutes(e.clockIn);
-      if(gross < 0) gross += 24*60; // overnight shift
-      workedMin = Math.max(0, gross);
-    } else if(noTarget && !e.clockIn){
-      // Nothing clocked and nothing owed: zero, not a shortfall. A clock-in
-      // with no clock-out yet still falls through to the open-day handling
-      // below regardless of type — a running WFH/trip/training shift is an
-      // open day like any other, not a free pass to look closed.
-      workedMin = 0;
-    }
-
-    // Punctuality is only meaningful on a scheduled, non-excused day.
-    var lateMin = 0, earlyMin = 0;
-    var grace = settings.graceMin || 0;
-    var countable = scheduled && !excused;
-
-    // When "only if short" is on, making up the hours clears the flag. A day
-    // that's still open can't be judged yet, so it isn't flagged either way —
-    // but it must not be counted as *on time* either. `pending` marks that
-    // distinction so the On Time tab can exclude the day rather than silently
-    // score it clean and then flip it to late once the user clocks out.
-    var metTarget = workedMin !== null && workedMin >= targetMin;
-    var pending = settings.lateOnlyIfShort && workedMin === null && !!e.clockIn && countable;
-    var forgiven = settings.lateOnlyIfShort && (metTarget || workedMin === null);
-
-    if(countable && e.clockIn && !forgiven){
-      var lm = timeToMinutes(e.clockIn) - timeToMinutes(sched.standardIn);
-      if(lm > grace) lateMin = lm;
-    }
-    // A half day is meant to end early, so leaving early isn't a departure flag.
-    if(countable && !half && e.clockIn && e.clockOut && !forgiven){
-      var em = timeToMinutes(sched.standardOut) - timeToMinutes(e.clockOut);
-      if(em > grace) earlyMin = em;
-    }
-
-    // An off-day (weekend, or any day outside the configured work days) is
-    // neutral the same way an excused/no-target day is: whatever gets logged
-    // — 20 hours or nothing — must not read as credit or a shortfall.
-    var neutral = noTarget || !scheduled;
-
-    if(workedMin !== null && !(noTarget && !e.clockIn)){
-      return {
-        workedMin:workedMin, targetMin:targetMin,
-        diffMin: neutral ? 0 : workedMin - targetMin,
-        excused:excused, half:half, scheduled:scheduled, open:false,
-        lateMin:lateMin, earlyMin:earlyMin, sched:sched, pending:false
-      };
-    }
-    return {
-      workedMin: noTarget ? 0 : null, targetMin:targetMin,
-      diffMin: noTarget ? 0 : null, excused:excused, half:half, scheduled:scheduled,
-      open: !!(e.clockIn && !e.clockOut),
-      lateMin:lateMin, earlyMin:0, sched:sched, pending:pending
-    };
-  }
-
-  // The week starts on the first configured working day rather than always
-  // Sunday. Hardcoding Sunday was right for the Sun–Thu default but split every
-  // week in half for a Mon–Fri organisation, so weekly cards straddled two
-  // working weeks and the "vs. last week" trend compared mismatched periods.
-  function weekStartDow(){
-    var days = (settings.workDays || []).slice().sort(function(a,b){ return a-b; });
-    if(!days.length) return 0;
-    // Contiguous runs that wrap the week boundary (e.g. Sat–Wed) should start at
-    // the run's beginning, not at the lowest numeric day.
-    for(var i=0;i<days.length;i++){
-      var prev = days[(i - 1 + days.length) % days.length];
-      if(((days[i] - prev + 7) % 7) !== 1) return days[i];
-    }
-    return days[0];
-  }
-  function weekStartDate(dateStr){
-    var d = dateFromStr(dateStr);
-    var offset = (d.getDay() - weekStartDow() + 7) % 7;
-    d.setDate(d.getDate() - offset);
-    return d;
-  }
-  function weekKey(dateStr){ return dateToStr(weekStartDate(dateStr)); }
   function monthKey(dateStr){ var d = dateFromStr(dateStr); return d.getFullYear()+"-"+pad2(d.getMonth()+1); }
   function yearKey(dateStr){ return String(dateFromStr(dateStr).getFullYear()); }
   function monthLabel(key){
@@ -973,74 +791,6 @@ var __authLinkError = (function(){
   }
   function cssVar(name){
     return getComputedStyle(document.body).getPropertyValue(name).trim() || "#888";
-  }
-
-  // ---------- Error presentation ----------
-  // Backend errors were surfaced verbatim, so users saw strings like
-  // 'new row violates row-level security policy for table "entries"'. Map the
-  // ones we understand to a sentence that says what to do; fall back to the raw
-  // text rather than hiding a failure we didn't anticipate.
-  // An error that already carries a sentence written for the person who will
-  // read it. friendlyError exists to translate the ones that don't — a
-  // Postgres code, a fetch failure — and it must not re-translate these,
-  // because its patterns match on wording and a good explanation can contain
-  // the same words as the failure it is explaining. Notably: the message for
-  // a push service that could not be registered with says the cause is
-  // usually the network, which friendlyError's own /network/i catch-all then
-  // replaced with "Couldn't reach the server" — burying the specific
-  // explanation under the generic one it was written to replace.
-  function explainedError(text){
-    var e = new Error(text);
-    e.explained = true;
-    return e;
-  }
-  function friendlyError(err){
-    if(!err) return "Something went wrong.";
-    if(err.explained) return err.message;
-    var code = err.code || "";
-    var msg  = err.message || String(err);
-
-    if(code === "23505" || /duplicate key/i.test(msg))
-      return "There's already an entry for that date.";
-    if(code === "42501" || /row-level security|permission denied|Only admin/i.test(msg))
-      return "You don't have permission to do that.";
-    if(code === "23514" || /violates check constraint/i.test(msg)){
-      if(/clock_(in|out)/.test(msg)) return "That clock time isn't a valid time of day.";
-      if(/entries_type/.test(msg))   return "That day type isn't recognised.";
-      if(/entries_note/.test(msg))   return "That note is too long (500 characters maximum).";
-      if(/entries_date/.test(msg))   return "That date is outside the range this app accepts.";
-      return "That entry didn't pass validation.";
-    }
-    if(code === "23503" || /foreign key/i.test(msg))
-      return "That record no longer exists — try reloading the page.";
-    if(code === "PGRST301" || /JWT|token is expired/i.test(msg))
-      return "Your session expired. Sign in again to continue.";
-    if(code === "TIMEOUT")
-      return "The server took too long to respond. Check your connection and try again.";
-    if(/Failed to fetch|NetworkError|network/i.test(msg))
-      return "Couldn't reach the server. Check your connection and try again.";
-
-    // Auth. These reach the reader at the least forgiving moment in the app —
-    // locked out at the front door, with nothing else on screen — and they were
-    // the one family still shown as the provider wrote them: "Invalid login
-    // credentials" is a status line, not a sentence to a person who cannot get
-    // in. Deliberately silent about WHICH half is wrong: whether an address has
-    // an account is not something a signed-out stranger gets to probe.
-    if(/invalid login credentials|invalid email or password/i.test(msg))
-      return "That email and password don't match an account.";
-    if(/email not confirmed/i.test(msg))
-      return "Confirm your email address first — check your inbox for the link.";
-    if(/user already registered|already been registered/i.test(msg))
-      return "There's already an account with that email. Try signing in instead.";
-    if(/signups? not allowed|signup is disabled/i.test(msg))
-      return "New accounts are turned off. Ask an administrator to create one for you.";
-    if(err.code === "over_email_send_rate_limit" || /email rate limit/i.test(msg))
-      return "Too many reset emails have gone out from this app in the last hour. Wait an hour and try again.";
-    if(/rate limit|only request this after|too many requests/i.test(msg))
-      return "Too many attempts just now. Wait a minute and try again.";
-    if(/same as the old password|should be different/i.test(msg))
-      return "That's the password you already have. Choose a different one.";
-    return msg;
   }
 
   // ---------- Bulk-operation guard ----------
@@ -8288,10 +8038,19 @@ var __authLinkError = (function(){
     return map;
   }
 
-  // summarize(), computeEntry() and scheduleFor() all read the module-level
-  // `settings`. Rather than change the signature of functions the regression
-  // suite extracts verbatim, swap the value for the duration of one synchronous
-  // call. Nothing awaits in between, so nothing else can observe the swap.
+  // summarize(), computeEntry() and scheduleFor() all read `settings` -- the
+  // first from this file, the other two from src/schedule.js, which reaches it
+  // through the getter it was built with. Rather than change the signature of
+  // functions the regression suite extracts verbatim, swap the value for the
+  // duration of one synchronous call. Nothing awaits in between, so nothing
+  // else can observe the swap.
+  //
+  // The getter is what keeps that true across the module boundary: schedule.js
+  // reads whatever is current when it is called, so it sees the swap without
+  // knowing it happened. Hand that module a settings object instead, or let it
+  // hold its own copy, and these three functions would go on looking correct
+  // while reporting one person's hours against another's working week.
+  // tests/regression/settings-swap.js exists to fail if that ever changes.
   function summarizeAs(personSettings, rows){
     var saved = settings;
     settings = personSettings;
@@ -9381,6 +9140,115 @@ var __authLinkError = (function(){
     showToast("Exported " + auditRowsCache.length + " log entries.", "success");
   });
 
+  // ---------- Crash reports ----------
+  // The reading half of the crash handler at the top of this file. That wrote
+  // rows nobody could reach without opening the Supabase dashboard, which is
+  // not a place this app asks anyone to go.
+  var CRASH_KIND_LABELS = {
+    error: "Uncaught error",
+    unhandledrejection: "Unhandled rejection",
+    // Named for what it means rather than what fired. A failed <img> or
+    // <script> raises the same DOM event as a thrown exception and almost
+    // never means the same thing: it is a stale installed copy or a bad
+    // deploy, not a fault in the code.
+    resource: "Missing file"
+  };
+
+  // Chrome's user-agent string is ~120 characters that answer "which browser"
+  // in about four. The rest is noise in a five-column table, and the full
+  // string is still in the row for anyone querying the table directly.
+  function browserLabel(ua){
+    ua = String(ua || "");
+    if(!ua) return "—";
+    var m = /(Firefox)\/([\d.]+)/.exec(ua)
+         || /(Edg)\/([\d.]+)/.exec(ua)
+         || /(Chrome)\/([\d.]+)/.exec(ua)
+         || /Version\/([\d.]+).*(Safari)/.exec(ua);
+    if(!m) return "Unknown browser";
+    var name = m[2] && !/^\d/.test(m[2]) ? m[2] : m[1];
+    var version = /^\d/.test(m[1]) ? m[1] : m[2];
+    if(name === "Edg") name = "Edge";
+    var os = /iPhone|iPad/.test(ua) ? "iOS"
+           : /Android/.test(ua) ? "Android"
+           : /Mac OS X/.test(ua) ? "macOS"
+           : /Windows/.test(ua) ? "Windows"
+           : /Linux/.test(ua) ? "Linux" : "";
+    return name + " " + String(version).split(".")[0] + (os ? " on " + os : "");
+  }
+
+  // The line that says what actually happened. The message alone is often
+  // "Script error." or a bare type name, so the file and line it came from
+  // carry as much of the answer as the sentence does.
+  function crashWhere(r){
+    if(!r.source) return "";
+    var file = String(r.source).split("/").pop().split("?")[0];
+    return file + (r.line ? ":" + r.line + (r.col ? ":" + r.col : "") : "");
+  }
+
+  async function renderCrashLog(){
+    var kind = document.getElementById("crashFilterKind").value || null;
+    var body = document.getElementById("crashBody");
+    var empty = document.getElementById("crashEmpty");
+    var count = document.getElementById("crashCount");
+    var res;
+    try{
+      res = await supabase.rpc("admin_client_errors", {limit_n: 200, filter_kind: kind});
+      if(res.error) throw res.error;
+    }catch(err){
+      // The likely failure is the migration not having been applied yet, which
+      // arrives as a missing function. Worth distinguishing from a real
+      // outage, because "nothing is wrong, this view just is not finished" is
+      // a different thing to read than "this is broken".
+      //
+      // The migration's filename belongs in the console, not on screen: an
+      // administrator cannot act on it, the developer who can is the one with
+      // devtools open, and a 70-character unbreakable path in a centred empty
+      // state pushed the admin panel 227px past the edge of a 320px screen.
+      var missing = /admin_client_errors|does not exist|schema cache/i.test(err.message || "");
+      if(missing && window.console && console.error){
+        console.error("[crash log] admin_client_errors is missing — apply " +
+          "supabase/migrations/20260915120000_client_errors_admin_view_and_prune.sql");
+      }
+      body.innerHTML = "";
+      empty.style.display = "block";
+      empty.textContent = missing
+        ? "Crashes are being recorded, but this view is not finished setting up yet."
+        : "Couldn't load crash reports: " + friendlyError(err);
+      count.textContent = "Unavailable";
+      return;
+    }
+
+    var rows = res.data || [];
+    body.innerHTML = "";
+    empty.textContent = "Nothing has crashed. That is the result you want here.";
+    empty.style.display = rows.length ? "none" : "block";
+    count.textContent = rows.length
+      ? rows.length + (rows.length >= 200 ? "+" : "") + " report" + (rows.length === 1 ? "" : "s")
+      : "Nothing recorded";
+
+    rows.forEach(function(r){
+      var tr = document.createElement("tr");
+      var where = crashWhere(r);
+      var who = r.reporter_name || r.reporter_email || "—";
+      // Same cell order as every other mobile-rows table, so a screen reader
+      // reads it in thead order while c-figure/c-status/c-meta place it.
+      tr.innerHTML =
+        "<td class='c-figure' data-label='When'><span class=\"cell-label\">When</span>"+escapeHtml(fmtRelative(r.occurred_at))+"</td>"+
+        "<td class='c-status' data-label='Kind'><span class=\"cell-label\">Kind</span>"+
+          escapeHtml(CRASH_KIND_LABELS[r.kind] || r.kind || "—")+"</td>"+
+        "<td class='c-note' dir='auto' data-label='What happened'><span class=\"cell-label\">What happened</span>"+
+          escapeHtml(r.message || "—")+(where ? " <span class='c-off'>("+escapeHtml(where)+")</span>" : "")+"</td>"+
+        "<td class='c-primary' data-label='Whose screen'><span class=\"cell-label\">Whose screen</span>"+
+          escapeHtml(who)+"<br><span class='c-off'>"+escapeHtml(browserLabel(r.user_agent))+"</span></td>"+
+        "<td class='c-meta c-bare"+(r.build ? "" : " c-off")+"' data-label='Build'><span class=\"cell-label\">Build</span>"+
+          escapeHtml(r.build || "—")+"</td>";
+      body.appendChild(tr);
+    });
+  }
+
+  document.getElementById("refreshCrashBtn").addEventListener("click", renderCrashLog);
+  document.getElementById("crashFilterKind").addEventListener("change", renderCrashLog);
+
   // Quoted always: notes and names carry commas, quotes and newlines, and a
   // leading =, + or - would be executed as a formula by a spreadsheet.
   function csvCell(v){
@@ -10365,6 +10233,7 @@ var __authLinkError = (function(){
       renderAdminStats(),
       loadAdminPeople(),
       resetAuditPaging(),
+      renderCrashLog(),
       loadAppSettings(),
       renderNotifyHistory(),
       renderNotifyReach(),
