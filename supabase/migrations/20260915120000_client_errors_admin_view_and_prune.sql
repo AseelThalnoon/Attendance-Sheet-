@@ -1,5 +1,14 @@
--- STATUS: NOT YET APPLIED. Run this against the live project; until then the
--- Crash Reports section in the Admin console loads nothing and says so.
+-- STATUS: APPLIED to the live project on 2026-09-15.
+--
+-- Verified three ways, and the second is the one that mattered:
+--   * admin_client_errors(integer, text) is listed by the database linter as
+--     executable by `authenticated`, which is what the GRANT below intends.
+--   * prune_client_errors appears in NO linter finding -- not the anon list,
+--     not the authenticated one. That silence is the check: had the REVOKE
+--     failed, it would be a seventeenth entry there, and any signed-in account
+--     could have deleted ninety days of crash history by calling an RPC.
+--   * cron.job holds one row named prune-client-errors, active, '40 3 * * *',
+--     running SELECT public.prune_client_errors(90).
 --
 -- Two halves of the same omission. 20260915084500 gave crashes somewhere to be
 -- recorded and nowhere to be read: the rows exist, admin-read RLS is on them,
