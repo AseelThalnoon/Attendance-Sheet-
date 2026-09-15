@@ -81,6 +81,171 @@ const supabase = supabaseConfigured
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: fetchWithTimeout } })
   : null;
 
+// ============================================================================
+// CRASH REPORTING
+//
+// Everything below this line runs inside one long IIFE, and an exception
+// thrown anywhere in it used to be silent: rendering stopped where it threw,
+// whatever had already been painted stayed on screen looking finished, and
+// the only person who found out was whoever happened to be holding the phone.
+// friendlyError() further down covers the failures this app EXPECTS — a
+// Postgres code, a dead connection, an expired token. This covers the ones it
+// does not.
+//
+// Two rules shape the whole block. It must not depend on the app working:
+// the notice is assembled from bare createElement calls rather than
+// showToast(), because the condition it reports is "the app is broken" and a
+// helper 1000 lines into the IIFE may be exactly what is broken. And it must
+// never throw: an exception raised inside an error handler is the one kind
+// nothing else here can catch, so every path is wrapped.
+// ============================================================================
+
+// The script tag carries a cache-busting query (index.html: app.js?v=...).
+// Reading it back off import.meta.url means a report names the build that
+// produced it without anyone having to remember to bump a second constant.
+const CLIENT_BUILD = (function(){
+  try{ return new URL(import.meta.url).searchParams.get("v") || "unversioned"; }
+  catch(e){ return "unknown"; }
+})();
+
+// A render loop that throws on every frame would otherwise write a row per
+// frame. Identical failures are recorded once, and the session is capped.
+const CRASH_REPORT_LIMIT = 8;
+var crashSeen = Object.create(null);
+var crashCount = 0;
+var crashNoticeShown = false;
+
+// Browsers raise ResizeObserver's loop notice as a real ErrorEvent. It is
+// harmless, it arrives in bursts, and left in it would bury genuine reports
+// under itself and put a "something went wrong" banner over a working screen.
+function isBenignCrash(msg){
+  return /ResizeObserver loop (limit exceeded|completed with undelivered notifications)/i.test(msg);
+}
+
+function showCrashNotice(){
+  if(crashNoticeShown) return;
+  crashNoticeShown = true;
+  try{
+    var bar = document.createElement("div");
+    bar.className = "crash-notice";
+    // alert, not status: this interrupts, and a screen reader user staring at
+    // a half-rendered tab is exactly who most needs telling.
+    bar.setAttribute("role", "alert");
+
+    var msg = document.createElement("p");
+    msg.className = "crash-notice-msg";
+    msg.textContent = "Something in the app stopped working. What's on screen " +
+      "may be incomplete or out of date — reloading usually fixes it.";
+
+    var reload = document.createElement("button");
+    reload.type = "button";
+    // Borrowing .btn is safe in a way that borrowing showToast() is not: the
+    // stylesheet is in index.html and has already loaded, so it cannot be the
+    // thing that broke. It also keeps the button on the palette and on the
+    // One Module touch floor for free.
+    reload.className = "btn small crash-notice-btn";
+    reload.textContent = "Reload";
+    reload.addEventListener("click", function(){ window.location.reload(); });
+
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "crash-notice-close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.addEventListener("click", function(){ bar.remove(); });
+
+    var actions = document.createElement("div");
+    actions.className = "crash-notice-actions";
+    actions.appendChild(reload);
+    actions.appendChild(close);
+
+    bar.appendChild(msg);
+    bar.appendChild(actions);
+    (document.body || document.documentElement).appendChild(bar);
+  }catch(e){ /* if even this fails there is nothing left to try */ }
+}
+
+// Fire-and-forget. A failure to record a failure is not worth a second error:
+// no await, no retry, nothing surfaced. Inserts are authenticated-only (see
+// the client_errors policy), so a crash on the signed-out screen reaches the
+// console and nowhere else — the alternative is an anon-writable table behind
+// a public URL, which is a spam target rather than a diagnostic.
+function persistCrash(kind, message, info){
+  if(!supabase) return;
+  try{
+    supabase.from("client_errors").insert({
+      kind: kind,
+      message: message,
+      stack: info.stack ? String(info.stack).slice(0, 4000) : null,
+      source: info.source ? String(info.source).slice(0, 500) : null,
+      line: info.line || null,
+      col: info.col || null,
+      build: CLIENT_BUILD,
+      // Pathname and search only. The fragment is where Supabase puts access
+      // and recovery tokens on an auth round-trip, and a crash table is not
+      // the place to copy one.
+      url: String(window.location.pathname + window.location.search).slice(0, 500),
+      user_agent: String(navigator.userAgent || "").slice(0, 500)
+    }).then(null, function(){});
+  }catch(e){ /* offline, signed out, or no such table yet — all survivable */ }
+}
+
+function reportCrash(kind, info){
+  try{
+    var message = String(info.message || "Unknown error").slice(0, 500);
+    if(isBenignCrash(message)) return;
+
+    // Unconditional, and first: whoever has devtools open sees every one of
+    // these whatever the network or the table is doing.
+    if(window.console && console.error) console.error("[crash]", kind, info);
+
+    var sig = kind + "|" + message + "|" + (info.source || "") + ":" + (info.line || 0);
+    if(crashSeen[sig]) return;
+    crashSeen[sig] = true;
+    if(crashCount >= CRASH_REPORT_LIMIT) return;
+    crashCount++;
+
+    // Being offline is not a crash, and this app already says so in its own
+    // words — the outbox queues the punch and the notice panel explains it.
+    // A banner claiming the app broke would be both wrong and a second
+    // message about the same thing.
+    if(info.notify !== false && navigator.onLine !== false) showCrashNotice();
+
+    persistCrash(kind, message, info);
+  }catch(e){ /* an error handler that throws is worse than one that misses */ }
+}
+
+// Capture phase, because the two events sharing this name behave differently:
+// a failed <img>/<script>/<link> fires "error" on the element itself and does
+// not bubble, so a listener on window only ever sees it going down.
+window.addEventListener("error", function(ev){
+  var el = ev.target;
+  if(el && el !== window && el.tagName){
+    // A missing asset is not a broken app. Recorded, but no banner.
+    reportCrash("resource", {
+      message: "Failed to load " + String(el.tagName).toLowerCase() + ": " +
+        String(el.currentSrc || el.src || el.href || "").slice(0, 300),
+      notify: false
+    });
+    return;
+  }
+  reportCrash("error", {
+    message: ev.message || (ev.error && ev.error.message),
+    stack: ev.error && ev.error.stack,
+    source: ev.filename,
+    line: ev.lineno,
+    col: ev.colno
+  });
+}, true);
+
+window.addEventListener("unhandledrejection", function(ev){
+  var reason = ev.reason;
+  reportCrash("unhandledrejection", {
+    message: (reason && reason.message) || String(reason),
+    stack: reason && reason.stack
+  });
+});
+
 // Opening a password-reset email link makes supabase-js detect the session in
 // the URL and fire a ONE-SHOT "PASSWORD_RECOVERY" event during its own async
 // init — which starts the instant createClient() above runs, before this

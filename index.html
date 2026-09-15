@@ -5029,6 +5029,42 @@
     border-radius:var(--radius-xs); margin-top:-2px;
   }
   @media (min-width:1100px){ .toast-close{min-width:32px; min-height:32px;} }
+
+  /* ---------- Crash notice ----------
+     The one banner that has to render when nothing else does, so it borrows no
+     JavaScript from the app it is reporting on — app.js builds it out of bare
+     createElement calls. Only the stylesheet is shared, which is safe: it is
+     in this file and already parsed, so it cannot be the thing that broke.
+
+     Top of the viewport rather than the toast stack's bottom, because this is
+     a state the page is IN, not a message about something that just happened;
+     and above every dialog in the z-index ladder (400 is the skip link, 300
+     the notification panel, 210 the crop modal), since a crash behind a modal
+     is exactly the one nobody can read. */
+  .crash-notice{
+    position:fixed; top:0; left:0; right:0; z-index:500;
+    display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap;
+    /* The top inset is the same clearance the header takes: an installed PWA
+       paints this under the status bar / Dynamic Island otherwise, and a
+       notice nobody can read is not a notice. */
+    padding:calc(var(--space-3) + env(safe-area-inset-top)) calc(var(--space-4) + env(safe-area-inset-right, 0px)) var(--space-3) calc(var(--space-4) + env(safe-area-inset-left, 0px));
+    background:var(--negative-bg); color:var(--negative);
+    border-bottom:1px solid var(--negative);
+    box-shadow:var(--shadow-md);
+  }
+  .crash-notice-msg{
+    flex:1; min-width:180px; margin:0;
+    font-size:13px; line-height:1.45; font-weight:500;
+  }
+  .crash-notice-actions{display:flex; align-items:center; gap:var(--space-2); flex-shrink:0;}
+  .crash-notice-close{
+    flex-shrink:0; background:none; border:none; cursor:pointer; color:inherit;
+    font-size:20px; line-height:1; min-width:44px; min-height:44px;
+    display:inline-flex; align-items:center; justify-content:center;
+    border-radius:var(--radius-xs);
+  }
+  @media (min-width:1100px){ .crash-notice-close{min-width:30px; min-height:30px;} }
+
   @media (max-width:480px){
     .toast-stack{bottom:calc(12px + env(safe-area-inset-bottom)); padding:0 10px;}
     .toast{max-width:100%;}
@@ -7504,6 +7540,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=people-menu-2"></script>
+<script type="module" src="app.js?v=crash-reporting-1"></script>
 </body>
 </html>
