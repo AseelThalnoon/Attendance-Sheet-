@@ -5505,7 +5505,22 @@ import { makeSchedule } from "./src/schedule.js";
   // the rail collapses to the bottom nav under 760px, so a stale transform
   // computed at a wider width would land the bar in the wrong place if the
   // window is later grown back past that breakpoint without a tab change.
+  // The rail only exists above 760px (see .rail's own display:none rule), and
+  // this runs on every tab change, every role-visibility change and every
+  // resize. Below that width it used to run anyway: read active.offsetParent,
+  // which forces a full synchronous layout because the tab switch has just
+  // rewritten the DOM, discover the rail is not displayed, and return having
+  // done nothing. A phone paid for a whole document reflow, on every tab
+  // press, for a control that is not on the screen -- and a phone is what this
+  // app is mostly used on. A CPU profile of four tab switches put 42.7% of all
+  // samples in `get offsetParent`.
+  //
+  // matchMedia answers the same question from the CSSOM without touching
+  // layout. The list is made once rather than per call, because constructing
+  // one repeatedly has its own cost.
+  var railMQ = window.matchMedia ? window.matchMedia("(min-width:761px)") : null;
   function positionRailIndicator(){
+    if(railMQ && !railMQ.matches) return;
     var bar = document.getElementById("railNavIndicator");
     var nav = document.getElementById("railNav");
     if(!bar || !nav) return;
