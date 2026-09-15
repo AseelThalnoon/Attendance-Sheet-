@@ -4358,11 +4358,17 @@
     display:grid; grid-template-columns:1fr;
     background-color:var(--paper);
   }
-  @media (min-width:900px){
-    /* 0.92fr, not 1fr: the form column needs the wider half. An even split put
-       the card's 380px in the middle of a 720px column at 1440 and reopened the
-       floating-in-a-void problem on the side that matters. */
-    .auth-screen{grid-template-columns:0.92fr 1fr;}
+  /* 1080, not the 900 this started at, and the panel is capped rather than
+     fluid. Two fr columns from 900px up meant the split engaged before there
+     was room for it: at 900 the panel took 431px and left the form 469, so a
+     400px card had fourteen pixels of air on each side and sat jammed against
+     the ink edge. Measured at 900/1024/1180 it was 14/47/87 -- the layout was
+     technically centred and visually wedged.
+     The cap matters at the other end. Both columns growing without limit walks
+     the form steadily right as the window widens; holding the panel at 720
+     stops the composition sliding off its own centre on a large display. */
+  @media (min-width:1080px){
+    .auth-screen{grid-template-columns:clamp(400px, 42vw, 720px) minmax(520px, 1fr);}
   }
 
   .auth-aside{
@@ -4374,7 +4380,7 @@
     padding:calc(40px + env(safe-area-inset-top)) calc(40px + env(safe-area-inset-left, 0px)) 40px;
     flex-direction:column; justify-content:space-between;
   }
-  @media (min-width:900px){ .auth-aside{display:flex;} }
+  @media (min-width:1080px){ .auth-aside{display:flex;} }
   /* The wash, and the one thing on this screen that keeps moving. Two soft
      accent blooms drifting against near-black -- slow enough (32s) to read as
      light changing rather than as something animating, which is the difference
@@ -4472,7 +4478,7 @@
     padding:34px 28px 28px; box-shadow:var(--shadow-lg);
     animation:cardIn .5s var(--ease-soft) backwards;
   }
-  /* Below 900px the ink panel is gone and this is the whole screen, so the card
+  /* Below 1080px the ink panel is gone and this is the whole screen, so the card
      stops pretending to be a card: no surface of its own against the paper, no
      shadow, just the form at the width the screen gives it. A raised white box
      on a phone is a desktop habit. */
@@ -4492,7 +4498,7 @@
   .auth-mark{margin:0 0 18px; color:var(--ink); line-height:0;}
   .auth-mark svg{width:32px; height:32px;}
   /* The panel carries the mark above this width. */
-  @media (min-width:900px){ .auth-mark{display:none;} }
+  @media (min-width:1080px){ .auth-mark{display:none;} }
 
   .auth-head{margin:0 0 24px;}
   .auth-title{font-size:32px; color:var(--ink); margin:0 0 6px; font-weight:700; letter-spacing:-.03em; line-height:1.1;}
