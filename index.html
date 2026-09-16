@@ -1268,7 +1268,18 @@
      screen, so this whole block would just be a second copy of the same
      three controls; below it the rail is gone and this becomes the only way
      to reach them. */
-  @media (min-width:761px){ .head-right{display:none;} }
+  /* The bell is the exception. Everything else in this row has a rail
+     equivalent above 761px and would only be a second copy of the same
+     control -- but Alerts used to have one too, a full nav row with an icon,
+     the word "Alerts" and a badge, sitting among the six destinations. It is
+     not a destination: it opens a panel over whatever you are already looking
+     at, and giving it a seat in the navigation said otherwise. A bell in the
+     header is the shape that control has had in every app for twenty years,
+     and it costs a row of the rail to say it twice. */
+  @media (min-width:761px){
+    .head-right{display:flex;}
+    .head-right .head-action:not(#notifBtn){display:none;}
+  }
 
   /* Circular white buttons on the canvas, per the reference. */
   .icon-btn{
@@ -1303,6 +1314,14 @@
     background:var(--ink); color:#fff;
   }
   .head-action.danger{color:var(--negative);}
+  /* No label, so no pill: a 44px disc, which is also the touch floor. The
+     count moves out of the flow and onto the rim, where a bell's count goes. */
+  .head-action.is-icon{
+    position:relative; width:44px; padding:0; justify-content:center; gap:0;
+  }
+  .head-action.is-icon .notif-badge{
+    position:absolute; top:4px; right:3px;
+  }
   @media (max-width:480px){
     /* The labels stay. Dropping them was what turned this row into three
        anonymous discs on the smallest screens — the exact widths where a
@@ -1681,8 +1700,6 @@
   }
   .notif-badge[hidden]{display:none;}
   /* The rail item is a full-width row, so the count sits at its far end. */
-  .rail-notif-badge{margin-left:auto;}
-  #railNotifBtn{position:relative;}
 
   /* z-index:160, not the rail's 120: the bottom nav is 150, and below 760px
      it is fixed to the bottom of the same screen this panel becomes a sheet
@@ -6168,11 +6185,6 @@
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
       <span>Admin</span>
     </button>
-    <button type="button" class="rail-item" data-rail-action="notifications" id="railNotifBtn">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16S18 14 18 9z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
-      <span>Alerts</span>
-      <span class="notif-badge rail-notif-badge" id="railNotifBadge" hidden></span>
-    </button>
     <button type="button" class="rail-item" data-rail-tab="settings">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21v-7M5 10V3M12 21v-11M12 6V3M19 21v-3M19 14V3"/><path d="M2.5 14h5M9.5 6h5M16.5 18h5"/></svg>
       <span>Settings</span>
@@ -6221,9 +6233,9 @@
         <!-- The real notifications control. The rail item below 1 proxies to
              this same button, the way Admin and Settings already do, so the
              panel has one implementation rather than two. -->
-        <button type="button" class="head-action" id="notifBtn" title="Notifications" aria-haspopup="dialog" aria-expanded="false">
+        <button type="button" class="head-action is-icon" id="notifBtn" title="Notifications" aria-haspopup="dialog" aria-expanded="false">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16S18 14 18 9z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
-          <span>Alerts</span>
+          <span class="sr-only">Alerts</span>
           <span class="notif-badge" id="notifBadge" hidden></span>
         </button>
         <button type="button" class="head-action" id="adminBtn" style="display:none;" aria-current="false" title="Organisation admin">
@@ -8036,6 +8048,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=perf-1"></script>
+<script type="module" src="app.js?v=alerts-bell-1"></script>
 </body>
 </html>

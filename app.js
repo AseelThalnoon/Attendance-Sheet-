@@ -6545,7 +6545,9 @@ import { makeSchedule } from "./src/schedule.js";
 
   function syncNotificationBell(){
     var n = notificationCount();
-    [["notifBadge","notifBtn"], ["railNotifBadge","railNotifBtn"]].forEach(function(pair){
+    // One bell. The rail used to carry a second one as a nav row, which meant
+    // this had two badges and two accessible names to keep in step.
+    [["notifBadge","notifBtn"]].forEach(function(pair){
       var badge = document.getElementById(pair[0]);
       var btn = document.getElementById(pair[1]);
       if(badge){
@@ -6743,13 +6745,15 @@ import { makeSchedule } from "./src/schedule.js";
       document.getElementById("notifBtn").setAttribute("aria-expanded", "false");
       setTimeout(function(){ overlay.hidden = true; }, 180);
       // Back to whatever opened it -- but only if that is still on screen. The
-      // rail proxies through the header button, which is display:none above
-      // 760px, and the two bells swap at that breakpoint: restoring focus to a
-      // hidden control drops it on <body> and the keyboard loses its place.
+      // Focus goes back to whatever opened the panel. The fallback used to
+      // pick between two bells that swapped at 760px; there is one now, at
+      // every width, so the only thing worth checking is that it is actually
+      // on screen -- restoring focus to a hidden control drops it on <body>
+      // and the keyboard loses its place.
+      var headerBell = document.getElementById("notifBtn");
       var back = (opener && typeof opener.focus === "function" && opener.offsetParent !== null)
         ? opener
-        : [document.getElementById("railNotifBtn"), document.getElementById("notifBtn")]
-            .filter(function(el){ return el && el.offsetParent !== null; })[0];
+        : (headerBell && headerBell.offsetParent !== null ? headerBell : null);
       if(back) back.focus();
       if(!fromPop && history.state && history.state.ledgerNotif) history.back();
     }
@@ -7215,7 +7219,14 @@ import { makeSchedule } from "./src/schedule.js";
     // user silently inherited the Sun–Thu 08:00–16:00 defaults with no way to
     // change them and nothing in the UI even hinting the setting existed — so in
     // a Mon–Fri organisation every figure they saw was wrong, permanently.
-    document.getElementById("settingsBtn").style.display = (isAdmin || isOwnData) ? "flex" : "none";
+    // "" rather than "flex". This line answers a PERMISSION question -- may
+    // this person reach a schedule at all -- and writing a layout value into
+    // it quietly answered a second one it has no business answering. Above
+    // 761px the header shows the bell and nothing else, because the rail owns
+    // the rest; an inline "flex" here beat that rule and left a Settings pill
+    // stranded beside the bell on desktop. Hide it, or stop hiding it and let
+    // the stylesheet decide what shape it takes.
+    document.getElementById("settingsBtn").style.display = (isAdmin || isOwnData) ? "" : "none";
   }
 
   async function loadAllProfilesForSwitcher(){
