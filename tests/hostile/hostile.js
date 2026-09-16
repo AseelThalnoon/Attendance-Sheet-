@@ -253,8 +253,8 @@ async function run(){
 
     const snap = await h.page.evaluate(() => ({
       failBanner: document.getElementById("loadFailBanner").classList.contains("show"),
-      badge: document.getElementById("railNotifBadge").textContent,
-      badgeHidden: document.getElementById("railNotifBadge").hidden,
+      badge: document.getElementById("notifBadge").textContent,
+      badgeHidden: document.getElementById("notifBadge").hidden,
       retryExists: !!document.getElementById("loadFailRetryBtn")
     }));
     ok(snap.failBanner, "a failed load shows the persistent failure banner");
@@ -268,7 +268,7 @@ async function run(){
     ok(snap.retryExists, "the failure banner still carries its Try Again button");
 
     const reachable = await h.page.evaluate(() => {
-      document.getElementById("railNotifBtn").click();
+      document.getElementById("notifBtn").click();
       return new Promise(r => setTimeout(() => r(
         !!document.getElementById("loadFailRetryBtn").getClientRects().length), 350));
     });
@@ -932,7 +932,7 @@ async function run(){
     await settle(h.page, 900);
 
     const before = await h.page.evaluate(() => ({
-      badge: document.getElementById("railNotifBadge").textContent,
+      badge: document.getElementById("notifBadge").textContent,
       titles: Array.from(document.querySelectorAll(".notif-item-title")).map(x => x.textContent),
       unread: document.querySelectorAll(".notif-item:not(.is-read)").length,
       stackInPanel: !!document.querySelector("#notifOverlay #noticeStack"),
@@ -951,13 +951,13 @@ async function run(){
       "the badge counts live notices plus unread messages", "badge=" + before.badge);
     ok(before.unread === 1, "a message already marked read renders as read", "unread=" + before.unread);
 
-    await h.page.evaluate(() => document.getElementById("railNotifBtn").click());
+    await h.page.evaluate(() => document.getElementById("notifBtn").click());
     await settle(h.page, 700);
     const opened = await h.page.evaluate(() => ({
       bgHidden: document.getElementById("appShell").getAttribute("aria-hidden"),
       focus: document.activeElement && document.activeElement.id,
       unread: document.querySelectorAll(".notif-item:not(.is-read)").length,
-      badge: document.getElementById("railNotifBadge").textContent
+      badge: document.getElementById("notifBadge").textContent
     }));
     ok(opened.bgHidden === "true", "opening the panel hides the page behind it from assistive tech");
     ok(opened.focus === "notifCloseBtn", "focus moves into the panel", "focus=" + opened.focus);
@@ -969,8 +969,8 @@ async function run(){
     await h.page.evaluate(() => document.getElementById("reminderActions").querySelector("button").click());
     await settle(h.page, 1500);
     const after = await h.page.evaluate(() => ({
-      badge: document.getElementById("railNotifBadge").textContent,
-      hidden: document.getElementById("railNotifBadge").hidden,
+      badge: document.getElementById("notifBadge").textContent,
+      hidden: document.getElementById("notifBadge").hidden,
       shown: Array.from(document.querySelectorAll("#noticeStack .reminder"))
         .filter(n => n.classList.contains("show")).length
     }));

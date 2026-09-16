@@ -231,10 +231,17 @@ async function boot(browser, server, query){
   // Settings, sign-out and Admin now live in the rail on desktop (≥761px,
   // this test's 1280px context) — #settingsBtn/#logoutBtn/#adminBtn stay in
   // the DOM only as the mobile fallback below 760px, where the rail is gone,
-  // and #headRight is hidden here so they must not be the visible copy. The
-  // rail-item click handler proxies to these same buttons rather than
-  // duplicating their logic, so none of the old menu machinery may survive
-  // either.
+  // so they must not be the visible copy here. The rail-item click handler
+  // proxies to these same buttons rather than duplicating their logic, so
+  // none of the old menu machinery may survive either.
+  //
+  // This used to assert that #headRight itself was display:none, which was a
+  // fair shorthand while the row held nothing but those three. It holds the
+  // notification bell now -- Alerts stopped being a rail destination, because
+  // it never was one: it opens a panel over whatever you are looking at
+  // rather than taking you somewhere. So the row is visible and the check is
+  // on the three buttons themselves, which is what the sentence claimed all
+  // along and is stricter than asking whether their container is hidden.
   {
     const s = await page.evaluate(() => {
       const visibleNamed = el => {
@@ -247,7 +254,19 @@ async function boot(browser, server, query){
         menu: !!document.getElementById("headMenu"),
         menuBtn: !!document.getElementById("headMenuBtn"),
         userChipGone: !document.getElementById("userChip"),
-        headRightHidden: getComputedStyle(document.getElementById("headRight")).display === "none",
+        // Each one individually, not the row around them.
+        fallbackHidden: ["settingsBtn","logoutBtn","adminBtn"].every(id => {
+          const el = document.getElementById(id);
+          return el && getComputedStyle(el).display === "none";
+        }),
+        // ...and the bell is the one thing that IS visible up here.
+        bellVisible: (() => {
+          const b = document.getElementById("notifBtn");
+          if(!b || getComputedStyle(b).display === "none") return false;
+          const r = b.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        })(),
+        railAlertsGone: !document.getElementById("railNotifBtn"),
         // Still real elements in the DOM — just not the visible copy at this
         // width. They only need to exist here; a mobile-width check covers
         // their fallback role.
@@ -266,8 +285,14 @@ async function boot(browser, server, query){
       document.querySelector("header.ledger-head").getBoundingClientRect().height));
     ok(deskHeader <= 130, "the header stays under 130px on a laptop", `${deskHeader}px`);
     ok(s.userChipGone, "the header name chip is gone — the rail already shows it", JSON.stringify(s));
-    ok(s.headRightHidden && s.fallbackButtons,
+    ok(s.fallbackHidden && s.fallbackButtons,
       "settings, sign out and admin sit in the DOM as a mobile fallback, not visible on the desktop bar",
+      JSON.stringify(s));
+    ok(s.bellVisible,
+      "the notification bell is in the header at desktop width, where the rail no longer carries it",
+      JSON.stringify(s));
+    ok(s.railAlertsGone,
+      "Alerts is not a rail destination — it opens a panel, it does not go anywhere",
       JSON.stringify(s));
     ok(s.viewerInRail, "the viewer switcher moved into the rail", JSON.stringify(s));
     ok(s.railAdmin && s.railSettings && s.railLogout,
