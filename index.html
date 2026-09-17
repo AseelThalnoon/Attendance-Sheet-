@@ -2870,16 +2870,38 @@
     background:linear-gradient(115deg, transparent 30%, rgba(255,255,255,.16) 45%, transparent 60%);
     transform:translateX(-120%); transition:transform var(--dur-slower) var(--ease-soft);
   }
-  /* The primary button's edge, in dark only. Its fill is --gradient-ink, which
-     stays dark in both modes so the white label keeps its 17:1 — correct, and
-     it leaves the button 1.20:1 against the card it sits on, so the loudest
-     control in the system renders as a hole rather than a raised surface.
-     This is the case DESIGN.md already solved for cards: "a shadow is a
-     darkening, and a darkening on a near-black canvas is nothing", so dark
-     compositions carry a hairline instead. The button gets the same answer.
-     Primary only — secondary, ghost and danger-ghost already carry --line. */
-  html[data-theme="dark"] .btn:not(.secondary):not(.ghost):not(.danger-ghost){
-    border-color:var(--line);
+  /* The primary button, in dark only.
+  
+     Its fill is --gradient-ink, which stays dark in both modes so the white
+     label keeps its 17:1 — correct in itself, and it leaves the button 1.20:1
+     against the card it sits on. The loudest control in the system rendered as
+     a hole, and it was the one surface going the wrong way down the ladder
+     this file's own rule sets: "elevation runs the same direction in both
+     modes — a card is lighter than the canvas either way".
+  
+     A hairline was the first answer, following the mechanism dark cards use.
+     It made the edge visible and left the fill 1.20:1, which reads as bounded,
+     not as primary. A step up the ramp to --line measures 1.40:1 — inside the
+     noise this file already describes for two dark surfaces near black.
+  
+     So the fill inverts instead: --ink over --card, the pair that already
+     flips correctly for today's calendar cell and the week timeline's day
+     head. 12.5:1 against the card, and the same 12.5:1 for its own label.
+     That is not the light theme flipped — it is the same ROLE composed per
+     mode. Light: near-black on white, the loudest thing on screen. Dark:
+     near-white on dark, the loudest thing on screen.
+  
+     The accent is deliberately NOT spent here. --gradient-gold belongs to
+     Clock In, and giving it to every primary button would cost the one moment
+     this product exists for its distinction. Hence :not(.qc-btn) — that
+     button, and the secondary/ghost/danger variants, all keep what they had. */
+  html[data-theme="dark"] .btn:not(.secondary):not(.ghost):not(.danger-ghost):not(.qc-btn):not(.danger-solid){
+    background:var(--ink); color:var(--card); border-color:var(--ink);
+  }
+  /* The sheen sweep is a highlight for a dark fill — a white wipe across a
+     near-white button is invisible at best and a smear at worst. */
+  html[data-theme="dark"] .btn:not(.secondary):not(.ghost):not(.danger-ghost):not(.qc-btn):not(.danger-solid)::before{
+    display:none;
   }
   .btn.secondary{background:var(--card); color:var(--ink); border-color:var(--line);}
   .btn.secondary::before{display:none;}
@@ -8453,6 +8475,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=picker-reach-1"></script>
+<script type="module" src="app.js?v=primary-invert-1"></script>
 </body>
 </html>
