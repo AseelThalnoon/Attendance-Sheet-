@@ -13,7 +13,7 @@
 // Bump alongside the ?v= query on app.js in index.html. activate() deletes
 // every cache whose key is not this one, so a bump is what forces an
 // installed PWA to drop the old shell and precache the new one.
-const CACHE_NAME = "attendance-ledger-shell-v35";
+const CACHE_NAME = "attendance-ledger-shell-v36";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives

@@ -1026,8 +1026,41 @@ underline rule. In a stat row, the second and third cards take the cream and
 gray surfaces so a four-tile row reads as four tiles.
 
 ### Buttons
-Primary is solid ink with white text; secondary is a white card surface;
-ghost is transparent with a line border. Danger-solid uses its own fixed
+Primary is solid ink with white text **in light**; secondary is a white card
+surface; ghost is transparent with a line border.
+
+**In dark the primary button inverts, and that is the rule rather than an
+exception to it.** "Solid ink with white text" describes a light composition:
+`--gradient-ink` stays dark in both modes — correctly, since `--ink-700/900`
+are fills that carry white text — which left the primary button at **1.20:1
+against its own card and darker than it**. The loudest control in the system
+was the one surface running the wrong way down the ladder **Dark is composed,
+not inverted** sets: a card is lighter than the canvas either way.
+
+A hairline was tried first, on the reasoning dark cards already use. It made
+the edge visible and left the fill where it was; a step up the ramp to `--line`
+measures 1.40:1, inside the noise this file already describes for two dark
+surfaces near black. So the fill inverts: `--ink` over `--card`, the pair that
+already flips for today's calendar cell and the week timeline's day head.
+**12.5:1** against the card, and the same for its own label.
+
+That is not the light theme flipped. It is one *role* — "the loudest thing in
+its region" — composed per mode: near-black on white in light, near-white on
+dark in dark. The sheen sweep on `.btn::before` is dropped in dark, being a
+highlight drawn for a dark fill.
+
+**The accent is deliberately not spent here.** `--gradient-gold` belongs to
+Clock In, and giving it to every primary button would cost the one moment this
+product exists for its distinction — so the rule carries `:not(.qc-btn)`, and
+secondary, ghost, danger-ghost and danger-solid keep what they had.
+
+**Test it as direction, not as ratio.** A contrast figure cannot tell "lighter
+than" from "darker than": between the broken version and the hairline version
+it moved by 0.00 while the entire defect was which side of the card the fill
+sat on. `hostile.js` compares relative luminance against `--card` for all seven
+palettes in both modes.
+
+Danger-solid uses its own fixed
 `--negative-solid`/`--negative-deep` pair, because `--negative` is tuned as a
 *text* colour and is too muted to carry white text as a fill. Pills (99px) for
 segmented controls and header actions.

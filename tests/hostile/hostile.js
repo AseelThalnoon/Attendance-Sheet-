@@ -1659,6 +1659,78 @@ async function run(){
       `${mixed.overflow}px over`);
   }
 
+  // ---- the primary button is the loudest thing in its region, in both modes --
+  // Asserted as DIRECTION, not ratio, because ratio cannot see it. The fill was
+  // --gradient-ink, dark in both modes, which left the primary button 1.20:1
+  // against its card and DARKER than it — the one surface running the wrong way
+  // down the ladder this system sets ("a card is lighter than the canvas either
+  // way"). A hairline was tried first and measured 1.40:1, and the contrast
+  // figure moved by 0.00 between the broken and the fixed version, because
+  // "lighter than" and "darker than" are the same number to a contrast ratio.
+  // So this measures which side of the card the fill sits on.
+  {
+    const me = D.roster(1)[0];
+    const h = await boot({ meId: me.id, seed: {
+      profiles: [me], entries: D.entriesFor(me.id, 5),
+      user_settings: [{ user_id: me.id, settings: D.SETTINGS }] } });
+
+    const rows = await h.page.evaluate(() => {
+      const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); };
+        return 0.2126*f(c[0]) + 0.7152*f(c[1]) + 0.0722*f(c[2]); };
+      const num = s => (s.match(/[\d.]+/g) || []).map(Number);
+      const hex = h => [1,3,5].map(i => parseInt(h.slice(i, i+2), 16));
+      const out = [];
+      for(const pal of ["atrium","slate","terracotta","studio","moss","plum","ledger"]){
+        for(const mode of ["light","dark"]){
+          document.documentElement.setAttribute("data-palette", pal);
+          document.documentElement.setAttribute("data-theme", mode);
+          const b = document.createElement("button");
+          b.className = "btn"; b.textContent = "X";
+          document.body.appendChild(b);
+          const cs = getComputedStyle(b);
+          const fill = cs.backgroundImage !== "none"
+            ? (cs.backgroundImage.match(/rgba?\([^)]*\)/g) || [])[0]
+            : cs.backgroundColor;
+          const label = cs.color;
+          b.remove();
+          const card = hex(getComputedStyle(document.documentElement).getPropertyValue("--card").trim());
+          out.push({ pal, mode,
+            fillL: lum(num(fill)), cardL: lum(card),
+            labelOnFill: (() => { const a = lum(num(label)), c = lum(num(fill));
+              return (Math.max(a,c)+0.05)/(Math.min(a,c)+0.05); })() });
+        }
+      }
+      return out;
+    });
+
+    rows.forEach(r => {
+      const raised = r.fillL > r.cardL;
+      ok(r.mode === "dark" ? raised : !raised,
+        `${r.pal}/${r.mode}: the primary button sits ${r.mode === "dark" ? "above" : "below"} its card`,
+        `fill ${r.fillL.toFixed(4)} vs card ${r.cardL.toFixed(4)}`);
+      ok(r.labelOnFill >= 4.5,
+        `${r.pal}/${r.mode}: its label clears 4.5:1 on that fill`, `${r.labelOnFill.toFixed(2)}:1`);
+    });
+
+    // The accent is not spent on it. Clock In stays the one gold button.
+    const gold = await h.page.evaluate(() => {
+      document.documentElement.setAttribute("data-palette", "atrium");
+      document.documentElement.setAttribute("data-theme", "dark");
+      const w = document.createElement("div"); w.className = "quick-clock";
+      const b = document.createElement("button"); b.className = "btn qc-btn";
+      w.appendChild(b); document.body.appendChild(w);
+      const qc = getComputedStyle(b).backgroundImage;
+      const p = document.createElement("button"); p.className = "btn";
+      document.body.appendChild(p);
+      const pr = getComputedStyle(p).backgroundImage + getComputedStyle(p).backgroundColor;
+      w.remove(); p.remove();
+      return { qcUsesGradient: /gradient/.test(qc), differs: qc !== pr };
+    });
+    ok(gold.qcUsesGradient && gold.differs,
+      "Clock In keeps the accent the primary button does not take", JSON.stringify(gold));
+    await h.close();
+  }
+
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
   if(fail){
     failures.forEach(f => console.log("  FAIL " + f));
