@@ -936,6 +936,27 @@ the other way — roster in its row, clock full width — on the grounds that a 
 should be as tall as its content; it was rejected, and the tall roster is the
 committed shape. Which makes its empty state load-bearing:
 
+**The first-run card's affordances have to be real.** An account with no
+entries gets one card in place of the stats row, the portrait and the day-types
+dial, and it carries two offers: a dashed ring around a plus, and a link
+reading "Set your working week first". Both were lying.
+
+The ring is the universal add affordance — it is what an empty state uses to
+say *put the first thing here* — and it was an `aria-hidden` SVG with no
+handler. On the one screen whose entire job is to offer the first action, the
+thing that looked most like the button did nothing. It opens the same
+`openNewEntryForm()` the Log's Add Entry button opens, so a day recorded here
+goes through the identical validation and save path; the clock below is still
+the primary route and still the louder element.
+
+The link clicked the Settings tab and stopped, which lands on **Profile** —
+deliberately the console's first section. So a label naming the working week
+delivered a name and a photo, with the working week one more unnamed click
+away. It clicks the real `#cnav-hours` nav item now rather than reaching into
+`initConsole`, which is the same rule the tab hop already follows: drive the
+control, not the state behind it, so every `aria-selected`, section toggle and
+Save-visibility rule the console owns fires once and in one place.
+
 **The roster's empty state holds its card.** It is a card in a filled row, so
 "nobody yet" has to occupy the row the way a list of names would; one sentence
 pinned to the top read as something that had failed to load. Its error state

@@ -1258,6 +1258,81 @@ async function run(){
     await h.close();
   }
 
+  // ---- the first-run card's two offers ---------------------------------------
+  // The only screen a brand-new account sees, and both of its controls were
+  // pointing at the wrong thing.
+  //
+  // The dashed ring around a plus is the universal add affordance and was an
+  // aria-hidden decoration with no handler — it read as the button on the one
+  // screen whose whole job is to offer the first action, and pressing it did
+  // nothing. And "Set your working week first" clicked the Settings tab and
+  // stopped, which lands on Profile, because Profile is deliberately the
+  // console's first section: the label named the working week and delivered a
+  // name and a photo.
+  {
+    const people = D.roster(2), me = people[0];
+    const h = await boot({ meId: me.id, seed: {
+      profiles: [me],
+      entries: [],                                   // first run: nothing logged
+      user_settings: [{ user_id: me.id, settings: D.SETTINGS }]
+    }});
+    await goTab(h.page, "overview");
+    await settle(h.page, 600);
+
+    const card = await h.page.evaluate(() => {
+      const panel = document.querySelector(".overview-panel");
+      const add = document.getElementById("firstRunAddBtn");
+      if(!add) return { firstRun: !!(panel && panel.classList.contains("is-first-run")), missing: true };
+      const r = add.getBoundingClientRect();
+      return {
+        firstRun: !!(panel && panel.classList.contains("is-first-run")),
+        missing: false,
+        tag: add.tagName,
+        name: (add.getAttribute("aria-label") || "").trim(),
+        w: Math.round(r.width), h: Math.round(r.height),
+        hit: (() => { const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                      return !!(e && (e === add || add.contains(e))); })()
+      };
+    });
+    ok(card.firstRun, "an account with no entries gets the first-run overview");
+    ok(!card.missing, "the first-run card offers a control for adding a day");
+    ok(card.tag === "BUTTON", "the dashed ring is a real control, not a decoration", String(card.tag));
+    ok(!!card.name, "the ring says what it does", JSON.stringify(card.name || null));
+    ok(card.w >= 44 && card.h >= 44, "the ring clears the touch floor", `${card.w}x${card.h}`);
+    ok(card.hit, "nothing is sitting on top of the ring");
+
+    const modal = await h.page.evaluate(async () => {
+      const add = document.getElementById("firstRunAddBtn");
+      if(add) add.click();
+      await new Promise(r => setTimeout(r, 300));
+      const m = document.getElementById("entryModal");
+      return { open: !!(m && m.getClientRects().length), focus: document.activeElement.id };
+    });
+    await settle(h.page, 400);
+    ok(modal.open, "the ring opens the entry form");
+    ok(modal.focus === "fDate", "the entry form starts on the date", modal.focus || "(none)");
+    if(modal.open){ await h.page.keyboard.press("Escape"); await settle(h.page, 400); }
+
+    await h.page.evaluate(() => {
+      const b = document.getElementById("firstRunSettingsBtn");
+      if(b) b.click();
+    });
+    await settle(h.page, 800);
+    const landed = await h.page.evaluate(() => {
+      const sec = document.querySelector("#settingsConsole .console-section.active");
+      const nav = document.querySelector('#settingsConsole .console-nav-item[aria-selected="true"]');
+      return { tab: (document.querySelector(".tab-panel.active") || {}).id,
+               section: sec && sec.getAttribute("data-section"),
+               nav: nav && nav.id };
+    });
+    ok(landed.tab === "tab-settings", "the working-week link opens Settings", landed.tab);
+    ok(landed.section === "hours",
+      "...and lands on Working Hours, which is what its label promises",
+      `landed on: ${landed.section}`);
+    ok(landed.nav === "cnav-hours", "the console nav agrees with the open section", landed.nav);
+    await h.close();
+  }
+
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
   if(fail){
     failures.forEach(f => console.log("  FAIL " + f));

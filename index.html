@@ -4063,6 +4063,18 @@
   .table-wrap.responsive-cards tr.log-more-row td{justify-content:center;}
   .empty-state{text-align:center; padding:36px 10px; color:var(--muted); font-size:13.5px;}
   .first-run-empty{display:flex; flex-direction:column; align-items:center; gap:14px; max-width:320px; margin:0 auto;}
+  /* The ring carries the hover, so `currentColor` on the circle and a colour
+     change on the button move it — the plus keeps --gold-deep either way, which
+     is the one accent value that may sit on a light ground and inverts for dark
+     on its own. 52px is the artwork; the 44px floor is stated anyway so the
+     target never depends on the SVG's size staying what it is. */
+  .first-run-add{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:44px; min-height:44px; padding:0;
+    background:none; border:none; border-radius:50%; cursor:pointer;
+    color:var(--line);
+    transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
+  }
   .first-run-title{font-family:var(--font-display); font-size:16px; color:var(--ink); margin:2px 0 0;}
   .first-run-sub{font-size:12.5px; color:var(--muted); line-height:1.6; margin:0;}
   .first-run-sub strong{color:var(--ink-600);}
@@ -6230,6 +6242,7 @@
        and the table rows hover to. */
     .icon-btn:hover{background:var(--ink-50); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
     .icon-btn.danger:hover{background:var(--negative-bg);}
+    .first-run-add:hover{color:var(--ink-600); background:var(--ink-50);}
     .head-action:hover{background:var(--ink-50); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
     .stat-card:hover{transform:translateY(-3px); box-shadow:var(--shadow-glow);}
     .card:hover{box-shadow:var(--shadow-md);}
@@ -6696,10 +6709,21 @@
        exists to prevent. -->
   <section class="card first-run-card" id="overviewFirstRun" hidden>
     <div class="first-run-empty">
-      <svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <circle cx="24" cy="24" r="18" stroke="var(--line)" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>
-        <path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>
-      </svg>
+      <!-- A dashed ring around a plus is the universal "add" affordance, and
+           this one was an aria-hidden decoration with no handler: it read as
+           the button on a screen whose whole job is to offer the first action,
+           and pressing it did nothing. It is the control it already looked
+           like now — hand-entry, the same openNewEntryForm() the Log's Add
+           Entry button opens, for the day you are recording after the fact
+           rather than clocking live. The clock below is still the primary
+           path and still the louder element. -->
+      <button type="button" class="first-run-add" id="firstRunAddBtn"
+              title="Log a day by hand" aria-label="Log a day by hand">
+        <svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>
+          <path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>
+        </svg>
+      </button>
       <p class="first-run-title">Your first day starts here</p>
       <p class="first-run-sub">Clock in when you start and out when you finish. Hours, punctuality and leave all build themselves from there.</p>
       <button type="button" class="link-btn" id="firstRunSettingsBtn">Set your working week first</button>
@@ -8343,6 +8367,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=print-allowlist-1"></script>
+<script type="module" src="app.js?v=first-run-actions-1"></script>
 </body>
 </html>
