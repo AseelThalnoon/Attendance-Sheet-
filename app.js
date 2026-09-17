@@ -3012,13 +3012,36 @@ import { makeSchedule } from "./src/schedule.js";
   // isOwnData keeps it off an admin's screen while they are viewing someone
   // else: "your first day" is the wrong sentence about another person's
   // record, and an admin cannot punch that clock anyway (see punchClock).
+  // Your own record, nothing logged, and the load actually succeeded. The last
+  // clause is the one that matters: telling somebody with four hundred days
+  // that their weeks take shape here, because a fetch failed, is exactly what
+  // dataLoadFailed() exists to prevent.
+  function firstRunActive(){
+    return isOwnData && entries.length === 0 && !dataLoadFailed();
+  }
+
   function renderOverviewFirstRun(){
-    var panel = document.getElementById("tab-overview");
-    var card = document.getElementById("overviewFirstRun");
-    if(!panel || !card) return;
-    var firstRun = isOwnData && entries.length === 0 && !dataLoadFailed();
-    panel.classList.toggle("is-first-run", firstRun);
-    card.hidden = !firstRun;
+    // Trends and Shortfall answer the same question as the Overview on an
+    // account with nothing in it, so they take the same condition rather than
+    // inventing one each: your own record, nothing logged, and the load
+    // actually succeeded. That last clause is the one that matters — telling
+    // someone with four hundred days that their weeks take shape here, because
+    // a fetch failed, is exactly what dataLoadFailed() exists to prevent.
+    var firstRun = firstRunActive();
+    [["tab-overview", "overviewFirstRun"],
+     ["tab-trends", "trendsFirstRun"],
+     ["tab-punctuality", "punctFirstRun"]].forEach(function(pair){
+      var panel = document.getElementById(pair[0]);
+      var card = document.getElementById(pair[1]);
+      if(!panel || !card) return;
+      panel.classList.toggle("is-first-run", firstRun);
+      card.hidden = !firstRun;
+    });
+    // The shared chrome is set on tab activation, which has already happened by
+    // the time the first entry lands. Without this the sub-tabs and selects
+    // stay hidden on the tab you are standing on until you navigate away.
+    var active = document.querySelector(".tab-panel.active");
+    if(active) applyFilterBarVisibility(active.id.replace(/^tab-/, ""), activeSubtab());
   }
 
   function renderStats(){
@@ -3545,7 +3568,15 @@ import { makeSchedule } from "./src/schedule.js";
     if(!holder) return;
     var legend = holder.parentElement && holder.parentElement.querySelector(".chart-legend");
     var svg = holder.querySelector("svg");
-    if(!legend || !svg) return;
+    if(!legend) return;
+    // No plot at all is the strongest version of the case this function exists
+    // for. The conditional entries carry data-legend and the rest were treated
+    // as "always applies", which was reasoned about a chart that drew
+    // SOMETHING: with nothing drawn, an empty panel still published a key to
+    // four series — Avg / day, Met target, Below target, Daily target — none of
+    // which were on screen. Nothing painted, nothing to key.
+    if(!svg){ legend.hidden = true; return; }
+    legend.hidden = false;
     // What the plot actually painted, as resolved colours.
     var painted = {};
     svg.querySelectorAll("*").forEach(function(el){
@@ -4203,9 +4234,14 @@ import { makeSchedule } from "./src/schedule.js";
     allClearEl.hidden = !clear;
 
     if(clear){
+      // Two different facts wearing one colour. "Every scheduled day met its
+      // target" is good news and earns the positive green; "no scheduled days
+      // assessed yet" is the absence of news, and green there tells somebody
+      // who has not taken the test that they passed it.
       allClearEl.textContent = s.ratedDays
         ? "No shortfalls. Every scheduled day in " + punctScopeLabel() + " met its target."
         : "No scheduled days assessed yet in " + punctScopeLabel() + ".";
+      allClearEl.classList.toggle("is-neutral", !s.ratedDays);
     }
 
     var shortDaysEl = document.getElementById("pShortDays");
@@ -5438,18 +5474,28 @@ import { makeSchedule } from "./src/schedule.js";
 
   // Shows the right filter bar(s) for whichever tab — and, for Trends,
   // whichever period sub-view — is currently active.
+  //
+  // Except on a first run, where Trends and Shortfall are a single first-run
+  // card and this chrome is furniture around it: two sub-tabs that switch
+  // between the same nothing, a year and a month select when no month has
+  // anything in it, and a Print Report button that would produce a timesheet
+  // with no rows on it. The panels themselves hide their own children in CSS;
+  // these live in #tabContentCard as siblings, so they are hidden here.
+  // Deliberately NOT applied to Log: its filter bar carries the search and the
+  // Add Entry button, which is the action its empty state points at.
   function applyFilterBarVisibility(tab, subtab){
+    var bare = firstRunActive() && (tab === "trends" || tab === "punctuality");
     document.getElementById("monthFilterWrap").style.display =
-      (tab === "log" || (tab === "trends" && subtab === "weekly")) ? "flex" : "none";
+      (!bare && (tab === "log" || (tab === "trends" && subtab === "weekly"))) ? "flex" : "none";
     document.getElementById("searchFilterWrap").style.display = (tab === "log") ? "flex" : "none";
     if(tab !== "log"){
       document.getElementById("advancedFiltersPanel").style.display = "none";
       document.getElementById("advancedFiltersToggle").classList.remove("active");
     }
     document.getElementById("monthlyFilterWrap").style.display =
-      (tab === "trends" && subtab === "monthly") ? "flex" : "none";
-    document.getElementById("punctFilterWrap").style.display = (tab === "punctuality") ? "flex" : "none";
-    document.getElementById("trendsSubTabs").style.display = (tab === "trends") ? "flex" : "none";
+      (!bare && tab === "trends" && subtab === "monthly") ? "flex" : "none";
+    document.getElementById("punctFilterWrap").style.display = (!bare && tab === "punctuality") ? "flex" : "none";
+    document.getElementById("trendsSubTabs").style.display = (!bare && tab === "trends") ? "flex" : "none";
   }
 
   function renderSubtab(subtab){

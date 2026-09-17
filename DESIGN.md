@@ -644,6 +644,17 @@ The frame had drifted to four heights in one vertical stack — a 44px select
 above a 44px search box above a 36px button above a 32px row — which made the
 toolbar read as heavier than the data it filters.
 
+**A text link is still a control.** `.link-btn` shipped at 20px on five
+standalone targets — the four on the sign-in screen and the first-run card's
+"Set your working week first" — under both SC 2.5.8's 24px and this rule's own
+44px touch base. `tests/mobile/touch-floor.js` sweeps every button at 44px and
+passed the whole time, because its fixture hides `#authScreen` and seeds
+entries: neither state is one it can reach. The sizes are fixed and the two
+states are measured in `hostile.js`, where they exist. The one exemption is the
+one the criterion itself writes — a target inline in a sentence — which is why
+`.settings-warn .link-btn` stays inline rather than becoming a 44px flex box in
+the middle of a line of prose.
+
 **The floor under the module is 24px** — WCAG 2.2 SC 2.5.8 at AA, which applies
 to a mouse as much as to a finger. Shrinking a control for the pointer is a
 density decision; taking it below 24px is an accessibility one, and the row buys
@@ -710,6 +721,17 @@ carries `position:relative` for exactly this reason.
 Shadows are ambient and neutral, never structural: `--shadow-sm` at rest,
 `--shadow-md` on hover, `--shadow-lg` for modals. In a light palette, cards have
 **no border** — separation comes from surface colour and shadow.
+
+**The primary button needs the same hairline, for the same reason.** Its fill is
+`--gradient-ink`, which stays dark in both modes so the white label keeps its
+17:1 — correct, and it leaves the button sitting *darker* than the card it is
+on, so the loudest control in the system reads as a hole rather than a raised
+surface. The edge was `--ink-900`, which is darker still. In dark it is `--line`
+now, so the button is bounded by something lighter than its ground. Worth
+recording how this was nearly missed: contrast ratio cannot tell "lighter than"
+from "darker than", so the measurement barely moved (1.40:1 either way) while
+the defect was entirely about direction. The metric had to change before the
+fix could be seen.
 
 **In a dark palette that sentence stops being true, so the mechanism changes
 rather than the intent.** A shadow is a darkening, and a darkening on a near-
@@ -949,6 +971,30 @@ on the Log unteaught that. Both are `.first-run-add` now, wired by a single
 delegated handler rather than a listener each: `renderLog()` rebuilds its copy
 on every pass, and binding per element on a renderer that runs that often is
 how listeners accumulate.
+
+**Trends and Shortfall take the same first-run state.** An account with nothing
+logged used to get the whole chart apparatus wrapped around no chart: sub-tabs
+switching between two empty views, a year and a month select when no month has
+anything in it, a Print Report button that would produce a timesheet with no
+rows, a titled card holding "Nothing to chart yet.", a legend keying four series
+that were never drawn, and an accordion restating the absence underneath.
+Shortfall said it four times, and one of them — "No scheduled days assessed yet"
+— was in the positive green, which tells somebody who has not taken the test
+that they passed it. Absence of news is not good news; that sentence is
+secondary text now, and the green is kept for "every scheduled day met its
+target", which has earned it.
+
+All three panels share one condition — your own record, nothing logged, the load
+actually succeeded — because they are answering the same question. The panels
+hide their own children in CSS; the sub-tabs and filter bars live in
+`#tabContentCard` as siblings and are hidden in `applyFilterBarVisibility`.
+**Not the Log's**, which carries Add Entry — the action its own empty state
+points at. A blanket rule would have taken away the one thing the sentence names.
+
+**A legend may not key a chart that drew nothing.** `syncChartLegend()` hid
+conditional entries whose colour went unpainted, and treated the rest as "always
+applies" — reasoning about a chart that drew *something*. With no plot at all
+there is nothing to key, so the legend goes.
 
 **The failed-load ring is deliberately not one.** "No attendance logged yet"
 and "couldn't read your record" share the block and the dashed ring, and only

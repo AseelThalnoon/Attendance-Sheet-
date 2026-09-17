@@ -1337,6 +1337,44 @@ async function run(){
     ok(logRing.opens, "...and opening the same entry form");
     if(logRing.opens){ await h.page.keyboard.press("Escape"); await settle(h.page, 400); }
 
+    // Trends and Shortfall on an account with nothing in it. Both used to be
+    // the full chart apparatus wrapped around no chart — sub-tabs, a year and
+    // a month select, a Print Report button that would print a timesheet with
+    // no rows, a legend naming four series that were never drawn, and the same
+    // absence restated in an accordion underneath. Shortfall said it four
+    // times, one of them in the positive green, which tells somebody who has
+    // not taken the test that they passed it.
+    for(const [tab, cardId] of [["trends", "trendsFirstRun"], ["punctuality", "punctFirstRun"]]){
+      await goTab(h.page, tab);
+      await settle(h.page, 600);
+      const r = await h.page.evaluate(id => {
+        const card = document.getElementById(id);
+        const vis = el => !!(el && el.getClientRects().length);
+        const panel = document.querySelector(".tab-panel.active");
+        return {
+          cardShown: !!(card && !card.hidden && card.getClientRects().length),
+          subTabs: vis(document.getElementById("trendsSubTabs")),
+          monthFilter: vis(document.getElementById("monthFilterWrap")),
+          punctFilter: vis(document.getElementById("punctFilterWrap")),
+          legend: panel ? [...panel.querySelectorAll(".chart-legend")].some(vis) : false,
+          ring: !!(card && card.querySelector(".first-run-add"))
+        };
+      }, cardId);
+      ok(r.cardShown, `${tab} shows one first-run state instead of an empty chart`);
+      ok(r.ring, `${tab}'s first-run state offers the same ring as the others`);
+      ok(!r.legend, `${tab} publishes no legend when it drew no chart`);
+      ok(!r.subTabs && !r.monthFilter && !r.punctFilter,
+        `${tab} drops the period chrome it has nothing to filter`,
+        JSON.stringify(r));
+    }
+
+    // The Log keeps its chrome: that bar carries Add Entry, which is the action
+    // its own empty state points at. A blanket rule would have taken it away.
+    await goTab(h.page, "log");
+    await settle(h.page, 400);
+    ok(await h.page.evaluate(() => !!document.getElementById("monthFilterWrap").getClientRects().length),
+      "the Log keeps the filter bar that carries its own empty state's action");
+
     await goTab(h.page, "overview");
     await settle(h.page, 400);
     await h.page.evaluate(() => {
@@ -1386,6 +1424,85 @@ async function run(){
     ok(r.isButton === false, "the failed-load ring is not a control", `isButton: ${r.isButton}`);
     ok(r.glyph === "M24 15v11M24 31.5h.01", "...and still draws an exclamation, not a plus", String(r.glyph));
     await h.close();
+  }
+
+  // ---- and it all comes back the moment there is data ------------------------
+  // A first-run state that does not stand down is worse than none: it would
+  // hide the charts from the person who has just earned them.
+  {
+    const people = D.roster(2), me = people[0];
+    const h = await boot({ meId: me.id, seed: {
+      profiles: [me], entries: D.entriesFor(me.id, 30),
+      user_settings: [{ user_id: me.id, settings: D.SETTINGS }]
+    }});
+    for(const [tab, cardId] of [["trends", "trendsFirstRun"], ["punctuality", "punctFirstRun"]]){
+      await goTab(h.page, tab);
+      await settle(h.page, 800);
+      const r = await h.page.evaluate(id => {
+        const card = document.getElementById(id);
+        const vis = el => !!(el && el.getClientRects().length);
+        const panel = document.querySelector(".tab-panel.active");
+        return { cardShown: !!(card && !card.hidden),
+                 chrome: vis(document.getElementById(id === "trendsFirstRun" ? "trendsSubTabs" : "punctFilterWrap")),
+                 legend: panel ? [...panel.querySelectorAll(".chart-legend")].some(vis) : false };
+      }, cardId);
+      ok(!r.cardShown, `${tab} stands the first-run state down once days are logged`);
+      ok(r.chrome, `${tab} gets its period chrome back`);
+      ok(r.legend, `${tab} keys the chart it actually drew`);
+    }
+    await h.close();
+  }
+
+  // ---- the two states the touch-floor sweep cannot reach ---------------------
+  // tests/mobile/touch-floor.js measures every button at 44px and passes, but
+  // its fixture hides #authScreen and seeds entries — so the auth screen's
+  // links and the first-run card's link are controls it has never once seen.
+  // Both shipped at 20px, under WCAG 2.2 SC 2.5.8's 24px AA floor and under
+  // this project's own One Module rule. Measured here, where those states
+  // actually exist.
+  {
+    const me = D.roster(1)[0];
+    const FLOOR = 44;   // One Module: the touch size is the base below 1100px
+
+    const h = await boot({ meId: me.id, viewport: PHONE, signedOut: true,
+      waitForApp: false, seed: { profiles: [me] } });
+    await settle(h.page, 1200);
+    const auth = await h.page.evaluate(() => [...document.querySelectorAll(".link-btn")]
+      .filter(b => b.getClientRects().length)
+      .map(b => ({ id: b.id || b.textContent.trim().slice(0, 24),
+                   h: Math.round(b.getBoundingClientRect().height) })));
+    ok(auth.length > 0, "the sign-in screen has links to measure", JSON.stringify(auth));
+    auth.forEach(l => ok(l.h >= FLOOR,
+      `sign-in link "${l.id}" clears the ${FLOOR}px touch floor`, `it is ${l.h}px`));
+    await h.close();
+
+    const h2 = await boot({ meId: me.id, viewport: PHONE, seed: {
+      profiles: [me], entries: [], user_settings: [{ user_id: me.id, settings: D.SETTINGS }]
+    }});
+    await goTab(h2.page, "overview");
+    await settle(h2.page, 600);
+    const fr = await h2.page.evaluate(() => {
+      const b = document.getElementById("firstRunSettingsBtn");
+      return b && b.getClientRects().length ? Math.round(b.getBoundingClientRect().height) : null;
+    });
+    ok(fr !== null, "the first-run card's working-week link is on screen to measure");
+    ok(fr >= FLOOR, `the first-run working-week link clears the ${FLOOR}px touch floor`, `it is ${fr}px`);
+
+    // The one target SC 2.5.8 exempts: inline in a sentence. It must NOT be
+    // grown into an inline-flex block, which would break the line it sits in.
+    const inline = await h2.page.evaluate(() => {
+      const b = document.getElementById("registrationDefaultsHintBtn");
+      if(!b) return null;
+      const s = getComputedStyle(b);
+      return { display: s.display, minHeight: s.minHeight };
+    });
+    ok(inline && inline.display !== "inline-flex",
+      "the link inside the registration warning's prose is not a flex box",
+      JSON.stringify(inline));
+    ok(inline && (inline.minHeight === "0px" || inline.minHeight === "auto"),
+      "...and is not grown to the touch floor mid-sentence, which SC 2.5.8 exempts",
+      JSON.stringify(inline));
+    await h2.close();
   }
 
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
