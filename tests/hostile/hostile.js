@@ -1505,6 +1505,85 @@ async function run(){
     await h2.close();
   }
 
+  // ---- a send says what it will reach, and what it did ----------------------
+  // "Specific people" always named its real count; "Everyone" never did, so a
+  // send that reached nobody was word-for-word a send that reached the whole
+  // team — at the moment of deciding, and again at the moment of being told.
+  // Push cannot be unsent. The composer had the figure on screen three lines
+  // above the button the whole time.
+  {
+    const people = D.roster(6), me = people[0];
+    const subsFor = n => people.slice(0, n).map((p, i) => ({
+      endpoint: "https://push.example/" + i, user_id: p.id,
+      user_agent: "UA" + i, created_at: "2026-09-01T09:00:00Z" }));
+
+    const send = async (opts) => {
+      const seed = { profiles: people, entries: D.entriesFor(me.id, 8),
+        user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })) };
+      if(opts.subs) seed.push_subscriptions = opts.subs;
+      const h = await boot({ meId: me.id, seed,
+        beforeLoad: opts.breakRpc
+          ? async ({ backend }) => backend.fail("rpc/admin_push_reach", { status: 404, message: "not deployed" })
+          : undefined });
+      await goTab(h.page, "admin");
+      await settle(h.page, 600);
+      await h.page.evaluate(() => document.getElementById("cnav-admin-notifications").click());
+      await settle(h.page, 700);
+      await h.page.evaluate(() => { window.__t = [];
+        new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => {
+          if(n.nodeType === 1 && n.textContent) window.__t.push(n.textContent.trim().replace(/\s+/g, " ")); })))
+          .observe(document.body, { childList: true, subtree: true }); });
+      await h.page.fill("#notifyTitle", "Early close");
+      await h.page.fill("#notifyBody", "Doors shut at 2pm.");
+      if(opts.target === "users"){
+        await h.page.evaluate(() => [...document.querySelectorAll("[data-notify-target]")]
+          .find(b => b.dataset.notifyTarget === "users").click());
+        await settle(h.page, 300);
+        await h.page.evaluate(() => [...document.querySelectorAll("#notifyPeoplePicker input[type=checkbox]")]
+          .slice(0, 2).forEach(b => b.click()));
+      }
+      await h.page.evaluate(() => [...document.querySelectorAll("#csec-admin-notifications button")]
+        .find(x => x.textContent.trim() === "Send Notification").click());
+      await settle(h.page, 900);
+      const confirm = await h.page.evaluate(() => {
+        const d = document.querySelector(".modal-overlay:not([hidden])");
+        return d ? d.innerText.replace(/\s+/g, " ").trim() : "";
+      });
+      await h.page.evaluate(() => { const b = [...document.querySelectorAll(".modal-overlay button")]
+        .find(x => /^send$/i.test(x.textContent.trim())); if(b) b.click(); });
+      await settle(h.page, 1800);
+      const result = await h.page.evaluate(() =>
+        (window.__t || []).filter(t => /sent|scheduled|reached|nobody/i.test(t)).slice(-1)[0] || "");
+      await h.close();
+      return { confirm, result };
+    };
+
+    const three = await send({ subs: subsFor(3), target: "all" });
+    ok(/\b3 people\b/.test(three.confirm), "sending to everyone names how many it will reach", three.confirm);
+    ok(/\b3 people\b/.test(three.result), "...and the result says how many it reached", three.result);
+
+    const none = await send({ target: "all" });
+    ok(/reach no one|nobody/i.test(none.confirm),
+      "sending to nobody says so before it happens", none.confirm);
+    ok(/reached nobody/i.test(none.result) && !/^Notification sent\.$/.test(none.result),
+      "...and is not reported as an ordinary success", none.result);
+    ok(none.result !== three.result,
+      "a send that reached nobody does not read the same as one that reached everyone",
+      `${none.result} / ${three.result}`);
+
+    // Unknown is not zero. admin_push_reach is best-effort on purpose, and a
+    // composer that cannot reach it must claim nothing rather than report 0.
+    const unknown = await send({ subs: subsFor(3), target: "all", breakRpc: true });
+    ok(!/nobody|reach no one|\b0 people\b/i.test(unknown.confirm),
+      "with the reach RPC unavailable the confirm claims no number", unknown.confirm);
+    ok(!/reached nobody/i.test(unknown.result),
+      "...and does not report a delivery to nobody it cannot know about", unknown.result);
+
+    const picked = await send({ subs: subsFor(3), target: "users" });
+    ok(/2 selected people/.test(picked.confirm),
+      "the specific-people branch still names its own count", picked.confirm);
+  }
+
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
   if(fail){
     failures.forEach(f => console.log("  FAIL " + f));
