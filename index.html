@@ -4465,10 +4465,29 @@
        already hardcoded for ink and everything else is display:none'd below,
        but color-scheme still has to be said out loud: left at dark it is the
        browser's own surfaces — form controls, and in some engines the page
-       ground itself — that arrive on the page in dark. */
-    :root{color-scheme:light;}
+       ground itself — that arrive on the page in dark.
+
+       !important because saying it was not enough. `html[data-theme="dark"]`
+       is (0,1,1) and `:root` is (0,1,0), and a media query adds no
+       specificity — so the screen's own rule beat this one and the print
+       preview kept color-scheme:dark in every dark theme. Measured, not
+       assumed: getComputedStyle reported "dark" under print media. */
+    :root{color-scheme:light !important;}
     body{background:#fff !important; color:#000 !important; padding:0; background-image:none;}
-    header.ledger-head, main, footer.ledger-foot{display:none !important;}
+    /* An ALLOWLIST: hide everything and let #printArea back in below.
+       This was a list of three — header.ledger-head, main, footer.ledger-foot —
+       and it was written before the Atrium redesign existed. The rail, the
+       sticky clock bar and the bottom nav are siblings of main, not children
+       of it, so none of them were ever covered: a printed timesheet led with a
+       full page of the 236px near-black rail (wordmark, nav, today's status,
+       the user block) and put the report itself on page two. Confirmed by
+       generating the actual PDF — page 1 read "ATTENDANCE / OVERVIEW / LOG /
+       TRENDS / ..." and #printArea started at y=900.
+
+       A denylist has to be updated every time a sibling is added and silently
+       fails when it is not. The print view shows exactly one element by
+       design, so the rule that expresses it is "nothing, except that one". */
+    body > *{display:none !important;}
     #printArea{display:block !important; padding:0; font-family:var(--font-ui);}
     #printArea h1{font-size:20pt; margin:0 0 2pt;}
     #printArea .p-eyebrow{font-size:8pt; letter-spacing:.14em; text-transform:uppercase; color:#555; margin:0 0 10pt;}
@@ -4478,6 +4497,14 @@
     #printArea table{width:100%; border-collapse:collapse; font-size:8.5pt;}
     #printArea th{text-align:left; border-bottom:1pt solid #000; padding:4pt 5pt; font-size:7.5pt; text-transform:uppercase; letter-spacing:.05em;}
     #printArea td{border-bottom:.5pt solid #ccc; padding:4pt 5pt;}
+    /* The note is the one column that wraps. `tbody td` carries
+       white-space:nowrap for the screen's Log, where a row is one line and the
+       table scrolls sideways — paper does not scroll, so a 500-character note
+       (the database's own check-constraint ceiling) took the table to 3365px
+       against 741px of printable A4 and carried Type, Diff, Target and Worked
+       clean off the right edge. Only this column: a date or a clock time
+       breaking across two lines would be worse, not better. */
+    #printArea th.p-note, #printArea td.p-note{white-space:normal; overflow-wrap:anywhere;}
     #printArea .num{text-align:right; font-family:var(--font-num); font-variant-numeric:tabular-nums;}
     #printArea .p-summary{display:flex; gap:22pt; flex-wrap:wrap; margin:0 0 6pt;}
     #printArea .p-summary div span{display:block;}
@@ -8166,7 +8193,6 @@
 </footer>
 </div><!-- /.shell -->
 
-<div id="printArea"></div>
 <div id="loadingLive" class="visually-hidden" role="status" aria-live="polite"></div>
 
 <div class="sticky-clock" id="stickyClock">
@@ -8297,6 +8323,16 @@
 </div>
 </div><!-- /#appShell -->
 
+<!-- Outside #appShell on purpose. The print stylesheet shows this element and
+     hides everything else, and "everything else" is a body-level statement --
+     while this lived inside the shell, hiding the shell took the report down
+     with it, because display:none on an ancestor is not something a
+     descendant's own display can answer. It is not part of the app shell in
+     any other sense either: nothing in the running interface renders it, it is
+     built on demand by beforeprint and cleared by afterprint, and
+     getElementById does not care where it sits. -->
+<div id="printArea"></div>
+
 <!-- The query is a cache buster. A browser that has app.js in its HTTP cache
      will happily pair a fresh index.html with a stale script — the markup for a
      new feature renders while the code that drives it never loads, which looks
@@ -8307,6 +8343,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=palette-contrast-1"></script>
+<script type="module" src="app.js?v=print-allowlist-1"></script>
 </body>
 </html>

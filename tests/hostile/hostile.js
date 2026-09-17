@@ -1187,6 +1187,77 @@ async function run(){
     await h.close();
   }
 
+  // ---- the printed timesheet ------------------------------------------------
+  // The one artefact this app makes for somebody else, and the surface no test
+  // had ever looked at. Three separate things were wrong at once and each was
+  // invisible from the screen:
+  //
+  //   - The print stylesheet hid `header.ledger-head, main, footer.ledger-foot`,
+  //     a list written before the Atrium redesign existed. The rail, the sticky
+  //     clock and the bottom nav are SIBLINGS of main, so a printed timesheet
+  //     led with a full page of the 236px near-black rail and put the report on
+  //     page two. It is an allowlist now — everything hidden, #printArea shown —
+  //     which is the shape that cannot go stale when a sibling is added.
+  //   - #printArea lived inside #appShell, so hiding the shell took the report
+  //     with it. display:none on an ancestor is not something a descendant's own
+  //     display can answer. It is a body-level sibling now.
+  //   - `tbody td` carries white-space:nowrap for the screen's Log, which
+  //     scrolls sideways. Paper does not. A 500-character note — the database's
+  //     own check-constraint ceiling, and in this fixture — took the table to
+  //     3365px against 741px of printable A4 and carried four columns off the
+  //     right edge.
+  //
+  // Driven from the DARK theme on purpose: the print block's color-scheme:light
+  // lost to html[data-theme="dark"] on specificity, and a media query adds none.
+  {
+    const people = D.roster(3), me = people[0];
+    const h = await boot({ meId: me.id, seed: {
+      profiles: people,
+      entries: D.entriesFor(me.id, 30, { extremes: true }),
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS }))
+    }});
+    await goTab(h.page, "log");
+    await settle(h.page, 800);
+    await h.page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+    // beforeprint is what builds the report for Ctrl+P, so it is the real path.
+    await h.page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));
+    await settle(h.page, 600);
+    // A4 portrait at 96dpi less the stylesheet's own 14mm @page margin.
+    await h.page.setViewportSize({ width: 794, height: 1123 });
+    await h.page.emulateMedia({ media: "print" });
+    await settle(h.page, 400);
+
+    const r = await h.page.evaluate(() => {
+      const pa = document.getElementById("printArea");
+      const onPaper = [...document.querySelectorAll("body *")]
+        .filter(e => e !== pa && !pa.contains(e) && e.getClientRects().length)
+        .map(e => e.tagName.toLowerCase() + (e.id ? "#" + e.id : ""));
+      return {
+        rows: pa.querySelectorAll("tbody tr").length,
+        signatures: pa.querySelectorAll(".p-sign div").length,
+        top: Math.round(pa.getBoundingClientRect().top),
+        overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        colorScheme: getComputedStyle(document.documentElement).colorScheme,
+        bodyBg: getComputedStyle(document.body).backgroundColor,
+        strays: [...new Set(onPaper)]
+      };
+    });
+
+    ok(r.rows > 0, "beforeprint builds the report", `rows: ${r.rows}`);
+    ok(r.signatures === 2, "the report keeps its signature lines", `found ${r.signatures}`);
+    ok(r.strays.length === 0,
+      "nothing but the report is on the paper",
+      `also printing: ${r.strays.join(", ")}`);
+    ok(r.top === 0, "the report starts on page one", `starts at y=${r.top}`);
+    ok(r.overflowX === 0,
+      "the report fits the printable width with a maximum-length note",
+      `${r.overflowX}px past the page`);
+    ok(r.colorScheme === "light",
+      "print forces color-scheme:light even from a dark theme", r.colorScheme);
+    ok(r.bodyBg === "rgb(255, 255, 255)", "paper is white whatever the screen is", r.bodyBg);
+    await h.close();
+  }
+
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
   if(fail){
     failures.forEach(f => console.log("  FAIL " + f));
