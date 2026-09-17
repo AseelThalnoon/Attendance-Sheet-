@@ -1313,6 +1313,32 @@ async function run(){
     ok(modal.focus === "fDate", "the entry form starts on the date", modal.focus || "(none)");
     if(modal.open){ await h.page.keyboard.press("Escape"); await settle(h.page, 400); }
 
+    // The Log shows the same ring for the same reason, and for a while it was
+    // the identical glyph sitting inert one tab over: press it on the Overview
+    // and a day opens, press it on the Log and nothing happens. Both are
+    // .first-run-add now and one delegated handler covers them.
+    await goTab(h.page, "log");
+    await settle(h.page, 600);
+    const logRing = await h.page.evaluate(() => {
+      const panel = document.getElementById("tab-log");
+      const btn = panel && panel.querySelector(".first-run-add");
+      if(!btn) return { missing: true };
+      const r = btn.getBoundingClientRect();
+      btn.click();
+      const m = document.getElementById("entryModal");
+      return { missing: false, tag: btn.tagName, name: (btn.getAttribute("aria-label") || "").trim(),
+               w: Math.round(r.width), h: Math.round(r.height),
+               opens: !!(m && m.getClientRects().length) };
+    });
+    ok(!logRing.missing, "the Log's empty state offers the same ring");
+    ok(logRing.tag === "BUTTON", "...and it is a control there too", String(logRing.tag));
+    ok(!!logRing.name, "...with a name", JSON.stringify(logRing.name || null));
+    ok(logRing.w >= 44 && logRing.h >= 44, "...clearing the touch floor", `${logRing.w}x${logRing.h}`);
+    ok(logRing.opens, "...and opening the same entry form");
+    if(logRing.opens){ await h.page.keyboard.press("Escape"); await settle(h.page, 400); }
+
+    await goTab(h.page, "overview");
+    await settle(h.page, 400);
     await h.page.evaluate(() => {
       const b = document.getElementById("firstRunSettingsBtn");
       if(b) b.click();
@@ -1330,6 +1356,35 @@ async function run(){
       "...and lands on Working Hours, which is what its label promises",
       `landed on: ${landed.section}`);
     ok(landed.nav === "cnav-hours", "the console nav agrees with the open section", landed.nav);
+    await h.close();
+  }
+
+  // ---- the failed-load ring stays a picture ----------------------------------
+  // "No attendance logged yet" and "couldn't read your record" share a block
+  // and a dashed ring, and only the first one draws a plus. Wrapping the shared
+  // shape without looking would offer "add a day" as the answer to a failed
+  // load, which is the same confusion renderLoadFailure() exists to prevent.
+  {
+    const people = D.roster(2), me = people[0];
+    const h = await boot({ meId: me.id, waitForApp: false, seed: {
+      profiles: [me], entries: [], user_settings: [{ user_id: me.id, settings: D.SETTINGS }]
+    }, beforeLoad: async ({ backend }) => {
+      backend.fail("/rest/v1/entries", { status: 500, message: "boom" });
+    }});
+    await h.page.waitForSelector("#appShell:not([style*='display: none'])", { timeout: 15000 });
+    await goTab(h.page, "log");
+    await settle(h.page, 900);
+    const r = await h.page.evaluate(() => {
+      const panel = document.getElementById("tab-log");
+      const svg = panel && panel.querySelector(".first-run-empty svg");
+      const title = panel && panel.querySelector(".first-run-title");
+      return { title: title ? title.textContent.trim() : null,
+               isButton: svg ? !!svg.closest("button, a[href], [role=\"button\"]") : null,
+               glyph: svg && svg.querySelector("path") ? svg.querySelector("path").getAttribute("d") : null };
+    });
+    ok(/couldn't load/i.test(r.title || ""), "a failed load says so rather than claiming an empty month", String(r.title));
+    ok(r.isButton === false, "the failed-load ring is not a control", `isButton: ${r.isButton}`);
+    ok(r.glyph === "M24 15v11M24 31.5h.01", "...and still draws an exclamation, not a plus", String(r.glyph));
     await h.close();
   }
 

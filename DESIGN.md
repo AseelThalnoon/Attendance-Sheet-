@@ -943,7 +943,18 @@ reading "Set your working week first". Both were lying.
 
 The ring is the universal add affordance — it is what an empty state uses to
 say *put the first thing here* — and it was an `aria-hidden` SVG with no
-handler. On the one screen whose entire job is to offer the first action, the
+handler. The Log's empty state draws the same ring for the same reason and was
+inert one tab over, so pressing it on the Overview opened a day and pressing it
+on the Log unteaught that. Both are `.first-run-add` now, wired by a single
+delegated handler rather than a listener each: `renderLog()` rebuilds its copy
+on every pass, and binding per element on a renderer that runs that often is
+how listeners accumulate.
+
+**The failed-load ring is deliberately not one.** "No attendance logged yet"
+and "couldn't read your record" share the block and the dashed ring, and only
+the first draws a plus — the other draws an exclamation. Offering *add a day*
+as the answer to a failed load is the same confusion `renderLoadFailure()`
+exists to prevent, so the shared shape is wrapped in the empty branch only. On the one screen whose entire job is to offer the first action, the
 thing that looked most like the button did nothing. It opens the same
 `openNewEntryForm()` the Log's Add Entry button opens, so a day recorded here
 goes through the identical validation and save path; the clock below is still
