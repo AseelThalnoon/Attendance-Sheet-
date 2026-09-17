@@ -113,6 +113,46 @@ function solve(hue, chroma, grounds, ratio, dir, bounds){
   return oklchToHex([L, c, hue]);
 }
 
+// The rail, with the translucent white the rail's own panels lay over it.
+//
+// .seal and .rail-viewer select sit on `rgba(255,255,255,.06)` above the rail,
+// and that wash is not a token, so nothing here could see it: the solver aimed
+// the *-on-dark family at bare rail, landed them at 4.60-4.65:1, and the 6%
+// lift then cost about 0.65 and put "TODAY" at 3.89-4.05:1 in the five solved
+// palettes. Atrium and Ledger never showed it because both are authored and
+// carry 6.7:1 there — so the two compositions anyone would check by eye are
+// the two the bug hides in. A ground a token actually lands on is a ground the
+// solver has to be given.
+const RAIL_WASH = 0.06;
+function washed(hex, alpha){
+  const [r,g,b] = hexToRgb(hex);
+  return rgbToHex([r + (255-r)*alpha, g + (255-g)*alpha, b + (255-b)*alpha]);
+}
+
+// The accent, as a word or a mark ON THE RAIL.
+//
+// --gold is solved for the light canvas, and the Fill-Only Rule is what makes
+// that safe: an accent is a fill, never a text colour. Two places break that
+// rule deliberately and have to — the active nav item's label, and the focus
+// ring inside the rail and the quick-clock, because --ink IS the rail and an
+// ink ring on it is invisible. Atrium made both look free (lime is 14:1 on
+// near-black) and the stylesheet's comment still says "14:1 against
+// near-black" as though that were a property of accents rather than of lime.
+// It is not: Studio's accent is a dark electric blue, so its current-page
+// label measured 2.42:1 and its focus ring 2.85:1 — under 1.4.11's 3:1 for an
+// indicator, on the one control that says which screen you are on.
+//
+// So: the accent's own hue and chroma, lightened until it clears the floor on
+// the two dark grounds it lands on (the rail, and the quick-clock gradient's
+// lighter --ink-700 end), and never darker than the fill itself. An accent
+// that already reads there is returned untouched rather than re-derived, so
+// the five palettes that were already fine stay byte-identical.
+function accentOnDark(accentHex, grounds){
+  if(Math.min(...grounds.map(g => contrast(accentHex, g))) >= 4.6) return accentHex;
+  const [L, c, h] = hexToOklch(accentHex);
+  return solve(h, c, grounds, 4.6, "up", { min: L });
+}
+
 // A tint: the palette's hue at a lightness near the canvas, used as the ground
 // under a status foreground. Authored as "how far from the canvas", so a tint
 // sits in the same light as everything else in that composition.
@@ -492,6 +532,10 @@ function compose(a, mode){
   const washes = [ramp["ink-100"], ramp["ink-50"]];
   const allGrounds = textGrounds.concat(washes);
 
+  // Both grounds the rail's own text lands on: the rail itself, and the rail
+  // under the 6% white wash .seal and the viewer switcher lay over it.
+  const railGrounds = [a.rail, washed(a.rail, RAIL_WASH)];
+
   // Secondary text: two steps, both cleared against every surface. 4.6 and 5.6
   // rather than 4.5 and 5.5 — a tenth of headroom, so a later nudge to a
   // surface does not silently drop a pair under the line.
@@ -589,9 +633,12 @@ function compose(a, mode){
     // On a dark surface in LIGHT mode these are the rail's text colours. In
     // dark mode the whole app is that surface, so they converge on the general
     // secondary/status values rather than staying a separate set.
-    "muted-on-dark": dark ? muted : solve(nh, Math.min(nc*1.6,0.03), [a.rail], 4.6, "up"),
-    "positive-on-dark": dark ? status.positive.fg : solve(STATUS_HUES.positive, 0.09, [a.rail], 4.6, "up"),
-    "negative-on-dark": dark ? status.negative.fg : solve(STATUS_HUES.negative, 0.09, [a.rail], 4.6, "up"),
+    "muted-on-dark": dark ? muted : solve(nh, Math.min(nc*1.6,0.03), railGrounds, 4.6, "up"),
+    "positive-on-dark": dark ? status.positive.fg : solve(STATUS_HUES.positive, 0.09, railGrounds, 4.6, "up"),
+    "negative-on-dark": dark ? status.negative.fg : solve(STATUS_HUES.negative, 0.09, railGrounds, 4.6, "up"),
+    // The accent where the Fill-Only Rule is deliberately broken. See
+    // accentOnDark() above for why this is not just --gold.
+    "gold-on-dark": accentOnDark(a.accent, [a.rail, ramp["ink-700"]]),
     "negative-solid": negSolid, "negative-deep": negDeep,
     "shadow-sm": sh.sm, "shadow-md": sh.md, "shadow-lg": sh.lg,
     "shadow-glow": `0 0 0 1px ${rgba(a.accent,.55)}, 0 8px 28px ${rgba(a.accent,.22)}`,
@@ -613,7 +660,9 @@ const ORDER = ["ink-950","ink-900","ink-800","ink-700","ink-600","ink-100","ink-
   "mint","blush","ink","muted","muted-2","line","line-soft","positive","positive-bg",
   "info","info-bg","negative","negative-bg","excused","excused-bg","warn","warn-bg",
   "warn-line","input-bg","rule","ink-on-gold","muted-on-dark","positive-on-dark",
-  "negative-on-dark","negative-solid","negative-deep","shadow-sm","shadow-md",
+  "negative-on-dark","gold-on-dark",
+  "gold-rgb","ink-rgb","mint-rgb","ink-950-rgb","surface-gray-rgb",
+  "ink-600-rgb","negative-rgb","negative-on-dark-rgb","negative-solid","negative-deep","shadow-sm","shadow-md",
   "shadow-lg","shadow-glow","gradient-gold","gradient-ink","gradient-iris",
   // Character tokens beyond colour: only Ledger's verbatim block populates
   // these (see its own comment), so they emit nothing for the other six —
@@ -650,6 +699,48 @@ export function build(){
       // no-op for them.
       dark: p.dark.verbatim ? p.dark.verbatim : compose(p.dark, "dark")
     };
+    // A verbatim block is a shipped identity reproduced exactly, so it names
+    // no token this file invented after it was written. --gold-on-dark is
+    // derived from the values the block DOES carry rather than hand-picked:
+    // for Atrium that returns its own lime untouched (14:1 on the rail
+    // already), and for Ledger it lightens the antique gold until the active
+    // nav label clears 4.5:1 instead of the 3.14:1 it shipped at. compose()
+    // has set the key already for the other five, so this only fills gaps.
+    for(const mode of ["light","dark"]){
+      const t = out[p.id][mode];
+      if(!t["gold-on-dark"]) t["gold-on-dark"] = accentOnDark(t.gold, [t.rail, t["ink-700"]]);
+      // Channel triplets, so the stylesheet can write the palette's own colour
+      // at whatever alpha a given effect wants — `rgba(var(--gold-rgb), .13)`.
+      //
+      // The alternative was a token per alpha, and the alphas in play are .08,
+      // .12, .13, .14, .155, .17, .18, .34, .45, .5 and .55. Eleven tokens
+      // whose names would have had to distinguish a bloom from a glow from a
+      // halo, which is not eleven meanings — it is one colour and eleven
+      // alphas. DESIGN.md's tokens name meanings (--gold-deep is "the one lime
+      // dark enough to set text in"); these three name a mechanism, and that is
+      // why they are spelled as channels rather than dressed up as roles.
+      //
+      // Without them every one of those effects was an Atrium literal frozen
+      // into all fourteen compositions: a lime bloom behind Studio's blue
+      // clock panel, a lime glow under Plum's apricot clock button, and — the
+      // two that actually broke — a white hover that is exactly 1.000:1 on a
+      // white card, and an ink-at-9% ring track that is 1.03:1 on a dark one.
+      const rgbOf = hex => hexToRgb(hex).join(",");
+      if(!t["gold-rgb"]) t["gold-rgb"] = rgbOf(t.gold);
+      if(!t["ink-rgb"]) t["ink-rgb"] = rgbOf(t.ink);
+      if(!t["mint-rgb"]) t["mint-rgb"] = rgbOf(t.mint);
+      // A scrim must DARKEN in both modes, so it is built from the ramp's
+      // bottom step rather than from --ink, which flips to near-white in dark
+      // and would have turned every modal backdrop into a white veil.
+      if(!t["ink-950-rgb"]) t["ink-950-rgb"] = rgbOf(t["ink-950"]);
+      if(!t["surface-gray-rgb"]) t["surface-gray-rgb"] = rgbOf(t["surface-gray"]);
+      // The two halos that sit under a focus/invalid border. --ink-600 is the
+      // one ramp step that inverts, so a fixed rgba() halo pointed the opposite
+      // way from the very border it belongs to once the theme flipped.
+      if(!t["ink-600-rgb"]) t["ink-600-rgb"] = rgbOf(t["ink-600"]);
+      if(!t["negative-rgb"]) t["negative-rgb"] = rgbOf(t.negative);
+      if(!t["negative-on-dark-rgb"]) t["negative-on-dark-rgb"] = rgbOf(t["negative-on-dark"]);
+    }
     delete out[p.id].light.iris;
     if(out[p.id].dark.iris) delete out[p.id].dark.iris;
   }
@@ -704,8 +795,27 @@ function report(){
       }
       rows.push({ palette:id, mode, token:"ink-on-gold", worst:contrast(t["ink-on-gold"], t.gold).toFixed(2),
                   on:"gold", need:4.5, pass: contrast(t["ink-on-gold"], t.gold) >= 4.5 });
-      rows.push({ palette:id, mode, token:"muted-on-dark", worst:contrast(t["muted-on-dark"], t.rail).toFixed(2),
-                  on:"rail", need:4.5, pass: contrast(t["muted-on-dark"], t.rail) >= 4.5 });
+      // Both rail grounds, worst case: bare, and under .seal's 6% white wash.
+      const railBg = { rail:t.rail, "rail+wash":washed(t.rail, RAIL_WASH) };
+      for(const tok of ["muted-on-dark","positive-on-dark","negative-on-dark"]){
+        let worst = Infinity, where = "";
+        for(const [n,g] of Object.entries(railBg)){
+          const c = contrast(t[tok], g);
+          if(c < worst){ worst = c; where = n; }
+        }
+        rows.push({ palette:id, mode, token:tok, worst:worst.toFixed(2), on:where, need:4.5, pass: worst >= 4.5 });
+      }
+      // The accent is a fill everywhere but two places, and in those two it is
+      // a word and a focus ring on the rail. --ink-700 is the quick-clock
+      // gradient's light end, the other dark ground the ring lands on.
+      {
+        let worst = Infinity, where = "";
+        for(const [n,g] of Object.entries({ rail:t.rail, "ink-700":t["ink-700"] })){
+          const c = contrast(t["gold-on-dark"], g);
+          if(c < worst){ worst = c; where = n; }
+        }
+        rows.push({ palette:id, mode, token:"gold-on-dark", worst:worst.toFixed(2), on:where, need:4.5, pass: worst >= 4.5 });
+      }
       rows.push({ palette:id, mode, token:"white-on-neg-solid", worst:contrast("#FFFFFF", t["negative-solid"]).toFixed(2),
                   on:"fill", need:4.5, pass: contrast("#FFFFFF", t["negative-solid"]) >= 4.5 });
 
