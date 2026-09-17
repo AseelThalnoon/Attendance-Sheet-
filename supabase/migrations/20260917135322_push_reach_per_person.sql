@@ -1,5 +1,16 @@
 -- Which specific people a push notification can reach.
 --
+-- Applied to the live project on 2026-09-17. The filename carries the version
+-- the remote history actually recorded (20260917135322), not the one this file
+-- was drafted under, for the same reason the pending_ file keeps its original
+-- name: a migration whose filename does not match the remote row is a
+-- migration nobody can tell the status of later.
+--
+-- Verified after applying: the definition carries subscribed_ids, prosecdef is
+-- still true, EXECUTE is granted to authenticated only (anon and public
+-- revoked), and calling it without an admin auth.uid() raises
+-- "Only admins can read notification reach" from the is_admin() guard.
+--
 -- 20260909055532_admin_push_reach.sql returned counts only, and said why:
 -- "no per-person breakdown of who has notifications switched on -- an
 -- aggregate is all the composer needs [...] and it is the most that can be
