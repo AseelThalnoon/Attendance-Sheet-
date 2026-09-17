@@ -9690,6 +9690,12 @@ import { makeSchedule } from "./src/schedule.js";
   var notifyTarget = "all";
   var notifyWhen = "now";
   var notifySelectedIds = new Set();
+  // What admin_push_reach last told us, or null when it has not told us
+  // anything. null is NOT zero: the RPC is best-effort by design (see
+  // renderNotifyReach), and a composer that cannot reach it must say nothing
+  // about numbers rather than claim nobody is subscribed. "We don't know" is a
+  // state this app already treats as first-class everywhere else.
+  var notifyReachCache = null;
 
   // Setters rather than inline handler bodies, because the composer is now
   // driven from two places: the toggles themselves, and "Reuse" loading an
@@ -9796,9 +9802,34 @@ import { makeSchedule } from "./src/schedule.js";
     // a moment in the past.
     var isImmediate = scheduledFor.getTime() <= Date.now() + 5000;
     var whenPhrase = isImmediate ? " now" : ", scheduled for " + scheduledFor.toLocaleString();
-    var confirmMsg = notifyTarget === "all"
-      ? "Send this to everyone who has notifications enabled" + whenPhrase + "?"
-      : "Send this to " + targetIds.length + " selected " + (targetIds.length === 1 ? "person" : "people") + whenPhrase + "?";
+    // The "specific people" branch has always named its real count — "Send this
+    // to 2 selected people now?" — and the "everyone" branch never did, even
+    // though the composer prints the exact figure three lines above the button.
+    // So a send that reached nobody was word-for-word a send that reached the
+    // whole team, at the moment of deciding and again at the moment of being
+    // told. Push cannot be unsent.
+    //
+    // A scheduled send deliberately keeps the unnumbered phrasing: today's
+    // figure is not a promise about a delivery next Tuesday. It still carries
+    // the number as context, which is a different claim.
+    var reachN = notifyReachCache ? notifyReachCache.subscribed : null;
+    var confirmMsg;
+    if(notifyTarget !== "all"){
+      confirmMsg = "Send this to " + targetIds.length + " selected " +
+        (targetIds.length === 1 ? "person" : "people") + whenPhrase + "?";
+    } else if(reachN === null){
+      // Unknown, not zero. Say no more than we know.
+      confirmMsg = "Send this to everyone who has notifications on" + whenPhrase + "?";
+    } else if(!isImmediate){
+      confirmMsg = "Send this to everyone who has notifications on" + whenPhrase + "? " +
+        (reachN ? reachN + (reachN === 1 ? " person has" : " people have") + " them on right now."
+                : "Nobody has them on right now.");
+    } else if(reachN){
+      confirmMsg = "Send this to the " + reachN + (reachN === 1 ? " person who has" : " people who have") +
+        " notifications on now?";
+    } else {
+      confirmMsg = "Nobody has notifications on, so sending now would reach no one. Send anyway?";
+    }
     if(!(await showConfirm(confirmMsg, {title:"Send notification?", confirmText:"Send"}))) return;
 
     btn.disabled = true; btn.textContent = "Sending…";
@@ -9825,7 +9856,19 @@ import { makeSchedule } from "./src/schedule.js";
       notifySelectedIds.clear();
       renderNotifyPeopleList();
       updateNotifyCounters();
-      showToast(isImmediate ? "Notification sent." : "Notification scheduled for " + scheduledFor.toLocaleString() + ".", "success");
+      // "Notification sent." was the same sentence whether it went to the whole
+      // team or to nobody at all. It names the reach now, and a delivery to no
+      // one is not reported as a success — the row is saved either way, which
+      // is why the message says so rather than pretending nothing happened.
+      if(!isImmediate){
+        showToast("Notification scheduled for " + scheduledFor.toLocaleString() + ".", "success");
+      } else if(notifyTarget !== "all" || reachN === null){
+        showToast("Notification sent.", "success");
+      } else if(reachN){
+        showToast("Sent to " + reachN + (reachN === 1 ? " person." : " people."), "success");
+      } else {
+        showToast("Saved, but it reached nobody — no one has notifications on yet.", "info");
+      }
       await renderNotifyHistory();
     }catch(err){
       showToast("Couldn't send that: " + friendlyError(err), "error");
@@ -9917,8 +9960,9 @@ import { makeSchedule } from "./src/schedule.js";
       var res = await supabase.rpc("admin_push_reach");
       if(res.error) throw res.error;
       reach = res.data;
-    }catch(err){ el.hidden = true; return; }
-    if(!reach){ el.hidden = true; return; }
+    }catch(err){ notifyReachCache = null; el.hidden = true; return; }
+    if(!reach){ notifyReachCache = null; el.hidden = true; return; }
+    notifyReachCache = reach;
 
     el.hidden = false;
     el.classList.toggle("is-empty", !reach.subscribed);
