@@ -2146,6 +2146,21 @@
   .overview-panel.is-first-run > section,
   .overview-panel.is-first-run > .quick-clock{margin-bottom:0;}
   .first-run-card{padding:32px 24px;}
+  /* One rule for both tabs: with nothing logged, the panel IS the first-run
+     card. sr-only survives because the panel's accessible heading is not
+     furniture — a screen reader still lands on "Trends".
+     
+     Carrying #tabContentCard is not decoration. The frame block below sets
+     `#tabContentCard #tab-punctuality .period-card{display:flex}` at (2,1,0),
+     and an id outranks any number of classes — so this rule at (1,3,0) lost
+     above 1100px and Shortfall kept its chart card, legend and all, inside the
+     first-run state. It only lost there: the rule is inside a min-width query,
+     so a phone looked correct while a desktop did not. Trends escaped by
+     accident, its period-card being a grandchild rather than a child. This
+     matches at (2,3,0) instead, which is the same "specificity, not source"
+     lesson the overview block above already records. */
+  #tabContentCard #tab-trends.is-first-run > *:not(.first-run-card):not(.sr-only),
+  #tabContentCard #tab-punctuality.is-first-run > *:not(.first-run-card):not(.sr-only){display:none;}
   /* Two lines at the card's own width rather than one long measure. */
   .first-run-card .first-run-sub{max-width:34ch;}
 
@@ -2855,6 +2870,17 @@
     background:linear-gradient(115deg, transparent 30%, rgba(255,255,255,.16) 45%, transparent 60%);
     transform:translateX(-120%); transition:transform var(--dur-slower) var(--ease-soft);
   }
+  /* The primary button's edge, in dark only. Its fill is --gradient-ink, which
+     stays dark in both modes so the white label keeps its 17:1 — correct, and
+     it leaves the button 1.20:1 against the card it sits on, so the loudest
+     control in the system renders as a hole rather than a raised surface.
+     This is the case DESIGN.md already solved for cards: "a shadow is a
+     darkening, and a darkening on a near-black canvas is nothing", so dark
+     compositions carry a hairline instead. The button gets the same answer.
+     Primary only — secondary, ghost and danger-ghost already carry --line. */
+  html[data-theme="dark"] .btn:not(.secondary):not(.ghost):not(.danger-ghost){
+    border-color:var(--line);
+  }
   .btn.secondary{background:var(--card); color:var(--ink); border-color:var(--line);}
   .btn.secondary::before{display:none;}
   .btn.ghost{background:transparent; border-color:var(--line); color:var(--muted); font-weight:500; box-shadow:none;}
@@ -3405,6 +3431,8 @@
   .punct-allclear{
     margin:0 0 16px; font-size:13px; font-weight:500; color:var(--positive);
   }
+  /* Absence of news, not good news. Same sentence slot, secondary text. */
+  .punct-allclear.is-neutral{color:var(--muted);}
   @media (max-width:700px){
     .stat-card.is-vacant{display:none;}
   }
@@ -5004,10 +5032,27 @@
     display:flex; align-items:center; justify-content:center; gap:8px;
     font-size:12px; margin-top:2px; flex-wrap:wrap;
   }
+  /* 20px tall, on five standalone controls: "Forgot password?", "Create an
+     account", "Already have an account? Sign in", "Back to sign in" and the
+     first-run card's "Set your working week first". Under WCAG 2.2 SC 2.5.8's
+     24px AA floor, and under this file's own One Module rule, which says the
+     touch size is the base and the frame steps it down.
+
+     tests/mobile/touch-floor.js sweeps every button at 44px and passed anyway,
+     because its fixture hides the auth screen and seeds entries — so neither
+     the auth links nor the first-run card is ever a control it can see. Same
+     shape as the other defects found this week: a surface no test walks. */
   .link-btn{
-    background:none; border:none; padding:2px; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center;
+    background:none; border:none; padding:2px; cursor:pointer; min-height:44px;
     color:var(--ink-600); font-size:12px; text-decoration:underline; text-underline-offset:2px;
   }
+  @media (min-width:1100px){ .link-btn{min-height:24px;} }
+  /* The one exemption, and it is the one SC 2.5.8 itself writes: a target
+     inline in a sentence. "Set it now" sits inside the registration warning's
+     own prose, and an inline-flex 44px box there would break the line it is
+     part of. */
+  .settings-warn .link-btn{display:inline; min-height:0;}
   .auth-error{
     font-size:12px; color:var(--negative); margin:0; min-height:1px;
   }
@@ -6978,6 +7023,19 @@
 
     <div class="tab-panel" id="tab-trends" role="tabpanel" aria-labelledby="tabbtn-trends" tabindex="0">
       <h2 class="sr-only">Trends</h2>
+      <!-- An account with nothing logged used to get the whole chart apparatus
+           around no chart: two sub-tabs, a year and a month select, a Print
+           Report button, a titled card holding "Nothing to chart yet.", a
+           four-entry legend naming series that were never drawn, and an open
+           accordion saying the same absence again underneath. Four statements
+           of one fact, furnished. This says it once and says what would make
+           it stop being true. -->
+      <section class="first-run-card" id="trendsFirstRun" hidden>
+        <div class="first-run-empty"><button type="button" class="first-run-add" title="Log a day by hand" aria-label="Log a day by hand"><svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true"><circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/><path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/></svg></button>
+          <p class="first-run-title">Your weeks take shape here</p>
+          <p class="first-run-sub">Clock out at the end of a day and this charts what you actually worked against your daily target — week by week, then month by month.</p>
+        </div>
+      </section>
       <div class="sub-tab-panel active" id="subtab-weekly">
         <div class="period-card">
           <div class="period-card-head">
@@ -7111,6 +7169,18 @@
 
     <div class="tab-panel" id="tab-punctuality" role="tabpanel" aria-labelledby="tabbtn-punctuality" tabindex="0">
       <h2 class="sr-only">Shortfall</h2>
+      <!-- Same story as Trends, one worse: with nothing logged this screen
+           stated the same absence four times — the met-rate card, the
+           all-clear line, the empty chart with its legend, and the flagged-days
+           table under it — and the all-clear line said it in the positive
+           green, which reads as "you passed" to somebody who has not yet
+           taken the test. -->
+      <section class="first-run-card" id="punctFirstRun" hidden>
+        <div class="first-run-empty"><button type="button" class="first-run-add" title="Log a day by hand" aria-label="Log a day by hand"><svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true"><circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/><path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/></svg></button>
+          <p class="first-run-title">Days that come up short land here</p>
+          <p class="first-run-sub">Clock out below your daily target and the day is listed with the gap, so a month's shortfall is one figure rather than a hunt through the log.</p>
+        </div>
+      </section>
       <div class="stats-row punct-stats">
         <div class="stat-card">
           <p class="stat-label">Target Hours Met</p>
@@ -8367,6 +8437,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=shared-ring-1"></script>
+<script type="module" src="app.js?v=polish-1"></script>
 </body>
 </html>
