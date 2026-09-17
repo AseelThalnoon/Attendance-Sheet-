@@ -2292,8 +2292,24 @@ import { makeSchedule } from "./src/schedule.js";
   // tab control, then bring the card it opens into view.
   document.getElementById("firstRunSettingsBtn").addEventListener("click", function(){
     document.querySelector('.tab-btn[data-tab="settings"]').click();
+    // ...and then onto Working Hours, which is what the label promises. The
+    // console opens on Profile — it is the first section, deliberately — so
+    // "Set your working week first" used to land on a name and a photo and
+    // leave the working week one more click away, unnamed. Clicking the real
+    // nav item rather than reaching into initConsole keeps this on the same
+    // rule the tab hop above follows: drive the control, not the state behind
+    // it, so every aria-selected, section toggle and Save-visibility rule the
+    // console owns happens exactly once and in one place.
+    var hours = document.getElementById("cnav-hours");
+    if(hours) hours.click();
     var card = document.getElementById("tabContentCard");
     if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
+  });
+  // The dashed ring on the first-run card. Same entry point as the Log's Add
+  // Entry button, so a day recorded from here goes through the identical
+  // validation, overlap guard and save path.
+  document.getElementById("firstRunAddBtn").addEventListener("click", function(){
+    openNewEntryForm();
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
     // You may always edit your own schedule; editing someone else's requires
