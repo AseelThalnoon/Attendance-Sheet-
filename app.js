@@ -4411,7 +4411,7 @@ import { makeSchedule } from "./src/schedule.js";
     } else {
       html += '<table><thead><tr>' +
         '<th>Date</th><th>Day</th><th>In</th><th>Out</th>' +
-        '<th class="num">Worked</th><th class="num">Target</th><th class="num">Diff</th><th>Type</th><th>Note</th>' +
+        '<th class="num">Worked</th><th class="num">Target</th><th class="num">Diff</th><th>Type</th><th class="p-note">Note</th>' +
         '</tr></thead><tbody>';
       rows.forEach(function(e){
         var c = computeEntry(e);
@@ -4424,7 +4424,7 @@ import { makeSchedule } from "./src/schedule.js";
           '<td class="num">'+(c.targetMin?minutesToHoursStr(c.targetMin):"—")+'</td>' +
           '<td class="num">'+(c.diffMin===null?"—":signed(c.diffMin))+'</td>' +
           '<td>'+escapeHtml(typeLabel(e.type))+'</td>' +
-          '<td dir="auto">'+escapeHtml(e.note)+'</td></tr>';
+          '<td class="p-note" dir="auto">'+escapeHtml(e.note)+'</td></tr>';
       });
       html += '</tbody></table>';
     }

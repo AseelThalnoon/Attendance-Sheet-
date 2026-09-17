@@ -248,6 +248,17 @@ function createBackend(seed){
         });
       return json(rows);
     }
+    // A void ping the app fires once an hour on sign-in, granted to
+    // `authenticated` in 20260909060549_profiles_last_seen_at.sql. The app
+    // treats a failure as costing "a slightly stale timestamp, nothing more"
+    // and swallows it — which is right, and meant every boot here logged a 404
+    // nobody could see a reason for. A harness that always has one error in the
+    // console is a harness that can never assert the console is clean.
+    if(name === "touch_last_seen"){
+      const who = state.profiles.find(p => p.id === state.meId);
+      if(who) who.last_seen_at = new Date().toISOString();
+      return json(null);
+    }
     return json({ message: "unknown rpc " + name }, 404);
   }
 

@@ -808,8 +808,42 @@ the working-hours form.
 
 `color-scheme` is declared per mode so the browser's own surfaces follow —
 scrollbars, form controls, the caret, the ground behind an overscroll bounce.
-The print stylesheet forces `color-scheme:light`: paper is paper whatever the
-screen is doing.
+The print stylesheet forces `color-scheme:light` — with `!important`, because
+`html[data-theme="dark"]` is (0,1,1), `:root` is (0,1,0) and a media query adds
+no specificity, so for a long time it simply lost and the print preview stayed
+dark. Paper is paper whatever the screen is doing.
+
+### The print view is an allowlist
+
+`@media print` hides `body > *` and shows `#printArea`, and `#printArea` is a
+body-level sibling of the shell rather than a child of it.
+
+Both halves are the same lesson. The rule used to name three elements —
+`header.ledger-head, main, footer.ledger-foot` — a list written before this
+design system existed. The rail, the sticky clock bar and the bottom nav are
+siblings of `main`, not children, so none of them were ever covered: a printed
+timesheet led with a full page of the 236px near-black rail and put the report
+on page two. A denylist has to be updated every time a sibling is added and
+says nothing when it is not.
+
+The first attempt at the allowlist then hid the report too, because
+`#printArea` lived *inside* `#appShell` — `display:none` on an ancestor is not
+something a descendant's own `display` can answer. The element moved rather
+than the rule bending around it: nothing in the running interface renders it,
+`beforeprint` builds it and `afterprint` clears it, so the shell was never
+where it belonged.
+
+One more thing paper does not do is scroll. `tbody td` carries
+`white-space:nowrap` for the Log, whose table scrolls sideways; on A4 a
+500-character note — the database's own check-constraint ceiling — took the
+table to 3365px against 741px of printable width and carried four columns off
+the edge. Only the note column wraps (`.p-note`); a date or a clock time
+breaking across two lines would be worse, not better.
+
+`tests/hostile/hostile.js` drives this from a dark theme with a
+maximum-length note and asserts all of it: report on page one, nothing else on
+the paper, no overflow, `color-scheme` light, white ground, signature lines
+intact.
 
 ## Components
 
