@@ -2305,11 +2305,16 @@ import { makeSchedule } from "./src/schedule.js";
     var card = document.getElementById("tabContentCard");
     if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
   });
-  // The dashed ring on the first-run card. Same entry point as the Log's Add
-  // Entry button, so a day recorded from here goes through the identical
-  // validation, overlap guard and save path.
-  document.getElementById("firstRunAddBtn").addEventListener("click", function(){
-    openNewEntryForm();
+  // Every dashed ring that means "add a day", wherever it is drawn. Delegated
+  // rather than bound per element because the Log's copy of it is rebuilt by
+  // renderLog() on each pass — binding would mean re-binding, and re-binding on
+  // a renderer that runs this often is how listeners accumulate. One rule, and
+  // a ring that appears in a third empty state later is already wired.
+  //
+  // Same entry point as the Log's Add Entry button, so a day recorded from a
+  // ring goes through the identical validation, overlap guard and save path.
+  document.getElementById("appShell").addEventListener("click", function(ev){
+    if(ev.target.closest(".first-run-add")) openNewEntryForm();
   });
   document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
     // You may always edit your own schedule; editing someone else's requires
@@ -3418,10 +3423,20 @@ import { makeSchedule } from "./src/schedule.js";
       // Fill-Only Rule) — --gold alone measures 1.35:1 on white.
       empty.innerHTML =
         '<div class="first-run-empty">' +
-          '<svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">' +
-            '<circle cx="24" cy="24" r="18" stroke="var(--line)" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>' +
-            '<path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>' +
-          '</svg>' +
+          // The same ring the Overview's first-run card shows, and therefore
+          // the same control. It was the identical glyph sitting inert one tab
+          // over: press it on the Overview and a day opens, press it here and
+          // nothing happens, which unteaches what the other screen just taught.
+          // No id — .first-run-add is delegated, so one rule covers both and
+          // whatever shows this empty state next. The error state above keeps
+          // its own ring and stays a picture: that one draws an exclamation,
+          // it means "this did not load", and there is nothing to add.
+          '<button type="button" class="first-run-add" title="Log a day by hand" aria-label="Log a day by hand">' +
+            '<svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">' +
+              '<circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>' +
+              '<path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>' +
+            '</svg>' +
+          '</button>' +
           '<p class="first-run-title">No attendance logged yet</p>' +
           '<p class="first-run-sub">Use <strong>Add Entry</strong> above to record a day by hand, or clock in from the <strong>Overview</strong> tab.</p>' +
         '</div>';
