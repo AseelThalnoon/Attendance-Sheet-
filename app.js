@@ -9696,6 +9696,12 @@ import { makeSchedule } from "./src/schedule.js";
   // about numbers rather than claim nobody is subscribed. "We don't know" is a
   // state this app already treats as first-class everywhere else.
   var notifyReachCache = null;
+  // The ids from that same payload, as a Set, or null when the deployed
+  // function predates 20260917140000_push_reach_per_person.sql. Null is not an
+  // empty set: an older function means we do not know who is reachable, and a
+  // picker that greys everybody out on that basis would be inventing an
+  // answer. Every use below falls back to saying nothing.
+  var notifyReachableIds = null;
 
   // Setters rather than inline handler bodies, because the composer is now
   // driven from two places: the toggles themselves, and "Reuse" loading an
@@ -9730,6 +9736,15 @@ import { makeSchedule } from "./src/schedule.js";
   // sign you had hit it was that typing stopped doing anything. A push
   // notification is also read in a place with far less room than the field
   // it was typed into, which is the real reason to see the count.
+  // How many of the currently picked people can actually receive a push, or
+  // null when the deployed reach function does not say.
+  function notifyReachablePicked(){
+    if(!notifyReachableIds) return null;
+    var n = 0;
+    notifySelectedIds.forEach(function(id){ if(notifyReachableIds.has(id)) n++; });
+    return n;
+  }
+
   function updateNotifyCounters(){
     [["notifyTitle","notifyTitleCount"], ["notifyBody","notifyBodyCount"]].forEach(function(pair){
       var field = document.getElementById(pair[0]);
@@ -9743,7 +9758,15 @@ import { makeSchedule } from "./src/schedule.js";
     var el = document.getElementById("notifyPickedCount");
     if(el){
       el.hidden = picked === null;
-      el.textContent = picked === 1 ? "1 person selected" : picked + " people selected";
+      var label = picked === 1 ? "1 person selected" : picked + " people selected";
+      // "2 selected" was the whole sentence whether both could receive it or
+      // neither could. The second clause only appears when it says something
+      // the first does not.
+      var reachable = notifyReachablePicked();
+      if(reachable !== null && picked && reachable < picked){
+        label += reachable ? " · " + reachable + " reachable" : " · none reachable";
+      }
+      el.textContent = label;
     }
   }
   ["notifyTitle","notifyBody"].forEach(function(id){
@@ -9761,9 +9784,17 @@ import { makeSchedule } from "./src/schedule.js";
     });
     wrap.innerHTML = shown.length ? shown.map(function(u){
       var checked = notifySelectedIds.has(u.id);
+      // Marked, not disabled. A scheduled send can legitimately name somebody
+      // who has notifications off today and turns them on before it goes out,
+      // so refusing the pick would be wrong; what was wrong was saying nothing
+      // and counting them as reached. When notifyReachableIds is null we know
+      // nothing about anybody and say nothing about anybody.
+      var off = notifyReachableIds && !notifyReachableIds.has(u.id);
       return '<label class="check-row" style="margin-top:4px;">'+
         '<input type="checkbox" data-notify-person="'+escapeAttr(u.id)+'"'+(checked ? " checked" : "")+'>'+
-        '<span dir="auto">'+escapeHtml(u.full_name || u.email)+'</span>'+
+        '<span dir="auto">'+escapeHtml(u.full_name || u.email)+
+          (off ? ' <span class="notify-off">notifications off</span>' : '')+
+        '</span>'+
       '</label>';
     }).join("") : '<p class="settings-hint" style="margin:0;">No one matches that search.</p>';
   }
@@ -9815,8 +9846,15 @@ import { makeSchedule } from "./src/schedule.js";
     var reachN = notifyReachCache ? notifyReachCache.subscribed : null;
     var confirmMsg;
     if(notifyTarget !== "all"){
+      var pickedReach = notifyReachablePicked();
       confirmMsg = "Send this to " + targetIds.length + " selected " +
         (targetIds.length === 1 ? "person" : "people") + whenPhrase + "?";
+      if(pickedReach !== null && pickedReach < targetIds.length){
+        confirmMsg += pickedReach
+          ? " Only " + pickedReach + " of them " + (pickedReach === 1 ? "has" : "have") +
+            " notifications on, so the rest will not see it."
+          : " None of them have notifications on, so it will reach no one.";
+      }
     } else if(reachN === null){
       // Unknown, not zero. Say no more than we know.
       confirmMsg = "Send this to everyone who has notifications on" + whenPhrase + "?";
@@ -9960,9 +9998,12 @@ import { makeSchedule } from "./src/schedule.js";
       var res = await supabase.rpc("admin_push_reach");
       if(res.error) throw res.error;
       reach = res.data;
-    }catch(err){ notifyReachCache = null; el.hidden = true; return; }
-    if(!reach){ notifyReachCache = null; el.hidden = true; return; }
+    }catch(err){ notifyReachCache = null; notifyReachableIds = null; el.hidden = true; return; }
+    if(!reach){ notifyReachCache = null; notifyReachableIds = null; el.hidden = true; return; }
     notifyReachCache = reach;
+    notifyReachableIds = Array.isArray(reach.subscribed_ids)
+      ? new Set(reach.subscribed_ids) : null;
+    renderNotifyPeopleList();
 
     el.hidden = false;
     el.classList.toggle("is-empty", !reach.subscribed);

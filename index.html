@@ -5619,6 +5619,22 @@
     font-size:11px; text-transform:uppercase; letter-spacing:.06em;
     color:var(--excused); background:var(--excused-bg); padding:2px 8px; border-radius:99px;
   }
+  /* Stated, not shouted. Someone having notifications off is a fact about
+     reach, not a fault of theirs — --muted, the same weight every other piece
+     of secondary row text carries, rather than the warn colour. */
+  .notify-off{
+    font-size:11px; color:var(--muted); white-space:nowrap;
+  }
+  /* A name with nowhere to wrap took this list 1,248px past its own right edge
+     — the same shape .team-name documents ("min-width:0 only lets a flex item
+     shrink to fit an already-wrapped box; it does nothing once the text inside
+     refuses to wrap at all"), on the one list that never got the treatment.
+     min-width:0 for the flex item, overflow-wrap for the text inside it, and
+     the "notifications off" mark stays on the row rather than being shoved
+     past the edge with the rest of the name. */
+  #notifyPeopleList .check-row > span{
+    min-width:0; overflow-wrap:anywhere;
+  }
 
   /* ---------- Segmented pickers ----------
      .user-row and .you-badge lived here for the Team & Access card. That card
@@ -8437,6 +8453,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=push-reach-1"></script>
+<script type="module" src="app.js?v=picker-reach-1"></script>
 </body>
 </html>

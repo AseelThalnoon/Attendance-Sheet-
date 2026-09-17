@@ -70,6 +70,8 @@ function createBackend(seed){
     push_deliveries: (seed && seed.push_deliveries) || [],
     notification_reads: (seed && seed.notification_reads) || [],
     client_errors: (seed && seed.client_errors) || [],
+    // Stand in for a project running the pre-20260917140000 admin_push_reach.
+    omitReachIds: !!(seed && seed.omitReachIds),
     // Faults, keyed by a substring of the request path ("entries", "rpc/admin_list_users").
     // Value: {status, message} | "hang" | {delayMs, ...}
     faults: new Map(),
@@ -167,11 +169,17 @@ function createBackend(seed){
     if(name === "admin_push_reach"){
       const active = state.profiles.filter(p => !p.deactivated);
       const subs = state.push_subscriptions.filter(s => active.some(p => p.id === s.user_id));
-      return json({
+      // subscribed_ids arrived with 20260917140000_push_reach_per_person.sql.
+      // A suite can drop it (`omitReachIds`) to stand in for a project that
+      // has not run that migration yet — the composer is best-effort against
+      // this function and has to keep working, saying less, when it is absent.
+      const payload = {
         people: active.length,
         subscribed: new Set(subs.map(s => s.user_id)).size,
         devices: subs.length
-      });
+      };
+      if(!state.omitReachIds) payload.subscribed_ids = [...new Set(subs.map(s => s.user_id))];
+      return json(payload);
     }
     if(name === "admin_db_stats"){
       return json({
