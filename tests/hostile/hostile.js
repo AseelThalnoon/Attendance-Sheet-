@@ -1582,6 +1582,81 @@ async function run(){
     const picked = await send({ subs: subsFor(3), target: "users" });
     ok(/2 selected people/.test(picked.confirm),
       "the specific-people branch still names its own count", picked.confirm);
+
+    // ...and says when those people cannot actually receive it. Only the first
+    // two of the roster are subscribed here, so picking further down the list
+    // picks somebody unreachable.
+    const openPicker = async (h) => {
+      await goTab(h.page, "admin");
+      await settle(h.page, 600);
+      await h.page.evaluate(() => document.getElementById("cnav-admin-notifications").click());
+      await settle(h.page, 800);
+      await h.page.evaluate(() => [...document.querySelectorAll("[data-notify-target]")]
+        .find(b => b.dataset.notifyTarget === "users").click());
+      await settle(h.page, 400);
+    };
+    const pick = async (opts) => {
+      const seed = { profiles: people, entries: D.entriesFor(me.id, 8),
+        user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })),
+        push_subscriptions: subsFor(2) };
+      if(opts.omitReachIds) seed.omitReachIds = true;
+      const h = await boot({ meId: me.id, seed });
+      await openPicker(h);
+      const marked = await h.page.evaluate(() =>
+        document.querySelectorAll("#notifyPeopleList .notify-off").length);
+      const overflow = await h.page.evaluate(() => {
+        const l = document.getElementById("notifyPeopleList");
+        return l.scrollWidth - l.clientWidth;
+      });
+      await h.page.fill("#notifyTitle", "Early close");
+      await h.page.fill("#notifyBody", "Doors shut at 2pm.");
+      await h.page.evaluate(idx => { const b = [...document.querySelectorAll("#notifyPeopleList input[type=checkbox]")];
+        idx.forEach(i => b[i] && b[i].click()); }, opts.idx);
+      await settle(h.page, 400);
+      const count = await h.page.evaluate(() =>
+        document.getElementById("notifyPickedCount").textContent.trim());
+      await h.page.evaluate(() => [...document.querySelectorAll("#csec-admin-notifications button")]
+        .find(x => x.textContent.trim() === "Send Notification").click());
+      await settle(h.page, 800);
+      const confirm = await h.page.evaluate(() => {
+        const d = document.querySelector(".modal-overlay:not([hidden])");
+        return d ? d.innerText.replace(/\s+/g, " ").trim() : "";
+      });
+      await h.close();
+      return { marked, overflow, count, confirm };
+    };
+
+    const mixed = await pick({ idx: [0, 3] });
+    ok(mixed.marked > 0, "the picker marks who cannot be reached", `${mixed.marked} marked`);
+    ok(/1 reachable/.test(mixed.count),
+      "the picked count says how many of them can receive it", mixed.count);
+    ok(/Only 1 of them/.test(mixed.confirm),
+      "and the confirm says the rest will not see it", mixed.confirm);
+
+    const noneReachable = await pick({ idx: [3, 4] });
+    ok(/none reachable/i.test(noneReachable.count),
+      "picking only unreachable people says so", noneReachable.count);
+    ok(/reach no one/i.test(noneReachable.confirm),
+      "...before the send, not after", noneReachable.confirm);
+
+    const allReachable = await pick({ idx: [0, 1] });
+    ok(!/reachable/.test(allReachable.count),
+      "no second clause when every picked person can receive it", allReachable.count);
+
+    // A project that has not run 20260917140000_push_reach_per_person.sql gets
+    // the old function, which returns no ids. Unknown is not zero: nobody is
+    // marked and nothing extra is claimed.
+    const older = await pick({ idx: [3, 4], omitReachIds: true });
+    ok(older.marked === 0,
+      "with the pre-migration function nobody is marked unreachable", `${older.marked} marked`);
+    ok(!/reachable|reach no one/i.test(older.count + " " + older.confirm),
+      "...and neither the count nor the confirm invents one",
+      `${older.count} / ${older.confirm}`);
+
+    // A name with nowhere to wrap took this list 1248px past its own edge.
+    ok(mixed.overflow === 0,
+      "an unbroken name does not push the picker off its own edge",
+      `${mixed.overflow}px over`);
   }
 
   console.log(`  hostile  pass ${pass}   fail ${fail}`);
