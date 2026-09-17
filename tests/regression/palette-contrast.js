@@ -40,6 +40,13 @@ function contrast(a, b){
   const la = relLum(a), lb = relLum(b);
   return (Math.max(la,lb) + 0.05) / (Math.min(la,lb) + 0.05);
 }
+// Composite a translucent colour over an opaque one. A wash a component lays
+// over a surface makes a THIRD surface, and that is the one its text sits on.
+function over(baseHex, topHex, alpha){
+  const b = hexToRgb(baseHex), t = hexToRgb(topHex);
+  return "#" + b.map((v, i) => Math.round(v + (t[i] - v) * alpha)
+    .toString(16).padStart(2, "0")).join("");
+}
 
 // ------------------------------------------------------------------- parsing
 const html = fs.readFileSync(INDEX, "utf8");
@@ -143,10 +150,56 @@ for(const mode of ["light", "dark"]){
       const c = contrast(t["ink-on-gold"], t.gold);
       ok(c >= 4.5, `${label}: --ink-on-gold clears 4.5:1 on the accent fill`, `${c.toFixed(2)}:1`);
     }
-    // The rail is dark in both modes and carries its own secondary text.
-    if(t["muted-on-dark"] && t.rail){
-      const c = contrast(t["muted-on-dark"], t.rail);
-      ok(c >= 4.5, `${label}: --muted-on-dark clears 4.5:1 on the rail`, `${c.toFixed(2)}:1`);
+    // The rail is dark in both modes and carries its own secondary text — on
+    // TWO grounds, not one. .seal and the viewer switcher lay
+    // `rgba(255,255,255,.06)` over the rail, and that wash is not a token, so
+    // measuring bare rail was measuring a surface the text does not sit on:
+    // the solver landed this family at 4.60-4.65:1, the 6% lift cost about
+    // 0.65, and "TODAY" shipped at 3.89-4.05:1 in the five solved palettes
+    // while Atrium and Ledger — both authored, both with 6.7:1 of headroom —
+    // showed nothing. A ground a token lands on is a ground that gets measured.
+    const railWash = over(t.rail, "#FFFFFF", 0.06);
+    for(const token of ["muted-on-dark", "positive-on-dark", "negative-on-dark"]){
+      if(!t[token] || !t.rail){ ok(false, `${label}: --${token} is defined`); continue; }
+      const w = worstOn(t[token], [t.rail, railWash]);
+      ok(w.c >= 4.5, `${label}: --${token} clears 4.5:1 on the rail and on the rail's 6% wash`,
+        `${w.c.toFixed(2)}:1 on ${w.g}`);
+    }
+
+    // The accent where the Fill-Only Rule is deliberately broken.
+    //
+    // This file used to skip --gold on the reasoning that the rule guarantees
+    // it is only ever a fill. The rule is right and the stylesheet breaks it
+    // twice on purpose: .rail-item.active sets the current-page label in it,
+    // and the focus ring inside the rail and the quick-clock is drawn in it,
+    // because --ink IS the rail and an ink ring there is invisible. Both read
+    // at 14:1 in Atrium because lime on near-black does — not because accents
+    // do. Studio's dark electric blue measured 2.42:1 as that label and 2.85:1
+    // as that ring, under 1.4.11's 3:1 for an indicator. --gold-on-dark is the
+    // token those two use, and --ink-700 is the quick-clock gradient's lighter
+    // end, the other dark ground the ring lands on.
+    if(t["gold-on-dark"] && t.rail && t["ink-700"]){
+      const w = worstOn(t["gold-on-dark"], [t.rail, t["ink-700"]]);
+      ok(w.c >= 4.5, `${label}: --gold-on-dark carries the current-page label and the rail's focus ring`,
+        `${w.c.toFixed(2)}:1 on ${w.g}`);
+    } else {
+      ok(false, `${label}: --gold-on-dark is defined`);
+    }
+
+    // The channel triplets the stylesheet writes its alphas through, and the
+    // guarantee that each one actually matches the colour it is named for. A
+    // triplet that drifts from its own token is worse than a literal: it looks
+    // like it follows the palette and does not.
+    for(const [triplet, source] of [["gold-rgb","gold"], ["ink-rgb","ink"],
+                                    ["mint-rgb","mint"], ["ink-950-rgb","ink-950"],
+                                    ["surface-gray-rgb","surface-gray"],
+                                    ["ink-600-rgb","ink-600"], ["negative-rgb","negative"],
+                                    ["negative-on-dark-rgb","negative-on-dark"]]){
+      if(!t[triplet] || !t[source]){ ok(false, `${label}: --${triplet} is defined`); continue; }
+      const want = hexToRgb(t[source]).join(",");
+      ok(t[triplet].replace(/\s/g, "") === want,
+        `${label}: --${triplet} is --${source}'s own channels`,
+        `${t[triplet]} vs ${want}`);
     }
     // A solid danger button is a fill, and --negative is tuned as text: too
     // light to carry white at body size. Its own pair is what gets measured.
@@ -212,6 +265,121 @@ ok(/html\[data-theme="dark"\]\{color-scheme:dark;\}/.test(html),
   "dark mode declares color-scheme to the browser");
 ok(/html\[data-theme="light"\]\{color-scheme:light;\}/.test(html),
   "light mode declares color-scheme to the browser");
+
+// --ink is a FOREGROUND in dark mode and a near-black in light. A rule that
+// paints it as a BACKGROUND and then hardcodes #fff on top is legible in light
+// and blank in dark: three of them shipped that way — the header pill naming
+// the screen you are on, the "clocked out" tick in the In-today roster, and the
+// phone's Today line — at 1.09-1.19:1 across all seven dark palettes. The two
+// rules that got it right (.wl-dayhead.is-today b, .cal-cell.cal-today
+// .cal-daynum) use --card, the token that moves opposite --ink in both
+// directions. No palette value can catch this, which is why it is asserted on
+// the stylesheet instead.
+{
+  const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+  const offenders = [];
+  for(const block of css.split("}")){
+    const open = block.lastIndexOf("{");
+    if(open === -1) continue;
+    const body = block.slice(open + 1);
+    if(!/background(-color)?\s*:\s*var\(--ink\)\s*[;}]/.test(body)) continue;
+    if(!/color\s*:\s*#fff\b/i.test(body)) continue;
+    offenders.push(block.slice(0, open).trim().split("\n").pop().trim().slice(0, 60));
+  }
+  ok(offenders.length === 0,
+    "no rule paints #fff on a var(--ink) background (use --card: --ink flips in dark)",
+    offenders.join(" | "));
+}
+
+// prefers-reduced-motion must STOP the infinite animations, not speed them up.
+// The blanket `animation-duration:.001ms` turns a 1.6s infinite loop into about
+// a million iterations a second — the trap this stylesheet documents for its
+// two auth loops and missed for the skeletons, 13 of which are on screen during
+// every data load, i.e. the people who asked for less motion paid the most for
+// it. Every selector that declares an infinite animation owes a matching
+// `animation:none` inside a reduced-motion block; a new one is a new exemption.
+{
+  const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+
+  // Selectors that declare an infinite animation.
+  const declared = [];
+  const declRe = /([^{}]*)\{([^{}]*)\}/g;
+  let d;
+  while((d = declRe.exec(css)) !== null){
+    if(!/animation\s*:/.test(d[2]) || !/\binfinite\b/.test(d[2])) continue;
+    const sel = d[1].trim().split("\n").map(x => x.trim()).filter(Boolean).pop();
+    if(sel) declared.push(sel);
+  }
+
+  // Selectors a reduced-motion block switches off. Brace-matched, because
+  // these blocks nest rules and a lazy regex stops at the first inner "}".
+  const exempt = [];
+  let at = -1;
+  while((at = css.indexOf("@media (prefers-reduced-motion: reduce)", at + 1)) !== -1){
+    let i = css.indexOf("{", at), depth = 0, endAt = i;
+    for(; i < css.length; i++){
+      if(css[i] === "{") depth++;
+      else if(css[i] === "}" && --depth === 0){ endAt = i; break; }
+    }
+    const body = css.slice(css.indexOf("{", at) + 1, endAt);
+    const innerRe = /([^{}]*)\{([^{}]*)\}/g;
+    let r;
+    while((r = innerRe.exec(body)) !== null){
+      if(!/animation\s*:\s*none/.test(r[2])) continue;
+      r[1].split(",").forEach(x => { const t = x.trim().split("\n").pop().trim(); if(t) exempt.push(t); });
+    }
+  }
+
+  ok(declared.length > 0, "the stylesheet still declares infinite animations to guard");
+  ok(exempt.length > 0, "a reduced-motion block switches infinite animations off");
+  for(const sel of declared){
+    ok(exempt.indexOf(sel) !== -1,
+      `reduced motion stops "${sel}" rather than spinning it at .001ms`,
+      `exempted: ${exempt.join(", ") || "nothing"}`);
+  }
+}
+
+// No hand-written rule may hardcode a colour the palette owns.
+//
+// This is the hole every finding in this file's history came through. A literal
+// like rgba(214,232,92,.13) is Atrium's lime frozen into all fourteen
+// compositions, and nothing that measures TOKENS can see it: the generator
+// emits a clean sheet, this file measured clean, and Studio still drew a lime
+// bloom behind a blue clock panel and a 1.000:1 white hover on a white card.
+//
+// Scope is the hand-written stylesheet only — the generated palette blocks and
+// the :root Atrium fallback are where literals belong. Neutral white/black
+// overlays are allowed: they are used deliberately on surfaces that are dark in
+// both modes, and DESIGN.md says so. Everything else has to come from a token,
+// through var(--x) or rgba(var(--x-rgb), a).
+{
+  const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+  const genFrom = css.indexOf('html[data-palette="atrium"], .theme-preview');
+  const genTo = css.indexOf("/* ---- Theme plumbing");
+  const rootFrom = css.indexOf("--ink-950:#0A0A09");
+  const rootTo = css.indexOf("--negative-deep:#8E2A42");
+  const authored = css.split("\n").filter((line, i, all) => {
+    const at = css.indexOf(line);
+    if(at >= genFrom && at < genTo) return false;
+    if(at >= rootFrom - 400 && at <= rootTo + 400) return false;
+    return true;
+  }).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // A shadow is allowed to be a plain darkening: it is depth, not identity,
+  // and the generator already emits per-mode --shadow-* for the ones that are.
+  const offenders = [];
+  for(const line of authored.split("\n")){
+    for(const m of line.match(/rgba?\(\s*\d[^)]*\)/g) || []){
+      if(/^rgba?\(\s*(255,\s*255,\s*255|0,\s*0,\s*0)/.test(m)) continue;
+      if(/box-shadow|drop-shadow|text-shadow/.test(line)) continue;
+      if(/,\s*0\s*\)$/.test(m)) continue;   // an alpha-0 gradient stop paints nothing
+      offenders.push(line.trim().slice(0, 80));
+    }
+  }
+  ok(offenders.length === 0,
+    "no hand-written rule hardcodes a palette colour (use var(--x) or rgba(var(--x-rgb), a))",
+    offenders.join("\n      "));
+}
 
 console.log(`  palette-contrast  pass ${pass}   fail ${fail}`);
 if(failures.length) console.log(failures.join("\n"));

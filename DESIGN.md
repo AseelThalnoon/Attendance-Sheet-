@@ -339,7 +339,15 @@ governs lime, mint and blush.
 ### Text
 - **Muted** (`#61605A`) and **Muted Deep** (`#57554F`): the two secondary-text
   steps. Both clear 4.5:1 on all six surfaces the app paints text on.
-- **Muted on Dark** (`#A8A69E`): secondary text on the rail.
+- **Muted on Dark** (`#A8A69E`): secondary text on the rail — and on the rail
+  *under its own 6% white wash*, which is a different surface. `.seal` and the
+  viewer switcher lay `rgba(255,255,255,.06)` over the rail, so the ground this
+  token lands on is lighter than the token it was solved against. The solver was
+  given bare rail, landed the whole on-dark family at 4.60–4.65:1, and the wash
+  then cost about 0.65: "TODAY" shipped at 3.89–4.05:1 in the five *solved*
+  palettes. Atrium and Ledger are authored and carry 6.7:1 there, so the two
+  compositions anyone checks by eye were the two that showed nothing. A wash is
+  a surface; it is in the solver's grounds now, and in the test's.
 
 ### Status (semantic, not decorative)
 `--positive` `#1B6C4D` on `#DCF0E6` · `--negative` `#A83A55` on `#FBE4EA` ·
@@ -355,6 +363,71 @@ progress tracks, nav glows. The moment one of them becomes a text colour on a
 light ground, it fails contrast — lime measures 1.35:1 on white. Where a
 lime-family *line* has to carry meaning (a chart's target reference), use
 `--gold-deep` at 5.89:1, never `--gold`.
+
+**The rule has exactly two deliberate exceptions, and they have their own
+token.** The active rail item sets its label in the accent, and the focus ring
+inside the rail and the quick-clock is drawn in it — because `--ink` *is* the
+rail, and an ink ring on the rail is invisible. Both are the accent used as a
+word and as an indicator, which is what this rule says never happens.
+
+Because the rule said it never happens, `tests/regression/palette-contrast.js`
+deliberately measured `--gold` against nothing at all, and the stylesheet's own
+comment justified the focus ring as "14:1 against near-black". That is a
+property of *lime*, not of accents: Studio's accent is a dark electric blue and
+Ledger's an antique gold, so the current-page label measured **2.42:1** and
+**3.14:1** and the focus ring **2.85:1** — under 1.4.11's 3:1 for an indicator,
+on the one control that says which screen you are on.
+
+`--gold-on-dark` is the accent's own hue and chroma lightened only as far as the
+two dark grounds require (the rail, and the quick-clock gradient's lighter
+`--ink-700` end). An accent that already reads there is returned untouched, so
+**five of seven palettes get their own accent back byte-for-byte** and only
+Studio and Ledger move.
+
+The rule itself is unchanged: an accent is a fill. These two are the exceptions,
+they are named, and they are measured.
+
+### Named Rule
+
+**A colour the palette owns is never written as a literal.** Every effect that
+needed the palette at some alpha — the active row's 8% tint, the indicator's
+glow, the quick-clock's bloom and its punch pulse, the sign-in panel's wash, the
+bottom nav's clock shadow, the danger hovers, the focus and invalid halos, the
+modal scrims, the scroll-edge cues — was written as Atrium's own `rgba()` and
+therefore rendered Atrium's colour in **all fourteen compositions**. Studio drew
+a lime bloom behind a blue clock panel; Plum's apricot clock button glowed lime;
+every modal in every palette was dimmed by `rgba(6,25,23,.45)`, Gilt Ledger's
+teal-black, still there long after the identity it belonged to was replaced.
+
+Two of them were not merely off-palette, they were inert, and in opposite
+directions:
+
+- `.icon-btn` and `.head-action` hovered to `rgba(255,255,255,.16)` over
+  `--card`, which is `#FFFFFF` in light. **Exactly 1.000:1** — the background
+  half of the hover did nothing at all in the default theme and only appeared
+  once someone switched to dark.
+- The Day Types ring's track and the target progress trough were ink at 9% and
+  12% over `--card`, which is **1.03:1** on a dark one. The mark that says *how
+  much is left* was gone in dark mode; `.team-bar` next door had `--ink-50` and
+  was fine.
+
+The mechanism is a small family of channel triplets — `--gold-rgb`,
+`--ink-rgb`, `--mint-rgb`, `--ink-950-rgb`, `--ink-600-rgb`, `--negative-rgb`,
+`--negative-on-dark-rgb`, `--surface-gray-rgb` — so a rule writes
+`rgba(var(--gold-rgb), .13)` and gets the palette's own colour at whatever alpha
+the effect wants. A token per alpha was the alternative, and the alphas in play
+number eleven: that is not eleven meanings, it is one colour and eleven alphas.
+These name a mechanism, which is why they are spelled as channels rather than
+dressed up as roles.
+
+Which triplet matters as much as using one. A scrim must **darken** in both
+modes, so it is `--ink-950`, not `--ink` — `--ink` flips to near-white and would
+have turned every backdrop into a white veil. A scroll-edge cue is the opposite:
+it *should* flip, because on a dark surface depth reads as light, so it takes
+`--ink-rgb`. `tests/regression/palette-contrast.js` now fails any hand-written
+rule that hardcodes a palette colour at all; neutral white/black overlays on
+surfaces that are dark in both modes, and shadows, are the documented
+exceptions.
 
 **The Measured Floor.** Every text/background pairing carrying real information
 is measured against WCAG AA 4.5:1 for its rendered size, and every meaningful
@@ -376,6 +449,31 @@ to the same floor as the sentence that would have said it.
 **One Dark Region.** The rail is the only large dark surface. The quick-clock
 panel is the single deliberate exception, because clocking in is the primary
 action and it earns the emphasis. A third would flatten both.
+
+**Read the rule in the mirror for dark mode, and mind which token you reach
+for.** `--ink` is a near-black in light and a near-*white* in dark — it is a
+foreground token, as **The ink ramp is two different things** says below — so a
+rule that paints it as a *background* inverts with the theme. Three did, each
+with `color:#fff` hardcoded on top: the header pill naming the current screen,
+the "clocked out" tick in the In-today roster, and the phone's Today line. All
+three measured **1.09–1.19:1** in all seven dark palettes — a blank white pill,
+a blank white disc, and a large light slab carrying 2.0–2.5:1 text on a dark
+phone screen, which is this rule inverted.
+
+Two sibling rules had it right all along (`.wl-dayhead.is-today b`,
+`.cal-cell.cal-today .cal-daynum`): **`--card`, not `#fff`** — the token that
+moves opposite `--ink` in both directions, at 12.1–13.2:1. The Today line is a
+different case: everything written on it is an on-dark token because it *is* the
+rail's status card at the widths where the rail is gone, so it takes `--rail`,
+which is dark in both modes by contract. `palette-contrast.js` now fails any
+rule that paints `#fff` on a `var(--ink)` background.
+
+The crop modal's scrim was the same mistake wearing a comment that denied it.
+`.crop-mask` dims everything outside the circle with a 9999px spread shadow
+described as being "in the stage's own background colour" — and it shipped as a
+fixed `rgba(239,237,232,.92)`. In the seven dark compositions that **lit the
+photo up** instead of holding it back, a near-white flood inside an otherwise
+near-black modal. The stage is `--surface-gray`; so is its scrim now.
 
 ## Typography
 

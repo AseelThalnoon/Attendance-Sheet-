@@ -17,6 +17,7 @@
      executing, instead of in parallel. Preloading doesn't change when or
      how it's imported, just when the browser starts fetching it. -->
 <link rel="modulepreload" href="vendor/supabase-js.min.js">
+
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -88,6 +89,52 @@
      instead of staying Atrium's near-black over a Terracotta interface. -->
 <meta name="theme-color" content="#111110">
 
+<!-- app.js's own static imports. Same problem as the vendor bundle above, one
+     level down: these six are discovered only once app.js has downloaded AND
+     been parsed, so they queued behind 512KB of it. Every new file under src/
+     belongs here, and in sw.js's SHELL_FILES for the same reason — a miss
+     fails the module graph and the app never executes. -->
+<link rel="modulepreload" href="src/constants.js">
+<link rel="modulepreload" href="src/entries.js">
+<link rel="modulepreload" href="src/errors.js">
+<link rel="modulepreload" href="src/schedule.js">
+<link rel="modulepreload" href="src/storage.js">
+<link rel="modulepreload" href="src/time.js">
+<!-- The two faces the sign-in screen sets: 400 for body, 700 for the title and
+     the button. A font is requested only once a rule using it matches an
+     element, which is after style and layout.
+
+     Both hints cost first paint and buy something else, so the trade is
+     recorded rather than assumed. Median of 9 cold loads, 393px, Fast 3G and
+     4x CPU throttle, service worker blocked:
+
+                      FCP      src ready   Switzer ready
+       no hints      3076ms      6261ms       3057ms
+       modules       3240ms       769ms       3237ms
+       + fonts       3484ms       770ms       1128ms
+
+     The modules are not a judgment call: 164ms of paint for five and a half
+     seconds of the app being able to run at all. The fonts are — 244ms more
+     paint — and they are here because 3057ms against a 3076ms paint is a race
+     the page loses half the time, and losing it reflows a type-led design at
+     the exact moment someone first looks at it. Preloaded, Switzer is in hand
+     two seconds early and the first paint is simply correct. font-display:swap
+     stays as the safety net, not as the plan.
+
+     Regular and Bold only: Medium and Black are not on the auth screen, and
+     sw.js precaches all four on this visit, so every later visit is cache.
+
+     crossorigin is required on a font preload even same-origin — without it
+     the file is fetched twice, once for the preload and once for the
+     @font-face — and font-src 'self' in the CSP above already permits it.
+
+     Ordered ahead of theme-boot.js because measurement said position barely
+     matters (3484ms here vs 3500ms after it, inside the noise) and readiness
+     was slightly better here. The instinct to put them after the one
+     render-blocking script came from a single un-throttled sample that showed
+     a 36ms difference; nine throttled ones showed it was noise. -->
+<link rel="preload" href="fonts/Switzer-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/Switzer-Bold.woff2" as="font" type="font/woff2" crossorigin>
 <!-- Synchronous and above the stylesheet ON PURPOSE: it stamps data-palette
      and data-theme on <html> before the first paint. Deferred, or folded into
      app.js (a module, so deferred by definition), the page would paint in the
@@ -355,6 +402,15 @@
     --muted-on-dark:#A8A69E;
     --positive-on-dark:#A9DCC6;
     --negative-on-dark:#F0B9C9;
+    --gold-on-dark:#D6E85C;
+    --gold-rgb:214,232,92;
+    --ink-rgb:17,17,16;
+    --mint-rgb:169,220,198;
+    --ink-950-rgb:10,10,9;
+    --surface-gray-rgb:223,221,217;
+    --ink-600-rgb:61,61,56;
+    --negative-rgb:168,58,85;
+    --negative-on-dark-rgb:240,185,201;
     --negative-solid:#C0405E;
     --negative-deep:#8E2A42;
     --shadow-sm:0 1px 2px rgba(17,17,16,.04), 0 1px 3px rgba(17,17,16,.03);
@@ -402,9 +458,18 @@
     --input-bg:#FFFFFF;
     --rule:rgba(15,21,32,.05);
     --ink-on-gold:#062033;
-    --muted-on-dark:#75818F;
-    --positive-on-dark:#4D8D65;
-    --negative-on-dark:#B16C7C;
+    --muted-on-dark:#808C9A;
+    --positive-on-dark:#58986F;
+    --negative-on-dark:#BD7787;
+    --gold-on-dark:#86C9EC;
+    --gold-rgb:134,201,236;
+    --ink-rgb:15,21,32;
+    --mint-rgb:143,207,192;
+    --ink-950-rgb:11,17,23;
+    --surface-gray-rgb:216,221,228;
+    --ink-600-rgb:54,61,68;
+    --negative-rgb:159,63,91;
+    --negative-on-dark-rgb:189,119,135;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(15,21,32,.04), 0 1px 3px rgba(15,21,32,.03);
@@ -452,9 +517,18 @@
     --input-bg:#FFFDFB;
     --rule:rgba(36,27,22,.05);
     --ink-on-gold:#2E1405;
-    --muted-on-dark:#948375;
-    --positive-on-dark:#53936B;
-    --negative-on-dark:#B77282;
+    --muted-on-dark:#A19082;
+    --positive-on-dark:#60A077;
+    --negative-on-dark:#C57F8F;
+    --gold-on-dark:#EFA469;
+    --gold-rgb:239,164,105;
+    --ink-rgb:36,27,22;
+    --mint-rgb:169,199,155;
+    --ink-950-rgb:31,23,16;
+    --surface-gray-rgb:226,216,205;
+    --ink-600-rgb:77,67,60;
+    --negative-rgb:157,61,89;
+    --negative-on-dark-rgb:197,127,143;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(36,27,22,.04), 0 1px 3px rgba(36,27,22,.03);
@@ -502,9 +576,18 @@
     --input-bg:#FFFFFF;
     --rule:rgba(17,17,17,.05);
     --ink-on-gold:#FFFFFF;
-    --muted-on-dark:#7E7E7E;
-    --positive-on-dark:#4B8B63;
-    --negative-on-dark:#AE6A7A;
+    --muted-on-dark:#878888;
+    --positive-on-dark:#55956C;
+    --negative-on-dark:#B97484;
+    --gold-on-dark:#5789FC;
+    --gold-rgb:31,79,216;
+    --ink-rgb:17,17,17;
+    --mint-rgb:143,201,168;
+    --ink-950-rgb:13,13,13;
+    --surface-gray-rgb:230,230,228;
+    --ink-600-rgb:55,55,55;
+    --negative-rgb:166,69,97;
+    --negative-on-dark-rgb:185,116,132;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(17,17,17,.04), 0 1px 3px rgba(17,17,17,.03);
@@ -552,9 +635,18 @@
     --input-bg:#FDFDF9;
     --rule:rgba(18,33,26,.05);
     --ink-on-gold:#2A2005;
-    --muted-on-dark:#7C8A7E;
-    --positive-on-dark:#54946C;
-    --negative-on-dark:#B87383;
+    --muted-on-dark:#89978B;
+    --positive-on-dark:#61A178;
+    --negative-on-dark:#C67F8F;
+    --gold-on-dark:#D9B45C;
+    --gold-rgb:217,180,92;
+    --ink-rgb:18,33,26;
+    --mint-rgb:156,203,174;
+    --ink-950-rgb:20,27,21;
+    --surface-gray-rgb:218,223,214;
+    --ink-600-rgb:64,72,65;
+    --negative-rgb:160,63,91;
+    --negative-on-dark-rgb:198,127,143;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(18,33,26,.04), 0 1px 3px rgba(18,33,26,.03);
@@ -602,9 +694,18 @@
     --input-bg:#FFFFFF;
     --rule:rgba(30,22,34,.05);
     --ink-on-gold:#2E1605;
-    --muted-on-dark:#88808F;
-    --positive-on-dark:#509068;
-    --negative-on-dark:#B46F7F;
+    --muted-on-dark:#948C9C;
+    --positive-on-dark:#5C9C73;
+    --negative-on-dark:#C17B8B;
+    --gold-on-dark:#F0B27A;
+    --gold-rgb:240,178,122;
+    --ink-rgb:30,22,34;
+    --mint-rgb:166,211,198;
+    --ink-950-rgb:23,19,27;
+    --surface-gray-rgb:222,216,226;
+    --ink-600-rgb:68,63,72;
+    --negative-rgb:157,61,89;
+    --negative-on-dark-rgb:193,123,139;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(30,22,34,.04), 0 1px 3px rgba(30,22,34,.03);
@@ -655,6 +756,15 @@
     --muted-on-dark:#C6D6D2;
     --positive-on-dark:#9FD8A8;
     --negative-on-dark:#E0A5A5;
+    --gold-on-dark:#EDC172;
+    --gold-rgb:173,131,50;
+    --ink-rgb:27,36,34;
+    --mint-rgb:156,201,190;
+    --ink-950-rgb:6,40,37;
+    --surface-gray-rgb:236,232,223;
+    --ink-600-rgb:27,114,107;
+    --negative-rgb:174,59,59;
+    --negative-on-dark-rgb:224,165,165;
     --negative-solid:#C24A4A;
     --negative-deep:#9C3434;
     --shadow-sm:0 1px 2px rgba(10,54,52,.06), 0 1px 1px rgba(10,54,52,.04);
@@ -709,6 +819,15 @@
     --muted-on-dark:#9E9D8F;
     --positive-on-dark:#5BAD7A;
     --negative-on-dark:#DA8397;
+    --gold-on-dark:#D6E85C;
+    --gold-rgb:214,232,92;
+    --ink-rgb:241,239,232;
+    --mint-rgb:143,201,174;
+    --ink-950-rgb:4,3,1;
+    --surface-gray-rgb:48,47,44;
+    --ink-600-rgb:181,179,165;
+    --negative-rgb:218,131,151;
+    --negative-on-dark-rgb:218,131,151;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.30);
@@ -759,6 +878,15 @@
     --muted-on-dark:#8F9EAD;
     --positive-on-dark:#5BAD7A;
     --negative-on-dark:#DA8397;
+    --gold-on-dark:#7CC3EA;
+    --gold-rgb:124,195,234;
+    --ink-rgb:233,238,245;
+    --mint-rgb:132,199,184;
+    --ink-950-rgb:1,4,8;
+    --surface-gray-rgb:42,48,54;
+    --ink-600-rgb:165,181,197;
+    --negative-rgb:218,131,151;
+    --negative-on-dark-rgb:218,131,151;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.30);
@@ -809,6 +937,15 @@
     --muted-on-dark:#AA9889;
     --positive-on-dark:#5AAC79;
     --negative-on-dark:#D98296;
+    --gold-on-dark:#E89C5F;
+    --gold-rgb:232,156,95;
+    --ink-rgb:244,234,224;
+    --mint-rgb:157,190,143;
+    --ink-950-rgb:7,2,0;
+    --surface-gray-rgb:53,45,39;
+    --ink-600-rgb:193,175,160;
+    --negative-rgb:217,130,150;
+    --negative-on-dark-rgb:217,130,150;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.30);
@@ -859,6 +996,15 @@
     --muted-on-dark:#9C9C9C;
     --positive-on-dark:#5BAD7A;
     --negative-on-dark:#DA8397;
+    --gold-on-dark:#6D91F5;
+    --gold-rgb:109,145,245;
+    --ink-rgb:245,245,243;
+    --mint-rgb:132,196,160;
+    --ink-950-rgb:3,3,3;
+    --surface-gray-rgb:47,47,47;
+    --ink-600-rgb:179,179,178;
+    --negative-rgb:218,131,151;
+    --negative-on-dark-rgb:218,131,151;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.30);
@@ -909,6 +1055,15 @@
     --muted-on-dark:#90A093;
     --positive-on-dark:#5BAD7A;
     --negative-on-dark:#DA8397;
+    --gold-on-dark:#D2AC56;
+    --gold-rgb:210,172,86;
+    --ink-rgb:233,240,232;
+    --mint-rgb:143,194,163;
+    --ink-950-rgb:1,4,2;
+    --surface-gray-rgb:42,49,43;
+    --ink-600-rgb:167,183,169;
+    --negative-rgb:218,131,151;
+    --negative-on-dark-rgb:218,131,151;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.30);
@@ -959,6 +1114,15 @@
     --muted-on-dark:#A297AA;
     --positive-on-dark:#5AAB79;
     --negative-on-dark:#D98296;
+    --gold-on-dark:#E9AB73;
+    --gold-rgb:233,171,115;
+    --ink-rgb:241,234,244;
+    --mint-rgb:155,201,188;
+    --ink-950-rgb:4,2,7;
+    --surface-gray-rgb:49,45,53;
+    --ink-600-rgb:184,174,192;
+    --negative-rgb:217,130,150;
+    --negative-on-dark-rgb:217,130,150;
     --negative-solid:#C5496E;
     --negative-deep:#A32953;
     --shadow-sm:0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.30);
@@ -1009,6 +1173,15 @@
     --muted-on-dark:#9DACA6;
     --positive-on-dark:#6BC08D;
     --negative-on-dark:#ED8D8D;
+    --gold-on-dark:#EBC06F;
+    --gold-rgb:199,158,76;
+    --ink-rgb:232,237,234;
+    --mint-rgb:111,168,152;
+    --ink-950-rgb:4,32,30;
+    --surface-gray-rgb:23,51,44;
+    --ink-600-rgb:61,186,175;
+    --negative-rgb:237,141,141;
+    --negative-on-dark-rgb:237,141,141;
     --negative-solid:#C24A4A;
     --negative-deep:#9C3434;
     --shadow-sm:0 1px 2px rgba(0,0,0,.45), 0 0 0 1px rgba(199,158,76,.04);
@@ -1097,14 +1270,30 @@
      one: every rail nav item, the Viewing select, sign-out, Clock In/Out.
      Lime is rejected as the GENERAL focus colour for the reason noted above,
      but that reasoning is specifically about a light card; on these two dark
-     surfaces it's the opposite case — 14:1 against near-black, and already
-     the rail's one accent colour, so it reads as "focus" rather than as a
-     new, unexplained meaning. */
+     surfaces it's the opposite case — already the rail's one accent colour, so
+     it reads as "focus" rather than as a new, unexplained meaning.
+
+     This used to claim "14:1 against near-black" as though that were a
+     property of accents. It is a property of lime: Studio's accent measured
+     2.85:1 on its own rail, under 1.4.11's 3:1 for a focus indicator, on every
+     rail nav item, the Viewing select, sign-out and Clock In/Out.
+     --gold-on-dark is solved against both dark grounds a ring lands on — the
+     rail, and the quick-clock gradient's lighter --ink-700 end. */
   .rail button:focus-visible, .rail select:focus-visible, .rail a:focus-visible,
   .quick-clock button:focus-visible{
-    outline-color:var(--gold);
+    outline-color:var(--gold-on-dark);
   }
-  @media (prefers-reduced-motion: reduce){*{animation-duration:.001ms !important; transition-duration:.001ms !important;}}
+  /* The blanket kill does not STOP an infinite animation — it converts it into
+     about a million iterations a second, which is the trap this stylesheet
+     already documents at .auth-aside::before and names its two auth loops for.
+     The skeletons are the other four: 13 of them are on screen during every
+     data load (first sign-in, every viewer switch), so the people who asked for
+     less motion were the ones paying for the most. Held still at the midpoint
+     of their own sweep, so a placeholder still reads as a placeholder. */
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important; transition-duration:.001ms !important;}
+    .skeleton, .skeleton-dark{animation:none !important; background-position:50% 0;}
+  }
 
   ::selection{background:var(--gold); color:var(--ink-on-gold);}
   input, textarea{caret-color:var(--ink);}
@@ -1153,8 +1342,18 @@
   .rail-item:hover{background:rgba(255,255,255,.06); color:#fff;}
   /* Active state is the reference's one flash of colour in the rail: the label
      goes lime, the row washes lime-8%, and the shared bar below travels to it
-     rather than popping in per-item. */
-  .rail-item.active{color:var(--gold); background:rgba(214,232,92,.08);}
+     rather than popping in per-item.
+
+     --gold-on-dark, not --gold. This label is the accent used as TEXT, which
+     the Fill-Only Rule says never happens — so palette-contrast.js deliberately
+     never measured --gold against anything, and this reads at 14:1 in Atrium
+     because lime on near-black does, not because accents do. Studio's accent is
+     a dark electric blue: its current-page label measured 2.42:1 and Ledger's
+     antique gold 3.14:1, at 11px, on the one control that says which screen you
+     are on. --gold-on-dark is the same accent lightened only as far as the rail
+     requires, so the five palettes that already cleared get their own accent
+     back unchanged. */
+  .rail-item.active{color:var(--gold-on-dark); background:rgba(var(--gold-rgb),.08);}
   .rail-item.active svg{opacity:1;}
   /* One bar shared by the whole nav, not one pseudo-element per item — so
      switching tabs reads as the rail's spine sliding to the new destination
@@ -1170,8 +1369,13 @@
     /* A 3px-wide bar: the cap is a half-pill, not a corner. Was a literal 3px,
        which is off the rounded scale and reads as a magic number; the pill
        token clamps to the same shape at this width. */
-    border-radius:0 var(--radius-pill) var(--radius-pill) 0; background:var(--gold);
-    box-shadow:0 0 14px rgba(214,232,92,.55);
+    /* The bar and its halo follow the label for the same reason the label
+       moved: this is the only other carrier of "you are here", and DESIGN.md
+       holds a mark that is the sole carrier of a fact to the same floor as the
+       sentence that would have said it. The halo was Atrium's lime in all
+       fourteen compositions — a blue bar in a lime glow in Studio. */
+    border-radius:0 var(--radius-pill) var(--radius-pill) 0; background:var(--gold-on-dark);
+    box-shadow:0 0 14px rgba(var(--gold-rgb),.55);
     opacity:0; transform:translateY(0);
     transition:transform var(--dur-slow) var(--ease-soft), opacity var(--dur-fast) var(--ease-snap);
     pointer-events:none;
@@ -1310,8 +1514,14 @@
     text-transform:uppercase; letter-spacing:.08em; white-space:nowrap;
     box-shadow:var(--shadow-sm);
   }
+  /* --card, not #fff. --ink is a FOREGROUND in dark mode (DESIGN.md: "The ink
+     ramp is two different things"), so on a dark theme this painted a near-white
+     pill and then set its label in white on top: 1.09-1.19:1 across all seven
+     dark palettes, i.e. the control that says which screen you are on was
+     blank. --card is the token that moves opposite --ink in both directions,
+     which is what .cal-cell.cal-today .cal-daynum has always used. */
   .head-action[aria-current="page"]{
-    background:var(--ink); color:#fff;
+    background:var(--ink); color:var(--card);
   }
   .head-action.danger{color:var(--negative);}
   /* No label, so no pill: a 44px disc, which is also the touch floor. The
@@ -1542,8 +1752,8 @@
       background:
         linear-gradient(var(--card) 30%, rgba(255,255,255,0)) top    /100% 22px no-repeat local,
         linear-gradient(rgba(255,255,255,0), var(--card) 70%) bottom /100% 22px no-repeat local,
-        radial-gradient(farthest-side at 50% 0,    rgba(17,17,16,.17), rgba(17,17,16,0)) top    /100% 13px no-repeat scroll,
-        radial-gradient(farthest-side at 50% 100%, rgba(17,17,16,.17), rgba(17,17,16,0)) bottom /100% 13px no-repeat scroll;
+        radial-gradient(farthest-side at 50% 0,    rgba(var(--ink-rgb),.17), rgba(var(--ink-rgb),0)) top    /100% 13px no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(var(--ink-rgb),.17), rgba(var(--ink-rgb),0)) bottom /100% 13px no-repeat scroll;
     }
     .tab-panel.active::-webkit-scrollbar{width:8px;}
     .tab-panel.active::-webkit-scrollbar-track{background:transparent;}
@@ -1629,10 +1839,19 @@
      already on screen and this would be the same fact twice. It exists because
      the top of a phone screen was two notices and a greeting: the one number
      the person opened the app for was below the fold on every tab. */
+  /* --rail, not --ink. Everything written on this line is an on-dark token —
+     --muted-on-dark for the label, --positive-on-dark/--negative-on-dark for
+     the figure, #fff for the rest — because this IS the rail's status card, at
+     the widths where the rail is not on screen. --ink stops being dark in dark
+     mode, so all three arrived on a near-white slab: the label at 2.00-2.52:1,
+     the figure at 1.86-2.50:1, and #fff at 1.09-1.19:1. It also put a second
+     large light mass on a dark phone screen, which is One Dark Region read in
+     the mirror. --rail is dark in both modes by contract, which is what every
+     token on top of it already assumes. */
   .today-line{
     display:none; align-items:baseline; gap:var(--space-3);
     padding:var(--space-3) var(--space-4); margin-bottom:var(--space-4);
-    background:var(--ink); border-radius:var(--radius-md); color:#fff;
+    background:var(--rail); border-radius:var(--radius-md); color:#fff;
   }
   .today-line-label{
     font-size:11px; font-weight:500; text-transform:uppercase;
@@ -1711,7 +1930,7 @@
      opens that modal on top of it, by design. */
   .notif-overlay{
     position:fixed; inset:0; z-index:160;
-    background:rgba(17,17,16,.44);
+    background:rgba(var(--ink-950-rgb),.44);
     display:flex; align-items:flex-start; justify-content:center;
     padding:56px 16px 16px;
     opacity:0; transition:opacity var(--dur-fast) var(--ease-snap);
@@ -1947,8 +2166,8 @@
       background:
         linear-gradient(var(--paper) 30%, rgba(255,255,255,0)) top    /100% 22px no-repeat local,
         linear-gradient(rgba(255,255,255,0), var(--paper) 70%) bottom /100% 22px no-repeat local,
-        radial-gradient(farthest-side at 50% 0,    rgba(17,17,16,.17), rgba(17,17,16,0)) top    /100% 13px no-repeat scroll,
-        radial-gradient(farthest-side at 50% 100%, rgba(17,17,16,.17), rgba(17,17,16,0)) bottom /100% 13px no-repeat scroll;
+        radial-gradient(farthest-side at 50% 0,    rgba(var(--ink-rgb),.17), rgba(var(--ink-rgb),0)) top    /100% 13px no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(var(--ink-rgb),.17), rgba(var(--ink-rgb),0)) bottom /100% 13px no-repeat scroll;
     }
     .overview-panel.is-first-run > section{width:100%; max-width:620px;}
   }
@@ -2154,7 +2373,13 @@
      box; pinned to the edges it scales with the dial's own box, and
      preserveAspectRatio keeps it centred. */
   .format-dial svg{position:absolute; inset:0; width:100%; height:100%; display:block;}
-  .format-ring-track{stroke:rgba(17,17,16,.09);}
+  /* --ink-100, not ink-at-9%. This is the unfilled remainder of the Day Types
+     ring — the mark that says how much of the month is NOT this type — and a
+     near-black at 9% over a dark card measures 1.03:1, so in dark mode the ring
+     became a floating arc with no track behind it. --ink-100 is a wash by
+     contract: just under the card in both modes. Same fix, same reason, for the
+     progress trough below, which .team-bar already got right. */
+  .format-ring-track{stroke:var(--ink-100);}
   /* Square caps: the segments are stacked flush end-to-end around one ring
      now rather than each sitting alone on its own concentric ring, and a
      round cap on every segment boundary left a visible notch and a sliver of
@@ -2309,7 +2534,10 @@
     display:flex; align-items:center; justify-content:center;
     border:1.5px solid var(--line); color:transparent;
   }
-  .tt-check.is-done{background:var(--ink); border-color:var(--ink); color:#fff;}
+  /* --card for the same reason as .head-action[aria-current] above: on #fff
+     every one of these rendered as a blank white disc in dark mode and the
+     tick that says this person has clocked out simply was not there. */
+  .tt-check.is-done{background:var(--ink); border-color:var(--ink); color:var(--card);}
   .tt-check.is-in{background:var(--gold); border-color:var(--gold); color:var(--ink-on-gold);}
   /* The roster's ordinary morning state, not an afterthought. It is a card in
      a filled grid row, so "nobody yet" has to hold the row the way a list of
@@ -2331,7 +2559,7 @@
      are unchanged because renderStats() addresses the fill and label by id. */
   .hero-progress{display:flex; align-items:center; gap:8px; margin-top:12px;}
   .hero-progress-track{
-    flex:1; height:6px; border-radius:99px; background:rgba(17,17,16,.12); overflow:hidden;
+    flex:1; height:6px; border-radius:99px; background:var(--ink-100); overflow:hidden;
   }
   /* Lime is "how far along", the same job it does on the nav — it is not a
      verdict. Once the month is actually at target the bar turns green, which
@@ -2468,7 +2696,7 @@
     position:relative; overflow:hidden;
     display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;
     background:
-      radial-gradient(480px 160px at 90% -20%, rgba(214,232,92,.13), transparent 65%),
+      radial-gradient(480px 160px at 90% -20%, rgba(var(--gold-rgb),.13), transparent 65%),
       linear-gradient(135deg, var(--ink-900), var(--ink-950));
     border-radius:var(--radius); padding:16px 24px; margin-bottom:8px; box-shadow:var(--shadow-md);
   }
@@ -2481,7 +2709,7 @@
      layer. Bounded by .quick-clock's own overflow:hidden above. */
   .quick-clock::before{
     content:""; position:absolute; inset:0; pointer-events:none;
-    background:radial-gradient(480px 220px at 90% -20%, rgba(214,232,92,.55), transparent 65%);
+    background:radial-gradient(480px 220px at 90% -20%, rgba(var(--gold-rgb),.55), transparent 65%);
     opacity:0;
   }
   .quick-clock.punched::before{animation:quickClockPulse .8s var(--ease-soft);}
@@ -2586,8 +2814,12 @@
     .season-card .form-grid input{ font-size:16px; }
   }
 
-  input:focus, select:focus{border-color:var(--ink-600); box-shadow:0 0 0 3px rgba(61,61,56,.20);}
-  .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(168,58,85,.18);}
+  /* Each halo is its own border's colour at low alpha. They were Atrium's
+     --ink-600 and --negative frozen as rgba() literals — and --ink-600 is the
+     one ramp step that inverts for dark mode, so the focus halo pointed the
+     opposite way from the border it sits under as soon as the theme flipped. */
+  input:focus, select:focus{border-color:var(--ink-600); box-shadow:0 0 0 3px rgba(var(--ink-600-rgb),.20);}
+  .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(var(--negative-rgb),.18);}
 
   /* iOS Safari lays a native date/time control out from its own shadow DOM and
      ignores box-sizing on it, so width:100% resolved to 100% PLUS the 24px of
@@ -2785,8 +3017,8 @@
       background:
         linear-gradient(var(--ink-50) 30%, rgba(239,237,232,0)) top    /100% 20px no-repeat local,
         linear-gradient(rgba(239,237,232,0), var(--ink-50) 70%) bottom /100% 20px no-repeat local,
-        radial-gradient(farthest-side at 50% 0,    rgba(17,17,16,.14), rgba(17,17,16,0)) top    /100% 9px no-repeat scroll,
-        radial-gradient(farthest-side at 50% 100%, rgba(17,17,16,.14), rgba(17,17,16,0)) bottom /100% 9px no-repeat scroll,
+        radial-gradient(farthest-side at 50% 0,    rgba(var(--ink-rgb),.14), rgba(var(--ink-rgb),0)) top    /100% 9px no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(var(--ink-rgb),.14), rgba(var(--ink-rgb),0)) bottom /100% 9px no-repeat scroll,
         var(--ink-50);
     }
     .console-nav::-webkit-scrollbar{width:8px;}
@@ -2857,11 +3089,14 @@
     display:block; font-size:13px; font-weight:700; color:var(--ink); line-height:1.25;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  /* Two lines, not one with an ellipsis. These lines carry the state a section
-     is in — "3 periods set", "Not set — new accounts fall back to Sun–Thu" —
-     and a truncated one is worse than none, because it looks like it said
-     something and you cannot tell what. */
-  /* One line, clipped. The rule above says these rows are a fixed height so the
+  /* One line, clipped.
+
+     A paragraph arguing the opposite — "Two lines, not one with an ellipsis…
+     a truncated one is worse than none" — sat directly above this rule and
+     directly above the declaration that does the clipping. It described a
+     draft that lost; the rule below is the one that shipped. In a file whose
+     comments are the design record, two comments making opposite claims about
+     the same declaration cost more than either is worth. The rule above says these rows are a fixed height so the
      directory reads as one set of choices, but nothing stopped a description
      wrapping -- so rows came out 62px or 68px depending on the words in them,
      which is the exact raggedness that rule exists to prevent. Now that every
@@ -3108,7 +3343,7 @@
   .bulk-select-all{display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:500;}
   .bulk-select-all input{width:16px; height:16px; accent-color:var(--gold);}
   .bulk-actions{display:flex; gap:8px;}
-  .bulk-toolbar .btn.danger-ghost{background:rgba(255,255,255,.06); border-color:rgba(224,133,133,.5); color:var(--negative-on-dark);}
+  .bulk-toolbar .btn.danger-ghost{background:rgba(255,255,255,.06); border-color:rgba(var(--negative-on-dark-rgb),.5); color:var(--negative-on-dark);}
   .bulk-toolbar .btn.ghost{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.25); color:#fff;}
   th.select-col{width:34px;}
   td.select-col{width:1%;}
@@ -3263,7 +3498,6 @@
     padding:16px 16px 16px;
   }
   .format-card .skeleton-overlay{align-items:center; justify-content:center; padding:24px;}
-  .portrait-card .skeleton-overlay{background:rgba(233,231,226,.96);}
   .table-wrap .skeleton-overlay{
     position:static; display:none; flex-direction:column; gap:10px; padding:16px; background:var(--card);
   }
@@ -4419,11 +4653,11 @@
        thing on the screen, and the drift animation swept it around. */
     background-image:
       radial-gradient(820px 600px at 14% 90%,
-        rgba(214,232,92,.155) 0%,
-        rgba(197,229,124,.075) 34%,
-        rgba(176,223,170,.032) 55%,
-        rgba(169,220,198,.012) 72%,
-        rgba(169,220,198,0) 88%);
+        rgba(var(--gold-rgb),.155) 0%,
+        rgba(var(--gold-rgb),.075) 34%,
+        rgba(var(--mint-rgb),.032) 55%,
+        rgba(var(--mint-rgb),.012) 72%,
+        rgba(var(--mint-rgb),0) 88%);
     animation:authAsideDrift 32s var(--ease-soft) infinite alternate;
   }
   @keyframes authAsideDrift{
@@ -4682,7 +4916,7 @@
                box-shadow var(--dur-slow) var(--ease-soft);
   }
   .auth-form input:focus{
-    box-shadow:0 6px 26px rgba(214,232,92,.34);
+    box-shadow:0 6px 26px rgba(var(--gold-rgb),.34);
   }
 
   /* ---------- Submitting ----------
@@ -4783,7 +5017,7 @@
     color:var(--muted-on-dark);
     transition:background-color var(--dur-fast) var(--ease-snap), color var(--dur-fast) var(--ease-snap);
   }
-  .rail-logout-btn:hover{background:rgba(240,185,201,.14); color:var(--negative-on-dark);}
+  .rail-logout-btn:hover{background:rgba(var(--negative-on-dark-rgb),.14); color:var(--negative-on-dark);}
   @media (min-width:1100px){ .rail-logout-btn{width:30px; height:30px;} }
   .viewing-other-banner{border-left-color:var(--gold); background:var(--excused-bg);}
   /* announcement-banner's own colour lived here; it now carries only its
@@ -5657,7 +5891,7 @@
     width:64px; height:64px; border-radius:50%; margin-top:-30px;
     background:var(--gradient-gold); border:3px solid var(--card);
     color:var(--ink-on-gold); display:flex; align-items:center; justify-content:center;
-    box-shadow:0 4px 16px rgba(214,232,92,.5); cursor:pointer;
+    box-shadow:0 4px 16px rgba(var(--gold-rgb),.5); cursor:pointer;
     transition:transform var(--dur-fast) var(--ease-snap), background var(--dur-fast) var(--ease-snap);
   }
   .bn-clock svg{width:27px; height:27px;}
@@ -5719,7 +5953,7 @@
      toast stack already solves with left/right insets. */
   .entry-modal{
     position:fixed; inset:0; z-index:190;
-    background:rgba(17,17,16,.42);
+    background:rgba(var(--ink-950-rgb),.42);
     -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
     display:flex; align-items:center; justify-content:center;
     padding:calc(20px + env(safe-area-inset-top, 0px))
@@ -5752,9 +5986,20 @@
   .entry-modal-card .form-actions{margin-bottom:0;}
 
   /* ---------- Confirm modal ---------- */
+  /* The scrim was rgba(6,25,23,.45) — #061917, Gilt Ledger's teal-black, still
+     dimming every modal in all seven palettes long after the identity it
+     belonged to was replaced. It is the palette's own --ink-950 now: the ramp's
+     bottom step, which stays dark in both modes, rather than --ink, which flips
+     to near-white and would turn a backdrop into a veil.
+
+     Kept ABOVE the selector, not inside it: tests/regression/ios.js reads a
+     fixed 600-character window from each overlay rule to check all four
+     safe-area insets are reserved, and a comment in the body pushes them out
+     of it. Comments precede the selector throughout this file for the same
+     reason they read better there. */
   .modal-overlay{
     position:fixed; inset:0; z-index:210;
-    background:rgba(6,25,23,.45); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
+    background:rgba(var(--ink-950-rgb),.45); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
     display:flex; align-items:center; justify-content:center;
     padding:calc(20px + env(safe-area-inset-top, 0px))
             calc(20px + env(safe-area-inset-right, 0px))
@@ -5821,9 +6066,17 @@
      spread box-shadow in the stage's own background colour dims everything
      outside the circle without needing an SVG mask or clip-path, and
      pointer-events:none lets drags on the image pass straight through it. */
+  /* The scrim is --surface-gray at 92%, which is what the comment above always
+     said it was and what it never actually was: it shipped as a fixed
+     rgba(239,237,232,.92), Atrium's --ink-50, in all fourteen compositions. In
+     the seven dark ones that meant the area OUTSIDE the crop circle was flooded
+     with near-white instead of dimmed — the mask lit the photo up rather than
+     holding it back, inside an otherwise near-black modal. In the six
+     non-Atrium light ones it was simply the wrong neutral over a stage tinted
+     by a different palette. The stage is --surface-gray; so is its scrim. */
   .crop-mask{
     position:absolute; inset:0; border-radius:50%; pointer-events:none;
-    box-shadow:0 0 0 9999px rgba(239,237,232,.92);
+    box-shadow:0 0 0 9999px rgba(var(--surface-gray-rgb),.92);
   }
   .crop-zoom-row{
     display:flex; align-items:center; gap:10px; margin-top:16px;
@@ -5942,9 +6195,15 @@
      app is mobile-first (see PRODUCT.md), so gating matters here more
      than most projects. */
   @media (hover:hover) and (pointer:fine){
-    .icon-btn:hover{background:rgba(255,255,255,.16); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
-    .icon-btn.danger:hover{background:rgba(226,143,143,.18);}
-    .head-action:hover{background:rgba(255,255,255,.16); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
+    /* --ink-50, not white-16%. Both of these sit on --card, which is #FFFFFF
+       in light: a 16% white wash over white is 1.000:1, so the background half
+       of the hover did nothing at all in the default theme and only appeared
+       once someone switched to dark. --ink-50 is the wash that sits just under
+       the card in BOTH modes, and it is already what .tab-btn, .accordion-head
+       and the table rows hover to. */
+    .icon-btn:hover{background:var(--ink-50); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
+    .icon-btn.danger:hover{background:var(--negative-bg);}
+    .head-action:hover{background:var(--ink-50); transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.2);}
     .stat-card:hover{transform:translateY(-3px); box-shadow:var(--shadow-glow);}
     .card:hover{box-shadow:var(--shadow-md);}
     .quick-clock .btn.qc-btn:hover{filter:brightness(1.08);}
@@ -5959,7 +6218,7 @@
     .accordion-head:hover{background:var(--ink-100);}
     .check-row:hover{border-color:var(--ink-600);}
     .period-del:hover{background:var(--negative-bg); border-color:var(--negative);}
-    .bulk-toolbar .btn.danger-ghost:hover{background:rgba(224,133,133,.18);}
+    .bulk-toolbar .btn.danger-ghost:hover{background:rgba(var(--negative-on-dark-rgb),.18);}
     .bulk-toolbar .btn.ghost:hover{background:rgba(255,255,255,.16);}
     .tab-btn:hover{color:var(--ink-600); background:var(--ink-50);}
     .cal-cell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm);}
@@ -8048,6 +8307,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=alerts-bell-1"></script>
+<script type="module" src="app.js?v=palette-contrast-1"></script>
 </body>
 </html>

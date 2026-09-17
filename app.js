@@ -1483,7 +1483,7 @@ import { makeSchedule } from "./src/schedule.js";
         "there to turn this on." + (isIOS() || isAndroid()
           ? " On a phone, check the operating system's own notification settings for your browser as well."
           : "");
-      setNavDesc("cnavDescNotificationsSelf", "Blocked in this browser's settings", true);
+      setNavDesc("cnavDescNotificationsSelf", "Blocked in browser settings", true);
       refreshPushDevices();
       return;
     }
