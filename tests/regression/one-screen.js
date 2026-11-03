@@ -39,7 +39,7 @@ function result(t,k){
   if(t==="entries") return {data:ENTRIES,error:null};
   if(t==="profiles") return k==="single"?{data:PROFILE,error:null}:{data:PEOPLE,error:null};
   if(t==="user_settings") return {data:{settings:{}},error:null};
-  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:false,announcement:""},error:null};
+  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:true,announcement:"The office is closed on Thursday for maintenance."},error:null};
   return {data:[],error:null};}
 function builder(t){let k="list";
   const proxy=new Proxy(function(){},{get(_,p){
@@ -250,20 +250,20 @@ function ok(cond, name, detail){
     }
   }
 
-  // The sized loop above only ever sees Trends' default Weekly sub-tab —
-  // Monthly sits in the same panel with fewer, taller rows and is never
+  // The sized loop above only ever sees Trends' default Monthly sub-tab —
+  // Weekly sits in the same panel with more, shorter rows and is never
   // otherwise measured against the frame.
   await page.evaluate(() => document.querySelector('.tab-btn[data-tab="trends"]').click());
   for(const [w, h] of SIZES){
     await page.setViewportSize({width: w, height: h});
-    await page.evaluate(() => document.querySelector('.sub-tab-btn[data-subtab="monthly"]').click());
+    await page.evaluate(() => document.querySelector('.sub-tab-btn[data-subtab="weekly"]').click());
     await page.waitForTimeout(400);
     const m = await page.evaluate(() => ({
       page: document.documentElement.scrollHeight - window.innerHeight,
       main: document.getElementById("main").scrollHeight - document.getElementById("main").clientHeight
     }));
-    ok(m.page <= 1, `trends/monthly @ ${w}x${h} — the page does not scroll`, `scrollHeight over viewport by ${m.page}px`);
-    ok(m.main <= 1, `trends/monthly @ ${w}x${h} — the frame holds, the panel scrolls`, `main overflows its own box by ${m.main}px`);
+    ok(m.page <= 1, `trends/weekly @ ${w}x${h} — the page does not scroll`, `scrollHeight over viewport by ${m.page}px`);
+    ok(m.main <= 1, `trends/weekly @ ${w}x${h} — the frame holds, the panel scrolls`, `main overflows its own box by ${m.main}px`);
   }
 
   // The Overview owns the whole frame: its card must not be left standing.

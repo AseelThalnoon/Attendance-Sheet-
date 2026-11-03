@@ -313,7 +313,7 @@ var __authLinkError = (function(){
 import {
   DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
   EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
-  DISMISS_KEY, SNOOZE_KEY, BACKUP_KEY, BACKUP_REMIND_DAYS,
+  DISMISS_KEY,
   PUSH_PROMPT_SNOOZE_KEY, PUSH_PROMPT_SNOOZE_DAYS,
   DEFAULT_SETTINGS, VAPID_PUBLIC_KEY
 } from "./src/constants.js";
@@ -359,8 +359,8 @@ import { makeSchedule } from "./src/schedule.js";
   } = makeSchedule(function(){ return settings; });
 
   // Persisted across reloads. These were plain in-memory values, so "Dismiss" on
-  // an open-shift reminder and "Later" on the backup prompt both reset on every
-  // refresh — which on an installed PWA meant the banner was effectively
+  // an open-shift reminder reset on every refresh — which on an installed PWA
+  // meant the banner was effectively
   // undismissable. Entries older than 30 days are pruned on load so the key
   // cannot grow without bound.
   var dismissedReminders = (function(){
@@ -4359,7 +4359,6 @@ import { makeSchedule } from "./src/schedule.js";
     renderStats();
     renderOverviewFirstRun();
     renderReminder();
-    renderBackupReminder();
     renderOutbox();
     renderLog();
     renderCharts();
@@ -4379,55 +4378,6 @@ import { makeSchedule } from "./src/schedule.js";
     // work nobody sees.
     if(document.querySelector('.tab-btn[data-tab="calendar"].active')) renderCalendarView();
   }
-
-  // ---------- Backup reminder ----------
-  var backupSnoozed = (function(){
-    var until = parseInt(safeGet(SNOOZE_KEY) || "", 10);
-    return isFinite(until) && Date.now() < until;
-  })();
-
-  function markBackedUp(){
-    safeSet(BACKUP_KEY, String(Date.now()));
-    renderBackupReminder();
-  }
-
-  function renderBackupReminder(){
-    var banner = document.getElementById("backupBanner");
-    if(backupSnoozed || !entries.length){ banner.classList.remove("show"); return; }
-
-    var last = parseInt(safeGet(BACKUP_KEY) || "", 10);
-    var now = Date.now();
-    var dayMs = 24*60*60*1000;
-
-    if(isFinite(last)){
-      var days = Math.floor((now - last) / dayMs);
-      if(days < BACKUP_REMIND_DAYS){ banner.classList.remove("show"); return; }
-      document.getElementById("backupTitle").textContent = "Time for a backup";
-      // Two lines on a phone, same as the outbox above. "Your data is saved to
-      // your account" is dropped rather than clamped: the Backup & Data section
-      // this button opens already says it, and keeping it here pushed the
-      // reason to act off the bottom.
-      document.getElementById("backupText").textContent =
-        "Last backup " + days + " days ago, " + entries.length +
-        " days logged. Keep your own copy.";
-    } else {
-      // Never backed up: wait until there's enough logged to be worth protecting.
-      if(entries.length < 5){ banner.classList.remove("show"); return; }
-      document.getElementById("backupTitle").textContent = "You haven't backed up yet";
-      document.getElementById("backupText").textContent =
-        entries.length + " days logged. An export gives you your own copy to keep or hand over.";
-    }
-    banner.classList.add("show");
-  }
-
-  document.getElementById("backupNowBtn").addEventListener("click", function(){
-    exportJson();
-  });
-  document.getElementById("backupLaterBtn").addEventListener("click", function(){
-    backupSnoozed = true;
-    safeSet(SNOOZE_KEY, String(Date.now() + 7*24*60*60*1000));
-    renderBackupReminder();
-  });
 
   // ---------- Print report ----------
   // suppressDialog is set when we're building in response to the browser's own
@@ -5517,7 +5467,7 @@ import { makeSchedule } from "./src/schedule.js";
 
   function activeSubtab(){
     var el = document.querySelector(".sub-tab-btn.active");
-    return el ? el.getAttribute("data-subtab") : "weekly";
+    return el ? el.getAttribute("data-subtab") : "monthly";
   }
 
   // Distributes the bottom-nav items into left/right zones so spacing stays
@@ -5827,7 +5777,6 @@ import { makeSchedule } from "./src/schedule.js";
   function exportJson(){
     download("attendance-backup-"+todayStr()+".json",
       JSON.stringify({version:3, settings:settings, entries:entries}, null, 2), "application/json");
-    markBackedUp();
   }
   document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
 
@@ -5852,7 +5801,6 @@ import { makeSchedule } from "./src/schedule.js";
       }).join(",");
     }).join("\n");
     download("attendance-export-"+todayStr()+".csv", csv, "text/csv");
-    markBackedUp();
   });
 
   // A blank starter file with only the columns importCsvText() actually
@@ -6647,7 +6595,10 @@ import { makeSchedule } from "./src/schedule.js";
     // renderLoadFailure() draws between "empty" and "we don't know".
     if(empty) empty.hidden = liveNoticeCount() > 0 || pushNotifs.length > 0 || !!pushNotifsError;
     var markAll = document.getElementById("notifMarkAllBtn");
-    if(markAll) markAll.hidden = unreadPushCount() === 0;
+    // Always on screen so you know where it is; greyed out with nothing unread.
+    if(markAll) markAll.disabled = unreadPushCount() === 0;
+    var clearAll = document.getElementById("notifClearAllBtn");
+    if(clearAll) clearAll.disabled = pushNotifs.length === 0;
   }
 
   function relativeWhen(iso){
@@ -6730,8 +6681,32 @@ import { makeSchedule } from "./src/schedule.js";
             (n.read ? "" : " \u00b7 Unread") + '</p>' +
           act +
         '</div>' +
+        '<button type="button" class="notif-dismiss" data-notif-dismiss="' + escapeAttr(n.id) + '"' +
+          ' aria-label="Clear \u201c' + escapeAttr(n.title) + '\u201d" title="Clear">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+        '</button>' +
       '</div>';
     }).join("");
+  }
+
+  // Clears messages for good, on every device: the server records it per
+  // person (dismiss_notifications), the same way it records "read". all=true
+  // also clears anything older than the 50 the bell loads.
+  async function dismissPush(ids, all){
+    if(!all && !ids.length) return;
+    pushNotifs = all ? [] : pushNotifs.filter(function(n){ return ids.indexOf(n.id) === -1; });
+    renderPushNotifications();
+    syncNotificationBell();
+    try{
+      var res = await supabase.rpc("dismiss_notifications", all ? {p_all: true} : {p_ids: ids});
+      if(res.error) throw res.error;
+    }catch(err){
+      console.error(err);
+      showToast("Couldn't clear that: " + friendlyError(err), "error");
+      // Put back whatever the server still has, rather than leave the list
+      // claiming something is gone when it will reappear next time.
+      loadPushNotifications();
+    }
   }
 
   async function markPushRead(ids){
@@ -6753,6 +6728,14 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   document.getElementById("notifList").addEventListener("click", function(ev){
+    var dismissBtn = ev.target.closest("[data-notif-dismiss]");
+    if(dismissBtn){
+      // Focus would otherwise fall to <body> with the row gone; the panel's
+      // close button is always there to land on.
+      document.getElementById("notifCloseBtn").focus();
+      dismissPush([dismissBtn.getAttribute("data-notif-dismiss")], false);
+      return;
+    }
     var btn = ev.target.closest("[data-notif-clockout]");
     if(!btn) return;
     var date = btn.getAttribute("data-notif-clockout");
@@ -6770,6 +6753,30 @@ import { makeSchedule } from "./src/schedule.js";
 
   document.getElementById("notifMarkAllBtn").addEventListener("click", function(){
     markPushRead(pushNotifs.filter(function(n){ return !n.read; }).map(function(n){ return n.id; }));
+  });
+
+  // Two taps, in place: the first turns the button into its own confirmation
+  // for a few seconds. A modal would have to stack on top of this panel's own
+  // focus trap, and clearing everything is not something to do by accident.
+  var clearAllArmTimer = null;
+  function disarmClearAll(){
+    clearTimeout(clearAllArmTimer);
+    clearAllArmTimer = null;
+    var b = document.getElementById("notifClearAllBtn");
+    b.classList.remove("is-armed");
+    b.textContent = "Clear all";
+  }
+  document.getElementById("notifClearAllBtn").addEventListener("click", function(){
+    var b = this;
+    if(!b.classList.contains("is-armed")){
+      b.classList.add("is-armed");
+      b.textContent = "Tap again to clear";
+      clearAllArmTimer = setTimeout(disarmClearAll, 4000);
+      return;
+    }
+    disarmClearAll();
+    document.getElementById("notifCloseBtn").focus();
+    dismissPush([], true);
   });
 
   // The panel. Same contract showConfirm() established -- background hidden
@@ -6814,6 +6821,7 @@ import { makeSchedule } from "./src/schedule.js";
       if(closed) return;
       closed = true;
       notifPanelClose = null;
+      disarmClearAll();
       window.removeEventListener("popstate", onPop);
       document.removeEventListener("keydown", onKey);
       overlay.removeEventListener("click", onOverlayClick);
@@ -6840,14 +6848,34 @@ import { makeSchedule } from "./src/schedule.js";
     overlay.addEventListener("click", onOverlayClick);
     document.getElementById("notifCloseBtn").focus();
 
-    // Opening is what marks messages read -- they are all on screen at once,
-    // so per-item read tracking would be a fiction. Live notices are not
-    // touched: they clear when the condition clears.
+    // Opening no longer marks anything read: "Mark all read" in the panel's
+    // head does, so an unread message stays unread until you say otherwise.
+    // Live notices are not touched: they clear when the condition clears.
     if(!pushNotifsLoaded) loadPushNotifications();
-    else markPushRead(pushNotifs.filter(function(n){ return !n.read; }).map(function(n){ return n.id; }));
   }
 
   document.getElementById("notifBtn").addEventListener("click", openNotificationPanel);
+
+  // Pulls everything again without reloading the page: any punch still
+  // waiting to upload goes first, so the fresh copy already includes it.
+  document.getElementById("refreshBtn").addEventListener("click", async function(){
+    var btn = this;
+    if(btn.disabled || !currentUser) return;
+    btn.disabled = true;
+    btn.classList.add("is-busy");
+    try{
+      await flushOutbox();
+      await Promise.all([loadDataForViewedUser(), loadPushNotifications()]);
+      // loadDataForViewedUser() already toasts its own failure.
+      if(!dataLoadFailed()) showToast("Up to date.", "success");
+    }catch(err){
+      console.error(err);
+      showToast("Couldn't refresh: " + friendlyError(err), "error");
+    }finally{
+      btn.disabled = false;
+      btn.classList.remove("is-busy");
+    }
+  });
   document.getElementById("notifCloseBtn").addEventListener("click", function(){
     if(notifPanelClose) notifPanelClose();
   });
