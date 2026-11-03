@@ -240,6 +240,20 @@ function createBackend(seed){
       });
       return json(added);
     }
+    if(name === "list_today_presence"){
+      // Mirrors the real function: every entry on that date, joined to its
+      // profile, in no particular order -- the client does the sorting.
+      const rows = state.entries
+        .filter(e => e.date === args.p_date)
+        .map(e => {
+          const p = state.profiles.find(x => x.id === e.user_id);
+          return p ? { user_id: p.id, full_name: p.full_name, email: p.email,
+            avatar_updated_at: p.avatar_updated_at || null,
+            clock_in: e.clock_in, clock_out: e.clock_out, type: e.type } : null;
+        })
+        .filter(Boolean);
+      return json(rows);
+    }
     if(name === "dismiss_notifications"){
       let cleared = 0;
       state.push_notifications
