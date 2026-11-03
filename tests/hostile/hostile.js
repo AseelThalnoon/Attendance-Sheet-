@@ -727,14 +727,16 @@ async function run(){
     row(D.UUID(3), T, null, null, "leave");                // excused
     // Nothing today for the last three. Bob has most of the month behind him,
     // the admin has a little, and Yara has never logged anything at all.
-    for(let b = 1; b <= 6; b++){
-      const d = new Date(today); d.setDate(d.getDate() - b);
-      row(D.UUID(5), dstr(d), "08:00:00", "16:00:00", "regular");
+    // Drawn from this calendar month's other days rather than counted back
+    // from today: the Team tab totals the month, so early in a month most of
+    // "the last six days" fell in the previous one and Bob tied the admin.
+    const monthDays = [];
+    for(let n = 1; monthDays.length < 6; n++){
+      const d = new Date(today.getFullYear(), today.getMonth(), n);
+      if(dstr(d) !== T) monthDays.push(dstr(d));
     }
-    for(let b = 1; b <= 2; b++){
-      const d = new Date(today); d.setDate(d.getDate() - b);
-      row(D.UUID(7), dstr(d), "08:00:00", "16:00:00", "regular");
-    }
+    monthDays.forEach(ds => row(D.UUID(5), ds, "08:00:00", "16:00:00", "regular"));
+    monthDays.slice(0, 2).forEach(ds => row(D.UUID(7), ds, "08:00:00", "16:00:00", "regular"));
 
     const h = await boot({ meId: D.UUID(7), seed: {
       profiles: people, entries,
