@@ -69,6 +69,7 @@ function createBackend(seed){
     push_subscriptions: (seed && seed.push_subscriptions) || [],
     push_deliveries: (seed && seed.push_deliveries) || [],
     notification_reads: (seed && seed.notification_reads) || [],
+    announcement_hides: (seed && seed.announcement_hides) || [],
     client_errors: (seed && seed.client_errors) || [],
     // Stand in for a project running the pre-20260917140000 admin_push_reach.
     omitReachIds: !!(seed && seed.omitReachIds),
@@ -297,6 +298,15 @@ function createBackend(seed){
     // and swallows it — which is right, and meant every boot here logged a 404
     // nobody could see a reason for. A harness that always has one error in the
     // console is a harness that can never assert the console is clean.
+    // Mirrors the real function: one row per person, stamped with the
+    // server's clock, never the client's.
+    if(name === "hide_announcement"){
+      const now = new Date().toISOString();
+      const mine = state.announcement_hides.find(r => r.user_id === state.meId);
+      if(mine) mine.hidden_at = now;
+      else state.announcement_hides.push({ user_id: state.meId, hidden_at: now });
+      return json(null);
+    }
     if(name === "touch_last_seen"){
       const who = state.profiles.find(p => p.id === state.meId);
       if(who) who.last_seen_at = new Date().toISOString();
@@ -321,8 +331,12 @@ function createBackend(seed){
       if(prefer.includes("count=exact") || method === "HEAD"){
         return {
           status: 200, contentType: "application/json",
+          // Exposed, as Supabase's gateway exposes it: the app is on another
+          // origin, and without this the browser hides the header and every
+          // count reads as unknown.
           headers: { "Content-Range": `0-${Math.max(0, out.length - 1)}/${out.length}`,
-                     "Access-Control-Allow-Origin": "*" },
+                     "Access-Control-Allow-Origin": "*",
+                     "Access-Control-Expose-Headers": "Content-Range" },
           body: method === "HEAD" ? "" : JSON.stringify(out)
         };
       }
@@ -369,7 +383,11 @@ function createBackend(seed){
 
     if(method === "PATCH"){
       const hit = rows.filter(r => matches(r, params));
-      hit.forEach(r => Object.assign(r, incoming[0]));
+      hit.forEach(r => {
+        const before = Object.assign({}, r);
+        Object.assign(r, incoming[0]);
+        if(name === "app_settings") stampAnnouncement(before, r);
+      });
       if(!prefer.includes("return=representation")) return json(null, 204);
       return wantsObject ? json(hit[0]) : json(hit);
     }
@@ -381,6 +399,20 @@ function createBackend(seed){
     }
 
     return json({ message: "unhandled method " + method }, 405);
+  }
+
+  // The app_settings_stamp_announcement trigger, restated: posted_at moves
+  // when the banner goes from not showing to showing, or its wording changes
+  // while it shows -- and a client can never set it directly.
+  function stampAnnouncement(before, row){
+    const pad = n => String(n).padStart(2, "0");
+    const d = new Date(), today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const live = r => !!r.announcement_active && !!String(r.announcement || "").trim() &&
+      (!r.announcement_until || r.announcement_until >= today);
+    row.announcement_posted_at = before.announcement_posted_at || null;
+    if(live(row) && (!live(before) || row.announcement !== before.announcement)){
+      row.announcement_posted_at = new Date().toISOString();
+    }
   }
 
   // Signs the browser in without touching the auth endpoints: supabase-js

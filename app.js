@@ -1541,6 +1541,10 @@ import { makeSchedule } from "./src/schedule.js";
   // prompt that also throws a visible error on the sign-in screen would read
   // as broken, not optional — the Settings toggle is still there by hand.
   async function autoPromptPushIfEligible(){
+    // Someone with notifications on nowhere gets the reminder below, every
+    // time. Everyone else -- notifications on some other device, or no
+    // answer about it -- keeps the gentler prompt that follows.
+    if(await remindIfNoPushAnywhere()) return;
     if(!pushSupported()){ maybeShowPushPromptModal(); return; }
     if(Notification.permission === "granted" && (await currentPushSubscription())){
       return;
@@ -1557,6 +1561,107 @@ import { makeSchedule } from "./src/schedule.js";
       await subscribeToPush();
       refreshPushToggle();
     }catch(e){ /* declined, blocked, or the browser suppressed an unsolicited prompt — Settings still offers it */ }
+  }
+
+  // ---------- Reminder for people with notifications on nowhere ----------
+  // Someone with no device at all receiving notifications misses the
+  // clock-out reminder and every message an admin sends. For them the prompt
+  // is not a one-off that "Not Now" snoozes for a week: it comes back every
+  // time the app is opened -- each launch, and each return after
+  // PUSH_REMIND_AWAY_MS in the background, which is opening it again rather
+  // than a quick switch to another app and back -- until notifications are
+  // on somewhere.
+  //
+  // Only when the server positively says zero devices. A count that failed or
+  // came back without a number (offline, say) is not a reason to interrupt
+  // anyone. And only on a device that can act on it: one whose service worker
+  // is running, since nothing can arrive without one, or one where installing
+  // the app is the fix.
+  var PUSH_REMIND_AWAY_MS = 10*60*1000;
+  var pushReminderOpen = false;
+  var lastPushReminderKind = null;  // what this session last showed, if anything
+  var pushAwaySince = null;         // when the app last went to the background
+
+  async function myPushDeviceTotal(){
+    try{
+      var res = await supabase.from("push_subscriptions")
+        .select("endpoint", {count: "exact", head: true})
+        .eq("user_id", currentUser.id);
+      if(res.error) return null;
+      return typeof res.count === "number" ? res.count : null;
+    }catch(e){ return null; }
+  }
+  // navigator.serviceWorker.ready never settles when no worker registers (see
+  // currentPushSubscription), so it is raced against the same three seconds.
+  async function pushWorkerHere(){
+    try{
+      return await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise(function(resolve){ setTimeout(function(){ resolve(null); }, 3000); })
+      ]);
+    }catch(e){ return null; }
+  }
+
+  // True when it dealt with this person -- reminded them, or quietly finished
+  // a registration that only needed finishing. False when they have
+  // notifications on somewhere, or it cannot tell, so the caller carries on
+  // with the ordinary prompt.
+  async function remindIfNoPushAnywhere(){
+    if(!currentUser || !isOwnData || pushReminderOpen) return false;
+    var total = await myPushDeviceTotal();
+    if(total !== 0 || !currentUser || !isOwnData) return false;
+
+    if(!pushSupported()){
+      // iPhone, iPad or Android in a browser tab: installing is the fix.
+      // Anywhere else there is nothing this device can do about it.
+      if(!((isIOS() || isAndroid()) && !isStandaloneDisplay())) return false;
+      showPushPromptModal("install", true);
+      return true;
+    }
+    if(!(await pushWorkerHere())) return false;
+    if(Notification.permission === "denied"){
+      showPushPromptModal("blocked", true);
+      return true;
+    }
+    if(Notification.permission === "granted"){
+      // Allowed already, just not registered (a subscribe that failed, a
+      // device someone removed): finish the job without asking anything.
+      try{
+        var remindedBefore = !!lastPushReminderKind;
+        await subscribeToPush();
+        lastPushReminderKind = null;
+        if(remindedBefore) showToast("Notifications are on for this device.", "success");
+        refreshPushToggle();
+        return true;
+      }catch(e){ /* fall through to asking */ }
+    }
+    showPushPromptModal("ask", true);
+    return true;
+  }
+
+  // The other half of enableInstructionsFor(): permission was refused, and a
+  // browser never shows its own dialog again after that, so the only way back
+  // is the device's or the browser's settings -- and where they are differs
+  // on every platform.
+  function unblockInstructionsFor(){
+    if(isIOS()){
+      return "Notifications for this app are switched off on this device. Open iOS Settings → " +
+        "Notifications, find this app in the list, and turn on Allow Notifications.";
+    }
+    if(isAndroid()){
+      return isStandaloneDisplay()
+        ? "Notifications for this app are switched off on this phone. Open Android Settings → " +
+          "Apps → this app → Notifications, and allow them."
+        : "Notifications are blocked for this site. In your browser, open the menu → Settings → " +
+          "Site settings → Notifications and allow this site. If your browser's own notifications " +
+          "are off, also check Android Settings → Apps → your browser → Notifications.";
+    }
+    if(isSafariBrowser()){
+      return "Notifications are blocked for this site. In Safari, open Settings → Websites → " +
+        "Notifications, set this site to Allow, then reload the page.";
+    }
+    return "Notifications are blocked for this site. Click the icon at the left end of the " +
+      "address bar, set Notifications to Allow, then reload the page.";
   }
 
   // ---------- Push prompt popup ----------
@@ -1599,9 +1704,18 @@ import { makeSchedule } from "./src/schedule.js";
     pushPromptModalShown = true;
     showPushPromptModal();
   }
-  function showPushPromptModal(){
-    var instructional = !pushSupported();
-    if(instructional && !((isIOS() || isAndroid()) && !isStandaloneDisplay())){
+  // kind: "ask" (a Turn On button that requests permission), "install" (the
+  // app has to be on the Home Screen first) or "blocked" (permission was
+  // refused, and only the device's own settings can undo that). everyTime is
+  // the reminder for someone with notifications on nowhere: it says it will
+  // come back, and "Not Now" does not snooze it.
+  function showPushPromptModal(kind, everyTime){
+    kind = kind || (pushSupported() ? "ask" : "install");
+    var instructional = kind !== "ask";
+    // Never on top of another dialog -- a confirm that is waiting for an
+    // answer, or this same reminder already up.
+    if(pushReminderOpen || document.querySelector(".modal-overlay")) return;
+    if(kind === "install" && !((isIOS() || isAndroid()) && !isStandaloneDisplay())){
       // Nothing this dialog's own button could do — window.PushManager is
       // simply absent until the app is installed, and only worth saying on
       // the platforms where "install it" is the actual fix.
@@ -1612,8 +1726,10 @@ import { makeSchedule } from "./src/schedule.js";
     var mid = "pushp" + Math.random().toString(36).slice(2,8);
     overlay.innerHTML =
       '<div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="'+mid+'-t" aria-describedby="'+mid+'-m">' +
-        '<h3 class="modal-title" id="'+mid+'-t">Turn on notifications?</h3>' +
+        '<h3 class="modal-title" id="'+mid+'-t">' +
+          (kind === "blocked" ? "Notifications are blocked" : "Turn on notifications?") + '</h3>' +
         '<p class="modal-msg" id="'+mid+'-m"></p>' +
+        (everyTime ? '<p class="modal-msg push-prompt-every"></p>' : '') +
         '<p class="modal-msg push-prompt-error" hidden></p>' +
         '<div class="modal-actions">' +
           (instructional
@@ -1622,9 +1738,18 @@ import { makeSchedule } from "./src/schedule.js";
               '<button type="button" class="btn modal-confirm">Turn On</button>') +
         '</div>' +
       '</div>';
-    overlay.querySelector(".modal-msg").textContent = instructional
-      ? enableInstructionsFor()
-      : "Get notified here when it matters — a forgotten clock-out, or a message from an admin.";
+    overlay.querySelector(".modal-msg").textContent = kind === "blocked"
+      ? unblockInstructionsFor()
+      : kind === "install"
+        ? enableInstructionsFor()
+        : "Get notified here when it matters — a forgotten clock-out, or a message from an admin.";
+    if(everyTime){
+      overlay.querySelector(".push-prompt-every").textContent =
+        "Notifications aren't on for any of your devices yet, so this reminder will show " +
+        "each time you open the app until they are.";
+    }
+    pushReminderOpen = true;
+    lastPushReminderKind = kind;
     dialogRoot().appendChild(overlay);
     requestAnimationFrame(function(){ overlay.classList.add("show"); });
 
@@ -1637,6 +1762,7 @@ import { makeSchedule } from "./src/schedule.js";
       document.removeEventListener("keydown", onKey);
       bgRoot.removeAttribute("aria-hidden");
       overlay.classList.remove("show");
+      pushReminderOpen = false;
       setTimeout(function(){
         overlay.remove();
         if(previouslyFocused && typeof previouslyFocused.focus === "function") previouslyFocused.focus();
@@ -1647,7 +1773,9 @@ import { makeSchedule } from "./src/schedule.js";
     var cancelBtn = overlay.querySelector(".modal-cancel");
     if(cancelBtn){
       cancelBtn.addEventListener("click", function(){
-        safeSet(PUSH_PROMPT_SNOOZE_KEY, String(Date.now() + PUSH_PROMPT_SNOOZE_DAYS*24*60*60*1000));
+        if(!everyTime){
+          safeSet(PUSH_PROMPT_SNOOZE_KEY, String(Date.now() + PUSH_PROMPT_SNOOZE_DAYS*24*60*60*1000));
+        }
         close();
       });
     }
@@ -6598,7 +6726,7 @@ import { makeSchedule } from "./src/schedule.js";
     // Always on screen so you know where it is; greyed out with nothing unread.
     if(markAll) markAll.disabled = unreadPushCount() === 0;
     var clearAll = document.getElementById("notifClearAllBtn");
-    if(clearAll) clearAll.disabled = pushNotifs.length === 0;
+    if(clearAll) clearAll.disabled = pushNotifs.length === 0 && !(announcementExtras && announcementShowing());
   }
 
   function relativeWhen(iso){
@@ -6776,7 +6904,12 @@ import { makeSchedule } from "./src/schedule.js";
     }
     disarmClearAll();
     document.getElementById("notifCloseBtn").focus();
-    dismissPush([], true);
+    // Everything in the list that can be cleared: the announcement is hidden
+    // for this person, and the messages are cleared. Live notices (an open
+    // shift, an unsent punch) stay, since they go away when they are dealt
+    // with, not when they are read.
+    if(announcementExtras && announcementShowing()) hideAnnouncement();
+    if(pushNotifs.length) dismissPush([], true);
   });
 
   // The panel. Same contract showConfirm() established -- background hidden
@@ -9144,6 +9277,7 @@ import { makeSchedule } from "./src/schedule.js";
   // label those historical entries would render as a bare key or vanish.
   var APP_SETTINGS_LABELS = {
     announcement: "Announcement", announcement_active: "Announcement banner",
+    announcement_until: "Announcement end date",
     allow_registration: "Allow registrations", theme: "Theme (retired)",
     default_settings: "Organisation defaults"
   };
@@ -9160,6 +9294,7 @@ import { makeSchedule } from "./src/schedule.js";
       }
       var d = fieldDiff(label, oldV[key], newV[key], function(v){
         if(typeof v === "boolean") return v ? "on" : "off";
+        if(typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return fmtDate(v);
         return v == null ? "—" : String(v);
       });
       if(d) bits.push(d);
@@ -9473,13 +9608,17 @@ import { makeSchedule } from "./src/schedule.js";
       document.getElementById("setAllowRegistration").checked = s.allow_registration !== false;
       document.getElementById("setAnnouncementActive").checked = !!s.announcement_active;
       document.getElementById("setAnnouncement").value = s.announcement || "";
+      document.getElementById("setAnnouncementUntil").value = s.announcement_until || "";
+      announcementExtras = Object.prototype.hasOwnProperty.call(s, "announcement_posted_at");
+      document.getElementById("setAnnouncementUntilWrap").hidden = !announcementExtras;
+      document.getElementById("announcementHideBtn").hidden = !announcementExtras;
       // Both switches this section owns, on the row itself. Sign-ups being
       // open is the half worth seeing without opening anything: it is the one
       // setting here that lets a stranger create an account.
-      setNavDesc("cnavDescApp",
-        (s.announcement_active && s.announcement ? "Banner on" : "Banner off") + " · " +
+      setNavDesc("cnavDescApp", announcementNavDesc(s) + " · " +
         (s.allow_registration === false ? "sign-ups closed" : "sign-ups open"));
       fillDefaultsForm(s.default_settings);
+      await loadAnnouncementHide();
       applyAppSettings(s);
     }catch(err){
       // Non-fatal: the app works without org settings. Surfaced rather than
@@ -9488,10 +9627,93 @@ import { makeSchedule } from "./src/schedule.js";
     }
   }
 
+  // ---------- Announcement: an end date, and a per-person hide ----------
+  // The row last applied, so hiding can re-apply it without another fetch.
+  var appSettingsRow = null;
+  // When this person last hid the announcement, from announcement_hides. The
+  // banner stays hidden while that is at or after the current announcement's
+  // announcement_posted_at, which the database stamps whenever a banner goes
+  // up or its wording changes -- so a new announcement shows again by itself.
+  var announcementHiddenAt = null;
+  // Whether the database has this yet (20261103130000_announcement_end_and_hide).
+  // The client may ship first; until the columns exist, the end date field
+  // and the hide button are simply not offered, and saving works as before.
+  var announcementExtras = false;
+
+  // Up, and not past its end date. announcement_until is inclusive: the banner
+  // shows through the end of that day. Plain "YYYY-MM-DD" strings compare in
+  // date order.
+  function announcementLive(s){
+    if(!(s && s.announcement_active && s.announcement)) return false;
+    return !s.announcement_until || todayStr() <= s.announcement_until;
+  }
+  function announcementHiddenByMe(s){
+    if(!announcementHiddenAt || !s) return false;
+    // No posted time at all (a row saved before announcements carried one):
+    // a hide covers it.
+    if(!s.announcement_posted_at) return true;
+    return Date.parse(announcementHiddenAt) >= Date.parse(s.announcement_posted_at);
+  }
+  function announcementShowing(){
+    var banner = document.getElementById("announcementBanner");
+    return !!(banner && banner.classList.contains("show"));
+  }
+  function announcementNavDesc(s){
+    if(!(s.announcement_active && s.announcement)) return "Banner off";
+    if(s.announcement_until && todayStr() > s.announcement_until) return "Banner ended";
+    return s.announcement_until ? "Banner on until " + fmtDateNoYear(s.announcement_until) : "Banner on";
+  }
+
+  // A plain select rather than maybeSingle(): no row is the normal case
+  // (never hidden anything), and it is not worth a 406 in the console. A
+  // failure only means the banner shows, which is what it did before hiding
+  // existed.
+  async function loadAnnouncementHide(){
+    announcementHiddenAt = null;
+    // Before the migration there is no table to ask, and the request would
+    // only be a 404 in the console.
+    if(!currentUser || !announcementExtras) return;
+    try{
+      var res = await supabase.from("announcement_hides").select("hidden_at")
+        .eq("user_id", currentUser.id).limit(1);
+      var row = !res.error && Array.isArray(res.data) ? res.data[0] : null;
+      if(row && row.hidden_at) announcementHiddenAt = row.hidden_at;
+    }catch(e){}
+  }
+
+  // Optimistic, like clearing a message. The local mark copies the
+  // announcement's own posted time rather than this device's clock: a phone
+  // running a few minutes slow would otherwise "hide" it at a moment before
+  // it went up, and it would come straight back. The server stamps its own
+  // clock either way.
+  async function hideAnnouncement(){
+    var s = appSettingsRow;
+    if(!announcementExtras || !s || !announcementShowing()) return;
+    var before = announcementHiddenAt;
+    announcementHiddenAt = s.announcement_posted_at || new Date().toISOString();
+    applyAppSettings(s);
+    try{
+      var res = await supabase.rpc("hide_announcement");
+      if(res.error) throw res.error;
+    }catch(err){
+      console.error(err);
+      announcementHiddenAt = before;
+      applyAppSettings(s);
+      showToast("Couldn't hide the announcement: " + friendlyError(err), "error");
+    }
+  }
+  document.getElementById("announcementHideBtn").addEventListener("click", function(){
+    // The row is about to disappear; the panel's close button is always there
+    // for focus to land on, same as clearing a message.
+    document.getElementById("notifCloseBtn").focus();
+    hideAnnouncement();
+  });
+
   // Applies org-wide settings that affect every user, not just admins.
   function applyAppSettings(s){
+    appSettingsRow = s || null;
     var banner = document.getElementById("announcementBanner");
-    if(s && s.announcement_active && s.announcement){
+    if(announcementLive(s) && !announcementHiddenByMe(s)){
       document.getElementById("announcementText").textContent = s.announcement;
       banner.classList.add("show");
     } else {
@@ -9678,8 +9900,17 @@ import { makeSchedule } from "./src/schedule.js";
       updated_at: new Date().toISOString(),
       updated_by: currentUser.id
     };
+    if(announcementExtras){
+      payload.announcement_until = document.getElementById("setAnnouncementUntil").value || null;
+    }
     if(payload.announcement_active && !payload.announcement){
       showToast("Add an announcement message before turning the banner on.", "error");
+      return;
+    }
+    // Saving a banner that has already ended would look like it saved and
+    // then show nothing, to anyone.
+    if(payload.announcement_active && payload.announcement_until && payload.announcement_until < todayStr()){
+      showToast("That end date has already passed. Pick today or later, or leave it empty.", "error");
       return;
     }
     // The inline warning above the checkbox says this passively; saving is the
@@ -9695,9 +9926,14 @@ import { makeSchedule } from "./src/schedule.js";
     }
     btn.disabled = true;
     try{
-      var res = await supabase.from("app_settings").update(payload).eq("id", 1);
+      // Read back what was saved: the database stamps announcement_posted_at,
+      // and a hide is measured against that, not against anything sent here.
+      var res = await supabase.from("app_settings").update(payload).eq("id", 1).select();
       if(res.error) throw res.error;
-      applyAppSettings(payload);
+      var saved = Array.isArray(res.data) && res.data[0] ? res.data[0] : payload;
+      applyAppSettings(saved);
+      setNavDesc("cnavDescApp", announcementNavDesc(saved) + " · " +
+        (saved.allow_registration === false ? "sign-ups closed" : "sign-ups open"));
       showToast(successMsg, "success");
     }catch(err){
       showToast("Couldn't save app settings: " + friendlyError(err), "error");
@@ -10682,6 +10918,7 @@ import { makeSchedule } from "./src/schedule.js";
     viewedUserId = null; viewedProfile = null;
     allProfiles = []; isAdmin = false; isOwnData = true;
     pushPromptModalShown = false;
+    lastPushReminderKind = null; pushAwaySince = null;
     entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
     dismissedReminders = {};
     // entries is empty now, so this clears the icon. Leaving a badge behind
@@ -10753,6 +10990,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(document.visibilityState === "hidden" && currentUser) updateAppBadge();
     // Coming back after a long pause: the clock and any open-shift reminder
     // would otherwise show whatever they showed when the tab was hidden.
+    if(document.visibilityState === "hidden") pushAwaySince = Date.now();
     if(document.visibilityState === "visible" && currentUser){
       updateLiveClock();
       renderReminder();
@@ -10760,7 +10998,17 @@ import { makeSchedule } from "./src/schedule.js";
       // have returned without an "online" event ever firing — a phone that
       // slept through the reconnection reports no transition.
       flushOutbox();
+      // Coming back after a real absence is opening the app again, so the
+      // reminder for someone with notifications on nowhere comes back too.
+      // Straight away, though, after "Notifications are blocked": returning
+      // from the phone's Settings is exactly how that gets fixed, and the
+      // fix should be picked up the moment they are back.
+      var away = pushAwaySince ? Date.now() - pushAwaySince : 0;
+      var maybeUnblocked = lastPushReminderKind === "blocked" &&
+        pushSupported() && Notification.permission !== "denied";
+      if(away >= PUSH_REMIND_AWAY_MS || maybeUnblocked) remindIfNoPushAnywhere();
     }
+    if(document.visibilityState === "visible") pushAwaySince = null;
   });
 
   updateLiveClock();

@@ -1056,6 +1056,226 @@ async function run(){
     await h.close();
   }
 
+  // ---- an announcement ends on its own, and anyone can hide it ------------
+  // The banner used to stay up, for everyone, until an admin switched it off:
+  // "Happy weekend!" was still in every bell's count the following Tuesday.
+  {
+    const pad2 = n => String(n).padStart(2, "0");
+    const dstr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const today = new Date(), T = dstr(today);
+    const yesterday = dstr(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
+    const me = { id: D.UUID(1), email: "a1@example.com", full_name: "Ann Nouncement", role: "user",
+      avatar_updated_at: null, created_at: "2026-01-01T00:00:00Z" };
+    const banner = until => [{ id: 1, default_settings: null, allow_registration: true,
+      announcement_active: true, announcement: "Office closed Thursday", announcement_until: until,
+      announcement_posted_at: new Date(Date.now() - 2 * 3600e3).toISOString() }];
+    const seedWith = app_settings => ({ profiles: [me], entries: [],
+      user_settings: [{ user_id: me.id, settings: D.SETTINGS }], app_settings });
+    const state = page => page.evaluate(() => {
+      const b = document.getElementById("notifBadge");
+      return { showing: document.getElementById("announcementBanner").classList.contains("show"),
+               badge: b.hidden ? "" : b.textContent };
+    });
+
+    // Its last day still shows it; the day after does not.
+    for(const [until, expect, label] of [[T, true, "through the end of its last day"],
+                                         [yesterday, false, "and not the day after"]]){
+      const e = await boot({ meId: me.id, seed: seedWith(banner(until)) });
+      await settle(e.page, 900);
+      const s = await state(e.page);
+      ok(s.showing === expect, `an announcement with an end date shows ${label}`, JSON.stringify(s));
+      await e.close();
+    }
+
+    // Hiding it: gone from the bell and its count, and still gone after a reload.
+    const h = await boot({ meId: me.id, seed: seedWith(banner(null)) });
+    await settle(h.page, 900);
+    const before = await state(h.page);
+    ok(before.showing && before.badge === "1",
+      "a live announcement is in the bell and in its count", JSON.stringify(before));
+    await h.page.evaluate(() => document.getElementById("notifBtn").click());
+    await settle(h.page, 500);
+    await h.page.evaluate(() => document.getElementById("announcementHideBtn").click());
+    await settle(h.page, 600);
+    const hidden = await state(h.page);
+    ok(!hidden.showing && hidden.badge === "",
+      "the x hides the announcement and the badge clears", JSON.stringify(hidden));
+    ok(h.backend.state.announcement_hides.some(r => r.user_id === me.id),
+      "the hide is saved to the account, so it holds on every device");
+    await h.page.reload();
+    await settle(h.page, 1200);
+    ok(!(await state(h.page)).showing, "a hidden announcement stays hidden after a reload");
+
+    // A new announcement is a new announcement: it shows again by itself.
+    Object.assign(h.backend.state.app_settings[0], { announcement: "Payday is Thursday",
+      announcement_posted_at: new Date(Date.now() + 1000).toISOString() });
+    await h.page.reload();
+    await settle(h.page, 1200);
+    ok((await state(h.page)).showing, "a newer announcement shows again after the old one was hidden");
+    await h.close();
+
+    // Clear all covers it too, even with no messages in the list.
+    const c = await boot({ meId: me.id, seed: seedWith(banner(null)) });
+    await settle(c.page, 900);
+    await c.page.evaluate(() => document.getElementById("notifBtn").click());
+    await settle(c.page, 500);
+    ok(await c.page.evaluate(() => !document.getElementById("notifClearAllBtn").disabled),
+      "Clear all is available when the announcement is the only thing to clear");
+    await c.page.evaluate(() => document.getElementById("notifClearAllBtn").click());
+    await c.page.evaluate(() => document.getElementById("notifClearAllBtn").click());
+    await settle(c.page, 600);
+    ok(!(await state(c.page)).showing, "Clear all hides the announcement as well");
+    await c.close();
+
+    // The admin's side: an end date already in the past is refused; a real
+    // one saves, and the banner counts as freshly posted.
+    const boss = { id: D.UUID(2), email: "boss@example.com", full_name: "Boss Admin", role: "admin",
+      avatar_updated_at: null, created_at: "2026-01-01T00:00:00Z" };
+    const a = await boot({ meId: boss.id, seed: { profiles: [boss], entries: [],
+      user_settings: [{ user_id: boss.id, settings: D.SETTINGS }],
+      app_settings: [{ id: 1, default_settings: D.SETTINGS, allow_registration: false,
+        announcement_active: false, announcement: null,
+        announcement_until: null, announcement_posted_at: null }] } });
+    await settle(a.page, 900);
+    const save = (text, until) => a.page.evaluate(([t, u]) => {
+      document.getElementById("setAnnouncementActive").checked = true;
+      document.getElementById("setAnnouncement").value = t;
+      document.getElementById("setAnnouncementUntil").value = u;
+      document.getElementById("saveAppSettingsBtn").click();
+    }, [text, until]);
+    await save("Old news", yesterday);
+    await settle(a.page, 700);
+    ok(!a.backend.state.app_settings[0].announcement_active,
+      "an end date that has already passed is refused, not saved");
+    await save("Office closed Thursday", T);
+    await settle(a.page, 900);
+    const row = a.backend.state.app_settings[0];
+    ok(row.announcement_until === T && !!row.announcement_posted_at,
+      "the end date saves, and the banner counts as posted", JSON.stringify(row));
+    ok(await a.page.evaluate(() => document.getElementById("announcementBanner").classList.contains("show")),
+      "the admin sees the banner they just posted");
+    await a.close();
+
+    // Before the database has the new columns, nothing new is offered: no end
+    // date to send to a column that is not there, no hide that would fail.
+    const pre = await boot({ meId: boss.id, seed: { profiles: [boss], entries: [],
+      user_settings: [{ user_id: boss.id, settings: D.SETTINGS }],
+      app_settings: [{ id: 1, default_settings: D.SETTINGS, allow_registration: false,
+        announcement_active: true, announcement: "Office closed Thursday" }] } });
+    await settle(pre.page, 900);
+    const offered = await pre.page.evaluate(() => ({
+      showing: document.getElementById("announcementBanner").classList.contains("show"),
+      hide: !document.getElementById("announcementHideBtn").hidden,
+      until: !document.getElementById("setAnnouncementUntilWrap").hidden
+    }));
+    ok(offered.showing && !offered.hide && !offered.until,
+      "before the migration the banner still shows, with no hide button and no end date field",
+      JSON.stringify(offered));
+    await pre.close();
+  }
+
+  // ---- notifications on nowhere: reminded every time ------------------------
+  // Someone with no device receiving notifications misses the clock-out
+  // reminder and every admin message. They are reminded on every launch and
+  // every return after a real absence, and "Not Now" does not snooze it.
+  {
+    // A device that can receive push. The harness blocks the real service
+    // worker, so the worker and its push manager are stood in for -- along
+    // with a clock the test can move, for "came back after a while".
+    const pushDevice = perm => async ({ page }) => {
+      await page.addInitScript(initial => {
+        let permission = initial, subscribed = null;
+        const sub = { endpoint: "https://push.example.test/me", options: null,
+          toJSON(){ return { endpoint: this.endpoint, keys: { p256dh: "p256dh", auth: "auth" } }; },
+          unsubscribe: async () => true };
+        const reg = { pushManager: {
+          getSubscription: async () => subscribed,
+          subscribe: async () => (subscribed = sub)
+        } };
+        Object.defineProperty(navigator.serviceWorker, "ready", { configurable: true, get: () => Promise.resolve(reg) });
+        Object.defineProperty(Notification, "permission", { configurable: true, get: () => permission });
+        Notification.requestPermission = async () => (permission = permission === "denied" ? "denied" : "granted");
+        const realNow = Date.now.bind(Date);
+        window.__skewMs = 0;
+        Date.now = () => realNow() + window.__skewMs;
+      }, perm);
+    };
+    const me = { id: D.UUID(3), email: "np@example.com", full_name: "No Push", role: "user",
+      avatar_updated_at: null, created_at: "2026-01-01T00:00:00Z" };
+    const seed = extra => Object.assign({ profiles: [me], entries: [],
+      user_settings: [{ user_id: me.id, settings: D.SETTINGS }] }, extra || {});
+    const dialog = page => page.evaluate(() => {
+      const o = document.querySelector(".modal-overlay");
+      if(!o) return null;
+      const every = o.querySelector(".push-prompt-every");
+      return { title: o.querySelector(".modal-title").textContent,
+        every: every ? every.textContent : "",
+        buttons: [...o.querySelectorAll(".modal-actions .btn")].map(b => b.textContent.trim()) };
+    });
+
+    const h = await boot({ meId: me.id, seed: seed(), beforeLoad: pushDevice("default") });
+    await settle(h.page, 1200);
+    const first = await dialog(h.page);
+    ok(!!first && /Turn on notifications/.test(first.title) && /each time you open the app/.test(first.every),
+      "someone with notifications on nowhere is asked at launch, and told it will keep asking",
+      JSON.stringify(first));
+    await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-cancel").click());
+    await settle(h.page, 400);
+    ok(!(await dialog(h.page)), "Not Now closes it");
+    const snooze = await h.page.evaluate(() => localStorage.getItem("attendance_ledger_push_prompt_snooze_v1"));
+    ok(!snooze, "and does not snooze it", "snooze=" + snooze);
+
+    // A quick switch to another app and back is not opening the app again; a
+    // real absence is.
+    const awayFor = ms => h.page.evaluate(ms => {
+      const set = v => Object.defineProperty(document, "visibilityState", { configurable: true, get: () => v });
+      set("hidden"); document.dispatchEvent(new Event("visibilitychange"));
+      window.__skewMs += ms;
+      set("visible"); document.dispatchEvent(new Event("visibilitychange"));
+    }, ms);
+    await awayFor(60 * 1000);
+    await settle(h.page, 800);
+    ok(!(await dialog(h.page)), "a one-minute switch away does not bring it back");
+    await awayFor(11 * 60 * 1000);
+    await settle(h.page, 800);
+    ok(!!(await dialog(h.page)), "coming back after ten minutes or more does");
+    await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-cancel").click());
+    await settle(h.page, 400);
+    await h.page.reload();
+    await settle(h.page, 1200);
+    ok(!!(await dialog(h.page)), "and so does every launch");
+
+    // Turning it on is what ends it.
+    await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-confirm").click());
+    await settle(h.page, 900);
+    ok(h.backend.state.push_subscriptions.some(r => r.user_id === me.id), "Turn On registers this device");
+    ok(!(await dialog(h.page)), "and closes the reminder");
+    await h.page.reload();
+    await settle(h.page, 1200);
+    ok(!(await dialog(h.page)), "with a device registered, the next launch does not ask");
+    await h.close();
+
+    // Blocked: how to undo it, and no button pretending it can ask again.
+    const b = await boot({ meId: me.id, seed: seed(), beforeLoad: pushDevice("denied") });
+    await settle(b.page, 1200);
+    const blocked = await dialog(b.page);
+    ok(!!blocked && /blocked/i.test(blocked.title) && blocked.buttons.join() === "Got It" &&
+       /each time you open the app/.test(blocked.every),
+      "someone who blocked notifications is told how to unblock them, every launch", JSON.stringify(blocked));
+    await b.close();
+
+    // Notifications on another device already: not this reminder.
+    const o = await boot({ meId: me.id, beforeLoad: pushDevice("default"), seed: seed({
+      push_subscriptions: [{ id: 1, user_id: me.id, endpoint: "https://push.example.test/phone",
+        p256dh: "x", auth: "y", user_agent: "Mozilla/5.0 (iPhone)" }] }) });
+    await settle(o.page, 1200);
+    const other = await dialog(o.page);
+    ok(!other || !other.every,
+      "someone with notifications on another device is not given the every-time reminder",
+      JSON.stringify(other));
+    await o.close();
+  }
+
   // ---- a notice inside the panel must still be readable -------------------
   // Above 761px the notice stack lays a notice out as an inline strip -- icon,
   // title, sentence and buttons as flex siblings on one line -- because on top
