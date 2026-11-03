@@ -1,5 +1,9 @@
 -- Clearing a message from the bell, one at a time or all at once.
 --
+-- Applied to the live project on 2026-11-03. The filename carries the version
+-- the remote history actually recorded (20261103104113), not the one this
+-- file was drafted under, so its status can be read off the filename.
+--
 -- A cleared message is a fact about a (person, message) pair, exactly like
 -- "read", so it lives on the same row: notification_reads gains dismissed_at.
 -- Clearing implies reading -- a cleared message never comes back as unread --
