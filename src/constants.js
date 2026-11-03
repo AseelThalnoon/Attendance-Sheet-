@@ -65,9 +65,6 @@ function countsAsWorked(type){ return WORKED_TYPES.indexOf(type || "regular") !=
 var NO_TARGET_TYPES = ["wfh","trip","training"];
 
 var DISMISS_KEY  = "attendance_ledger_dismissed_v1";
-var SNOOZE_KEY   = "attendance_ledger_backup_snooze_v1";
-var BACKUP_KEY   = "attendance_ledger_lastbackup_v1";
-var BACKUP_REMIND_DAYS = 14;
 var PUSH_PROMPT_SNOOZE_KEY = "attendance_ledger_push_prompt_snooze_v1";
 var PUSH_PROMPT_SNOOZE_DAYS = 7;
 
@@ -92,7 +89,7 @@ var VAPID_PUBLIC_KEY = "BJlxibKyLbjnTvhH6hFdlNHSugC15FqdNxT55UJbY0RJtn3DGIWMTX4X
 export {
   DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
   EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
-  DISMISS_KEY, SNOOZE_KEY, BACKUP_KEY, BACKUP_REMIND_DAYS,
+  DISMISS_KEY,
   PUSH_PROMPT_SNOOZE_KEY, PUSH_PROMPT_SNOOZE_DAYS,
   DEFAULT_SETTINGS, VAPID_PUBLIC_KEY
 };

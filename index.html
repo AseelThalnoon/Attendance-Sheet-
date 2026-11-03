@@ -1293,6 +1293,7 @@
   @media (prefers-reduced-motion: reduce){
     *{animation-duration:.001ms !important; transition-duration:.001ms !important;}
     .skeleton, .skeleton-dark{animation:none !important; background-position:50% 0;}
+    #refreshBtn.is-busy svg{animation:none !important;}
   }
 
   ::selection{background:var(--gold); color:var(--ink-on-gold);}
@@ -1482,8 +1483,13 @@
      and it costs a row of the rail to say it twice. */
   @media (min-width:761px){
     .head-right{display:flex;}
-    .head-right .head-action:not(#notifBtn){display:none;}
+    .head-right .head-action:not(#notifBtn):not(#refreshBtn){display:none;}
   }
+  #refreshBtn.is-busy svg{animation:refresh-spin .8s linear infinite;}
+  #refreshBtn:disabled{cursor:default;}
+  #notifClearAllBtn.is-armed{color:var(--negative);}
+  #notifMarkAllBtn:disabled, #notifClearAllBtn:disabled{opacity:.45; cursor:default; transform:none; box-shadow:none;}
+  @keyframes refresh-spin{to{transform:rotate(360deg);}}
 
   /* Circular white buttons on the canvas, per the reference. */
   .icon-btn{
@@ -1951,6 +1957,15 @@
     border-bottom:1px solid var(--line-soft); flex:0 0 auto;
   }
   .notif-title{font-family:var(--font-display); font-size:16px; margin:0; margin-right:auto;}
+  .notif-head-actions{display:flex; gap:var(--space-2);}
+  .notif-head-actions .btn{white-space:nowrap;}
+  /* Title, two labelled buttons and the close do not fit one line on a
+     small phone; the buttons take their own row rather than wrapping their
+     labels onto two lines each. */
+  @media (max-width:420px){
+    .notif-head{flex-wrap:wrap;}
+    .notif-head-actions{order:3; flex-basis:100%;}
+  }
   .notif-close{
     display:flex; align-items:center; justify-content:center;
     width:32px; height:32px; flex-shrink:0;
@@ -2034,13 +2049,12 @@
   .notif-body .notice-stack > .reminder .notif-icon-chip svg{color:inherit; margin-top:0;}
 
   /* Priority order, independent of where each div happens to sit in the
-     markup: a broken load outranks a routine backup nudge regardless of
+     markup: a broken load outranks a routine announcement regardless of
      source order. Same three tiers the chip colours below carry. */
   #loadFailBanner{order:1;}
   #outboxBanner{order:2;}
   #reminderBanner{order:3;}
-  #backupBanner{order:4;}
-  #announcementBanner{order:5;}
+  #announcementBanner{order:4;}
 
   /* The one colour scale shared by every row in the panel, client condition
      or admin message alike. info: nothing to do. warn: needs an action.
@@ -2071,6 +2085,15 @@
   .notif-item-text{margin:0; font-size:12.5px; color:var(--muted); line-height:1.5;}
   .notif-item-meta{margin:4px 0 0; font-size:11px; color:var(--muted-2);}
   .notif-item-actions{display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;}
+  /* Clears one message. Same quiet glyph as the panel's own close, a size
+     down, so it reads as "remove this row" rather than "close the panel". */
+  .notif-dismiss{
+    display:flex; align-items:center; justify-content:center;
+    width:32px; height:32px; flex-shrink:0; margin:-4px -6px 0 0;
+    background:none; border:none; border-radius:var(--radius-sm);
+    color:var(--muted-2); cursor:pointer;
+  }
+  .notif-dismiss:hover{background:var(--ink-50); color:var(--ink);}
   /* The panel's own empty state used to be bare centred text -- the one
      screen in the app most likely to render empty, since it's opened often
      and often has nothing in it, was the one place that didn't bother. Same
@@ -6615,6 +6638,11 @@
         <!-- The real notifications control. The rail item below 1 proxies to
              this same button, the way Admin and Settings already do, so the
              panel has one implementation rather than two. -->
+        <!-- Re-fetches the record and the messages in place, without a page
+             reload -- an installed app has no browser refresh button. -->
+        <button type="button" class="head-action is-icon" id="refreshBtn" title="Refresh" aria-label="Refresh">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg>
+        </button>
         <button type="button" class="head-action is-icon" id="notifBtn" title="Notifications" aria-haspopup="dialog" aria-expanded="false">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16S18 14 18 9z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>
           <span class="sr-only">Alerts</span>
@@ -6685,7 +6713,10 @@
     <div class="notif-panel" role="dialog" aria-modal="true" aria-labelledby="notifPanelTitle">
       <div class="notif-head">
         <h2 class="notif-title" id="notifPanelTitle">Notifications</h2>
-        <button type="button" class="btn ghost small" id="notifMarkAllBtn" hidden>Mark all read</button>
+        <div class="notif-head-actions">
+          <button type="button" class="btn ghost small" id="notifMarkAllBtn" disabled>Mark all read</button>
+          <button type="button" class="btn ghost small" id="notifClearAllBtn" disabled>Clear all</button>
+        </div>
         <button type="button" class="notif-close" id="notifCloseBtn" aria-label="Close notifications">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
@@ -6707,18 +6738,6 @@
       <div class="reminder-actions" id="reminderActions"></div>
     </div>
 
-  </div>
-
-  <div class="reminder backup-reminder" id="backupBanner">
-    <span class="notif-icon-chip notif-icon-chip--info" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></span>
-    <div class="reminder-body">
-      <p class="reminder-title" id="backupTitle"></p>
-      <p class="reminder-text" id="backupText"></p>
-      <div class="reminder-actions">
-        <button type="button" class="btn small" id="backupNowBtn">Back Up Now</button>
-        <button type="button" class="btn ghost small" id="backupLaterBtn">Later</button>
-      </div>
-    </div>
   </div>
 
   <!-- A punch made with no connection. It is already recorded on the device
@@ -6951,8 +6970,8 @@
     </div>
 
     <div class="sub-tabs" id="trendsSubTabs" style="display:none;">
-      <button type="button" class="sub-tab-btn active" data-subtab="weekly">Weekly</button>
-      <button type="button" class="sub-tab-btn" data-subtab="monthly">Monthly</button>
+      <button type="button" class="sub-tab-btn" data-subtab="weekly">Weekly</button>
+      <button type="button" class="sub-tab-btn active" data-subtab="monthly">Monthly</button>
     </div>
 
     <div class="filter-bar" id="monthFilterWrap">
@@ -7074,7 +7093,7 @@
           <p class="first-run-sub">Clock out at the end of a day and this charts what you actually worked against your daily target — week by week, then month by month.</p>
         </div>
       </section>
-      <div class="sub-tab-panel active" id="subtab-weekly">
+      <div class="sub-tab-panel" id="subtab-weekly">
         <div class="period-card">
           <div class="period-card-head">
             <h3 class="period-title display">Average Hours / Day by Week</h3>
@@ -7110,7 +7129,7 @@
         </div>
       </div>
 
-      <div class="sub-tab-panel" id="subtab-monthly">
+      <div class="sub-tab-panel active" id="subtab-monthly">
         <div class="period-card">
           <div class="period-card-head">
             <h3 class="period-title display">Average Hours / Day by Month</h3>

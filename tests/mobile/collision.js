@@ -157,9 +157,7 @@ const SCAN = () => {
   // take, so the copy cannot drift back past the clamp unnoticed.
   const NOTICES = [
     ["outboxText", "Clock-out 11:59 PM, Sep 30, 2026. Saved on this device — don't punch again."],
-    ["outboxText", "Oldest: Sep 30, 2026. Saved on this device — don't punch again."],
-    ["backupText", "Last backup 365 days ago, 2000 days logged. Keep your own copy."],
-    ["backupText", "2000 days logged. An export gives you your own copy to keep or hand over."]
+    ["outboxText", "Oldest: Sep 30, 2026. Saved on this device — don't punch again."]
   ];
   for(const width of [393, 360, 320]){
     const ctx = await browser.newContext({ viewport: { width, height: 852 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });

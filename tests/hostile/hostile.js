@@ -961,9 +961,52 @@ async function run(){
     }));
     ok(opened.bgHidden === "true", "opening the panel hides the page behind it from assistive tech");
     ok(opened.focus === "notifCloseBtn", "focus moves into the panel", "focus=" + opened.focus);
-    ok(opened.unread === 0 && opened.badge === "1",
-      "opening marks messages read and the badge drops to the live notice",
+    ok(opened.unread === 1 && opened.badge === "2",
+      "opening the panel leaves unread messages unread",
       "unread=" + opened.unread + " badge=" + opened.badge);
+
+    await h.page.evaluate(() => document.getElementById("notifMarkAllBtn").click());
+    await settle(h.page, 500);
+    const markedAll = await h.page.evaluate(() => ({
+      unread: document.querySelectorAll(".notif-item:not(.is-read)").length,
+      badge: document.getElementById("notifBadge").textContent,
+      btnDisabled: document.getElementById("notifMarkAllBtn").disabled
+    }));
+    ok(markedAll.unread === 0 && markedAll.badge === "1" && markedAll.btnDisabled,
+      "Mark all read clears every message, drops the badge to the live notice, and greys itself out",
+      "unread=" + markedAll.unread + " badge=" + markedAll.badge + " btnDisabled=" + markedAll.btnDisabled);
+
+    // Clear one message, then the rest with the two-tap Clear all.
+    await h.page.evaluate(() => document.querySelector('[data-notif-dismiss="n1"]').click());
+    await settle(h.page, 500);
+    const clearedOne = await h.page.evaluate(() => ({
+      ids: Array.from(document.querySelectorAll(".notif-item")).map(x => x.getAttribute("data-notif-id")),
+      focus: document.activeElement && document.activeElement.id
+    }));
+    ok(clearedOne.ids.join() === "n2",
+      "clearing one message removes only that one", JSON.stringify(clearedOne.ids));
+    ok(clearedOne.focus === "notifCloseBtn",
+      "focus lands inside the panel when the row it was on disappears", "focus=" + clearedOne.focus);
+
+    await h.page.evaluate(() => document.getElementById("notifClearAllBtn").click());
+    await settle(h.page, 300);
+    const armed = await h.page.evaluate(() => document.querySelectorAll(".notif-item").length);
+    ok(armed === 1, "the first tap on Clear all only asks, it clears nothing", "rows=" + armed);
+    await h.page.evaluate(() => document.getElementById("notifClearAllBtn").click());
+    await settle(h.page, 500);
+    const clearedAll = await h.page.evaluate(() => ({
+      rows: document.querySelectorAll(".notif-item").length,
+      disabled: document.getElementById("notifClearAllBtn").disabled
+    }));
+    ok(clearedAll.rows === 0 && clearedAll.disabled,
+      "the second tap clears every message and greys the button out",
+      "rows=" + clearedAll.rows + " disabled=" + clearedAll.disabled);
+
+    // Cleared stays cleared: a fresh fetch from the server brings nothing back.
+    await h.page.evaluate(() => document.getElementById("refreshBtn").click());
+    await settle(h.page, 1200);
+    const afterRefresh = await h.page.evaluate(() => document.querySelectorAll(".notif-item").length);
+    ok(afterRefresh === 0, "cleared messages do not come back on refresh", "rows=" + afterRefresh);
 
     // Resolve the live notice from inside the panel; the badge must follow.
     await h.page.evaluate(() => document.getElementById("reminderActions").querySelector("button").click());

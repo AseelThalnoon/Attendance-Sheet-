@@ -216,6 +216,8 @@ function createBackend(seed){
         .filter(n => n.status === "sent" &&
           (n.target_type === "all" ||
            (n.target_type === "users" && (n.target_user_ids || []).includes(state.meId))))
+        .filter(n => !state.notification_reads.some(r =>
+          r.user_id === state.meId && r.notification_id === n.id && r.dismissed_at))
         .sort((a, b) => String(b.sent_at || b.created_at).localeCompare(String(a.sent_at || a.created_at)))
         .slice(0, Math.min(Math.max(args.p_limit || 50, 1), 200))
         .map(n => ({
@@ -237,6 +239,25 @@ function createBackend(seed){
         added++;
       });
       return json(added);
+    }
+    if(name === "dismiss_notifications"){
+      let cleared = 0;
+      state.push_notifications
+        .filter(n => n.status === "sent" &&
+          (n.target_type === "all" ||
+           (n.target_type === "users" && (n.target_user_ids || []).includes(state.meId))) &&
+          (args.p_all || (args.p_ids || []).includes(n.id)))
+        .forEach(n => {
+          let r = state.notification_reads.find(x => x.user_id === state.meId && x.notification_id === n.id);
+          if(!r){
+            r = { user_id: state.meId, notification_id: n.id, read_at: new Date().toISOString() };
+            state.notification_reads.push(r);
+          }
+          if(r.dismissed_at) return;
+          r.dismissed_at = new Date().toISOString();
+          cleared++;
+        });
+      return json(cleared);
     }
     if(name === "admin_client_errors"){
       // Mirrors the real function: newest first, optional kind filter, and the
