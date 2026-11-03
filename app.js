@@ -7228,7 +7228,9 @@ import { makeSchedule } from "./src/schedule.js";
         var settingsByUser = await loadTeamSettings();
         rows = allProfiles.map(function(p){
           var own = settingsByUser[p.id] || normalizeSettings({});
-          return {p: p, st: teamStatus(byUser[p.id] || [], own)};
+          var mine = byUser[p.id] || [];
+          var todays = mine.find(function(e){ return e.date === today; });
+          return {p: p, st: teamStatus(mine, own), clockIn: todays ? todays.clockIn : ""};
         });
       } else {
         var rpcRes = await supabase.rpc("list_today_presence", {p_date: today});
@@ -7241,7 +7243,7 @@ import { makeSchedule } from "./src/schedule.js";
             avatar_updated_at: row.avatar_updated_at};
           var entry = rowToEntry({user_id: row.user_id, date: today,
             clock_in: row.clock_in, clock_out: row.clock_out, type: row.type});
-          return {p: p, st: teamStatus([entry], normalizeSettings({}))};
+          return {p: p, st: teamStatus([entry], normalizeSettings({})), clockIn: entry.clockIn};
         });
       }
     }catch(err){
@@ -7257,16 +7259,17 @@ import { makeSchedule } from "./src/schedule.js";
     }
 
     // Only people who actually punched in today — not the whole roster with
-    // its day-offs and not-yet-arriveds cluttering the list. Still-in first,
-    // then whoever's already done, alphabetically within each. (Both the
+    // its day-offs and not-yet-arriveds cluttering the list. In the order they
+    // arrived: earliest clock-in first, whether they are still in or have
+    // already left; the pill and check beside each name say which. (Both the
     // admin and non-admin paths above only ever produce "in"/"done"/"excused"/
     // "off"/"missing" via the same teamStatus(), so this filter behaves
     // identically either way — "excused" is deliberately left out here too,
     // same as it always was.)
     rows = rows.filter(function(r){ return r.st.cls === "in" || r.st.cls === "done"; });
-    var order = {in:0, done:1};
     rows.sort(function(a,b){
-      var d = (order[a.st.cls] || 9) - (order[b.st.cls] || 9);
+      var ta = timeToMinutes(a.clockIn), tb = timeToMinutes(b.clockIn);
+      var d = (ta === null ? 1e9 : ta) - (tb === null ? 1e9 : tb);
       return d || (a.p.full_name || a.p.email).localeCompare(b.p.full_name || b.p.email);
     });
 

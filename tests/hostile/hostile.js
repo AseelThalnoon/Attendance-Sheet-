@@ -668,6 +668,36 @@ async function run(){
     ok(/Add to Dock/.test(mac), "Mac Safari is told to add it to the Dock", mac.slice(0, 100));
   }
 
+  // ---- "In today" lists people in the order they arrived ------------------
+  // Earliest clock-in first, whether that person is still in or already done;
+  // the pill beside each name says which. Run as the admin and as an employee,
+  // because the two read today through different paths (the tables directly
+  // versus list_today_presence()).
+  {
+    const pad2 = n => String(n).padStart(2, "0");
+    const T = (d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`)(new Date());
+    const mk = (n, name, role) => ({ id: D.UUID(n), email: `a${n}@example.com`, full_name: name,
+      role: role || "user", avatar_updated_at: null, created_at: "2026-01-01T00:00:00Z" });
+    const people = [ mk(1, "Amy Late"), mk(2, "Zed Early"), mk(3, "Max Middle"),
+      mk(4, "Kim Nothing"), mk(5, "Boss Admin", "admin") ];
+    const entries = [
+      { id: "t1", user_id: D.UUID(1), date: T, clock_in: "09:40:00", clock_out: null, type: "regular", note: "" },
+      { id: "t2", user_id: D.UUID(2), date: T, clock_in: "07:15:00", clock_out: "15:00:00", type: "regular", note: "" },
+      { id: "t3", user_id: D.UUID(3), date: T, clock_in: "08:05:00", clock_out: null, type: "regular", note: "" }
+    ];
+    for (const meId of [D.UUID(5), D.UUID(4)]) {
+      const who = meId === D.UUID(5) ? "admin" : "employee";
+      const h = await boot({ meId, seed: { profiles: people, entries,
+        user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })) }});
+      await settle(h.page, 900);
+      const order = await h.page.evaluate(() =>
+        [...document.querySelectorAll("#todayTeamList .tt-name")].map(n => n.textContent.trim().split(" ")[0]));
+      ok(JSON.stringify(order) === JSON.stringify(["Zed", "Max", "Amy"]),
+        `In today runs earliest arrival first, done or not (${who})`, JSON.stringify(order));
+      await h.close();
+    }
+  }
+
   // ---- The roster leads with whoever is working today --------------------
   // Alphabetical put whoever had not logged anything among the people who
   // had, so the roster had to be read in full to find either. The default
