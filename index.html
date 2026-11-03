@@ -2094,6 +2094,11 @@
     color:var(--muted-2); cursor:pointer;
   }
   .notif-dismiss:hover{background:var(--ink-50); color:var(--ink);}
+  .notif-dismiss[hidden]{display:none;}
+  /* On a notice row the base ".reminder svg" rule would paint it warn-amber
+     and the panel's notice rule would size it 16px; it is the same control as
+     the one on a message row, so it looks the same. */
+  .notif-body .notice-stack > .reminder .notif-dismiss svg{width:14px; height:14px; color:inherit; margin-top:0;}
   /* The panel's own empty state used to be bare centred text -- the one
      screen in the app most likely to render empty, since it's opened often
      and often has nothing in it, was the one place that didn't bother. Same
@@ -5318,7 +5323,11 @@
      needing a full button per row in what can be an eight-item list. */
   .attention-rows{list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:4px;}
   .attention-rows li{font-size:12px;}
-  .attention-rows .link-btn{font-size:12px; padding:0; text-align:left;}
+  /* A row's label is a person's name, which has no length limit and can be one
+     unbroken string: the link has to wrap inside the card rather than push the
+     page sideways. overflow-wrap:anywhere also lowers its min-content width,
+     which is what lets an inline-flex box shrink at all. */
+  .attention-rows .link-btn{font-size:12px; padding:0; text-align:left; max-width:100%; overflow-wrap:anywhere;}
   .attention-more{font-size:11.5px; color:var(--muted-2); margin-top:2px;}
   .viewing-other-banner svg{color:var(--excused);}
   .viewing-other-banner .reminder-title{color:var(--excused);}
@@ -6728,6 +6737,9 @@
     <div class="reminder-body">
       <p class="reminder-text" id="announcementText" dir="auto"></p>
     </div>
+    <button type="button" class="notif-dismiss" id="announcementHideBtn" aria-label="Hide this announcement" title="Hide" hidden>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
   </div>
 
   <div class="reminder" id="reminderBanner">
@@ -8131,6 +8143,11 @@
           <div style="margin-top:12px;">
             <label for="setAnnouncement">Announcement message</label>
             <input type="text" id="setAnnouncement" maxlength="300" dir="auto" placeholder="e.g. Office closed Thursday for maintenance">
+          </div>
+          <div style="margin-top:12px;" id="setAnnouncementUntilWrap" hidden>
+            <label for="setAnnouncementUntil">Show until (optional)</label>
+            <input type="date" id="setAnnouncementUntil" aria-describedby="setAnnouncementUntilHint">
+            <p class="settings-hint" id="setAnnouncementUntilHint">The banner disappears by itself after this day. Leave it empty to keep it up until you switch it off. Anyone can hide it for themselves with the &times; next to it; a new announcement shows again.</p>
           </div>
 
           <div class="form-actions console-commit">
