@@ -286,6 +286,13 @@ if(supabase){
 // ordering — decide whether this page load is a password reset.
 var __authHash = (window.location.hash || "").replace(/^#/, "");
 var __recoveryArrival = /(^|&)type=recovery(&|$)/.test(__authHash);
+// The sign-up confirmation link comes back the same way with type=signup, and
+// for the same reason it has to be read now: by the time the app has signed
+// the visitor in, supabase-js has stripped the fragment and the session looks
+// like any restored one. Its only use is the welcome — without it, confirming
+// an email dropped a brand-new person into the dashboard with no word that
+// anything had happened.
+var __signupArrival = /(^|&)type=signup(&|$)/.test(__authHash);
 // A link that has already been used or has expired comes back the same way,
 // as an error in the fragment rather than a session. Nothing read this
 // before, so a spent link dropped the visitor on a blank sign-in screen with
@@ -297,10 +304,18 @@ var __authLinkError = (function(){
     if(!m) return "";
     try{ return decodeURIComponent(m[2].replace(/\+/g, " ")); }catch(e){ return m[2]; }
   }
+  // The fragment does not say which kind of link this was, and the same
+  // error comes back for a spent sign-up confirmation as for a spent reset.
+  // The old wording sent everyone to "Forgot password?", which for a person
+  // who has never had a working password is the wrong door. A confirmation
+  // link opened twice is the commonest case of all \u2014 and that person is
+  // already confirmed, so signing in is the whole answer.
   var code = field("error_code");
+  var next = " If it was your sign-up confirmation, your email may already be confirmed \u2014 just sign in." +
+    " Otherwise enter your email below and tap \u201cResend confirmation email\u201d or \u201cForgot password?\u201d for a fresh link.";
   if(code === "otp_expired" || field("error") === "access_denied")
-    return "That link has already been used or has expired. Enter your email below and tap \u201cForgot password?\u201d for a fresh one.";
-  return field("error_description") || "That link could not be opened. Enter your email below and tap \u201cForgot password?\u201d for a fresh one.";
+    return "That link has already been used or has expired." + next;
+  return (field("error_description") || "That link could not be opened.") + next;
 })();
 
 // The first two pieces to come out of the IIFE below. Static imports are
@@ -3922,9 +3937,19 @@ import { makeSchedule } from "./src/schedule.js";
     // Only the first column of a run gets the rule: a two-day weekend is one
     // boundary, not two.
     function isWeekBoundary(dw){ return anyOff && offCol[dw] && !offCol[(dw+6)%7]; }
+    // A days-off column is narrow because it is normally empty. One that holds
+    // a logged day this month keeps its wash but gets a full width back: at
+    // .62fr a weekend cell is 15-22px wide on a phone, and the hours someone
+    // worked on their day off were clipped to "1…" in the one cell that most
+    // needed to show them.
+    var offUsed = [];
+    entries.forEach(function(e){
+      var d = dateFromStr(e.date);
+      if(d.getFullYear() === y && d.getMonth() === m) offUsed[d.getDay()] = true;
+    });
     var grid = document.getElementById("calendarGrid");
-    grid.style.gridTemplateColumns = offCol.map(function(off){
-      return off ? "minmax(0,.62fr)" : "minmax(0,1fr)";
+    grid.style.gridTemplateColumns = offCol.map(function(off, dw){
+      return off && !offUsed[dw] ? "minmax(0,.62fr)" : "minmax(0,1fr)";
     }).join(" ");
 
     var html = DAY_NAMES.map(function(d, dw){
@@ -6513,6 +6538,7 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("appShell").style.display = "none";
     document.getElementById("signInForm").style.display = "none";
     document.getElementById("registerForm").style.display = "none";
+    document.getElementById("checkEmailPanel").style.display = "none";
     document.getElementById("resetPasswordForm").style.display = "flex";
     setAuthMsg("resetPasswordError", "");
   }
@@ -6528,8 +6554,10 @@ import { makeSchedule } from "./src/schedule.js";
 
   document.getElementById("showRegisterBtn").addEventListener("click", function(){
     document.getElementById("signInForm").style.display = "none";
+    document.getElementById("checkEmailPanel").style.display = "none";
     document.getElementById("registerForm").style.display = "flex";
     setAuthMsg("signInError", "");
+    showSignInResend(false);
   });
   // Back to sign-in from wherever the auth screen currently is. Was inline in
   // the one button that needed it; the registration guard and the reset
@@ -6539,6 +6567,7 @@ import { makeSchedule } from "./src/schedule.js";
     var reset = document.getElementById("resetPasswordForm");
     if(reg) reg.style.display = "none";
     if(reset) reset.style.display = "none";
+    document.getElementById("checkEmailPanel").style.display = "none";
     document.getElementById("signInForm").style.display = "flex";
     setAuthMsg("registerError", "");
     setAuthMsg("registerSuccess", "");
@@ -6566,6 +6595,7 @@ import { makeSchedule } from "./src/schedule.js";
       // onAuthStateChange fires from here and finishes loading the app.
     }catch(err){
       setAuthMsg("signInError", err ? friendlyError(err) : "Couldn't sign in.");
+      showSignInResend(!!err && (err.code === "email_not_confirmed" || /email not confirmed/i.test(err.message || "")));
     }finally{
       btn.disabled = false; btn.textContent = "Sign In";
     }
@@ -6616,6 +6646,124 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
+  // ---------- Sign-up confirmation ----------
+  // Which address this browser last registered and has not yet seen
+  // confirmed. Lets the screens that follow a sign-up — a spent link, a
+  // sign-in refused for an unconfirmed address — offer the email again
+  // without asking for the address a second time. Plain localStorage rather
+  // than safeSet: losing this costs a retyped email, and safeSet's failure
+  // notice talks about auto-saving entries, which is not what happened.
+  var PENDING_CONFIRM_KEY = "attendance_ledger_pending_confirm_v1";
+  function rememberPendingConfirm(email){
+    try{ localStorage.setItem(PENDING_CONFIRM_KEY, JSON.stringify({email:email, at:Date.now()})); }catch(e){}
+  }
+  function pendingConfirmEmail(){
+    try{
+      var p = JSON.parse(localStorage.getItem(PENDING_CONFIRM_KEY) || "null");
+      if(p && typeof p.email === "string" && Date.now() - p.at < 7 * 86400000) return p.email;
+    }catch(e){}
+    return "";
+  }
+  function clearPendingConfirm(){
+    try{ localStorage.removeItem(PENDING_CONFIRM_KEY); }catch(e){}
+  }
+
+  // Supabase refuses a second confirmation email to the same address inside
+  // a minute ("you can only request this after 60 seconds"). Counting that
+  // down on the button says the same thing before the person is refused.
+  var RESEND_COOLDOWN_S = 60;
+  var resendReadyAt = 0, resendTimer = null;
+  var RESEND_LABELS = { resendConfirmBtn: "Resend email", signInResendBtn: "Resend confirmation email" };
+  function paintResendButtons(){
+    var left = Math.ceil((resendReadyAt - Date.now()) / 1000);
+    Object.keys(RESEND_LABELS).forEach(function(id){
+      var b = document.getElementById(id);
+      if(!b || b.dataset.busy) return;
+      b.disabled = left > 0;
+      b.textContent = left > 0 ? RESEND_LABELS[id] + " in " + left + "s" : RESEND_LABELS[id];
+    });
+    if(left <= 0 && resendTimer){ clearInterval(resendTimer); resendTimer = null; }
+  }
+  function startResendCooldown(){
+    resendReadyAt = Date.now() + RESEND_COOLDOWN_S * 1000;
+    if(!resendTimer) resendTimer = setInterval(paintResendButtons, 1000);
+    paintResendButtons();
+  }
+  function showSignInResend(show){
+    document.getElementById("signInResendBtn").style.display = show ? "" : "none";
+  }
+
+  function showCheckEmailPanel(email){
+    document.getElementById("signInForm").style.display = "none";
+    document.getElementById("registerForm").style.display = "none";
+    document.getElementById("resetPasswordForm").style.display = "none";
+    document.getElementById("checkEmailAddress").textContent = email;
+    setAuthMsg("checkEmailError", "");
+    setAuthMsg("checkEmailSuccess", "");
+    document.getElementById("checkEmailPanel").style.display = "flex";
+    // Focus moves with the screen, so a screen reader announces the new
+    // heading instead of staying on a Create Account button that is gone.
+    document.getElementById("checkEmailTitle").focus();
+  }
+
+  async function resendConfirmation(email){
+    var res = await supabase.auth.resend({
+      type: "signup", email: email,
+      options: { emailRedirectTo: resetRedirectTarget() }
+    });
+    if(res.error) throw res.error;
+    rememberPendingConfirm(email);
+    startResendCooldown();
+  }
+
+  document.getElementById("resendConfirmBtn").addEventListener("click", async function(){
+    var btn = this;
+    var email = document.getElementById("checkEmailAddress").textContent;
+    setAuthMsg("checkEmailError", ""); setAuthMsg("checkEmailSuccess", "");
+    btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = "Sending…";
+    try{
+      await resendConfirmation(email);
+      setAuthMsg("checkEmailSuccess", "Sent again. The newest email is the one to open — earlier links stop working.");
+    }catch(err){
+      setAuthMsg("checkEmailError", friendlyError(err));
+    }finally{
+      delete btn.dataset.busy; paintResendButtons();
+    }
+  });
+
+  document.getElementById("signInResendBtn").addEventListener("click", async function(){
+    var btn = this;
+    var email = document.getElementById("siEmail").value.trim();
+    if(!email){ setAuthMsg("signInError", "Enter your email above, then tap this again."); return; }
+    btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = "Sending…";
+    try{
+      await resendConfirmation(email);
+      setAuthMsg("signInError", "");
+      showSignInResend(false);
+      showCheckEmailPanel(email);
+      setAuthMsg("checkEmailSuccess", "A fresh confirmation link is on its way.");
+    }catch(err){
+      setAuthMsg("signInError", friendlyError(err));
+    }finally{
+      delete btn.dataset.busy; paintResendButtons();
+    }
+  });
+
+  document.getElementById("checkEmailBackBtn").addEventListener("click", function(){
+    document.getElementById("siEmail").value = document.getElementById("checkEmailAddress").textContent;
+    showSignInForm();
+  });
+  // Back to the form with the name kept and the address ready to correct —
+  // a typo in the email is the commonest reason the message never arrives.
+  document.getElementById("checkEmailChangeBtn").addEventListener("click", function(){
+    document.getElementById("checkEmailPanel").style.display = "none";
+    document.getElementById("registerForm").style.display = "flex";
+    document.getElementById("regPassword").value = "";
+    document.getElementById("regPassword2").value = "";
+    var em = document.getElementById("regEmail");
+    em.focus(); em.select();
+  });
+
   document.getElementById("registerForm").addEventListener("submit", async function(ev){
     ev.preventDefault();
     setAuthMsg("registerError", "");
@@ -6626,6 +6774,7 @@ import { makeSchedule } from "./src/schedule.js";
     var email = document.getElementById("regEmail").value.trim();
     var pw = document.getElementById("regPassword").value;
     var pw2 = document.getElementById("regPassword2").value;
+    if(!name){ setAuthMsg("registerError", "Enter your name — it is how your team will see you."); return; }
     if(pw !== pw2){ setAuthMsg("registerError", "Passwords don't match."); return; }
     if(pw.length < 10){ setAuthMsg("registerError", "Password must be at least 10 characters."); return; }
 
@@ -6634,15 +6783,32 @@ import { makeSchedule } from "./src/schedule.js";
     try{
       var res = await supabase.auth.signUp({
         email: email, password: pw,
-        options: { data: { full_name: name } }
+        options: {
+          data: { full_name: name },
+          // Where the confirmation link lands. Without it Supabase falls back
+          // to the project's Site URL — which is how a person who had just
+          // confirmed their address ended up somewhere other than this app.
+          // Same target, and same reasoning, as the reset link's.
+          emailRedirectTo: resetRedirectTarget()
+        }
       });
       if(res.error) throw res.error;
+      var user = res.data && res.data.user;
       if(res.data && res.data.session){
         // Email confirmation is off for this project — signed in immediately.
+      } else if(user && Array.isArray(user.identities) && user.identities.length === 0){
+        // Supabase's answer for an address that already has a confirmed
+        // account: a success with no identities, and no email sent. Treating
+        // it as a new sign-up told the person to wait for a message that was
+        // never coming.
+        setAuthMsg("registerError", "There's already an account with that email. Sign in instead, or use “Forgot password?” on the sign-in screen.");
       } else {
-        setAuthMsg("registerSuccess",
-          "Account created. Check " + email + " for a confirmation link, then sign in.");
-        document.getElementById("registerForm").reset();
+        rememberPendingConfirm(email);
+        document.getElementById("siEmail").value = email;
+        document.getElementById("regPassword").value = "";
+        document.getElementById("regPassword2").value = "";
+        showCheckEmailPanel(email);
+        startResendCooldown();
       }
     }catch(err){
       setAuthMsg("registerError", err ? friendlyError(err) : "Couldn't create account.");
@@ -10876,6 +11042,13 @@ import { makeSchedule } from "./src/schedule.js";
     }
 
     showApp();
+    // Signed in, so whatever confirmation this browser was waiting on is done.
+    clearPendingConfirm();
+    if(__signupArrival){
+      __signupArrival = false;
+      var firstName = String(currentProfile.full_name || "").trim().split(/\s+/)[0];
+      showToast("Email confirmed. Welcome to Attendance" + (firstName ? ", " + firstName : "") + "!", "success");
+    }
     // Overview is already .active in the markup, so no activateTab() call
     // runs on a fresh sign-in to trigger the indicator's own reposition —
     // and it could not have measured anything correctly before this anyway,
@@ -10941,10 +11114,17 @@ import { makeSchedule } from "./src/schedule.js";
     // later genuine sign-out is not greeted with a stale complaint about a
     // link from an hour ago.
     setAuthMsg("signInError", __authLinkError || "");
+    // A spent link is most often a confirmation opened twice or too late, and
+    // the way out of that is a fresh confirmation email — offered here with
+    // the address this browser registered, when it remembers one.
+    showSignInResend(!!__authLinkError);
+    if(__authLinkError && pendingConfirmEmail())
+      document.getElementById("siEmail").value = pendingConfirmEmail();
     __authLinkError = null;
     setAuthMsg("registerError", ""); setAuthMsg("registerSuccess", "");
     document.getElementById("signInForm").style.display = "flex";
     document.getElementById("registerForm").style.display = "none";
+    document.getElementById("checkEmailPanel").style.display = "none";
     showAuthScreen();
   }
 

@@ -40,6 +40,7 @@ const SUITES = [
   "regression/one-screen.js",
   "regression/shared-avatars.js",
   "regression/password-recovery.js",
+  "regression/onboarding.js",
   "regression/crash-handler.js",
   "regression/ios.js",
   "regression/collisions.js",
