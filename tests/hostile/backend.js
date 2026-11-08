@@ -287,7 +287,9 @@ function createBackend(seed){
           const who = state.profiles.find(p => p.id === r.user_id);
           return Object.assign({}, r, {
             reporter_email: who ? who.email : null,
-            reporter_name: who ? who.full_name : null
+            reporter_name: who ? who.full_name : null,
+            // A crash on the sign-in or sign-up screens has no user.
+            signed_out: !r.user_id
           });
         });
       return json(rows);

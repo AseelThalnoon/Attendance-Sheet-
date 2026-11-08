@@ -9,6 +9,9 @@
 // then it is not there for the crash that mattered. So: ResizeObserver's
 // harmless loop notice, a missing image, a second copy of a failure already on
 // screen, and anything at all while offline must all stay quiet.
+// Answers anything this suite does not route itself to *.supabase.co, so a
+// direct run never reaches the live project (it did, until 2026-11-08).
+require("../no-network");
 const { chromium } = require("playwright");
 const http = require("http");
 const fs = require("fs");
@@ -131,6 +134,61 @@ const banners = page => page.locator(".crash-notice").count();
     await page.evaluate(() => { setTimeout(() => { throw new Error("offline-boom"); }, 0); });
     await page.waitForTimeout(250);
     ok(await banners(page) === 0, "being offline does not masquerade as a crash");
+    await page.close();
+  }
+
+  // ---- One build label, and every report carries it ----
+  // index.html loads app.js?v=<label> and the crash reporter reads the label
+  // back off its own URL. It sat at "primary-invert-1" for 67 commits, so
+  // every report named the same build and a fresh page could be handed a
+  // weeks-old cached script under an unchanged URL. It is now the service
+  // worker's cache version, which is bumped every release; this keeps them
+  // from drifting apart again.
+  const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const sw = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
+  const label = (html.match(/src="app\.js\?v=([^"]+)"/) || [])[1];
+  const cacheSuffix = (sw.match(/const CACHE_NAME = "attendance-ledger-shell-([^"]+)";/) || [])[1];
+  ok(label && cacheSuffix && label === cacheSuffix,
+    "app.js?v= in index.html is the service worker's cache version",
+    `index.html ?v=${label}, sw.js CACHE_NAME suffix ${cacheSuffix}`);
+
+  // ---- A page missing an element still starts ----
+  // 2026-11-03: a browser paired a new index.html with a cached app.js from
+  // before #backupNowBtn was removed. The script's top-level
+  // getElementById("backupNowBtn").addEventListener threw, and since it threw
+  // at the top of the app's one big function, nothing after it ran — eleven
+  // dead boots. The same stale pairing is replayed here with
+  // #forgotPasswordBtn, which is wired midway through startup.
+  {
+    const page = await browser.newPage({viewport: {width: 1280, height: 800}});
+    const reports = [];
+    await page.route(/supabase\.co\/rest\/v1\/client_errors/, route => {
+      reports.push(JSON.parse(route.request().postData() || "{}"));
+      return route.fulfill({status: 201, contentType: "application/json", body: ""});
+    });
+    await page.route(/\/index\.html$/, async route => {
+      const res = await route.fetch();
+      const body = (await res.text()).replace('id="forgotPasswordBtn"', 'id="forgotPasswordBtnRemoved"');
+      return route.fulfill({response: res, body});
+    });
+    await page.goto(`http://localhost:${PORT}/index.html`);
+    await page.waitForFunction(() => document.readyState === "complete");
+    await page.waitForTimeout(900);
+
+    const after = await page.evaluate(() => ({
+      copyright: document.getElementById("copyrightLineAuth").textContent.trim(),
+      signIn: !!document.getElementById("signInForm").getClientRects().length
+    }));
+    ok(after.copyright.length > 0,
+      "startup runs to the end even though an element it wires is missing",
+      "#copyrightLineAuth is still empty: startup stopped where the element was missing");
+    ok(after.signIn, "and the sign-in screen is up");
+    ok(await banners(page) === 1, "the person is told something is off, with a reload");
+    const report = reports.find(r => /out of step/i.test(r.message || ""));
+    ok(report && /#forgotPasswordBtn\b/.test(report.message),
+      "one report names the missing element", JSON.stringify(reports.map(r => r.message)));
+    ok(report && report.build === label,
+      "and carries the build label, so it can be traced to a release", report && report.build);
     await page.close();
   }
 

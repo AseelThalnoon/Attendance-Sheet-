@@ -1383,7 +1383,12 @@ async function run(){
           url:"/index.html", user_agent:"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36" },
         { id:"c3", user_id: me.id, occurred_at:"2026-09-13T08:00:00Z", kind:"resource",
           message:"Failed to load img: /missing.png", source:null, line:null, col:null,
-          build:"modules-3", url:"/index.html", user_agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/141.0" }
+          build:"modules-3", url:"/index.html", user_agent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/141.0" },
+        // From the sign-up screen: no one was signed in, so no user.
+        { id:"c4", user_id: null, occurred_at:"2026-09-12T08:00:00Z", kind:"error",
+          message:"Cannot read properties of null (reading 'focus')", source:"https://example.com/app.js",
+          line:6702, col:8, build:"v41", url:"/index.html",
+          user_agent:"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1" }
       ]
     }});
     await goTab(h.page, "admin");
@@ -1399,9 +1404,12 @@ async function run(){
       overflow: Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth)
     }));
 
-    ok(view.rows === 3, "every recorded crash is listed", JSON.stringify(view.rows));
+    ok(view.rows === 4, "every recorded crash is listed", JSON.stringify(view.rows));
     ok(view.empty === "none", "the empty state is not shown alongside rows", view.empty);
-    ok(/3 reports/.test(view.count), "the nav row carries the count", view.count);
+    ok(/4 reports/.test(view.count), "the nav row carries the count", view.count);
+    // A signed-out crash says where it happened instead of showing a dash.
+    ok(/Signed out/.test(view.text),
+      "a crash from the signed-out screens is labelled as such", view.text.slice(0, 400));
     // Newest first: the unhandled rejection is the most recent of the three.
     ok(view.text.indexOf("Unhandled rejection") < view.text.indexOf("Uncaught error"),
       "the newest report is at the top");

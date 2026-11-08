@@ -38,7 +38,7 @@ const code = [
   slice("function yearKey(dateStr)", "function monthLabel(key)"),
   "var __prompted = null;",
   "function showConfirm(msg, opts){ __prompted = {msg:msg, opts:opts}; return Promise.resolve(true); }",
-  slice("var LONG_SHIFT_MIN", 'document.getElementById("cancelEditBtn")'),
+  slice("var LONG_SHIFT_MIN", 'onId("cancelEditBtn"'),
 ].join("\n");
 
 const sandbox = { Date, Math, JSON, String, Number, isFinite, isNaN, parseFloat, parseInt, Array, Object };

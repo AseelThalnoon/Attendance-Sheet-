@@ -89,8 +89,11 @@ const overnightDeps = [
 // The three clock controls all dispatch through clockControlClick() now — the
 // Overview panel, the sticky bar and the bottom-nav button run one state model
 // instead of two, so there is one listener shape to pull rather than four.
-const listeners = ["qcClockBtn", "stickyClockBtn", "bnClockBtn"]
-  .map(id => line(`document.getElementById("${id}").addEventListener("click", function(){ clockControlClick(this); });`).trim())
+// The listeners are wired through onId() (app.js), which skips an element the
+// page does not have instead of throwing at startup, so the helper comes along.
+const listeners = [slice("var missingElementIds = [];", "var __earlyRecoverySession")]
+  .concat(["qcClockBtn", "stickyClockBtn", "bnClockBtn"]
+    .map(id => line(`onId("${id}", "click", function(){ clockControlClick(this); });`).trim()))
   .join("\n");
 
 const html = `<!doctype html><meta charset="utf-8"><title>clock harness</title>
@@ -110,7 +113,7 @@ ${line(".bn-clock.disabled{")}
 ${stubs}
 ${overnightDeps}
 ${outboxDeps}
-${slice("var punchInFlight = false;", "document.getElementById(\"qcClockBtn\").addEventListener")}
+${slice("var punchInFlight = false;", "onId(\"qcClockBtn\"")}
 ${listeners}
 window.punchClock = punchClock;
 window.renderClockControls = renderClockControls;
