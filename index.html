@@ -2083,6 +2083,11 @@
   .notif-item-title{margin:0 0 2px; font-size:13.5px; font-weight:500; color:var(--ink);}
   .notif-item.is-read .notif-item-title{font-weight:400; color:var(--muted-2);}
   .notif-item-text{margin:0; font-size:12.5px; color:var(--muted); line-height:1.5;}
+  /* Both are an admin's free text. The panel scrolls vertically only, so an
+     unbroken word in either widened it into a 1,400px sideways scroll with
+     the rest of the message off the right edge. */
+  .notif-item-title, .notif-item-text,
+  .notif-body .notice-stack > .reminder .reminder-title{overflow-wrap:anywhere;}
   .notif-item-meta{margin:4px 0 0; font-size:11px; color:var(--muted-2);}
   .notif-item-actions{display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;}
   /* Clears one message. Same quiet glyph as the panel's own close, a size
@@ -2496,8 +2501,14 @@
   .format-leg-label{
     display:block; font-size:11px; text-transform:uppercase; letter-spacing:.09em;
     color:var(--muted-2); margin-top:4px;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    overflow-wrap:anywhere;
   }
+  /* Wraps rather than truncating. Uppercase at .09em tracking, the legend's
+     column fits about ten characters beside the dial, so "Work From Home",
+     "Half Day Leave" and "Public Holiday" all read as "WORK FROM …" — the one
+     thing a legend cannot do is not say what the colour means. A second line
+     costs height, and the legend already scrolls (with its fade hint) when it
+     runs out. */
   /* A legend still short a scroll's worth of day types ended flush with the
      card's bottom edge, same as an unscrollable one — nothing distinguished
      "that's everything" from "there's more below". Same fix as .tabs-wrap's
@@ -3807,8 +3818,16 @@
   .cal-val{
     font-family:var(--font-num); font-size:15px; font-weight:500; line-height:1.1;
     color:var(--ink); letter-spacing:-.01em;
-    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    max-width:100%; overflow:hidden;
   }
+  /* Wraps at its space rather than truncating. The full/short swap below is
+     keyed to the viewport, but the cell width is not: the rail, the frame and
+     the narrower days-off columns all move it, and between them "11h 8m" was
+     printing as "11…" at 900-1100px and "Public Holiday" as "Public Holid…".
+     "11h / 8m" on two lines still says the number; an ellipsis does not.
+     overflow:hidden stays for the last resort — a short form like "11.1h" has
+     no space to wrap at. */
+  .cal-val b{white-space:normal;}
   /* A clock-in time and a leave word are not quantities, so they sit a step
      down from the hours. Both are --muted rather than an accent: olive now
      means exactly one thing on this grid — a day that came up short — and a
@@ -3916,6 +3935,14 @@
        floor; short of 2.5.5's AAA square on width alone, and recorded rather
        than rounded away. */
     .cal-cell{min-height:48px;}
+  }
+  /* A 320px screen leaves a working cell ~27-31px of content box, and the
+     short forms are 31px ("11.1h") and 37px ("Holiday") at the phone sizes,
+     so even the swap was clipping. A step down in size and padding fits them. */
+  @media (max-width:360px){
+    .cal-cell{padding-left:3px; padding-right:3px;}
+    .cal-val{font-size:11px; letter-spacing:-.02em;}
+    .cal-val.is-time, .cal-val.is-type{font-size:8.5px; letter-spacing:-.02em;}
   }
   /* Inside the frame the month has to fit the screen it is handed, so the grid
      takes whatever the panel has left and the week rows share it. That means
@@ -4039,6 +4066,33 @@
      Diff (the pill already carries Diff's own weight) stay regular. */
   td.num.col-worked{font-weight:700;}
   td.note-cell{white-space:normal; max-width:220px; color:var(--muted-2);}
+  /* Above the phone layout the note is the only column that wraps, so the
+     table's automatic layout takes every pixel it is short of from here: at a
+     1100-1200px frame a 500-character note was handed 52-76px and printed one
+     word per line, a single row 1,060px tall. A floor keeps it a paragraph;
+     anywhere breaks a note with no spaces in it rather than letting it widen
+     the table. */
+  @media (min-width:701px){
+    td.note-cell{min-width:140px; overflow-wrap:anywhere;}
+  }
+  /* The frame's narrow end. The Log's nine columns need ~780px at the default
+     cell padding and the frame hands it 748px at 1100, so the row actions
+     (Delete) were cut off by the panel, which clips rather than scrolls in the
+     frame. Tighter padding and the year-less date (the Year control above the
+     table already says which year) give back ~110px — enough for the columns
+     and the note's floor. */
+  /* The rail band: above 760px the rail takes 236px off the front of the row,
+     so a tab card here is ~470px — narrower than the phone layout's. Trends'
+     six-column Monthly totals was 34px too wide for it and cut the Diff column
+     to "+5h 2…". Tighter cell padding gives back 8px a column. */
+  @media (min-width:761px) and (max-width:899px){
+    #tabContentCard thead th, #tabContentCard tbody td{padding-left:6px; padding-right:6px;}
+  }
+  @media (min-width:1100px) and (max-width:1279px){
+    #logTableWrap th, #logTableWrap td{padding-left:6px; padding-right:6px;}
+    #logTableWrap td.c-primary .cell-date-full{display:none;}
+    #logTableWrap td.c-primary .cell-date-compact{display:inline;}
+  }
 
   /* Not a pill: see pillFor() in app.js. Same column, same alignment, a
      fraction of the weight — it reads as "nothing to see here", which is
@@ -4350,6 +4404,11 @@
        actually a time to its left to be separated from. A leave day has no
        clock times, so the dash led the line. */
     .table-wrap.mobile-rows td.c-in{margin-right:0;}
+    /* The day type is the one meta on line 2 made of words, and the only one
+       that can give width back. Kept on one line, "7:42 AM – 4:06 PM  Half Day
+       Leave" plus the right-hand figure is ~310px, so on a 320px screen the
+       figure was painted over the label ("Half Day Le+4h 24m"). */
+    .table-wrap.mobile-rows td.c-daytype{white-space:normal;}
     .table-wrap.mobile-rows td.c-out.has-time::before{
       content:"–"; margin:0 5px; color:var(--muted);
     }
@@ -5124,6 +5183,17 @@
   .auth-success{
     font-size:12.5px; color:var(--positive); margin:0; line-height:1.5;
   }
+  /* The check-your-inbox screen. The address is the thing to verify at a
+     glance ("did I type it right?"), so it is ink and breaks anywhere: an
+     email has no spaces to wrap at. */
+  .auth-email{color:var(--ink); font-weight:700; overflow-wrap:anywhere;}
+  .auth-title:focus{outline:none;}
+  .auth-steps{
+    margin:0; padding:14px 16px 14px 34px; border-radius:var(--radius-sm);
+    background:var(--ink-50); color:var(--ink-600);
+    font-size:13px; line-height:1.55; display:flex; flex-direction:column; gap:6px;
+  }
+  .auth-steps strong{color:var(--ink); font-weight:600;}
   .auth-config-warning{
     font-size:11.5px; color:var(--excused); background:var(--excused-bg);
     border:1px solid var(--warn-line); border-radius:var(--radius-sm); padding:10px 12px; margin:0 0 16px;
@@ -5288,8 +5358,45 @@
      cell, it widens the whole grid and takes the page with it. The phone
      measured 1412px of sideways scroll on a 393px screen, from a single name.
      overflow-wrap:anywhere is the one value that lowers min-content, so it has
-     to be the whole row rather than the columns that looked risky. */
-  #crashBody td{overflow-wrap:anywhere;}
+     to be the whole row rather than the columns that looked risky.
+
+     The Audit log has the same shape: an actor's email, the affected person's
+     email, and a detail line quoting a note the database allows 500 characters
+     of, none of which need contain a space.
+
+     overflow-wrap only acts on text that is allowed to wrap, and the base
+     `tbody td` rule is white-space:nowrap — so on its own it did nothing, and
+     the desktop table grew to fit each message on one line. The tab panel
+     clips rather than scrolls, so everything right of the message (whose
+     screen, which build) sat 2000-3000px off the right edge with no way to
+     reach it. Both tables therefore wrap every cell, and above the phone
+     layout they use fixed column widths: under automatic layout, a column
+     whose min-content is one character gets squeezed toward exactly that
+     beside a 3000px message, and "3h ago" would print one letter per line.
+
+     The short columns are fixed in px and the free-text column takes the rest,
+     down to a floor. Below that floor — the console's two-column band leaves
+     these tables ~300px at 900px — the wrap scrolls sideways instead of
+     breaking "Just now" into four lines. Scrolling costs the sticky header
+     (the wrap becomes the scrollport it would stick to), which on an admin
+     log a screen or two long is the cheaper loss. */
+  #crashBody td, #auditBody td{overflow-wrap:anywhere; white-space:normal;}
+  @media (min-width:701px){
+    #tabContentCard #csec-admin-crashes .table-wrap,
+    #tabContentCard #csec-admin-audit .table-wrap{overflow-x:auto;}
+    #csec-admin-crashes table, #csec-admin-audit table{table-layout:fixed; width:100%; min-width:460px;}
+    #csec-admin-crashes th:nth-child(1){width:84px;}
+    #csec-admin-crashes th:nth-child(2){width:104px;}
+    #csec-admin-crashes th:nth-child(4){width:22%;}
+    #csec-admin-crashes th:nth-child(5){width:15%;}
+    #csec-admin-audit th:nth-child(1){width:84px;}
+    #csec-admin-audit th:nth-child(2){width:19%;}
+    #csec-admin-audit th:nth-child(3){width:112px;}
+    #csec-admin-audit th:nth-child(4){width:19%;}
+    /* The action pill is nowrap everywhere else; in a 112px column the longest
+       label ("Org settings changed") has to be allowed a second line. */
+    #auditBody .audit-action{white-space:normal; max-width:100%;}
+  }
   .admin-badge.unconfigured{background:var(--negative-bg); color:var(--negative);}
 
   /* Data health. Findings are listed even when the count is zero — an admin
@@ -5748,6 +5855,9 @@
     overflow-wrap:anywhere;
   }
   .notify-item-who{margin-top:2px; overflow-wrap:anywhere;}
+  /* The title is typed by an admin into a field with no rule about spaces; one
+     long unbroken word pushed a 393px screen 464px sideways from here. */
+  .notify-item-main .attention-title{overflow-wrap:anywhere;}
   .notify-item-error{
     margin:6px 0 0; padding:6px 10px; border-radius:var(--radius-sm);
     background:var(--negative-bg); color:var(--negative);
@@ -6462,6 +6572,11 @@
         <input type="password" id="siPassword" autocomplete="current-password" required>
       </div>
       <p class="auth-error" id="signInError"></p>
+      <!-- Shown only when the sign-in failed because the address was never
+           confirmed, or a confirmation link came back spent: the one thing
+           that person needs is the email again, and until this existed the
+           only way to get it was to register a second time. -->
+      <button type="button" class="btn ghost" id="signInResendBtn" style="width:100%; display:none;">Resend confirmation email</button>
       <button type="submit" class="btn" id="signInBtn" style="width:100%;">Sign In</button>
       <div class="auth-switch">
         <button type="button" class="link-btn" id="forgotPasswordBtn">Forgot password?</button>
@@ -6499,6 +6614,31 @@
         <button type="button" class="link-btn" id="showSignInBtn">Already have an account? Sign in</button>
       </div>
     </form>
+
+    <!-- After Create Account, when the project requires a confirmed email.
+         Was one line of green under the form, which left the form itself on
+         screen inviting a second submit, offered no way to get the email
+         again, and said nothing about where the link would take you. -->
+    <div id="checkEmailPanel" class="auth-form" style="display:none;">
+      <header class="auth-head">
+        <h1 class="display auth-title" id="checkEmailTitle" tabindex="-1">Check your inbox<span>.</span></h1>
+        <p class="auth-sub">We sent a confirmation link to <strong class="auth-email" id="checkEmailAddress" dir="auto"></strong>.
+          Open it and you&rsquo;ll come straight back here, signed in.</p>
+      </header>
+      <ol class="auth-steps">
+        <li>Open the email titled <strong>&ldquo;Confirm your Attendance account&rdquo;</strong>.</li>
+        <li>Tap <strong>Confirm my email</strong>. The link works once.</li>
+        <li>Not there after a minute? Check your spam or junk folder, then resend it below.</li>
+      </ol>
+      <p class="auth-error" id="checkEmailError" role="alert"></p>
+      <p class="auth-success" id="checkEmailSuccess" role="status"></p>
+      <button type="button" class="btn ghost" id="resendConfirmBtn" style="width:100%;">Resend email</button>
+      <div class="auth-switch">
+        <button type="button" class="link-btn" id="checkEmailBackBtn">Back to sign in</button>
+        <span style="color:var(--line);">·</span>
+        <button type="button" class="link-btn" id="checkEmailChangeBtn">Use a different email</button>
+      </div>
+    </div>
 
 <form id="resetPasswordForm" class="auth-form" style="display:none;">
       <header class="auth-head">

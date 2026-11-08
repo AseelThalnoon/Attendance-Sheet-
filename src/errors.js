@@ -71,7 +71,7 @@ function friendlyError(err){
   if(/signups? not allowed|signup is disabled/i.test(msg))
     return "New accounts are turned off. Ask an administrator to create one for you.";
   if(err.code === "over_email_send_rate_limit" || /email rate limit/i.test(msg))
-    return "Too many reset emails have gone out from this app in the last hour. Wait an hour and try again.";
+    return "Too many emails have gone out from this app in the last hour (sign-up confirmations and password resets share one limit). Wait a while and try again.";
   if(/rate limit|only request this after|too many requests/i.test(msg))
     return "Too many attempts just now. Wait a minute and try again.";
   if(/same as the old password|should be different/i.test(msg))

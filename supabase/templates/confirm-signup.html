@@ -1,0 +1,108 @@
+<!--
+  Supabase Auth → Email Templates → "Confirm signup".
+  Subject: Confirm your Attendance account
+
+  The in-app "Check your inbox" screen quotes that subject, so keep the two in
+  step. Tables and inline styles because that is what Gmail, Outlook and Apple
+  Mail all render the same way; the logo is served from the live site.
+  Variables are Supabase's Go-template ones: {{ .ConfirmationURL }} already
+  carries the redirect the app asked for (emailRedirectTo), so the link brings
+  the person back to the app signed in.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>Confirm your Attendance account</title>
+</head>
+<body style="margin:0; padding:0; background-color:#E9E7E2; -webkit-text-size-adjust:100%;">
+  <!-- Preheader: the line inbox lists show after the subject. -->
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">
+    One tap to confirm your email and start tracking your hours.
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#E9E7E2;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+          <!-- Brand -->
+          <tr>
+            <td align="center" style="padding:0 0 20px;">
+              <img src="https://aseelthalnoon.github.io/Attendance-Sheet-/icon-192.png" width="56" height="56" alt="Attendance"
+                   style="display:block; width:56px; height:56px; border:0; border-radius:14px;">
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#FFFFFF; border-radius:18px; padding:36px 32px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#111110;">
+              <p style="margin:0 0 6px; font-size:12px; font-weight:700; letter-spacing:1.4px; text-transform:uppercase; color:#586610;">
+                Attendance<span style="color:#D6E85C;">.</span>
+              </p>
+              <h1 style="margin:0 0 16px; font-size:26px; line-height:1.2; font-weight:800; letter-spacing:-0.5px; color:#111110;">
+                Confirm your email
+              </h1>
+              <p style="margin:0 0 14px; font-size:15px; line-height:1.6; color:#3D3D38;">
+                {{ if .Data.full_name }}Hi {{ .Data.full_name }},{{ else }}Hi there,{{ end }}
+              </p>
+              <p style="margin:0 0 26px; font-size:15px; line-height:1.6; color:#3D3D38;">
+                Thanks for creating your Attendance account. Confirm that
+                <strong style="color:#111110;">{{ .Email }}</strong> is your address and you&rsquo;ll be taken
+                straight back to the app, signed in and ready to clock in.
+              </p>
+
+              <!-- Button -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 26px;">
+                <tr>
+                  <td align="center" bgcolor="#111110" style="border-radius:12px;">
+                    <a href="{{ .ConfirmationURL }}" target="_blank"
+                       style="display:inline-block; padding:15px 30px; font-size:15px; font-weight:700; color:#FFFFFF; text-decoration:none; border-radius:12px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                      Confirm my email &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- What happens next -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#EFEDE8; border-radius:12px; margin:0 0 24px;">
+                <tr>
+                  <td style="padding:16px 18px; font-size:13.5px; line-height:1.6; color:#3D3D38;">
+                    <strong style="color:#111110;">Once you&rsquo;re in</strong><br>
+                    Set your working week under Settings, then clock in and out with one tap.
+                    Your hours, overtime and leave balance add themselves up.
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 8px; font-size:12.5px; line-height:1.6; color:#61605A;">
+                The button not working? Copy this link into your browser:
+              </p>
+              <p style="margin:0 0 24px; font-size:12px; line-height:1.5; word-break:break-all;">
+                <a href="{{ .ConfirmationURL }}" target="_blank" style="color:#586610; text-decoration:underline;">{{ .ConfirmationURL }}</a>
+              </p>
+
+              <p style="margin:0; padding-top:18px; border-top:1px solid #E4E2DC; font-size:12.5px; line-height:1.6; color:#61605A;">
+                The link works once. If it has expired, open the app and sign in &mdash; you&rsquo;ll be offered a fresh one.
+                Didn&rsquo;t create an account? You can ignore this email; nothing happens until the link is opened.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:20px 8px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:12px; line-height:1.6; color:#61605A;">
+              Sent by Attendance &middot;
+              <a href="https://aseelthalnoon.github.io/Attendance-Sheet-/" target="_blank" style="color:#61605A; text-decoration:underline;">aseelthalnoon.github.io/Attendance-Sheet-</a>
+            </td>
+          </tr>
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
