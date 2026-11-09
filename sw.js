@@ -17,7 +17,7 @@
 // crash-handler.js fails when the two differ. This comment used to ask for
 // the two to be bumped together; nothing checked, and the ?v= sat unchanged
 // for 67 commits while this went from v1x to v40.
-const CACHE_NAME = "attendance-ledger-shell-v43";
+const CACHE_NAME = "attendance-ledger-shell-v44";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives

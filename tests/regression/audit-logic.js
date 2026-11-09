@@ -430,6 +430,27 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
   settings.workDays = savedWorkDays;
 }
 
+// ---------------------------------------------------------------- late marks: no fixed hours, no late marks (2026-11-09)
+// WFH, trips and training have no fixed hours anywhere else in the app, but
+// the late/early check only skipped the excused types. With "late only if
+// short" off, a trip day clocked in at 11:30 was marked 3h 30m late.
+{
+  const savedLateOnly = settings.lateOnlyIfShort;
+  settings.lateOnlyIfShort = false;
+  const marks = (o) => { const c = computeEntry(entry(o)); return [c.lateMin, c.earlyMin]; };
+  eq(marks({date:"2026-08-10", clockIn:"11:30", clockOut:"18:00", type:"wfh"}), [0, 0],
+    "late marks: a WFH day is never marked late or early");
+  eq(marks({date:"2026-08-10", clockIn:"11:30", clockOut:"14:00", type:"trip"}), [0, 0],
+    "late marks: a business-trip day is never marked late or early");
+  eq(marks({date:"2026-08-10", clockIn:"08:00", clockOut:"14:00", type:"training"}), [0, 0],
+    "late marks: a training day is never marked as leaving early");
+  eq(marks({date:"2026-08-10", clockIn:"11:30", type:"trip"}), [0, 0],
+    "late marks: nor while a trip day is still open");
+  eq(marks({date:"2026-08-10", clockIn:"11:30", clockOut:"14:00"}), [210, 120],
+    "late marks: a Regular day with the same times is still marked late and early");
+  settings.lateOnlyIfShort = savedLateOnly;
+}
+
 console.log(`  audit-logic  pass ${pass}   fail ${fail}`);
 if(fail){ console.log(failures.map(f => "    x " + f).join("\n")); process.exit(1); }
 })();
