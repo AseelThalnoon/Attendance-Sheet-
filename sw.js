@@ -17,7 +17,7 @@
 // crash-handler.js fails when the two differ. This comment used to ask for
 // the two to be bumped together; nothing checked, and the ?v= sat unchanged
 // for 67 commits while this went from v1x to v40.
-const CACHE_NAME = "attendance-ledger-shell-v44";
+const CACHE_NAME = "attendance-ledger-shell-v45";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
@@ -84,13 +84,42 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
+// The page's own cache of people's photos (see AVATAR_CACHE in app.js). It is
+// not part of any release, so a new worker must not throw it away with the
+// old shell; app.js empties it on sign-out.
+const AVATAR_CACHE = "attendance-avatars-v1";
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k !== CACHE_NAME && k !== AVATAR_CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
+
+// How long opening the app waits on the network before using the cached
+// shell. It used to wait for as long as the network took, falling back only
+// when the request failed outright -- so on weak signal, which is slow rather
+// than absent, opening the app was slow too.
+const NAV_TIMEOUT_MS = 3000;
+
+// Pages opened from the cached shell, by client id. Their scripts and styles
+// then come from the same cache, so a cached page never runs a script from a
+// newer release that it does not match (the stale-copy crash of 2026-11-03,
+// from the other direction). Kept in memory: a page's module imports all
+// arrive in its first seconds, long before an idle worker could be stopped.
+const cachedShellClients = new Set();
+
+// The precached files, as paths. Network responses for these never overwrite
+// a cached copy -- they only fill one in that is missing -- so the cache stays
+// the one consistent snapshot install() took, and a page opened from it gets
+// the scripts that belong to it.
+const SHELL_PATHS = new Set(SHELL_FILES.map((f) => new URL(f, self.location.href).pathname));
+
+function cachedShell(){
+  return caches.open(CACHE_NAME).then((cache) =>
+    cache.match("./index.html").then((hit) => hit || cache.match("./")));
+}
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
@@ -104,15 +133,47 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   // Navigations: network first so a deployed update is picked up, falling back
-  // to the cached shell when offline.
+  // to the cached shell when offline -- or when the network hasn't answered
+  // within NAV_TIMEOUT_MS and there is a cached shell to open instead.
   if (req.mode === "navigate") {
+    event.respondWith((async () => {
+      const network = fetch(req);
+      const fromCache = async () => {
+        const hit = await cachedShell();
+        if (hit && event.resultingClientId) cachedShellClients.add(event.resultingClientId);
+        return hit;
+      };
+      // A browser that doesn't say which page this navigation creates gives
+      // no way to keep a cached page on its own scripts, so it waits for the
+      // network as it always did.
+      let timer;
+      const slow = event.resultingClientId
+        ? new Promise((resolve) => { timer = setTimeout(() => resolve(null), NAV_TIMEOUT_MS); })
+        : new Promise(() => {});
+      try {
+        const first = await Promise.race([network, slow]);
+        if (first) return first;
+      } catch (e) {
+        return (await fromCache()) || Response.error();
+      } finally {
+        clearTimeout(timer);
+      }
+      // Still waiting on the network: open the cached copy if there is one.
+      // The request carries on, unawaited, so a slow answer isn't an error.
+      const hit = await fromCache();
+      if (hit) { network.catch(() => {}); return hit; }
+      try { return await network; } catch (e) { return Response.error(); }
+    })());
+    return;
+  }
+
+  // A page opened from the cached shell takes its files from the same cache,
+  // so its scripts match it; anything not cached still comes from the network.
+  if (event.clientId && cachedShellClients.has(event.clientId)) {
     event.respondWith(
-      fetch(req).catch(async () => {
-        const cache = await caches.open(CACHE_NAME);
-        return (await cache.match("./index.html")) ||
-               (await cache.match("./")) ||
-               Response.error();
-      })
+      caches.open(CACHE_NAME)
+        .then((c) => c.match(req, { ignoreSearch: true }))
+        .then((hit) => hit || fetch(req))
     );
     return;
   }
@@ -125,7 +186,10 @@ self.addEventListener("fetch", (event) => {
       .then((res) => {
         if (res && res.ok) {
           const copy = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
+          caches.open(CACHE_NAME).then(async (c) => {
+            if (SHELL_PATHS.has(url.pathname) && await c.match(req, { ignoreSearch: true })) return;
+            return c.put(req, copy);
+          }).catch(() => {});
         }
         return res;
       })
