@@ -736,15 +736,31 @@ import { makeSchedule } from "./src/schedule.js";
   // that had not happened.
   function dataLoadFailed(){ return !!dataLoadError; }
 
+  // Requests that need nothing but the signed-in person's id, started the
+  // moment the session is known (handleSignedIn) instead of one after another
+  // behind the profile fetch. On a phone talking to the database in Singapore,
+  // each of those waits was a round trip before anything appeared: measured
+  // with 200ms per request, the records drew at ~4.0s and the announcement at
+  // ~4.6s. Each is handed out once, to the first load that asks for it, then
+  // forgotten, so a refresh or a viewer switch always asks the server afresh.
+  var signInPrefetch = null;
+  function takePrefetch(key, userId){
+    var p = signInPrefetch;
+    if(!p || p.userId !== userId || !p[key]) return null;
+    var promise = p[key];
+    p[key] = null;
+    return promise;
+  }
+
   async function loadDataForViewedUser(){
     var gen = ++loadGeneration;
     var forUserId = viewedUserId;
     setLoadingSkeletons(true);
     try{
-      var results = await Promise.all([
+      var results = await (takePrefetch("data", forUserId) || Promise.all([
         sbFetchEntries(forUserId),
         sbFetchSettings(forUserId)
-      ]);
+      ]));
       if(gen !== loadGeneration) return;   // a later switch already owns the screen
       entries = results[0];
       settings = results[1];
@@ -819,15 +835,30 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   // ---------- Helpers ----------
-  function monthKey(dateStr){ var d = dateFromStr(dateStr); return d.getFullYear()+"-"+pad2(d.getMonth()+1); }
-  function yearKey(dateStr){ return String(dateFromStr(dateStr).getFullYear()); }
+  // Dates here are always "YYYY-MM-DD" (the database's date column, and
+  // dateToStr()), so the month and the year are the string's first 7 and 4
+  // characters. Building a Date to read them back cost thousands of
+  // allocations per redraw on a long history: every filter, group and month
+  // total asks.
+  function monthKey(dateStr){ return dateStr.slice(0, 7); }
+  function yearKey(dateStr){ return dateStr.slice(0, 4); }
   function monthLabel(key){
     var p = key.split("-");
-    return new Date(+p[0], +p[1]-1, 1).toLocaleDateString(undefined,{month:"long", year:"numeric"});
+    return fmtWith(new Date(+p[0], +p[1]-1, 1), {month:"long", year:"numeric"});
   }
   function monthShortLabel(key){
     var p = key.split("-");
-    return new Date(+p[0], +p[1]-1, 1).toLocaleDateString(undefined,{month:"short"}) + " '" + String(+p[0]).slice(-2);
+    return fmtWith(new Date(+p[0], +p[1]-1, 1), {month:"short"}) + " '" + String(+p[0]).slice(-2);
+  }
+  // One Intl.DateTimeFormat per set of options, built on first use.
+  // toLocaleDateString(undefined, opts) builds a fresh formatter on every call
+  // (see src/time.js), and the weekly table alone asked for two per week of
+  // history on every redraw.
+  var dtfCache = {};
+  function fmtWith(date, opts){
+    var key = JSON.stringify(opts);
+    var f = dtfCache[key] || (dtfCache[key] = new Intl.DateTimeFormat(undefined, opts));
+    return f.format(date);
   }
   // Strips the bidirectional-override control characters. Left in place they
   // visually reverse the rest of a line in the log table AND in the printed,
@@ -857,8 +888,22 @@ import { makeSchedule } from "./src/schedule.js";
   function escapeAttr(s){
     return escapeHtml(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
+  // Every theme colour is set by <html>'s data-palette and data-theme (see the
+  // html[data-palette=...] blocks in index.html), so the values are cached
+  // against those two and re-read when either changes. Each read is a
+  // getComputedStyle, and the weekly and monthly tables asked once per row,
+  // straight after appending the row before it: a full style recalculation
+  // per row of history.
+  var cssVarCache = {}, cssVarCacheKey = null;
   function cssVar(name){
-    return getComputedStyle(document.body).getPropertyValue(name).trim() || "#888";
+    var root = document.documentElement;
+    var key = root.getAttribute("data-palette") + "|" + root.getAttribute("data-theme") +
+      "|" + !!(systemDark && systemDark.matches);
+    if(key !== cssVarCacheKey){ cssVarCache = {}; cssVarCacheKey = key; }
+    if(!Object.prototype.hasOwnProperty.call(cssVarCache, name)){
+      cssVarCache[name] = getComputedStyle(document.body).getPropertyValue(name).trim() || "#888";
+    }
+    return cssVarCache[name];
   }
 
   // ---------- Bulk-operation guard ----------
@@ -2724,7 +2769,7 @@ import { makeSchedule } from "./src/schedule.js";
     mSel.innerHTML = '<option value="all">All Months</option>' +
       mKeys.map(function(k){
         var label = logYear === "all" ? monthLabel(k)
-          : new Date(+k.split("-")[0], +k.split("-")[1]-1, 1).toLocaleDateString(undefined,{month:"long"});
+          : fmtWith(new Date(+k.split("-")[0], +k.split("-")[1]-1, 1), {month:"long"});
         return '<option value="'+k+'">'+label+'</option>';
       }).join("");
     var logDefaultMonth = (logYear === "all" || logYear === todayYear) && mKeys.indexOf(todayMonthKey) !== -1
@@ -2781,7 +2826,7 @@ import { makeSchedule } from "./src/schedule.js";
     mSel.innerHTML = '<option value="all">All Months</option>' +
       mKeys.map(function(k){
         var label = year === "all" ? monthLabel(k)
-          : new Date(+k.split("-")[0], +k.split("-")[1]-1, 1).toLocaleDateString(undefined,{month:"long"});
+          : fmtWith(new Date(+k.split("-")[0], +k.split("-")[1]-1, 1), {month:"long"});
         return '<option value="'+k+'">'+label+'</option>';
       }).join("");
     var punctDefaultMonth = (year === "all" || year === todayYear) && mKeys.indexOf(todayMonthKey) !== -1
@@ -3827,6 +3872,22 @@ import { makeSchedule } from "./src/schedule.js";
   // A legend that names absent series teaches the reader to look for something
   // that is not there. Entries marked data-legend are conditional; the plain
   // ones (the line itself, the target rule) always apply.
+  // An element's tag and every attribute that can change its colour. Position
+  // and size never do, and the per-dot animation-delay in the style attribute
+  // doesn't either; leaving those in would make every dot unique. No CSS rule
+  // picks chart elements by position or by those attributes, so two elements
+  // with one signature under one parent always paint alike.
+  var PAINT_IRRELEVANT = {x:1, y:1, x1:1, y1:1, x2:1, y2:1, cx:1, cy:1, r:1, rx:1, ry:1,
+    d:1, points:1, width:1, height:1, transform:1, "data-idx":1};
+  function paintSignature(el){
+    var sig = el.tagName;
+    for(var i = 0; i < el.attributes.length; i++){
+      var a = el.attributes[i];
+      if(PAINT_IRRELEVANT[a.name]) continue;
+      sig += " " + a.name + "=" + (a.name === "style" ? a.value.replace(/animation-delay:[^;]*;?/g, "") : a.value);
+    }
+    return sig;
+  }
   function syncChartLegend(holder){
     if(!holder) return;
     var legend = holder.parentElement && holder.parentElement.querySelector(".chart-legend");
@@ -3840,9 +3901,19 @@ import { makeSchedule } from "./src/schedule.js";
     // which were on screen. Nothing painted, nothing to key.
     if(!svg){ legend.hidden = true; return; }
     legend.hidden = false;
-    // What the plot actually painted, as resolved colours.
-    var painted = {};
+    // What the plot actually painted, as resolved colours. getComputedStyle is
+    // the expensive part -- it ran once per dot, line and label, a few hundred
+    // times a redraw, mostly on charts in hidden tabs, and was the largest
+    // single cost in a profiled phone redraw. Elements under the same parent
+    // with the same paint signature (see paintSignature) resolve to the same
+    // colours, so one lookup answers for all of them.
+    var painted = {}, looked = new Map();
     svg.querySelectorAll("*").forEach(function(el){
+      var sigs = looked.get(el.parentNode);
+      if(!sigs) looked.set(el.parentNode, sigs = {});
+      var sig = paintSignature(el);
+      if(sigs[sig]) return;
+      sigs[sig] = true;
       var cs = getComputedStyle(el);
       [cs.fill, cs.stroke, el.getAttribute("fill"), el.getAttribute("stroke")]
         .forEach(function(v){ if(v && v !== "none") painted[v] = true; });
@@ -3898,8 +3969,8 @@ import { makeSchedule } from "./src/schedule.js";
 
       return {
         key: k, s: s, days: days,
-        range: ws.toLocaleDateString(undefined,{month:"short", day:"numeric"}) + " – " +
-               we.toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"})
+        range: fmtWith(ws, {month:"short", day:"numeric"}) + " – " +
+               fmtWith(we, {month:"short", day:"numeric", year:"numeric"})
       };
     });
 
@@ -4368,10 +4439,10 @@ import { makeSchedule } from "./src/schedule.js";
       var sameMonth = s.getMonth() === e.getMonth();
       // Composed by hand: asking toLocaleDateString for {day, year} alone lets
       // the runtime render "2026 (day: 22)", which is not a date range.
-      var left = s.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+      var left = fmtWith(s, {month:"short", day:"numeric"});
       var right = sameMonth
         ? String(e.getDate())
-        : e.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+        : fmtWith(e, {month:"short", day:"numeric"});
       label.textContent = left + " – " + right + ", " + e.getFullYear();
     } else {
       week.hidden = true;
@@ -4577,7 +4648,7 @@ import { makeSchedule } from "./src/schedule.js";
       return {
         label: chartYear === "all"
           ? monthShortLabel(k)
-          : new Date(+k.split("-")[0], +k.split("-")[1]-1, 1).toLocaleDateString(undefined,{month:"short"}),
+          : fmtWith(new Date(+k.split("-")[0], +k.split("-")[1]-1, 1), {month:"short"}),
         value: ms.avgShortMin,
         // Every plotted point here is already a bad number — there's no
         // "met target" reading of a shortfall, so force the red dot rather
@@ -9138,7 +9209,7 @@ import { makeSchedule } from "./src/schedule.js";
     // Far enough either way and the date itself is easier to read than a span
     // of it, so that case answers before the direction is even considered.
     if(Math.abs(diff) >= 60 * 24 * 30){
-      return then.toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"});
+      return fmtWith(then, {month:"short", day:"numeric", year:"numeric"});
     }
     if(diff < 0) return "in " + coarseDuration(-diff);
     if(diff < 1) return "Just now";
@@ -9905,7 +9976,8 @@ import { makeSchedule } from "./src/schedule.js";
 
   async function loadAppSettings(){
     try{
-      var res = await supabase.from("app_settings").select("*").eq("id", 1).maybeSingle();
+      var res = await (takePrefetch("appSettings", currentUser && currentUser.id) ||
+        supabase.from("app_settings").select("*").eq("id", 1).maybeSingle());
       if(res.error) throw res.error;
       var s = res.data || {};
       document.getElementById("setAllowRegistration").checked = s.allow_registration !== false;
@@ -9977,8 +10049,8 @@ import { makeSchedule } from "./src/schedule.js";
     // only be a 404 in the console.
     if(!currentUser || !announcementExtras) return;
     try{
-      var res = await supabase.from("announcement_hides").select("hidden_at")
-        .eq("user_id", currentUser.id).limit(1);
+      var res = await (takePrefetch("announcementHide", currentUser.id) ||
+        supabase.from("announcement_hides").select("hidden_at").eq("user_id", currentUser.id).limit(1));
       var row = !res.error && Array.isArray(res.data) ? res.data[0] : null;
       if(row && row.hidden_at) announcementHiddenAt = row.hidden_at;
     }catch(e){}
@@ -11126,6 +11198,21 @@ import { makeSchedule } from "./src/schedule.js";
 
   async function handleSignedIn(user){
     currentUser = {id:user.id, email:user.email};
+    // See takePrefetch(). Promise.resolve() is what sends the two app tables'
+    // requests now: a supabase query does nothing until something calls its
+    // then(). The catch() only stops a failure that lands before anything
+    // awaits it from being reported as unhandled; the awaiting code still
+    // sees the error and handles it as it always did.
+    signInPrefetch = {
+      userId: user.id,
+      data: Promise.all([sbFetchEntries(user.id), sbFetchSettings(user.id)]),
+      appSettings: Promise.resolve(supabase.from("app_settings").select("*").eq("id", 1).maybeSingle()),
+      announcementHide: Promise.resolve(supabase.from("announcement_hides").select("hidden_at")
+        .eq("user_id", user.id).limit(1))
+    };
+    signInPrefetch.data.catch(function(){});
+    signInPrefetch.appSettings.catch(function(){});
+    signInPrefetch.announcementHide.catch(function(){});
 
     try{
       var res = await supabase.from("profiles").select("*").eq("id", user.id).single();
@@ -11224,6 +11311,7 @@ import { makeSchedule } from "./src/schedule.js";
 
   function handleSignedOut(){
     stopTimers();
+    signInPrefetch = null;
     currentUser = null; currentProfile = null;
     viewedUserId = null; viewedProfile = null;
     allProfiles = []; isAdmin = false; isOwnData = true;

@@ -100,10 +100,15 @@ export function makeSchedule(getSettings){
       workedMin = 0;
     }
 
-    // Punctuality is only meaningful on a scheduled, non-excused day.
+    // Punctuality is only meaningful on a scheduled day with fixed hours. That
+    // rules out the excused types and also WFH, trips and training, which the
+    // rest of the app treats as having no fixed hours (NO_TARGET_TYPES). This
+    // used to rule out the excused types only, so with "late only if short"
+    // off, a business-trip day clocked in at 11:30 was marked 3h 30m late
+    // against office hours it was never held to anywhere else.
     var lateMin = 0, earlyMin = 0;
     var grace = getSettings().graceMin || 0;
-    var countable = scheduled && !excused;
+    var countable = scheduled && !noTarget;
 
     // When "only if short" is on, making up the hours clears the flag. A day
     // that's still open can't be judged yet, so it isn't flagged either way —
