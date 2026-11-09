@@ -304,11 +304,12 @@ async function makeJpegBytes(page, text, hex){
     await ctxTmp.close();
     return bytes;
   })();
-  const seededForAliceRoster = stubFor(ALICE)
-    .replace(
-      `"${BOB}":   {id:"${BOB}",   email:"bob@example.com",   full_name:"Bob Employee", role:"user",  avatar_updated_at:null}`,
-      `"${BOB}":   {id:"${BOB}",   email:"bob@example.com",   full_name:"Bob Employee", role:"user",  avatar_updated_at:${JSON.stringify(new Date().toISOString())}}`
-    )
+  const bobStamp = new Date().toISOString();
+  const withBobStamp = (stub, stamp) => stub.replace(
+    `"${BOB}":   {id:"${BOB}",   email:"bob@example.com",   full_name:"Bob Employee", role:"user",  avatar_updated_at:null}`,
+    `"${BOB}":   {id:"${BOB}",   email:"bob@example.com",   full_name:"Bob Employee", role:"user",  avatar_updated_at:${JSON.stringify(stamp)}}`
+  );
+  const seededForAliceRoster = withBobStamp(stubFor(ALICE), bobStamp)
     .replace(
       "globalThis.__STORAGE = {};",
       `globalThis.__STORAGE = {"${BOB}/avatar.jpg": {bytes:new Uint8Array(${JSON.stringify(bobBytes)}), contentType:"image/jpeg"}};`
@@ -368,6 +369,33 @@ async function makeJpegBytes(page, text, hex){
   }, ALICE);
   ok(aliceOwnCard.found && !aliceOwnCard.hasImg && aliceOwnCard.text === "AA",
     "a person with no photo renders initials, not an empty or broken slot", JSON.stringify(aliceOwnCard));
+
+  // ---- Photos are kept between visits (2026-11-09). Reopened in the same
+  // browser with Storage EMPTY -- nothing left to download -- Bob's card must
+  // still show his photo, from this browser's cache. And once Bob has a newer
+  // photo, the old one must not stand in for it. ----
+  async function bobCardAfterReopen(stamp){
+    const page = await ctxC.newPage();
+    await page.route("**/vendor/supabase-js.min.js",
+      r => r.fulfill({status: 200, contentType: "text/javascript", body: withBobStamp(stubFor(ALICE), stamp)}));
+    await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+    await page.waitForTimeout(900);
+    await page.evaluate(() => document.querySelector('.tab-btn[data-tab="team"]')?.click());
+    await page.waitForTimeout(1100);
+    const card = await page.evaluate((bobId) => {
+      const el = document.querySelector('.team-card[data-uid="' + bobId + '"]');
+      return {found: !!el, hasImg: !!(el && el.querySelector(".avatar img"))};
+    }, BOB);
+    await page.close();
+    return card;
+  }
+  const reopened = await bobCardAfterReopen(bobStamp);
+  ok(reopened.found && reopened.hasImg,
+    "reopening the app shows a teammate's photo from this browser, without downloading it again",
+    JSON.stringify(reopened));
+  const newerPhoto = await bobCardAfterReopen(new Date(Date.parse(bobStamp) + 60000).toISOString());
+  ok(newerPhoto.found && !newerPhoto.hasImg,
+    "a newer photo is never answered from the cached older one", JSON.stringify(newerPhoto));
 
   await pageC.close();
   await ctxC.close();

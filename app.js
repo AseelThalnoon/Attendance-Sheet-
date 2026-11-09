@@ -4707,10 +4707,22 @@ import { makeSchedule } from "./src/schedule.js";
     });
   }
 
+  // Trends and Shortfall are drawn only while they're open. Opening either one
+  // already draws it from scratch (activateTab -> renderSubtab /
+  // renderPunctuality), so drawing them here while hidden was work thrown
+  // away -- and their charts were the largest piece of every redraw, at
+  // sign-in and again after every save or punch.
+  function tabIsOpen(tab){
+    var panel = document.getElementById("tab-" + tab);
+    return !!(panel && panel.classList.contains("active"));
+  }
   function renderCharts(){
-    renderWeekly();
-    renderMonthly();
-    renderPunctuality();
+    if(tabIsOpen("trends")) renderSubtab(activeSubtab());
+    if(tabIsOpen("punctuality")) renderPunctuality();
+  }
+  // The Log's filters also drive the weekly view, which lives on Trends.
+  function renderWeeklyIfOpen(){
+    if(tabIsOpen("trends") && activeSubtab() === "weekly") renderWeekly();
   }
 
   function renderAll(){
@@ -6067,11 +6079,11 @@ import { makeSchedule } from "./src/schedule.js";
   onId("logYearSelect", "change", function(){
     populateFilters();   // month list depends on the chosen year
     renderLog();
-    renderWeekly();
+    renderWeeklyIfOpen();
   });
   onId("monthFilterSelect", "change", function(){
     renderLog();
-    renderWeekly();
+    renderWeeklyIfOpen();
   });
   onId("monthlyYearSelect", "change", renderMonthly);
 
@@ -6118,7 +6130,7 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("monthFilterSelect").value = "all";
     populateFilters();
     renderLog();
-    renderWeekly();
+    renderWeeklyIfOpen();
     updateAdvancedFilterBadge();
   });
 
@@ -7720,12 +7732,16 @@ import { makeSchedule } from "./src/schedule.js";
     var countEl = document.getElementById("todayTeamCount");
     var today = todayStr();
     var rows;
+    // The request handleSignedIn() already sent, if it was for this day and
+    // this role; any later redraw (a punch, a save) asks afresh.
+    var pre = signInPrefetch && signInPrefetch.presenceDay === today &&
+      signInPrefetch.presenceAdmin === isAdmin ? takePrefetch("presence", currentUser.id) : null;
     try{
       if(isAdmin){
         var byUser = {};
-        var res = await supabase.from("entries")
+        var res = await (pre || supabase.from("entries")
           .select("user_id,date,clock_in,clock_out,type")
-          .eq("date", today);
+          .eq("date", today));
         if(res.error) throw res.error;
         (res.data || []).forEach(function(row){
           (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
@@ -7738,7 +7754,7 @@ import { makeSchedule } from "./src/schedule.js";
           return {p: p, st: teamStatus(mine, own), clockIn: todays ? todays.clockIn : ""};
         });
       } else {
-        var rpcRes = await supabase.rpc("list_today_presence", {p_date: today});
+        var rpcRes = await (pre || supabase.rpc("list_today_presence", {p_date: today}));
         if(rpcRes.error) throw rpcRes.error;
         // scheduledFor()/the "off" branch of teamStatus() never applies here
         // (see below), so there's no need for that person's own working-hours
@@ -8088,6 +8104,47 @@ import { makeSchedule } from "./src/schedule.js";
   // the tab closing reclaims it same as any other blob URL.
   var avatarBlobCache = {};
 
+  // Photos kept between visits, in the browser's Cache Storage. That map is
+  // memory only, so every app open downloaded each visible person's photo
+  // again -- one authenticated request apiece. Each is stored under its
+  // owner's id AND version (avatar_updated_at), so an entry can never go
+  // stale: a new photo is a new version, a new key, and the old one is
+  // dropped when it lands. Emptied on sign-out (a shared phone should not
+  // keep colleagues' photos), and sw.js's clean-up leaves it alone on a new
+  // release (its name is listed there). Every step is best-effort: without
+  // Cache Storage (a private window, an old browser) the photo is simply
+  // downloaded, as before.
+  var AVATAR_CACHE = "attendance-avatars-v1";
+  function storedAvatarKey(uid, version){
+    return new URL("__avatars/" + encodeURIComponent(uid) + "/" + encodeURIComponent(version || ""),
+      location.href).href;
+  }
+  async function readStoredAvatar(uid, version){
+    try{
+      if(typeof caches === "undefined") return null;
+      var hit = await (await caches.open(AVATAR_CACHE)).match(storedAvatarKey(uid, version));
+      return hit ? await hit.blob() : null;
+    }catch(e){ return null; }
+  }
+  function storeAvatar(uid, version, blob){
+    try{
+      if(typeof caches === "undefined" || !blob) return;
+      var everyVersion = storedAvatarKey(uid, "");
+      caches.open(AVATAR_CACHE).then(function(c){
+        return c.keys().then(function(keys){
+          return Promise.all(keys.filter(function(k){ return k.url.indexOf(everyVersion) === 0; })
+            .map(function(k){ return c.delete(k); }));
+        }).then(function(){
+          return c.put(storedAvatarKey(uid, version),
+            new Response(blob, {headers: {"Content-Type": blob.type || "image/jpeg"}}));
+        });
+      }).catch(function(){});
+    }catch(e){}
+  }
+  function forgetStoredAvatars(){
+    try{ if(typeof caches !== "undefined") caches.delete(AVATAR_CACHE).catch(function(){}); }catch(e){}
+  }
+
   function avatarCacheKey(profile){
     return profile && profile.id ? profile.id + ":" + (profile.avatar_updated_at || "") : null;
   }
@@ -8140,12 +8197,18 @@ import { makeSchedule } from "./src/schedule.js";
       var url = avatarBlobCache[key];
       if(!url){
         var uid = key.slice(0, key.indexOf(":"));
-        try{
-          var res = await supabase.storage.from(AVATAR_BUCKET).download(avatarPath(uid));
-          if(res.error || !res.data) return;
-          url = URL.createObjectURL(res.data);
-          avatarBlobCache[key] = url;
-        }catch(err){ return; }
+        var version = key.slice(key.indexOf(":") + 1);
+        var blob = await readStoredAvatar(uid, version);
+        if(!blob){
+          try{
+            var res = await supabase.storage.from(AVATAR_BUCKET).download(avatarPath(uid));
+            if(res.error || !res.data) return;
+            blob = res.data;
+            storeAvatar(uid, version, blob);
+          }catch(err){ return; }
+        }
+        url = URL.createObjectURL(blob);
+        avatarBlobCache[key] = url;
       }
       byKey[key].forEach(function(el){
         // The slot may have been re-rendered out from under this await with a
@@ -8440,6 +8503,7 @@ import { makeSchedule } from "./src/schedule.js";
       if(save.error) return;
       currentProfile.avatar_updated_at = stamp;
       avatarBlobCache[currentProfile.id + ":" + stamp] = URL.createObjectURL(blob);
+      storeAvatar(currentProfile.id, stamp, blob);
       localStorage.removeItem(legacyKey);
       refreshAvatars();
     }catch(err){ /* best-effort; the local copy just stays for next time */ }
@@ -8568,6 +8632,7 @@ import { makeSchedule } from "./src/schedule.js";
       // uploaded is the one image on the page that would otherwise pay for a
       // download it does not need, since nothing else could have this bytes.
       avatarBlobCache[currentUser.id + ":" + stamp] = URL.createObjectURL(blob);
+      storeAvatar(currentUser.id, stamp, blob);
       var mine = allProfiles.find(function(p){ return p.id === currentUser.id; });
       if(mine) mine.avatar_updated_at = stamp;
       refreshAvatars();
@@ -8731,7 +8796,8 @@ import { makeSchedule } from "./src/schedule.js";
     if(teamSettingsCache) return teamSettingsCache;
     var map = {};
     try{
-      var res = await supabase.from("user_settings").select("user_id,settings");
+      var res = await (takePrefetch("teamSettings", currentUser && currentUser.id) ||
+        supabase.from("user_settings").select("user_id,settings"));
       if(res.error) throw res.error;
       (res.data || []).forEach(function(r){ map[r.user_id] = normalizeSettings(r.settings); });
     }catch(err){
@@ -10945,7 +11011,7 @@ import { makeSchedule } from "./src/schedule.js";
     } else if(opts.date){
       populateFilters();
       renderLog();
-      renderWeekly();
+      renderWeeklyIfOpen();
     }
     document.querySelector('.tab-btn[data-tab="'+(opts.tab || "log")+'"]').click();
     document.getElementById("appShell").scrollIntoView({behavior:"smooth", block:"start"});
@@ -11203,16 +11269,29 @@ import { makeSchedule } from "./src/schedule.js";
     // then(). The catch() only stops a failure that lands before anything
     // awaits it from being reported as unhandled; the awaiting code still
     // sees the error and handles it as it always did.
+    // presence is the "In today" list, which renderTodayTeam() used to ask for
+    // only after the first full redraw. This is the employee version; an
+    // admin's list is built from other tables, and is swapped in below once
+    // the profile says who this is. It can't simply wait for the role: an
+    // employee's sign-in has no pause between the profile arriving and the
+    // first redraw, and supabase-js sends a request only on its next turn of
+    // the event loop -- so one made after the profile went out only once the
+    // redraw had finished (measured: 0.43s after the profile arrived).
+    var presenceDay = todayStr();
     signInPrefetch = {
       userId: user.id,
       data: Promise.all([sbFetchEntries(user.id), sbFetchSettings(user.id)]),
       appSettings: Promise.resolve(supabase.from("app_settings").select("*").eq("id", 1).maybeSingle()),
       announcementHide: Promise.resolve(supabase.from("announcement_hides").select("hidden_at")
-        .eq("user_id", user.id).limit(1))
+        .eq("user_id", user.id).limit(1)),
+      presenceDay: presenceDay,
+      presenceAdmin: false,
+      presence: Promise.resolve(supabase.rpc("list_today_presence", {p_date: presenceDay}))
     };
     signInPrefetch.data.catch(function(){});
     signInPrefetch.appSettings.catch(function(){});
     signInPrefetch.announcementHide.catch(function(){});
+    signInPrefetch.presence.catch(function(){});
 
     try{
       var res = await supabase.from("profiles").select("*").eq("id", user.id).single();
@@ -11243,6 +11322,17 @@ import { makeSchedule } from "./src/schedule.js";
     if(!currentProfile) currentProfile = {id:user.id, email:user.email, full_name:null, role:"user"};
 
     isAdmin = currentProfile.role === "admin";
+    // An admin's "In today" list is built from today's entries and everyone's
+    // schedules rather than the employee RPC requested above, so those go now.
+    // (They leave in time: an admin's sign-in waits on the people list next.)
+    if(isAdmin && signInPrefetch && signInPrefetch.userId === user.id){
+      signInPrefetch.presenceAdmin = true;
+      signInPrefetch.presence = Promise.resolve(supabase.from("entries")
+        .select("user_id,date,clock_in,clock_out,type").eq("date", signInPrefetch.presenceDay));
+      signInPrefetch.presence.catch(function(){});
+      signInPrefetch.teamSettings = Promise.resolve(supabase.from("user_settings").select("user_id,settings"));
+      signInPrefetch.teamSettings.catch(function(){});
+    }
     viewedUserId = currentUser.id;
     viewedProfile = currentProfile;
     refreshAvatars();
@@ -11312,6 +11402,7 @@ import { makeSchedule } from "./src/schedule.js";
   function handleSignedOut(){
     stopTimers();
     signInPrefetch = null;
+    forgetStoredAvatars();
     currentUser = null; currentProfile = null;
     viewedUserId = null; viewedProfile = null;
     allProfiles = []; isAdmin = false; isOwnData = true;
