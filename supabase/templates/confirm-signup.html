@@ -2,8 +2,12 @@
   Supabase Auth → Email Templates → "Confirm signup".
   Subject: Confirm your Attendance account
 
-  The in-app "Check your inbox" screen quotes that subject, so keep the two in
-  step. Tables and inline styles because that is what Gmail, Outlook and Apple
+  Not installed as of 2026-11-09: Supabase only allows template edits once a
+  custom SMTP sender is set up, so its built-in plain email goes out instead,
+  and the in-app "Check your inbox" steps (index.html, #checkEmailPanel)
+  describe that one. If this goes in, change those steps to name this
+  subject and the "Confirm my email" button.
+  Tables and inline styles because that is what Gmail, Outlook and Apple
   Mail all render the same way; the logo is served from the live site.
   Variables are Supabase's Go-template ones: {{ .ConfirmationURL }} already
   carries the redirect the app asked for (emailRedirectTo), so the link brings

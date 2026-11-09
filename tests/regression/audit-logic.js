@@ -151,8 +151,8 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 // hours — never when the person clocked in or out. A late arrival made up
 // by staying later is not a shortfall; a punctual arrival that still falls
 // short of the hours is, even though nothing about the clock times looks
-// wrong; and a day nobody logged at all is the clearest shortfall there is,
-// not an invisible one the old arrival-only check could never see.
+// wrong; and a blank row is a full day short. (A day with no row at all is
+// the next block: summarize() only ever sees the rows it is handed.)
 {
   const madeUp = summarize([entry({date:"2026-08-10", clockIn:"10:00", clockOut:"19:00"})]);
   eq([madeUp.ratedDays, madeUp.shortDays, madeUp.metDays], [1, 0, 1],
@@ -164,7 +164,66 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 
   const blank = summarize([entry({date:"2026-08-10"})]);
   eq([blank.ratedDays, blank.shortDays, blank.missedDays], [1, 1, 1],
-    "a scheduled day with no entry at all counts as a full shortfall, not an invisible one");
+    "a blank row (no clock times) counts as a full shortfall");
+}
+
+// ---------------------------------------------------------------- Shortfall: unlogged workdays (2026-11-09)
+// The block above said a day nobody logged was "the clearest shortfall there
+// is" and tested it with a blank row. A workday with no row at all never
+// reached summarize(), so the tab could say every day met its target across a
+// month of gaps. unloggedWorkdays() supplies those days -- to the Shortfall
+// tab only; the overtime figure and the averages still count logged days.
+{
+  const savedEntries = sandbox.entries;
+  // Sun 9 - Sat 15 Aug 2026, Sun-Thu week. Logged: Mon 10 and Wed 12.
+  sandbox.entries = [entry({date:"2026-08-10", clockIn:"08:00", clockOut:"16:00"}),
+                     entry({date:"2026-08-12", clockIn:"08:00", clockOut:"16:00"})];
+  const gaps = sandbox.unloggedWorkdays("2026-08-09", "2026-08-15");
+  eq(gaps.map(g => g.date), ["2026-08-11", "2026-08-13"],
+    "unlogged workdays: the gaps from the first entry on, skipping Fri/Sat and Sun 9th before it");
+  ok(gaps.every(g => g.unlogged === true && g.type === "regular" && !g.clockIn && !g.clockOut),
+    "unlogged workdays come back as blank Regular rows marked unlogged");
+
+  const s = summarize(sandbox.entries.concat(gaps));
+  eq([s.ratedDays, s.shortDays, s.missedDays, s.shortSum], [4, 2, 2, 960],
+    "both gaps are rated as full days short, with nothing logged");
+  eq([s.ratedWorkedSum, s.ratedTargetSum], [960, 1920],
+    "the tab's % covers the same four days as its short-day cards (50%, not 100%)");
+  eq([s.diffSum, s.loggedDays], [0, 2],
+    "the gaps don't move the overtime figure or the average");
+
+  sandbox.entries = [entry({date:"2026-08-10", clockIn:"08:00", clockOut:"16:00"})];
+  const upToNow = sandbox.unloggedWorkdays("", "");
+  const today = todayStr();
+  ok(upToNow.length > 0 && upToNow.every(g => g.date > "2026-08-10" && g.date < today),
+    "with no range given, gaps run from the first entry up to yesterday -- today isn't over",
+    `first ${upToNow.length ? upToNow[0].date : "none"}, last ${upToNow.length ? upToNow[upToNow.length-1].date : "none"}`);
+
+  sandbox.entries = [];
+  eq(sandbox.unloggedWorkdays("", "").length, 0, "no entries at all: no first day to count gaps from");
+  sandbox.entries = savedEntries;
+}
+
+// ---------------------------------------------------------------- Shortfall: forgotten clock-out (2026-11-09)
+// A clock-in left open on a past day used to count on this tab as a full day
+// short with "nothing logged at all", while the tab's own % left it out. The
+// hours are unknown, not zero: it now waits as "unclosed" until fixed.
+{
+  const forgotten = summarize([entry({date:"2026-08-10", clockIn:"09:00"})]);
+  eq([forgotten.ratedDays, forgotten.shortDays, forgotten.missedDays, forgotten.unclosedDays], [0, 0, 0, 1],
+    "a forgotten clock-out is neither met nor short, and is counted as unclosed");
+
+  const mixed = summarize([entry({date:"2026-08-10", clockIn:"08:00", clockOut:"16:00"}),
+                           entry({date:"2026-08-11", clockIn:"08:00"})]);
+  eq([mixed.ratedDays, mixed.metDays, mixed.shortDays, mixed.ratedWorkedSum, mixed.ratedTargetSum], [1, 1, 0, 480, 480],
+    "beside a full day it reads 100% with nothing short, not 100% beside '1 day short'");
+
+  const savedWorkDays = settings.workDays;
+  settings.workDays = [0,1,2,3,4,5,6]; // guarantee "today" is scheduled, whenever the suite runs
+  const blankToday = summarize([entry({date: todayStr()})]);
+  eq([blankToday.ratedDays, blankToday.pendingDays], [0, 1],
+    "a blank row for today is pending, not a missed day -- the day isn't over");
+  settings.workDays = savedWorkDays;
 }
 
 // ---------------------------------------------------------------- H-14
