@@ -33,6 +33,7 @@ const SUITES = [
   "clock/test-clock.js",
   "push/test-push-actions.js",
   "regression/audit-logic.js",
+  "regression/clockout-reminders.js",
   "regression/audit-dom.js",
   "regression/settings-swap.js",
   "regression/admin-tab.js",

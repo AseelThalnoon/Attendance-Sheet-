@@ -1079,6 +1079,7 @@ import { makeSchedule } from "./src/schedule.js";
     var workedSum=0, loggedDays=0, targetSum=0, diffSum=0, openDays=0;
     var incompleteDays=0, pendingDays=0;
     var shortDays=0, shortSum=0, metDays=0, missedDays=0, ratedDays=0;
+    var unclosedDays=0, ratedWorkedSum=0, ratedTargetSum=0;
     list.forEach(function(e){
       var c = computeEntry(e);
       // Every day type that represents actual work rolls up here (see
@@ -1113,24 +1114,29 @@ import { makeSchedule } from "./src/schedule.js";
       if(c.open) openDays++;
 
       // The Shortfall tab cares about one thing: did the day reach its target
-      // hours — not when the person clocked in or out. A day still running
-      // right now can't be judged yet, so it's held out as pending rather
-      // than scored, using the same runningToday rule as the bank above.
-      // Unlike the old late-arrival check this replaced, it doesn't require a
-      // clock-in either: a scheduled day nobody logged at all is the
-      // clearest shortfall there is, not an invisible one.
-      if(c.targetMin > 0){
-        if(runningToday){
-          pendingDays++;
-        } else {
-          ratedDays++;
-          var worked = c.workedMin !== null ? c.workedMin : 0;
-          var short = c.targetMin - worked;
-          if(short > 0){
-            shortDays++; shortSum += short;
-            if(worked === 0) missedDays++; // nothing logged at all, not just short
-          } else metDays++;
-        }
+      // hours — not when the person clocked in or out. shortfallState() below
+      // decides how each day is treated, and the tab's flagged-days table asks
+      // it too, so the cards and the list cannot disagree about a day.
+      //
+      // ratedWorkedSum/ratedTargetSum are that tab's "% accomplished", over
+      // exactly the days it rates. workedSum/targetSum above can't serve: they
+      // leave out blank rows and unlogged days, which the tab counts as short,
+      // so the percentage could read 100% beside a list of short days.
+      var sf = shortfallState(e, c);
+      if(sf === "pending"){
+        pendingDays++;
+      } else if(sf === "unclosed"){
+        unclosedDays++;
+      } else if(sf === "rated"){
+        ratedDays++;
+        var worked = c.workedMin !== null ? c.workedMin : 0;
+        ratedWorkedSum += worked;
+        ratedTargetSum += c.targetMin;
+        var short = c.targetMin - worked;
+        if(short > 0){
+          shortDays++; shortSum += short;
+          if(worked === 0) missedDays++; // nothing logged at all, not just short
+        } else metDays++;
       }
     });
     return {
@@ -1138,10 +1144,58 @@ import { makeSchedule } from "./src/schedule.js";
       diffSum:diffSum, openDays:openDays, incompleteDays:incompleteDays,
       avgMin: loggedDays ? workedSum/loggedDays : 0,
       shortDays:shortDays, shortSum:shortSum, metDays:metDays, missedDays:missedDays,
-      ratedDays:ratedDays, pendingDays:pendingDays,
+      ratedDays:ratedDays, pendingDays:pendingDays, unclosedDays:unclosedDays,
+      ratedWorkedSum:ratedWorkedSum, ratedTargetSum:ratedTargetSum,
       metRate: ratedDays ? (metDays/ratedDays)*100 : null,
       avgShortMin: shortDays ? shortSum/shortDays : 0
     };
+  }
+
+  // Where one day stands on the Shortfall tab:
+  //   none     -- nothing owed that day (leave, WFH, a day off)
+  //   pending  -- today or later with no hours yet: the day isn't over
+  //   unclosed -- clocked in on an earlier day and never clocked out. The
+  //               hours are unknown, not zero, so the day is neither met nor
+  //               short until the clock-out is added (the reminder banner asks
+  //               for it). This tab used to count it as "nothing logged at
+  //               all" while its own % figure left it out, so the two
+  //               contradicted each other.
+  //   rated    -- judged: it met its target or fell short. A blank row and an
+  //               unlogged workday (see unloggedWorkdays) are rated as a full
+  //               day short.
+  function shortfallState(e, c){
+    if(!(c.targetMin > 0)) return "none";
+    if(c.workedMin !== null) return "rated";
+    if(e.date >= todayStr()) return "pending";
+    if(e.clockIn && !e.clockOut) return "unclosed";
+    return "rated";
+  }
+
+  // Scheduled workdays in [from, to] with no entry at all, as blank Regular
+  // rows marked `unlogged` -- for the Shortfall tab and nowhere else. The
+  // overtime figure and the averages count logged days only, by decision.
+  // Before this, the tab only ever saw days that had a row, so a day nobody
+  // logged at all was invisible, and the tab could say every day met its
+  // target across a month of gaps.
+  //
+  // Starts no earlier than the person's first entry, so the weeks before they
+  // began using the app don't read as missed, and stops at yesterday, since
+  // today isn't over. An empty from/to means "as far as those bounds allow".
+  function unloggedWorkdays(from, to){
+    if(!entries.length) return [];
+    var have = {}, first = entries[0].date;
+    entries.forEach(function(e){ have[e.date] = true; if(e.date < first) first = e.date; });
+    var last = dayBefore(todayStr());
+    if(!from || from < first) from = first;
+    if(!to || to > last) to = last;
+    var out = [];
+    for(var d = dateFromStr(from), n = 0; dateToStr(d) <= to && n < 4000; d.setDate(d.getDate() + 1), n++){
+      var ds = dateToStr(d);
+      if(!have[ds] && isScheduled(ds)){
+        out.push({date:ds, clockIn:"", clockOut:"", type:"regular", note:"", unlogged:true});
+      }
+    }
+    return out;
   }
   function groupBy(list, keyFn){
     var out = {};
@@ -2744,6 +2798,18 @@ import { makeSchedule } from "./src/schedule.js";
       return true;
     });
   }
+  // The date span the Shortfall filters cover, for unloggedWorkdays(). "All"
+  // has no span of its own; unloggedWorkdays() then runs from the first entry.
+  function punctRange(){
+    var year = document.getElementById("punctYearSelect").value;
+    var month = document.getElementById("punctMonthSelect").value;
+    if(month !== "all"){
+      var p = month.split("-");
+      return {from: month + "-01", to: dateToStr(new Date(+p[0], +p[1], 0))};
+    }
+    if(year !== "all") return {from: year + "-01-01", to: year + "-12-31"};
+    return {from: "", to: ""};
+  }
   function punctScopeLabel(){
     var year = document.getElementById("punctYearSelect").value;
     var month = document.getElementById("punctMonthSelect").value;
@@ -3281,9 +3347,19 @@ import { makeSchedule } from "./src/schedule.js";
     // judgement attached, since more hours isn't inherently positive.
     var thisMonthDate = dateFromStr(today);
     var prevMonthDate = new Date(thisMonthDate.getFullYear(), thisMonthDate.getMonth()-1, 1);
-    var pms = summarize(entries.filter(function(e){ return monthKey(e.date) === monthKey(dateToStr(prevMonthDate)); }));
+    var prevKey = monthKey(dateToStr(prevMonthDate));
+    var pms = summarize(entries.filter(function(e){ return monthKey(e.date) === prevKey; }));
     renderTrend("monthTrend", ms.loggedDays ? ms.avgMin : null, pms.loggedDays ? pms.avgMin : null, "last month", false, true);
-    renderTrend("otBankTrend", ms.loggedDays ? ms.diffSum : null, pms.loggedDays ? pms.diffSum : null, "last month", true);
+    // The overtime figure is a running total, so it is compared with last
+    // month up to the same day: on the 3rd, three days against three days.
+    // Against the whole of last month the arrow mostly reported the date.
+    // (The average above is a rate, and compares fairly as it is.)
+    var dayOfMonth = thisMonthDate.getDate();
+    var pmsToDate = summarize(entries.filter(function(e){
+      return monthKey(e.date) === prevKey && +e.date.slice(8, 10) <= dayOfMonth;
+    }));
+    renderTrend("otBankTrend", ms.loggedDays ? ms.diffSum : null,
+      pmsToDate.loggedDays ? pmsToDate.diffSum : null, "this point last month", true);
 
     // Streak: consecutive scheduled workdays with worked time logged.
     //
@@ -4005,11 +4081,14 @@ import { makeSchedule } from "./src/schedule.js";
         (isWeekBoundary(i) ? ' cal-weekstart' : '') + '"></div>';
     }
 
-    // Month totals, over the days that actually carry an entry -- the Shortfall
-    // tab owns the harder question of what unlogged working days cost. This
-    // line answers "how did the month I am looking at go", which is otherwise
-    // not on this screen at all.
-    var sumWorked = 0, sumTarget = 0, daysLogged = 0;
+    // Month totals by the Overview's own rules (summarize): Regular and Half
+    // Day work on scheduled days. This line used to add up every cell with
+    // hours -- WFH, trips, training and days off included -- and count leave
+    // days as "logged", so the Calendar and the Overview gave two different
+    // "over target" figures for the same month. The cells still show every
+    // day's own hours. Unlogged workdays are the Shortfall tab's question.
+    var monthEntries = entries.filter(function(e){ return monthKey(e.date) === y + "-" + pad2(m+1); });
+    var monthSummary = summarize(monthEntries);
 
     for(var day=1; day<=daysInMonth; day++){
       var dStr = y+"-"+pad2(m+1)+"-"+pad2(day);
@@ -4018,7 +4097,6 @@ import { makeSchedule } from "./src/schedule.js";
       var entry = entries.find(function(e){ return e.date === dStr; });
       var c = entry ? computeEntry(entry) : null;
       var worked = c && c.workedMin !== null ? c.workedMin : null;
-      if(worked !== null){ sumWorked += worked; daysLogged++; if(c.targetMin) sumTarget += c.targetMin; }
 
       var title = entry ? (typeLabel(entry.type) + (entry.clockIn ? " · " + formatTime12(entry.clockIn) : "")) : "No entry";
       // The hours are on the cell now, so they belong in the label the screen
@@ -4098,14 +4176,16 @@ import { makeSchedule } from "./src/schedule.js";
       filled++;
     }
     document.getElementById("calendarGrid").innerHTML = html;
-    renderCalendarSummary(daysLogged, sumWorked, sumWorked - sumTarget);
+    renderCalendarSummary(monthSummary.loggedDays, monthSummary.workedSum, monthSummary.diffSum, monthEntries.length > 0);
   }
 
-  function renderCalendarSummary(days, workedMin, diffMin){
+  function renderCalendarSummary(days, workedMin, diffMin, anyEntries){
     var host = document.getElementById("calSummary");
     if(!host) return;
     if(!days){
-      host.innerHTML = '<span class="cal-sum-empty">Nothing logged this month yet.</span>';
+      host.innerHTML = '<span class="cal-sum-empty">' +
+        (anyEntries ? "No regular workdays logged this month." : "Nothing logged this month yet.") +
+        '</span>';
       return;
     }
     var diff = diffMin === 0
@@ -4115,7 +4195,7 @@ import { makeSchedule } from "./src/schedule.js";
           (diffMin > 0 ? "over target" : "under target") +
         '</span>';
     host.innerHTML =
-      '<span><b>'+days+'</b> '+(days === 1 ? "day" : "days")+' logged</span>' +
+      '<span><b>'+days+'</b> '+(days === 1 ? "workday" : "workdays")+' logged</span>' +
       '<span><b>'+escapeHtml(minutesToHoursStr(workedMin))+'</b> worked</span>' +
       diff;
   }
@@ -4385,12 +4465,17 @@ import { makeSchedule } from "./src/schedule.js";
 
   // ---------- Punctuality ----------
   function renderPunctuality(){
-    var scope = punctEntries();
+    var range = punctRange();
+    var scope = punctEntries().concat(unloggedWorkdays(range.from, range.to));
     var s = summarize(scope);
 
-    document.getElementById("punctCount").textContent =
-      (s.ratedDays ? s.ratedDays + " day" + (s.ratedDays===1?"":"s") + " assessed" : "") +
-      (s.pendingDays ? (s.ratedDays ? " · " : "") + s.pendingDays + " still in progress" : "");
+    var countParts = [];
+    if(s.ratedDays) countParts.push(s.ratedDays + " day" + (s.ratedDays===1?"":"s") + " assessed");
+    if(s.pendingDays) countParts.push(s.pendingDays + " still in progress");
+    // Neither met nor short until the clock-out is added; named here so a
+    // forgotten punch doesn't silently drop out of the count.
+    if(s.unclosedDays) countParts.push(s.unclosedDays + " missing a clock-out");
+    document.getElementById("punctCount").textContent = countParts.join(" · ");
 
     // What share of the period's target hours actually got worked — a
     // continuous read on accomplishment (89%, not just "4 of 5 days"), and
@@ -4399,12 +4484,12 @@ import { makeSchedule } from "./src/schedule.js";
     // — rounding that to "100%" would claim the target was fully met when
     // it wasn't.
     var rateEl = document.getElementById("pMetRate");
-    if(s.targetSum){
-      var accomplishedPct = Math.floor((s.workedSum / s.targetSum) * 100);
+    if(s.ratedTargetSum){
+      var accomplishedPct = Math.floor((s.ratedWorkedSum / s.ratedTargetSum) * 100);
       rateEl.textContent = accomplishedPct + "%";
       rateEl.className = "stat-value " + (accomplishedPct >= 100 ? "positive" : (accomplishedPct < 70 ? "negative" : ""));
       document.getElementById("pMetRateDetail").textContent =
-        minutesToHoursStr(s.workedSum) + " of " + minutesToHoursStr(s.targetSum) + " target";
+        minutesToHoursStr(s.ratedWorkedSum) + " of " + minutesToHoursStr(s.ratedTargetSum) + " target";
     } else {
       rateEl.textContent = "—";
       rateEl.className = "stat-value";
@@ -4479,9 +4564,12 @@ import { makeSchedule } from "./src/schedule.js";
     // ignores the month one, so the chart still gives context around the
     // month being inspected.
     var chartYear = document.getElementById("punctYearSelect").value;
-    var chartSource = chartYear === "all"
+    var chartSource = (chartYear === "all"
       ? entries
-      : entries.filter(function(e){ return yearKey(e.date) === chartYear; });
+      : entries.filter(function(e){ return yearKey(e.date) === chartYear; })
+    ).concat(chartYear === "all"
+      ? unloggedWorkdays("", "")
+      : unloggedWorkdays(chartYear + "-01-01", chartYear + "-12-31"));
     var byMonth = groupBy(chartSource, monthKey);
     var mKeys = Object.keys(byMonth).sort();
     renderTrendChart(document.getElementById("punctChart"), mKeys.map(function(k){
@@ -4499,13 +4587,12 @@ import { makeSchedule } from "./src/schedule.js";
       };
     }), {height:140, targetMin:0, formatter:minutesOnlyStr, accent:cssVar("--negative"), name:"Average shortfall per short day, by month"});
 
-    // Table of every day that fell short, most recent first. A day still
-    // running today is excluded — it hasn't ended, so there's nothing to
-    // judge yet — same rule summarize() uses for the stats above.
+    // Table of every day that fell short, most recent first. Rated days only,
+    // by the same shortfallState() the cards above use: a day still running,
+    // or one missing its clock-out, isn't listed as short.
     var flagged = scope.filter(function(e){
       var c = computeEntry(e);
-      if(!c.targetMin) return false;
-      if(c.open && e.date === todayStr()) return false;
+      if(shortfallState(e, c) !== "rated") return false;
       var worked = c.workedMin !== null ? c.workedMin : 0;
       return (c.targetMin - worked) > 0;
     }).sort(function(a,b){ return b.date.localeCompare(a.date); });
@@ -4540,7 +4627,11 @@ import { makeSchedule } from "./src/schedule.js";
         "<td class='num c-meta' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
         "<td class='num c-meta' data-label='Target'><span class=\"cell-label\">Target</span>"+minutesToHoursStr(c.targetMin)+"</td>"+
         "<td class='num c-figure' data-label='Short By'><span class=\"cell-label\">Short By</span><span class='late-cell'>"+minutesToHoursStr(shortMin)+"</span></td>"+
-        "<td class='note-cell c-note"+(e.note ? "" : " c-off")+"' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>";
+        // An unlogged day has no row to carry a note, so the note cell says
+        // that; otherwise the line reads as a logged day with a blank figure.
+        (e.unlogged
+          ? "<td class='note-cell c-note' data-label='Note'><span class=\"cell-label\">Note</span><span class='muted-inline'>No entry</span></td>"
+          : "<td class='note-cell c-note"+(e.note ? "" : " c-off")+"' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>");
       body.appendChild(tr);
     });
   }
