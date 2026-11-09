@@ -2,6 +2,9 @@
 // the 2026-08-15 audit. These measure the real page in a real browser, because
 // several of the original bugs were invisible to any check that only asked
 // "was the class toggled?" — the class WAS toggled; an inline style outranked it.
+// Answers anything this suite does not route itself to *.supabase.co, so a
+// direct run never reaches the live project (see ../no-network.js).
+require("../no-network");
 const { chromium } = require("playwright");
 const vm = require("vm");
 const { slice } = require("../extract");

@@ -102,7 +102,12 @@ const supabase = supabaseConfigured
 
 // The script tag carries a cache-busting query (index.html: app.js?v=...).
 // Reading it back off import.meta.url means a report names the build that
-// produced it without anyone having to remember to bump a second constant.
+// produced it. The label is the service worker's shell-cache version (sw.js
+// CACHE_NAME, "attendance-ledger-shell-<label>") and tests/regression/
+// crash-handler.js fails when the two differ, so the bump that ships a release
+// also renames the script. It went 67 commits unchanged as "primary-invert-1"
+// before that: every report said the same build, and a fresh page could be
+// handed a cached script from weeks earlier under an unchanged URL.
 const CLIENT_BUILD = (function(){
   try{ return new URL(import.meta.url).searchParams.get("v") || "unversioned"; }
   catch(e){ return "unknown"; }
@@ -166,10 +171,15 @@ function showCrashNotice(){
 }
 
 // Fire-and-forget. A failure to record a failure is not worth a second error:
-// no await, no retry, nothing surfaced. Inserts are authenticated-only (see
-// the client_errors policy), so a crash on the signed-out screen reaches the
-// console and nowhere else — the alternative is an anon-writable table behind
-// a public URL, which is a spam target rather than a diagnostic.
+// no await, no retry, nothing surfaced. user_id is filled in by the database
+// (auth.uid()), so a signed-out crash arrives with none. Those were refused
+// until 2026-11-08, which left the sign-in and sign-up screens — the first
+// thing every new person meets — as the one place a crash went unrecorded.
+// supabase/migrations/*_crash_reports_from_signed_out_screens.sql opens a
+// narrower door for them: the anon key is public, so signed-out rows are
+// capped per hour, stamped with the server's clock, and automated browsers
+// are dropped. Until that migration is applied they are still refused, which
+// costs nothing here: the insert fails quietly, as it always has.
 function persistCrash(kind, message, info){
   if(!supabase) return;
   try{
@@ -261,6 +271,40 @@ window.addEventListener("unhandledrejection", function(ev){
 // just silently sign them in and never reset anything.
 // This second, minimal listener exists solely to catch that one-shot event
 // early and remember it for the real handler to check.
+// ---------- Startup wiring that survives a missing element ----------
+// Almost every control is wired once, at startup. Wired the old way, with
+// getElementById("x").addEventListener(...), a missing "x" on the
+// page throws, and since it throws at the top level of the app's one big
+// function, nothing after it runs: no auth listener, no render, a dead app.
+// That happened eleven times on 2026-11-03, when a browser paired a freshly
+// loaded index.html with a cached app.js from before #backupNowBtn was removed
+// (client_errors: "document.getElementById(...) is null", app.js:4423).
+//
+// onId() does the same wiring and skips an element that is not there. The
+// rest of the app still starts; the missing ids are reported once, together,
+// with the banner that offers a reload. A reload is the actual fix: it fetches
+// a fresh index.html, which names the current script by its ?v= label.
+var missingElementIds = [];
+function onId(id, type, handler, options){
+  var el = document.getElementById(id);
+  if(el){
+    el.addEventListener(type, handler, options);
+    return el;
+  }
+  if(missingElementIds.indexOf(id) === -1) missingElementIds.push(id);
+  if(missingElementIds.length === 1){
+    // Deferred, so the one report lists every id startup found missing rather
+    // than only the first.
+    setTimeout(function(){
+      reportCrash("error", {
+        message: "Page and script out of step (a stale cached copy?): no #" +
+          missingElementIds.join(", #")
+      });
+    }, 0);
+  }
+  return null;
+}
+
 var __earlyRecoverySession = null;
 if(supabase){
   supabase.auth.onAuthStateChange(function(event, session){
@@ -1113,7 +1157,7 @@ import { makeSchedule } from "./src/schedule.js";
   // Not a tab: the tab strip is views of attendance, and this manages the
   // organisation. Employees never see the button, and renderAdmin() refuses to
   // paint for a non-admin regardless of how the panel was opened.
-  document.getElementById("adminBtn").addEventListener("click", function(){
+  onId("adminBtn", "click", function(){
     if(!isAdmin) return;
     activateTab("admin");
     var card = document.getElementById("tabContentCard");
@@ -1433,7 +1477,7 @@ import { makeSchedule } from "./src/schedule.js";
     }
 
   }
-  document.getElementById("pushDevicesList").addEventListener("click", async function(ev){
+  onId("pushDevicesList", "click", async function(ev){
     var btn = ev.target.closest("[data-forget-device]");
     if(!btn) return;
     var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this person";
@@ -1523,7 +1567,7 @@ import { makeSchedule } from "./src/schedule.js";
       ? (myPushDeviceCount === 1 ? "On · 1 device" : "On · " + myPushDeviceCount + " devices")
       : "Off on this browser");
   }
-  document.getElementById("sPushEnabled").addEventListener("change", async function(){
+  onId("sPushEnabled", "change", async function(){
     var box = this;
     box.disabled = true;
     try{
@@ -2294,7 +2338,7 @@ import { makeSchedule } from "./src/schedule.js";
     {year:2031, start:"2030-12-26", end:"2031-01-24"}
   ];
 
-  document.getElementById("addRamadanBtn").addEventListener("click", function(){
+  onId("addRamadanBtn", "click", function(){
     var current = readPeriodRows();
     var today = todayStr();
 
@@ -2327,7 +2371,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(rows.length) rows[rows.length-1].scrollIntoView({behavior:"smooth", block:"nearest"});
   });
 
-  document.getElementById("addPeriodBtn").addEventListener("click", function(){
+  onId("addPeriodBtn", "click", function(){
     var wrap = document.getElementById("periodsList");
     var current = readPeriodRows();
     var year = new Date().getFullYear();
@@ -2341,7 +2385,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(rows.length) rows[rows.length-1].querySelector('[data-p="name"]').focus();
   });
 
-  document.getElementById("periodsList").addEventListener("click", function(ev){
+  onId("periodsList", "click", function(ev){
     var btn = ev.target.closest("[data-remove-period]");
     if(!btn) return;
     var row = btn.closest("[data-period]");
@@ -2366,7 +2410,7 @@ import { makeSchedule } from "./src/schedule.js";
     };
   }
 
-  document.getElementById("addDefaultsRamadanBtn").addEventListener("click", function(){
+  onId("addDefaultsRamadanBtn", "click", function(){
     var current = readPeriodRows("defaultsPeriodsList");
     var today = todayStr();
     var next = RAMADAN_DATES.find(function(r){
@@ -2394,7 +2438,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(rows.length) rows[rows.length-1].scrollIntoView({behavior:"smooth", block:"nearest"});
   });
 
-  document.getElementById("addDefaultsPeriodBtn").addEventListener("click", function(){
+  onId("addDefaultsPeriodBtn", "click", function(){
     var wrap = document.getElementById("defaultsPeriodsList");
     var current = readPeriodRows("defaultsPeriodsList");
     var base = currentDefaultsSchedule();
@@ -2409,7 +2453,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(rows.length) rows[rows.length-1].querySelector('[data-p="name"]').focus();
   });
 
-  document.getElementById("defaultsPeriodsList").addEventListener("click", function(ev){
+  onId("defaultsPeriodsList", "click", function(ev){
     var btn = ev.target.closest("[data-remove-period]");
     if(!btn) return;
     var row = btn.closest("[data-period]");
@@ -2423,7 +2467,7 @@ import { makeSchedule } from "./src/schedule.js";
   // directly. Same pattern as the header Admin button: click the real tab
   // control, then bring #tabContentCard on screen, since this button lives
   // up in the header rather than beside the content it's opening.
-  document.getElementById("settingsBtn").addEventListener("click", function(){
+  onId("settingsBtn", "click", function(){
     document.querySelector('.tab-btn[data-tab="settings"]').click();
     var card = document.getElementById("tabContentCard");
     if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
@@ -2433,7 +2477,7 @@ import { makeSchedule } from "./src/schedule.js";
   // measured against that — so the first run offers the schedule before it
   // offers anything else. Same hop as the header button above: click the real
   // tab control, then bring the card it opens into view.
-  document.getElementById("firstRunSettingsBtn").addEventListener("click", function(){
+  onId("firstRunSettingsBtn", "click", function(){
     document.querySelector('.tab-btn[data-tab="settings"]').click();
     // ...and then onto Working Hours, which is what the label promises. The
     // console opens on Profile — it is the first section, deliberately — so
@@ -2456,10 +2500,10 @@ import { makeSchedule } from "./src/schedule.js";
   //
   // Same entry point as the Log's Add Entry button, so a day recorded from a
   // ring goes through the identical validation, overlap guard and save path.
-  document.getElementById("appShell").addEventListener("click", function(ev){
+  onId("appShell", "click", function(ev){
     if(ev.target.closest(".first-run-add")) openNewEntryForm();
   });
-  document.getElementById("saveSettingsBtn").addEventListener("click", async function(){
+  onId("saveSettingsBtn", "click", async function(){
     // You may always edit your own schedule; editing someone else's requires
     // admin. The database enforces the same rule, so this is a courtesy check
     // that produces a clear message rather than a raw RLS rejection.
@@ -4275,9 +4319,9 @@ import { makeSchedule } from "./src/schedule.js";
     else calendarViewDate.setMonth(calendarViewDate.getMonth() + dir);
     renderCalendarView();
   }
-  document.getElementById("calPrevBtn").addEventListener("click", function(){ stepCalendar(-1); });
-  document.getElementById("calNextBtn").addEventListener("click", function(){ stepCalendar(1); });
-  document.getElementById("calTodayBtn").addEventListener("click", function(){
+  onId("calPrevBtn", "click", function(){ stepCalendar(-1); });
+  onId("calNextBtn", "click", function(){ stepCalendar(1); });
+  onId("calTodayBtn", "click", function(){
     calendarViewDate = new Date();
     renderCalendarView();
   });
@@ -4293,7 +4337,7 @@ import { makeSchedule } from "./src/schedule.js";
     openEntryModal();
   }
 
-  document.getElementById("calendarGrid").addEventListener("click", function(ev){
+  onId("calendarGrid", "click", function(ev){
     var cell = ev.target.closest(".cal-cell[data-date]");
     if(!cell) return;
     var dStr = cell.getAttribute("data-date");
@@ -4312,13 +4356,13 @@ import { makeSchedule } from "./src/schedule.js";
     var tag = t && t.tagName;
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable);
   }
-  document.getElementById("tab-calendar").addEventListener("keydown", function(ev){
+  onId("tab-calendar", "keydown", function(ev){
     if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
     if(isEditableTarget(ev.target)) return;
     ev.preventDefault();
     document.getElementById(ev.key === "ArrowLeft" ? "calPrevBtn" : "calNextBtn").click();
   });
-  document.getElementById("tab-team").addEventListener("keydown", function(ev){
+  onId("tab-team", "keydown", function(ev){
     if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
     if(isEditableTarget(ev.target)) return;
     ev.preventDefault();
@@ -4610,7 +4654,7 @@ import { makeSchedule } from "./src/schedule.js";
   // hides header, main and footer unconditionally — printed one blank sheet.
   // No toast, no console line anyone saw, on the only artefact this app makes
   // for somebody else. A failure says so now.
-  document.getElementById("printBtn").addEventListener("click", function(){
+  onId("printBtn", "click", function(){
     try{ buildPrintReport(); }
     catch(err){
       console.error(err);
@@ -4644,7 +4688,7 @@ import { makeSchedule } from "./src/schedule.js";
   var selectedEntryIds = new Set();
   var form = document.getElementById("entryForm");
 
-  document.getElementById("fillStandardBtn").addEventListener("click", function(){
+  onId("fillStandardBtn", "click", function(){
     // Resolve against the date being edited, not the base schedule — a seasonal
     // period (Ramadan, summer hours) overrides the standard start/end for the
     // dates it covers.
@@ -4738,11 +4782,11 @@ import { makeSchedule } from "./src/schedule.js";
     else if(!modal.contains(document.activeElement)){ ev.preventDefault(); first.focus(); }
   }
 
-  document.getElementById("entryModal").addEventListener("click", function(ev){
+  onId("entryModal", "click", function(ev){
     if(ev.target === this) closeEntryModal();
   });
-  document.getElementById("entryModalClose").addEventListener("click", closeEntryModal);
-  document.getElementById("addEntryBtn").addEventListener("click", function(){ openNewEntryForm(); });
+  onId("entryModalClose", "click", closeEntryModal);
+  onId("addEntryBtn", "click", function(){ openNewEntryForm(); });
 
   function resetForm(){
     form.reset();
@@ -4794,7 +4838,7 @@ import { makeSchedule } from "./src/schedule.js";
     openEntryModal("fOut");
   }
 
-  document.getElementById("fDate").addEventListener("change", function(){
+  onId("fDate", "change", function(){
     var toDate = document.getElementById("fToDate");
     toDate.min = this.value;
     // Changing From always collapses To to match it. This keeps a single-day
@@ -4803,7 +4847,7 @@ import { makeSchedule } from "./src/schedule.js";
     toDate.value = this.value;
   });
 
-  document.getElementById("bulkApplyFromDate").addEventListener("change", function(){
+  onId("bulkApplyFromDate", "change", function(){
     var toDate = document.getElementById("bulkApplyToDate");
     toDate.min = this.value;
     if(toDate.value && toDate.value < this.value) toDate.value = this.value;
@@ -4822,7 +4866,7 @@ import { makeSchedule } from "./src/schedule.js";
   // already an entry for that date" errors for what was, from where they were
   // sitting, one double-tap.
   var entrySubmitInFlight = false;
-  form.addEventListener("submit", async function(ev){
+  if(form) form.addEventListener("submit", async function(ev){
     ev.preventDefault();
     if(entrySubmitInFlight) return;
     entrySubmitInFlight = true;
@@ -4969,9 +5013,9 @@ import { makeSchedule } from "./src/schedule.js";
     );
   }
 
-  document.getElementById("cancelEditBtn").addEventListener("click", resetForm);
+  onId("cancelEditBtn", "click", resetForm);
 
-  document.getElementById("logBody").addEventListener("click", async function(ev){
+  onId("logBody", "click", async function(ev){
     var btn = ev.target.closest("button");
     if(!btn){
       // The visible checkbox is 16px, well under a comfortable tap target —
@@ -5057,14 +5101,14 @@ import { makeSchedule } from "./src/schedule.js";
     if(on) updateBulkToolbar();
   }
 
-  document.getElementById("selectModeToggle").addEventListener("click", function(){
+  onId("selectModeToggle", "click", function(){
     setSelectMode(!selectModeActive);
   });
-  document.getElementById("bulkCancelBtn").addEventListener("click", function(){
+  onId("bulkCancelBtn", "click", function(){
     setSelectMode(false);
   });
 
-  document.getElementById("logBody").addEventListener("change", function(ev){
+  onId("logBody", "change", function(ev){
     var box = ev.target.closest(".row-select");
     if(!box) return;
     var id = box.getAttribute("data-id");
@@ -5072,7 +5116,7 @@ import { makeSchedule } from "./src/schedule.js";
     updateBulkToolbar();
   });
 
-  document.getElementById("bulkSelectAll").addEventListener("change", function(){
+  onId("bulkSelectAll", "change", function(){
     var checked = this.checked;
     document.querySelectorAll("#logBody .row-select").forEach(function(box){
       box.checked = checked;
@@ -5082,7 +5126,7 @@ import { makeSchedule } from "./src/schedule.js";
     updateBulkToolbar();
   });
 
-  document.getElementById("bulkDeleteBtn").addEventListener("click", async function(){
+  onId("bulkDeleteBtn", "click", async function(){
     var ids = Array.from(selectedEntryIds);
     if(!ids.length) return;
     var confirmed = await showConfirm(
@@ -5513,10 +5557,10 @@ import { makeSchedule } from "./src/schedule.js";
     punchClock(action);
   }
 
-  document.getElementById("qcClockBtn").addEventListener("click", function(){ clockControlClick(this); });
-  document.getElementById("qcEditBtn").addEventListener("click", function(){ if(!this.disabled) editToday(); });
-  document.getElementById("stickyClockBtn").addEventListener("click", function(){ clockControlClick(this); });
-  document.getElementById("bnClockBtn").addEventListener("click", function(){ clockControlClick(this); });
+  onId("qcClockBtn", "click", function(){ clockControlClick(this); });
+  onId("qcEditBtn", "click", function(){ if(!this.disabled) editToday(); });
+  onId("stickyClockBtn", "click", function(){ clockControlClick(this); });
+  onId("bnClockBtn", "click", function(){ clockControlClick(this); });
 
   // The sticky bar only appears once the main punch card has scrolled out of
   // view. It also steps aside whenever Settings is open, since clocking in
@@ -5858,22 +5902,22 @@ import { makeSchedule } from "./src/schedule.js";
     });
   });
 
-  document.getElementById("logYearSelect").addEventListener("change", function(){
+  onId("logYearSelect", "change", function(){
     populateFilters();   // month list depends on the chosen year
     renderLog();
     renderWeekly();
   });
-  document.getElementById("monthFilterSelect").addEventListener("change", function(){
+  onId("monthFilterSelect", "change", function(){
     renderLog();
     renderWeekly();
   });
-  document.getElementById("monthlyYearSelect").addEventListener("change", renderMonthly);
+  onId("monthlyYearSelect", "change", renderMonthly);
 
-  document.getElementById("punctYearSelect").addEventListener("change", function(){
+  onId("punctYearSelect", "change", function(){
     populatePunctFilters();   // month list depends on the chosen year
     renderPunctuality();
   });
-  document.getElementById("punctMonthSelect").addEventListener("change", renderPunctuality);
+  onId("punctMonthSelect", "change", renderPunctuality);
 
   // Search bar: re-filter the log as the person types or narrows the range.
   ["searchInput","typeFilterSelect","fromDate","toDate"].forEach(function(id){
@@ -5896,14 +5940,14 @@ import { makeSchedule } from "./src/schedule.js";
     badge.style.display = count ? "inline-flex" : "none";
   }
 
-  document.getElementById("advancedFiltersToggle").addEventListener("click", function(){
+  onId("advancedFiltersToggle", "click", function(){
     var panel = document.getElementById("advancedFiltersPanel");
     var opening = panel.style.display === "none";
     panel.style.display = opening ? "flex" : "none";
     this.classList.toggle("active", opening);
   });
 
-  document.getElementById("clearFiltersBtn").addEventListener("click", function(){
+  onId("clearFiltersBtn", "click", function(){
     document.getElementById("searchInput").value = "";
     document.getElementById("typeFilterSelect").value = "all";
     document.getElementById("fromDate").value = "";
@@ -5931,9 +5975,9 @@ import { makeSchedule } from "./src/schedule.js";
     download("attendance-backup-"+todayStr()+".json",
       JSON.stringify({version:3, settings:settings, entries:entries}, null, 2), "application/json");
   }
-  document.getElementById("exportJsonBtn").addEventListener("click", exportJson);
+  onId("exportJsonBtn", "click", exportJson);
 
-  document.getElementById("exportCsvBtn").addEventListener("click", function(){
+  onId("exportCsvBtn", "click", function(){
     var rows = [["Date","Day","Clock In","Clock Out","Worked (h)","Target (h)","Diff (h)","Late (min)","Early (min)","Type","Note"]];
     entries.slice().sort(function(a,b){ return a.date.localeCompare(b.date); }).forEach(function(e){
       var c = computeEntry(e);
@@ -5962,7 +6006,7 @@ import { makeSchedule } from "./src/schedule.js";
   // would just confuse someone building a file to import. The example rows
   // double as documentation for the Type column's short codes, since a
   // spreadsheet opens straight into them.
-  document.getElementById("csvTemplateBtn").addEventListener("click", function(){
+  onId("csvTemplateBtn", "click", function(){
     var base = dateFromStr(todayStr());
     function day(offset){ var d = new Date(base); d.setDate(d.getDate()+offset); return dateToStr(d); }
     var rows = [
@@ -6255,10 +6299,10 @@ import { makeSchedule } from "./src/schedule.js";
     }
   }
 
-  document.getElementById("importCsvBtn").addEventListener("click", function(){
+  onId("importCsvBtn", "click", function(){
     document.getElementById("importCsvFile").click();
   });
-  document.getElementById("importCsvFile").addEventListener("change", function(ev){
+  onId("importCsvFile", "change", function(ev){
     var file = ev.target.files[0];
     if(!file) return;
     var reader = new FileReader();
@@ -6274,10 +6318,10 @@ import { makeSchedule } from "./src/schedule.js";
     reader.readAsText(file);
   });
 
-  document.getElementById("importBtn").addEventListener("click", function(){
+  onId("importBtn", "click", function(){
     document.getElementById("importFile").click();
   });
-  document.getElementById("importFile").addEventListener("change", function(ev){
+  onId("importFile", "change", function(ev){
     var file = ev.target.files[0];
     if(!file) return;
     if(!isOwnData){
@@ -6377,7 +6421,7 @@ import { makeSchedule } from "./src/schedule.js";
     reader.readAsText(file);
   });
 
-  document.getElementById("clearAllBtn").addEventListener("click", async function(){
+  onId("clearAllBtn", "click", async function(){
     if(!isOwnData){
       showToast("You can only clear your own attendance data from here.", "error");
       return;
@@ -6552,7 +6596,7 @@ import { makeSchedule } from "./src/schedule.js";
   // out. It still runs on sign-out, where this is also correct.
   refreshRegistrationVisibility();
 
-  document.getElementById("showRegisterBtn").addEventListener("click", function(){
+  onId("showRegisterBtn", "click", function(){
     document.getElementById("signInForm").style.display = "none";
     document.getElementById("checkEmailPanel").style.display = "none";
     document.getElementById("registerForm").style.display = "flex";
@@ -6573,15 +6617,15 @@ import { makeSchedule } from "./src/schedule.js";
     setAuthMsg("registerSuccess", "");
     setAuthMsg("resetPasswordError", "");
   }
-  document.getElementById("showSignInBtn").addEventListener("click", showSignInForm);
-  document.getElementById("resetBackBtn").addEventListener("click", function(){
+  onId("showSignInBtn", "click", showSignInForm);
+  onId("resetBackBtn", "click", function(){
     // Drop the recovery session too: leaving it set would let the next
     // password submit land on an account the person has just backed away from.
     endPasswordRecovery();
     showSignInForm();
   });
 
-  document.getElementById("signInForm").addEventListener("submit", async function(ev){
+  onId("signInForm", "submit", async function(ev){
     ev.preventDefault();
     setAuthMsg("signInError", "");
     if(!supabaseConfigured){ setAuthMsg("signInError", "Backend isn't configured yet — see the notice above."); return; }
@@ -6601,7 +6645,7 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
-  document.getElementById("forgotPasswordBtn").addEventListener("click", async function(){
+  onId("forgotPasswordBtn", "click", async function(){
     var email = document.getElementById("siEmail").value.trim();
     if(!email){ setAuthMsg("signInError", "Enter your email above, then tap this again."); return; }
     if(!supabaseConfigured){ setAuthMsg("signInError", "Backend isn't configured yet."); return; }
@@ -6619,7 +6663,7 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
-  document.getElementById("resetPasswordForm").addEventListener("submit", async function(ev){
+  onId("resetPasswordForm", "submit", async function(ev){
     ev.preventDefault();
     setAuthMsg("resetPasswordError", "");
     var pw = document.getElementById("newPassword").value;
@@ -6716,7 +6760,7 @@ import { makeSchedule } from "./src/schedule.js";
     startResendCooldown();
   }
 
-  document.getElementById("resendConfirmBtn").addEventListener("click", async function(){
+  onId("resendConfirmBtn", "click", async function(){
     var btn = this;
     var email = document.getElementById("checkEmailAddress").textContent;
     setAuthMsg("checkEmailError", ""); setAuthMsg("checkEmailSuccess", "");
@@ -6731,7 +6775,7 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
-  document.getElementById("signInResendBtn").addEventListener("click", async function(){
+  onId("signInResendBtn", "click", async function(){
     var btn = this;
     var email = document.getElementById("siEmail").value.trim();
     if(!email){ setAuthMsg("signInError", "Enter your email above, then tap this again."); return; }
@@ -6749,13 +6793,13 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
-  document.getElementById("checkEmailBackBtn").addEventListener("click", function(){
+  onId("checkEmailBackBtn", "click", function(){
     document.getElementById("siEmail").value = document.getElementById("checkEmailAddress").textContent;
     showSignInForm();
   });
   // Back to the form with the name kept and the address ready to correct —
   // a typo in the email is the commonest reason the message never arrives.
-  document.getElementById("checkEmailChangeBtn").addEventListener("click", function(){
+  onId("checkEmailChangeBtn", "click", function(){
     document.getElementById("checkEmailPanel").style.display = "none";
     document.getElementById("registerForm").style.display = "flex";
     document.getElementById("regPassword").value = "";
@@ -6764,7 +6808,7 @@ import { makeSchedule } from "./src/schedule.js";
     em.focus(); em.select();
   });
 
-  document.getElementById("registerForm").addEventListener("submit", async function(ev){
+  onId("registerForm", "submit", async function(ev){
     ev.preventDefault();
     setAuthMsg("registerError", "");
     setAuthMsg("registerSuccess", "");
@@ -7021,7 +7065,7 @@ import { makeSchedule } from "./src/schedule.js";
     }
   }
 
-  document.getElementById("notifList").addEventListener("click", function(ev){
+  onId("notifList", "click", function(ev){
     var dismissBtn = ev.target.closest("[data-notif-dismiss]");
     if(dismissBtn){
       // Focus would otherwise fall to <body> with the row gone; the panel's
@@ -7045,7 +7089,7 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
-  document.getElementById("notifMarkAllBtn").addEventListener("click", function(){
+  onId("notifMarkAllBtn", "click", function(){
     markPushRead(pushNotifs.filter(function(n){ return !n.read; }).map(function(n){ return n.id; }));
   });
 
@@ -7060,7 +7104,7 @@ import { makeSchedule } from "./src/schedule.js";
     b.classList.remove("is-armed");
     b.textContent = "Clear all";
   }
-  document.getElementById("notifClearAllBtn").addEventListener("click", function(){
+  onId("notifClearAllBtn", "click", function(){
     var b = this;
     if(!b.classList.contains("is-armed")){
       b.classList.add("is-armed");
@@ -7153,11 +7197,11 @@ import { makeSchedule } from "./src/schedule.js";
     if(!pushNotifsLoaded) loadPushNotifications();
   }
 
-  document.getElementById("notifBtn").addEventListener("click", openNotificationPanel);
+  onId("notifBtn", "click", openNotificationPanel);
 
   // Pulls everything again without reloading the page: any punch still
   // waiting to upload goes first, so the fresh copy already includes it.
-  document.getElementById("refreshBtn").addEventListener("click", async function(){
+  onId("refreshBtn", "click", async function(){
     var btn = this;
     if(btn.disabled || !currentUser) return;
     btn.disabled = true;
@@ -7175,7 +7219,7 @@ import { makeSchedule } from "./src/schedule.js";
       btn.classList.remove("is-busy");
     }
   });
-  document.getElementById("notifCloseBtn").addEventListener("click", function(){
+  onId("notifCloseBtn", "click", function(){
     if(notifPanelClose) notifPanelClose();
   });
 
@@ -7194,13 +7238,13 @@ import { makeSchedule } from "./src/schedule.js";
     syncNotificationBell();
   })();
 
-  document.getElementById("sApplyAll").addEventListener("change", syncApplyAllScope);
+  onId("sApplyAll", "change", syncApplyAllScope);
 
   // Sign out used to fire straight off an unlabelled crimson circle sitting a
   // thumb's width from Settings, at the top of the phone screen someone opens
   // one-handed on the way in. Getting it wrong costs an email and a password
   // before you can clock in, so it asks first.
-  document.getElementById("logoutBtn").addEventListener("click", async function(){
+  onId("logoutBtn", "click", async function(){
     var ok = await showConfirm(
       "You'll need your email and password to get back in.",
       {title:"Sign out?", confirmText:"Sign out", danger:true}
@@ -7232,7 +7276,7 @@ import { makeSchedule } from "./src/schedule.js";
   // The rail's sign-out control proxies to the real button above rather than
   // duplicating its logic — the same pattern .rail-item already uses for
   // Admin and Settings.
-  document.getElementById("railLogoutBtn").addEventListener("click", function(){
+  onId("railLogoutBtn", "click", function(){
     document.getElementById("logoutBtn").click();
   });
 
@@ -7655,7 +7699,7 @@ import { makeSchedule } from "./src/schedule.js";
     sel.value = allProfiles.some(function(p){ return p.id === prev; }) ? prev : currentUser.id;
   }
 
-  document.getElementById("viewerSelect").addEventListener("change", async function(){
+  onId("viewerSelect", "change", async function(){
     var newId = this.value;
     if(newId === viewedUserId) return;
     viewedUserId = newId;
@@ -7727,13 +7771,13 @@ import { makeSchedule } from "./src/schedule.js";
       buttons.forEach(function(b){ b.disabled = false; });
     }
   }
-  document.getElementById("adminUsersList").addEventListener("click", adminRoleClick);
+  onId("adminUsersList", "click", adminRoleClick);
 
   // Applies one entry to every registered user across a date range — the
   // "mark a multi-day public holiday for the whole team in one click" case.
   var BULK_APPLY_MAX_ENTRIES = 500; // safety cap: days x team members
 
-  document.getElementById("bulkApplyBtn").addEventListener("click", async function(){
+  onId("bulkApplyBtn", "click", async function(){
     var fromDate = document.getElementById("bulkApplyFromDate").value;
     var toDate = document.getElementById("bulkApplyToDate").value;
     var type = document.getElementById("bulkApplyType").value;
@@ -8274,7 +8318,7 @@ import { makeSchedule } from "./src/schedule.js";
   // an authenticated user on their own row (migration 20260815012052) — role,
   // id and email are revoked at the grant and blocked again by a trigger — so
   // this is a one-column write and nothing here needs to guard the rest.
-  document.getElementById("displayNameForm").addEventListener("submit", async function(ev){
+  onId("displayNameForm", "submit", async function(ev){
     ev.preventDefault();
     if(!currentProfile || !currentUser) return;
     var input = document.getElementById("displayNameInput");
@@ -8325,11 +8369,11 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
-  document.getElementById("photoChooseBtn").addEventListener("click", function(){
+  onId("photoChooseBtn", "click", function(){
     document.getElementById("photoInput").click();
   });
 
-  document.getElementById("photoInput").addEventListener("change", async function(){
+  onId("photoInput", "change", async function(){
     var file = this.files && this.files[0];
     // Reset immediately so re-picking the same file still fires a change event.
     this.value = "";
@@ -8374,7 +8418,7 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
-  document.getElementById("photoRemoveBtn").addEventListener("click", async function(){
+  onId("photoRemoveBtn", "click", async function(){
     if(!currentProfile || !currentUser) return;
     var ok = await showConfirm(
       "Remove your photo? Your team will see your initials instead.",
@@ -8951,7 +8995,7 @@ import { makeSchedule } from "./src/schedule.js";
     hydrateAvatars(list);
   }
 
-  document.getElementById("teamList").addEventListener("click", function(ev){
+  onId("teamList", "click", function(ev){
     var card = ev.target.closest(".team-card");
     if(!card) return;
     var sel = document.getElementById("viewerSelect");
@@ -8963,13 +9007,13 @@ import { makeSchedule } from "./src/schedule.js";
   // otherwise receive the raw Event object from these listeners (always
   // truthy) and stagger-animate on every keystroke — the one case it's
   // meant to skip. Sort explicitly opts in; search explicitly does not.
-  document.getElementById("teamSearch").addEventListener("input", function(){ renderTeamCards(); });
-  document.getElementById("teamSort").addEventListener("change", function(){ renderTeamCards(true); });
-  document.getElementById("teamPrevMonth").addEventListener("click", function(){
+  onId("teamSearch", "input", function(){ renderTeamCards(); });
+  onId("teamSort", "change", function(){ renderTeamCards(true); });
+  onId("teamPrevMonth", "click", function(){
     teamMonth = shiftMonth(teamMonth || monthKey(todayStr()), -1);
     renderTeam();
   });
-  document.getElementById("teamNextMonth").addEventListener("click", function(){
+  onId("teamNextMonth", "click", function(){
     var next = shiftMonth(teamMonth || monthKey(todayStr()), 1);
     if(next > monthKey(todayStr())) return;
     teamMonth = next;
@@ -9263,7 +9307,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(first) first.focus();
   }
 
-  document.getElementById("adminUsersList").addEventListener("click", function(ev){
+  onId("adminUsersList", "click", function(ev){
     var btn = ev.target.closest(".row-menu-btn");
     if(!btn) return;
     if(rowMenuOwner === btn){ closeRowMenu(true); return; }
@@ -9287,8 +9331,8 @@ import { makeSchedule } from "./src/schedule.js";
     if(ev.key === "Escape") closeRowMenu(true);
   });
 
-  document.getElementById("adminUserSearch").addEventListener("input", renderAdminPeople);
-  document.getElementById("adminUserFilter").addEventListener("change", renderAdminPeople);
+  onId("adminUserSearch", "input", renderAdminPeople);
+  onId("adminUserFilter", "change", renderAdminPeople);
 
   // Named and bound twice, for the same reason adminRoleClick is: the items
   // it serves moved into the row menu, which is not inside #adminUsersList.
@@ -9399,7 +9443,7 @@ import { makeSchedule } from "./src/schedule.js";
       }
     }
   }
-  document.getElementById("adminUsersList").addEventListener("click", adminUserActionClick);
+  onId("adminUsersList", "click", adminUserActionClick);
 
   var AUDIT_LABELS = {
     insert:"Added", update:"Edited", delete:"Deleted",
@@ -9621,14 +9665,14 @@ import { makeSchedule } from "./src/schedule.js";
     return renderAuditLog();
   }
 
-  document.getElementById("auditMoreBtn").addEventListener("click", async function(){
+  onId("auditMoreBtn", "click", async function(){
     this.disabled = true;
     auditLimit += AUDIT_PAGE;
     await renderAuditLog();
     this.disabled = false;
   });
 
-  document.getElementById("auditExportBtn").addEventListener("click", function(){
+  onId("auditExportBtn", "click", function(){
     if(!auditRowsCache.length){
       showToast("Nothing to export with the current filters.", "error");
       return;
@@ -9738,7 +9782,9 @@ import { makeSchedule } from "./src/schedule.js";
     rows.forEach(function(r){
       var tr = document.createElement("tr");
       var where = crashWhere(r);
-      var who = r.reporter_name || r.reporter_email || "—";
+      // A signed-out crash has no reporter, and saying so is more use than a
+      // dash: it places the failure on the sign-in or sign-up screens.
+      var who = r.signed_out ? "Signed out" : (r.reporter_name || r.reporter_email || "—");
       // Same cell order as every other mobile-rows table, so a screen reader
       // reads it in thead order while c-figure/c-status/c-meta place it.
       tr.innerHTML =
@@ -9755,8 +9801,8 @@ import { makeSchedule } from "./src/schedule.js";
     });
   }
 
-  document.getElementById("refreshCrashBtn").addEventListener("click", renderCrashLog);
-  document.getElementById("crashFilterKind").addEventListener("change", renderCrashLog);
+  onId("refreshCrashBtn", "click", renderCrashLog);
+  onId("crashFilterKind", "change", renderCrashLog);
 
   // Quoted always: notes and names carry commas, quotes and newlines, and a
   // leading =, + or - would be executed as a formula by a spreadsheet.
@@ -9868,7 +9914,7 @@ import { makeSchedule } from "./src/schedule.js";
       showToast("Couldn't hide the announcement: " + friendlyError(err), "error");
     }
   }
-  document.getElementById("announcementHideBtn").addEventListener("click", function(){
+  onId("announcementHideBtn", "click", function(){
     // The row is about to disappear; the panel's close button is always there
     // for focus to land on, same as clearing a message.
     document.getElementById("notifCloseBtn").focus();
@@ -9900,8 +9946,8 @@ import { makeSchedule } from "./src/schedule.js";
     if(!hint) return;
     hint.hidden = !(document.getElementById("setAllowRegistration").checked && !defaultsAreSet);
   }
-  document.getElementById("setAllowRegistration").addEventListener("change", updateRegistrationDefaultsHint);
-  document.getElementById("registrationDefaultsHintBtn").addEventListener("click", function(){
+  onId("setAllowRegistration", "change", updateRegistrationDefaultsHint);
+  onId("registrationDefaultsHintBtn", "click", function(){
     var nav = document.getElementById("cnav-admin-defaults");
     if(nav) nav.click();
   });
@@ -9983,7 +10029,7 @@ import { makeSchedule } from "./src/schedule.js";
     });
   }
 
-  document.getElementById("saveDefaultsBtn").addEventListener("click", async function(){
+  onId("saveDefaultsBtn", "click", async function(){
     var btn = this;
     var defaults = readDefaultsForm();
     if(!defaults) return;
@@ -10006,7 +10052,7 @@ import { makeSchedule } from "./src/schedule.js";
   // Backfills people who never got a settings row. Deliberately never touches
   // anyone who already has one — an admin fixing onboarding must not silently
   // overwrite a schedule someone is already being measured against.
-  document.getElementById("seedSettingsBtn").addEventListener("click", async function(){
+  onId("seedSettingsBtn", "click", async function(){
     var btn = this;
     var defaults = readDefaultsForm();
     if(!defaults) return;
@@ -10107,7 +10153,7 @@ import { makeSchedule } from "./src/schedule.js";
     btn.disabled = false;
   }
 
-  document.getElementById("saveAppSettingsBtn").addEventListener("click", function(){
+  onId("saveAppSettingsBtn", "click", function(){
     saveAppSettings(this, "App settings saved.");
   });
 
@@ -10231,8 +10277,8 @@ import { makeSchedule } from "./src/schedule.js";
       '</label>';
     }).join("") : '<p class="settings-hint" style="margin:0;">No one matches that search.</p>';
   }
-  document.getElementById("notifyPeopleSearch").addEventListener("input", renderNotifyPeopleList);
-  document.getElementById("notifyPeopleList").addEventListener("change", function(ev){
+  onId("notifyPeopleSearch", "input", renderNotifyPeopleList);
+  onId("notifyPeopleList", "change", function(ev){
     var box = ev.target.closest("[data-notify-person]");
     if(!box) return;
     var id = box.getAttribute("data-notify-person");
@@ -10240,7 +10286,7 @@ import { makeSchedule } from "./src/schedule.js";
     updateNotifyCounters();
   });
 
-  document.getElementById("sendNotificationBtn").addEventListener("click", async function(){
+  onId("sendNotificationBtn", "click", async function(){
     var btn = this;
     var title = document.getElementById("notifyTitle").value.trim();
     var body = document.getElementById("notifyBody").value.trim();
@@ -10581,7 +10627,7 @@ import { makeSchedule } from "./src/schedule.js";
     });
   });
 
-  document.getElementById("notifyHistoryList").addEventListener("click", async function(ev){
+  onId("notifyHistoryList", "click", async function(ev){
     var cancelBtn = ev.target.closest("[data-cancel-notify]");
     var retryBtn = ev.target.closest("[data-retry-notify]");
     var reuseBtn = ev.target.closest("[data-reuse-notify]");
@@ -10741,7 +10787,7 @@ import { makeSchedule } from "./src/schedule.js";
     document.querySelector('.tab-btn[data-tab="'+(opts.tab || "log")+'"]').click();
     document.getElementById("appShell").scrollIntoView({behavior:"smooth", block:"start"});
   }
-  document.getElementById("adminAttentionList").addEventListener("click", function(ev){
+  onId("adminAttentionList", "click", function(ev){
     var btn = ev.target.closest("[data-goto-user]");
     if(!btn) return;
     gotoUserRecord(btn.getAttribute("data-goto-user"), {
@@ -10873,13 +10919,13 @@ import { makeSchedule } from "./src/schedule.js";
     }).join("");
   }
 
-  document.getElementById("refreshStatsBtn").addEventListener("click", function(){ renderAdmin(); });
-  document.getElementById("refreshAuditBtn").addEventListener("click", resetAuditPaging);
-  document.getElementById("auditFilterAction").addEventListener("change", resetAuditPaging);
-  document.getElementById("auditFilterUser").addEventListener("change", resetAuditPaging);
-  document.getElementById("auditFilterSince").addEventListener("change", resetAuditPaging);
-  document.getElementById("auditFilterUntil").addEventListener("change", resetAuditPaging);
-  document.getElementById("auditFilterSearch").addEventListener("input", resetAuditPaging);
+  onId("refreshStatsBtn", "click", function(){ renderAdmin(); });
+  onId("refreshAuditBtn", "click", resetAuditPaging);
+  onId("auditFilterAction", "change", resetAuditPaging);
+  onId("auditFilterUser", "change", resetAuditPaging);
+  onId("auditFilterSince", "change", resetAuditPaging);
+  onId("auditFilterUntil", "change", resetAuditPaging);
+  onId("auditFilterSearch", "input", resetAuditPaging);
 
   // How many days this year have been marked for the whole team. Counted as
   // distinct DATES, not rows: one company holiday writes one entry per person,
@@ -10937,16 +10983,16 @@ import { makeSchedule } from "./src/schedule.js";
     await renderAdminHealth();
   }
 
-  document.getElementById("outboxRetryBtn").addEventListener("click", function(){
+  onId("outboxRetryBtn", "click", function(){
     flushOutbox();
   });
-  document.getElementById("loadFailRetryBtn").addEventListener("click", async function(){
+  onId("loadFailRetryBtn", "click", async function(){
     var btn = this;
     btn.disabled = true; btn.textContent = "Trying…";
     try{ await loadDataForViewedUser(); }
     finally{ btn.disabled = false; btn.textContent = "Try Again"; }
   });
-  document.getElementById("outboxDiscardBtn").addEventListener("click", async function(){
+  onId("outboxDiscardBtn", "click", async function(){
     var mine = currentUser ? pendingFor(currentUser.id) : [];
     if(!mine.length) return;
     if(!await showConfirm(
@@ -11135,8 +11181,10 @@ import { makeSchedule } from "./src/schedule.js";
   // The sign-in screen keeps an attribution, where a person who does not yet
   // have an account is the one audience that might wonder whose app this is.
   var copyrightText = "© " + new Date().getFullYear() + " Aseel Thalnoon";
-  document.getElementById("copyrightLine").textContent = "";
-  document.getElementById("copyrightLineAuth").textContent = copyrightText;
+  var copyrightLineEl = document.getElementById("copyrightLine");
+  var copyrightLineAuthEl = document.getElementById("copyrightLineAuth");
+  if(copyrightLineEl) copyrightLineEl.textContent = "";
+  if(copyrightLineAuthEl) copyrightLineAuthEl.textContent = copyrightText;
 
   // The clock and reminder timers used to run unconditionally from load — on the
   // sign-in screen, and in background tabs — so the page never idled and phones

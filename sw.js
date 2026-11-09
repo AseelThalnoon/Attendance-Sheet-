@@ -10,10 +10,14 @@
 // Attendance data itself still requires a connection — this does NOT implement
 // offline data access, which would need a sync/queue layer.
 
-// Bump alongside the ?v= query on app.js in index.html. activate() deletes
-// every cache whose key is not this one, so a bump is what forces an
-// installed PWA to drop the old shell and precache the new one.
-const CACHE_NAME = "attendance-ledger-shell-v40";
+// activate() deletes every cache whose key is not this one, so a bump is what
+// forces an installed PWA to drop the old shell and precache the new one.
+// The suffix is also the release's build label: index.html loads
+// "app.js?v=<suffix>", crash reports carry it, and tests/regression/
+// crash-handler.js fails when the two differ. This comment used to ask for
+// the two to be bumped together; nothing checked, and the ?v= sat unchanged
+// for 67 commits while this went from v1x to v40.
+const CACHE_NAME = "attendance-ledger-shell-v41";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
@@ -64,11 +68,19 @@ const SHELL_FILES = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES)).catch(() => {})
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(
+      // cache:"reload" fetches each file from the network, bypassing the HTTP
+      // cache. Without it addAll() was served from that cache, and GitHub Pages
+      // lets the browser keep a file for ten minutes (max-age=600) — so a worker
+      // installed just after a deploy could precache a fresh app.js beside a
+      // stale index.html, and every offline boot after that ran a script against
+      // a page it did not match.
+      SHELL_FILES.map((url) => new Request(url, { cache: "reload" }))
+    )).catch(() => {})
   );
   // Take over straight away. The shell is self-consistent (index.html, app.js and
-  // the vendored library are cached together as one unit), so there is no risk of
-  // serving a half-updated pair.
+  // the vendored library are fetched fresh and cached together as one unit), so
+  // there is no risk of serving a half-updated pair.
   self.skipWaiting();
 });
 

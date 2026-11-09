@@ -59,7 +59,9 @@ for(const suite of SUITES){
   // stdio inherited so each suite prints its own line as it goes, exactly as
   // it did under the chain -- the summary below adds to that output, it does
   // not replace it.
-  const run = spawnSync(process.execPath, [path.join(__dirname, suite)], {
+  // --require no-network.js: every suite's browsers answer *.supabase.co
+  // themselves rather than reaching the live project (see that file).
+  const run = spawnSync(process.execPath, ["--require", path.join(__dirname, "no-network.js"), path.join(__dirname, suite)], {
     cwd: __dirname,
     stdio: "inherit"
   });
