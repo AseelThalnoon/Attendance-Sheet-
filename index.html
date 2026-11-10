@@ -1558,6 +1558,15 @@
   @media (max-width:760px){
     .head-actions{justify-content:flex-start;}
     .head-action.danger{background:none; box-shadow:none; border-color:var(--line);}
+    /* Sign out lives in Settings › Profile on the phone (#settingsLogoutBtn),
+       not in this row: one mis-tap away from the greeting was the wrong home
+       for the rarest, most disruptive control. The button stays in the DOM
+       because the rail and Settings both proxy to it. */
+    #logoutBtn{display:none;}
+  }
+  .console-signout{
+    margin-top:var(--space-5); padding-top:var(--space-4);
+    border-top:1px solid var(--line-soft);
   }
 
   main{max-width:1280px; margin:0 auto; padding:24px 32px 0;}
@@ -4008,6 +4017,14 @@
   .filter-bar label{margin:0; min-width:44px; white-space:nowrap;}
   .filter-bar select{width:auto; min-width:170px;}
   .filter-spacer{margin-left:auto;}
+  /* ‹ Month › -- steps the shared period one month at a time (stepPeriod()
+     in app.js), so paging back through months is a tap each rather than two
+     selects. Kept on one line with its select; the select gives up width
+     first so the pair still fits a 320px phone. */
+  .period-step-group{display:flex; align-items:center; gap:var(--space-1); flex-wrap:nowrap; min-width:0;}
+  .filter-bar .period-step-group select{min-width:0; flex:1 1 auto;}
+  .period-step{flex:0 0 auto; padding-left:var(--space-2); padding-right:var(--space-2);}
+  .period-step:disabled{opacity:.4; cursor:default;}
 
   /* ---------- Table ---------- */
   /* No border/radius of its own: every .table-wrap already sits inside a
@@ -4438,14 +4455,16 @@
     /* What the row's own tap does, said the way a list row says it. Drawn, not
        a glyph: a mask keeps it on a token in every palette and both modes,
        which a baked-in fill colour would not survive. */
-    .table-wrap.mobile-rows tbody tr[data-entry-id]::after{
+    .table-wrap.mobile-rows tbody tr[data-entry-id]::after,
+    .table-wrap.mobile-rows tbody tr[data-fix-date]::after{
       content:""; grid-row:1 / span 2; grid-column:6;
       align-self:center; justify-self:end;
       width:7px; height:12px; margin-left:10px; background-color:var(--line);
       -webkit-mask:var(--chevron-right) center/7px 12px no-repeat;
       mask:var(--chevron-right) center/7px 12px no-repeat;
     }
-    .table-wrap.mobile-rows tbody tr[data-entry-id]{
+    .table-wrap.mobile-rows tbody tr[data-entry-id],
+    .table-wrap.mobile-rows tbody tr[data-fix-date]{
       grid-template-columns:auto auto auto 1fr auto 17px;
       cursor:pointer;
     }
@@ -7133,7 +7152,11 @@
       </div>
       <div class="filter-field">
         <label for="monthFilterSelect">Month</label>
-        <select id="monthFilterSelect"></select>
+        <div class="period-step-group">
+          <button type="button" class="btn ghost small period-step" data-step="-1" aria-label="Previous month" title="Previous month"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <select id="monthFilterSelect"></select>
+          <button type="button" class="btn ghost small period-step" data-step="1" aria-label="Next month" title="Next month"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+        </div>
       </div>
       <div class="filter-spacer"></div>
       <button type="button" class="btn ghost small" id="printBtn">
@@ -7155,7 +7178,11 @@
       </div>
       <div class="filter-field">
         <label for="punctMonthSelect">Month</label>
-        <select id="punctMonthSelect"></select>
+        <div class="period-step-group">
+          <button type="button" class="btn ghost small period-step" data-step="-1" aria-label="Previous month" title="Previous month"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <select id="punctMonthSelect"></select>
+          <button type="button" class="btn ghost small period-step" data-step="1" aria-label="Next month" title="Next month"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+        </div>
       </div>
       <div class="filter-spacer"></div>
       <span class="filter-count" id="punctCount"></span>
@@ -7443,7 +7470,7 @@
                 <tr>
                   <th>Date</th><th>Day</th>
                   <th class="num">Worked</th><th class="num">Target</th><th class="num">Short By</th>
-                  <th>Note</th>
+                  <th>Note</th><th></th>
                 </tr>
               </thead>
               <tbody id="punctBody"></tbody>
@@ -7628,6 +7655,9 @@
             <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
             <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
           </div>
+        </div>
+        <div class="console-signout">
+          <button type="button" class="btn danger-ghost small" id="settingsLogoutBtn">Sign out</button>
         </div>
       </div>
 
