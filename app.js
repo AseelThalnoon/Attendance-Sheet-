@@ -2740,52 +2740,128 @@ import { makeSchedule } from "./src/schedule.js";
   function getLogYearFilter(){ return document.getElementById("logYearSelect").value; }
   function getMonthlyYearFilter(){ return document.getElementById("monthlyYearSelect").value; }
 
-  function populateFilters(){
-    var todayYear = String(new Date().getFullYear());
+  // One period, year + month, shared by Log/Weekly, Trends > Monthly and
+  // Shortfall. Each used to keep its own pair, so looking at March in the Log
+  // and switching to Shortfall landed back on this month. `period` is the one
+  // source; the tabs' selects are views of it, redrawn by syncPeriodSelects().
+  // null until the first draw picks the defaults (this year, this month).
+  var sharedPeriod = null;
+
+  // Every month from the first entry through this one, plus any month with a
+  // row (so a future-dated entry stays reachable). Not just months with a
+  // row: Shortfall counts the empty workdays in between, so a month nobody
+  // logged still has something to show and must be pickable. Ascending.
+  function periodMonthKeys(){
     var todayMonthKey = monthKey(todayStr());
-
-    // The current year/month are always offered as options, even with zero
-    // entries yet, so filters can default to "now" instead of "All".
-    var allYearKeys = Object.keys(groupBy(entries, yearKey));
-    if(allYearKeys.indexOf(todayYear) === -1) allYearKeys.push(todayYear);
-    allYearKeys.sort().reverse();
-
-    // Log/Weekly: Year narrows which months are offered, same pattern as Punctuality.
-    var lySel = document.getElementById("logYearSelect");
-    var lyPrev = lySel.value;
-    lySel.innerHTML = '<option value="all">All Years</option>' +
-      allYearKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    lySel.value = lyPrev && (lyPrev === "all" || allYearKeys.indexOf(lyPrev) !== -1) ? lyPrev : todayYear;
-
-    var mSel = document.getElementById("monthFilterSelect");
-    var mPrev = mSel.value;
-    var logYear = lySel.value;
-    var mKeys = Object.keys(groupBy(entries, monthKey))
-      .filter(function(k){ return logYear === "all" || k.indexOf(logYear + "-") === 0; });
-    if((logYear === "all" || logYear === todayYear) && mKeys.indexOf(todayMonthKey) === -1){
-      mKeys.push(todayMonthKey);
+    var set = groupBy(entries, monthKey);
+    set[todayMonthKey] = true;
+    if(entries.length){
+      var first = entries[0].date;
+      entries.forEach(function(e){ if(e.date < first) first = e.date; });
+      var p = first.split("-"), cy = +p[0], cm = +p[1];
+      for(var n = 0; n < 1200; n++){
+        var mk = cy + "-" + (cm < 10 ? "0" : "") + cm;
+        if(mk > todayMonthKey) break;
+        set[mk] = true;
+        if(++cm > 12){ cm = 1; cy++; }
+      }
     }
-    mKeys.sort().reverse();
+    return Object.keys(set).sort();
+  }
+  function periodMonthsIn(year, months){
+    return year === "all" ? months.slice()
+      : months.filter(function(k){ return k.indexOf(year + "-") === 0; });
+  }
+  // This month when it's inside the chosen year, otherwise the whole year.
+  function periodDefaultMonth(year, months){
+    var todayMonthKey = monthKey(todayStr());
+    return periodMonthsIn(year, months).indexOf(todayMonthKey) !== -1 ? todayMonthKey : "all";
+  }
+
+  // Draws one tab's Year (+ Month) selects from `period`. "all" is a real
+  // selection, not an absent one -- see normalisation in syncPeriodSelects().
+  function fillPeriodSelects(ySel, mSel, years, months){
+    ySel.innerHTML = '<option value="all">All Years</option>' +
+      years.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
+    ySel.value = sharedPeriod.year;
+    if(!mSel) return;
+    var year = sharedPeriod.year;
     mSel.innerHTML = '<option value="all">All Months</option>' +
-      mKeys.map(function(k){
-        var label = logYear === "all" ? monthLabel(k)
+      periodMonthsIn(year, months).reverse().map(function(k){
+        var label = year === "all" ? monthLabel(k)
           : fmtWith(new Date(+k.split("-")[0], +k.split("-")[1]-1, 1), {month:"long"});
         return '<option value="'+k+'">'+label+'</option>';
       }).join("");
-    var logDefaultMonth = (logYear === "all" || logYear === todayYear) && mKeys.indexOf(todayMonthKey) !== -1
-      ? todayMonthKey : "all";
-    // "all" is a real selection, not an absent one. mKeys only ever holds
-    // "YYYY-MM" keys, so treating it as unmatched snapped the filter back to
-    // the current month after every save, import and delete — and made the
-    // Clear button undo half its own work.
-    mSel.value = (mPrev === "all" || (mPrev && mKeys.indexOf(mPrev) !== -1)) ? mPrev : logDefaultMonth;
+    mSel.value = sharedPeriod.month;
+  }
 
-    // Monthly tab: just a Year filter, since the whole point of the tab is the trend across months.
-    var mySel = document.getElementById("monthlyYearSelect");
-    var myPrev = mySel.value;
-    mySel.innerHTML = '<option value="all">All Years</option>' +
-      allYearKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    mySel.value = myPrev && (myPrev === "all" || allYearKeys.indexOf(myPrev) !== -1) ? myPrev : todayYear;
+  // Keeps `period` valid against the data as it is now (a sync, an import, a
+  // delete, a switch to someone else's record), then redraws every tab's
+  // selects and the month step buttons from it.
+  function syncPeriodSelects(){
+    var todayYear = String(new Date().getFullYear());
+    var months = periodMonthKeys();
+    var years = [];
+    months.forEach(function(k){
+      var y = k.slice(0, 4);
+      if(years.indexOf(y) === -1) years.push(y);
+    });
+    years.sort().reverse();
+
+    var year = sharedPeriod ? sharedPeriod.year : todayYear;
+    var month = sharedPeriod ? sharedPeriod.month : monthKey(todayStr());
+    if(year !== "all" && years.indexOf(year) === -1) year = todayYear;
+    // A month outside the chosen year falls back to that year's default --
+    // picking 2025 while on November 2026 shows 2025, not an empty month.
+    if(month !== "all" && periodMonthsIn(year, months).indexOf(month) === -1){
+      month = periodDefaultMonth(year, months);
+    }
+    sharedPeriod = {year:year, month:month};
+
+    fillPeriodSelects(document.getElementById("logYearSelect"), document.getElementById("monthFilterSelect"), years, months);
+    fillPeriodSelects(document.getElementById("punctYearSelect"), document.getElementById("punctMonthSelect"), years, months);
+    // Monthly is a Year filter only: the tab is the trend across months.
+    fillPeriodSelects(document.getElementById("monthlyYearSelect"), null, years, months);
+
+    var target = {"-1": stepTarget(-1, months), "1": stepTarget(1, months)};
+    document.querySelectorAll(".period-step").forEach(function(btn){
+      btn.disabled = !target[btn.getAttribute("data-step")];
+    });
+  }
+
+  // The month a ‹ or › press lands on, or null at either end. From "All
+  // Months" it lands on the default month if there is one, else the near end
+  // of the chosen year.
+  function stepTarget(dir, months){
+    if(sharedPeriod.month === "all"){
+      var inYear = periodMonthsIn(sharedPeriod.year, months);
+      if(!inYear.length) return null;
+      var def = periodDefaultMonth(sharedPeriod.year, months);
+      if(def !== "all") return def;
+      return dir < 0 ? inYear[inYear.length - 1] : inYear[0];
+    }
+    var i = months.indexOf(sharedPeriod.month) + dir;
+    return (i >= 0 && i < months.length) ? months[i] : null;
+  }
+
+  // Changes the shared period and redraws whatever shows it. The hidden tabs
+  // draw themselves from it when opened.
+  function setPeriod(year, month){
+    sharedPeriod = {year:year, month:month};
+    syncPeriodSelects();
+    renderLog();
+    renderCharts();   // Trends (Weekly/Monthly) and Shortfall, if open
+  }
+  function stepPeriod(dir){
+    var target = stepTarget(dir, periodMonthKeys());
+    if(!target) return;
+    // Under a specific year, stepping past December or January carries the
+    // year with it; under All Years it stays All Years.
+    setPeriod(sharedPeriod.year === "all" ? "all" : target.slice(0, 4), target);
+  }
+
+  function populateFilters(){
+    syncPeriodSelects();
 
     // Every day type is always offered, even ones not used yet — otherwise
     // there's no way to filter for a type until at least one exists.
@@ -2795,43 +2871,6 @@ import { makeSchedule } from "./src/schedule.js";
     tSel.innerHTML = '<option value="all">All Types</option>' +
       tKeys.map(function(k){ return '<option value="'+k+'">'+TYPE_LABELS[k]+'</option>'; }).join("");
     tSel.value = (tPrev === "all" || tKeys.indexOf(tPrev) !== -1) ? tPrev : "all";
-
-    populatePunctFilters();
-  }
-
-  // Punctuality has its own year + month pair; months are scoped to the year.
-  // Also defaults to the current year/month rather than "All".
-  function populatePunctFilters(){
-    var todayYear = String(new Date().getFullYear());
-    var todayMonthKey = monthKey(todayStr());
-
-    var ySel = document.getElementById("punctYearSelect");
-    var mSel = document.getElementById("punctMonthSelect");
-    var yPrev = ySel.value, mPrev = mSel.value;
-
-    var yKeys = Object.keys(groupBy(entries, yearKey));
-    if(yKeys.indexOf(todayYear) === -1) yKeys.push(todayYear);
-    yKeys.sort().reverse();
-    ySel.innerHTML = '<option value="all">All Years</option>' +
-      yKeys.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    ySel.value = yPrev && (yPrev === "all" || yKeys.indexOf(yPrev) !== -1) ? yPrev : todayYear;
-
-    var year = ySel.value;
-    var mKeys = Object.keys(groupBy(entries, monthKey))
-      .filter(function(k){ return year === "all" || k.indexOf(year + "-") === 0; });
-    if((year === "all" || year === todayYear) && mKeys.indexOf(todayMonthKey) === -1){
-      mKeys.push(todayMonthKey);
-    }
-    mKeys.sort().reverse();
-    mSel.innerHTML = '<option value="all">All Months</option>' +
-      mKeys.map(function(k){
-        var label = year === "all" ? monthLabel(k)
-          : fmtWith(new Date(+k.split("-")[0], +k.split("-")[1]-1, 1), {month:"long"});
-        return '<option value="'+k+'">'+label+'</option>';
-      }).join("");
-    var punctDefaultMonth = (year === "all" || year === todayYear) && mKeys.indexOf(todayMonthKey) !== -1
-      ? todayMonthKey : "all";
-    mSel.value = (mPrev === "all" || (mPrev && mKeys.indexOf(mPrev) !== -1)) ? mPrev : punctDefaultMonth;
   }
 
   function punctEntries(){
@@ -4686,6 +4725,10 @@ import { makeSchedule } from "./src/schedule.js";
       var worked = c.workedMin !== null ? c.workedMin : 0;
       var shortMin = c.targetMin - worked;
       var tr = document.createElement("tr");
+      // Every flagged row opens its fix (see the #punctBody click handler):
+      // the day's record if it has one, a new entry on that date if not.
+      tr.setAttribute("data-fix-date", e.date);
+      var fixLabel = e.unlogged ? "Add Day" : "Edit";
       tr.innerHTML =
         // Short By is the headline here, not Worked: this table exists to
         // answer "how much did this day owe", and the row's other two figures
@@ -4702,10 +4745,32 @@ import { makeSchedule } from "./src/schedule.js";
         // that; otherwise the line reads as a logged day with a blank figure.
         (e.unlogged
           ? "<td class='note-cell c-note' data-label='Note'><span class=\"cell-label\">Note</span><span class='muted-inline'>No entry</span></td>"
-          : "<td class='note-cell c-note"+(e.note ? "" : " c-off")+"' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>");
+          : "<td class='note-cell c-note"+(e.note ? "" : " c-off")+"' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>") +
+        "<td class='row-actions'>"+
+          "<button type='button' data-fix='"+e.date+"' aria-label='"+escapeAttr(fixLabel+" for "+fmtDate(e.date))+"'>"+fixLabel+"</button>"+
+        "</td>";
       body.appendChild(tr);
     });
   }
+
+  // A flagged day's fix: the existing record if there is one, otherwise the
+  // entry form opened on that date — the same split the Calendar's day click
+  // makes. Looked up at click time, so a row drawn before a sync still opens
+  // what is there now.
+  function openFixForDate(dateStr){
+    var entry = entries.find(function(x){ return x.date === dateStr; });
+    if(entry) loadEntryIntoForm(entry.id);
+    else openNewEntryForm(dateStr);
+  }
+  onId("punctBody", "click", function(ev){
+    var btn = ev.target.closest("button[data-fix]");
+    if(btn){ openFixForDate(btn.getAttribute("data-fix")); return; }
+    // On a phone the row itself is the target, as in the Log; at pointer
+    // widths the button is there and a stray click on a row does nothing.
+    if(!window.matchMedia("(max-width:700px)").matches) return;
+    var row = ev.target.closest("tr[data-fix-date]");
+    if(row) openFixForDate(row.getAttribute("data-fix-date"));
+  });
 
   // Trends and Shortfall are drawn only while they're open. Opening either one
   // already draws it from scratch (activateTab -> renderSubtab /
@@ -6076,22 +6141,16 @@ import { makeSchedule } from "./src/schedule.js";
     });
   });
 
-  onId("logYearSelect", "change", function(){
-    populateFilters();   // month list depends on the chosen year
-    renderLog();
-    renderWeeklyIfOpen();
+  // Any tab's Year or Month select moves the one shared sharedPeriod.
+  ["logYearSelect","punctYearSelect","monthlyYearSelect"].forEach(function(id){
+    onId(id, "change", function(){ setPeriod(this.value, sharedPeriod.month); });
   });
-  onId("monthFilterSelect", "change", function(){
-    renderLog();
-    renderWeeklyIfOpen();
+  ["monthFilterSelect","punctMonthSelect"].forEach(function(id){
+    onId(id, "change", function(){ setPeriod(sharedPeriod.year, this.value); });
   });
-  onId("monthlyYearSelect", "change", renderMonthly);
-
-  onId("punctYearSelect", "change", function(){
-    populatePunctFilters();   // month list depends on the chosen year
-    renderPunctuality();
+  document.querySelectorAll(".period-step").forEach(function(btn){
+    btn.addEventListener("click", function(){ stepPeriod(+btn.getAttribute("data-step")); });
   });
-  onId("punctMonthSelect", "change", renderPunctuality);
 
   // Search bar: re-filter the log as the person types or narrows the range.
   ["searchInput","typeFilterSelect","fromDate","toDate"].forEach(function(id){
@@ -6126,12 +6185,8 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("typeFilterSelect").value = "all";
     document.getElementById("fromDate").value = "";
     document.getElementById("toDate").value = "";
-    document.getElementById("logYearSelect").value = "all";
-    document.getElementById("monthFilterSelect").value = "all";
-    populateFilters();
-    renderLog();
-    renderWeeklyIfOpen();
     updateAdvancedFilterBadge();
+    setPeriod("all", "all");
   });
 
   // ---------- Export / import ----------
@@ -7451,6 +7506,11 @@ import { makeSchedule } from "./src/schedule.js";
   // duplicating its logic — the same pattern .rail-item already uses for
   // Admin and Settings.
   onId("railLogoutBtn", "click", function(){
+    document.getElementById("logoutBtn").click();
+  });
+  // Settings › Profile carries the phone's sign-out (the header row no longer
+  // does below 760px); same proxy, same single implementation.
+  onId("settingsLogoutBtn", "click", function(){
     document.getElementById("logoutBtn").click();
   });
 
@@ -10997,8 +11057,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(opts.date){
       document.getElementById("searchInput").value = "";
       document.getElementById("typeFilterSelect").value = "all";
-      document.getElementById("logYearSelect").value = "all";
-      document.getElementById("monthFilterSelect").value = "all";
+      sharedPeriod = {year:"all", month:"all"};
       document.getElementById("fromDate").value = opts.date;
       document.getElementById("toDate").value = opts.date;
       logScrollLimit = LOG_SCROLL_CHUNK;
