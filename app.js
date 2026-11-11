@@ -3854,6 +3854,15 @@ import { makeSchedule } from "./src/schedule.js";
       // worth a header on a desk and worth nothing on a phone. The classes
       // below are those hooks — the desktop table renders exactly as before.
       var isRegular = (e.type || "regular") === "regular";
+      // A leave, sick or holiday day, or a trip/training/WFH day, logged
+      // without clock times has no hours to report. "0h" there read as a
+      // missed day, and "0h On target" on an untimed Training day as
+      // nonsense. The type already says what the day was; Excused says how
+      // it counts, and a no-target day has nothing more to say.
+      var noTargetType = NO_TARGET_TYPES.indexOf(e.type || "regular") !== -1;
+      var untimed = !e.clockIn && !e.clockOut && (c.excused || noTargetType);
+      var workedCell = untimed ? "—" : minutesToHoursStr(c.workedMin);
+      var statusCell = (untimed && !c.excused) ? "—" : pillFor(c);
       tr.innerHTML =
         selectCell +
         // The weekday rides along inside Date for the phone, where the
@@ -3866,9 +3875,9 @@ import { makeSchedule } from "./src/schedule.js";
         "<td class='c-off' data-label='Day'><span class=\"cell-label\">Day</span>"+DAY_NAMES[dateFromStr(e.date).getDay()]+"</td>"+
         "<td class='c-meta c-bare c-in"+(e.clockIn ? " has-time" : " c-off")+"' data-label='In'><span class=\"cell-label\">In</span>"+inCell+"</td>"+
         "<td class='c-meta c-bare c-out"+(e.clockOut ? " has-time" : " c-off")+"' data-label='Out'><span class=\"cell-label\">Out</span>"+outCell+"</td>"+
-        "<td class='num col-worked c-figure' data-label='Worked'><span class=\"cell-label\">Worked</span>"+minutesToHoursStr(c.workedMin)+"</td>"+
+        "<td class='num col-worked c-figure"+(untimed ? " c-off" : "")+"' data-label='Worked'><span class=\"cell-label\">Worked</span>"+workedCell+"</td>"+
         "<td class='num c-off' data-label='Target'><span class=\"cell-label\">Target</span>"+(c.targetMin ? minutesToHoursStr(c.targetMin) : "—")+"</td>"+
-        "<td class='num c-status' data-label='Status'><span class=\"cell-label\">Status</span>"+pillFor(c)+"</td>"+
+        "<td class='num c-status"+(statusCell === "—" ? " c-off" : "")+"' data-label='Status'><span class=\"cell-label\">Status</span>"+statusCell+"</td>"+
         "<td class='c-meta c-bare c-daytype"+(isRegular ? " c-off" : "")+"' data-label='Type'><span class=\"cell-label\">Type</span>"+escapeHtml(typeLabel(e.type))+"</td>"+
         "<td class='note-cell c-note"+(e.note ? "" : " c-off")+"' dir='auto' data-label='Note'><span class=\"cell-label\">Note</span>"+escapeHtml(e.note)+"</td>"+
         // Each row repeats "Edit"/"Delete"; without the date in the accessible
@@ -4083,8 +4092,6 @@ import { makeSchedule } from "./src/schedule.js";
     monthlyEmptyEl.style.display = stats.length ? "none" : "block";
     document.getElementById("monthlyChartMeta").textContent =
       stats.length ? stats.length + " month" + (stats.length===1?"":"s") + " tracked" : "";
-    document.getElementById("monthlyCount").textContent =
-      yf === "all" ? "" : "Showing " + yf + " only";
 
     renderTrendChart(document.getElementById("monthlyChart"), stats.map(function(m){
       return {
@@ -4977,6 +4984,35 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("fIn").value = sched.standardIn;
     document.getElementById("fOut").value = sched.standardOut;
   });
+  // The link names the hours it fills, for the date on the form -- the same
+  // seasonal lookup as the click above.
+  function updateStandardHoursLabel(){
+    var btn = document.getElementById("fillStandardBtn");
+    if(!btn) return;
+    var sched = scheduleFor(document.getElementById("fDate").value || todayStr());
+    btn.textContent = (sched.standardIn && sched.standardOut)
+      ? "Use standard hours (" + formatTime12(sched.standardIn) + " – " + formatTime12(sched.standardOut) + ")"
+      : "Use standard hours";
+  }
+
+  // One date, or a From–To range behind "Several days…". Turning the range
+  // off collapses To back onto the date, so a hidden To can never widen a
+  // single-day entry into a range.
+  function setEntryRange(on){
+    var toWrap = document.getElementById("fToDateWrap");
+    var toggle = document.getElementById("fRangeToggle");
+    toWrap.style.display = on ? "" : "none";
+    document.getElementById("fRangeHint").style.display = on ? "" : "none";
+    document.getElementById("fDateLabel").textContent = on ? "From" : "Date";
+    toggle.textContent = on ? "Just one day" : "Several days…";
+    toggle.setAttribute("aria-expanded", on ? "true" : "false");
+    if(!on) document.getElementById("fToDate").value = document.getElementById("fDate").value;
+  }
+  onId("fRangeToggle", "click", function(){
+    var on = document.getElementById("fToDateWrap").style.display === "none";
+    setEntryRange(on);
+    if(on) document.getElementById("fToDate").focus();
+  });
 
   // ---------- Entry dialog ----------
   // The add/edit form used to sit open on the Overview under the clock panel.
@@ -4996,6 +5032,7 @@ import { makeSchedule } from "./src/schedule.js";
     clearTimeout(entryModalHideTimer);
     entryModalHideTimer = null;
     if(!wasOpen) entryModalReturn = document.activeElement;
+    updateStandardHoursLabel();
     modal.hidden = false;
     requestAnimationFrame(function(){ modal.classList.add("show"); });
     document.removeEventListener("keydown", onEntryModalKey);
@@ -5084,9 +5121,8 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("fType").value = "regular";
     document.getElementById("submitBtn").textContent = "Add Entry";
     document.getElementById("cancelEditBtn").style.display = "none";
-    document.getElementById("fToDateWrap").style.display = "";
-    document.getElementById("fRangeHint").style.display = "";
-    document.getElementById("fDateLabel").textContent = "From";
+    setEntryRange(false);
+    document.getElementById("fRangeToggle").hidden = false;
   }
 
   function loadEntryIntoForm(id){
@@ -5110,9 +5146,8 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("cancelEditBtn").style.display = "inline-flex";
     // Editing modifies exactly one existing entry, so the range picker
     // doesn't apply here — just the single date being edited.
-    document.getElementById("fToDateWrap").style.display = "none";
-    document.getElementById("fRangeHint").style.display = "none";
-    document.getElementById("fDateLabel").textContent = "Date";
+    setEntryRange(false);
+    document.getElementById("fRangeToggle").hidden = true;
     document.getElementById("entryModalTitle").textContent = "Edit Entry";
     // Editing almost always means filling in the clock-out that was never
     // recorded, so start there rather than on the date that is already right.
@@ -5120,6 +5155,7 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   onId("fDate", "change", function(){
+    updateStandardHoursLabel();
     var toDate = document.getElementById("fToDate");
     toDate.min = this.value;
     // Changing From always collapses To to match it. This keeps a single-day
@@ -6125,6 +6161,10 @@ import { makeSchedule } from "./src/schedule.js";
     // Admin lives outside the tablist, so its own trigger carries the state.
     var adminBtn = document.getElementById("adminBtn");
     if(adminBtn) adminBtn.setAttribute("aria-current", tab === "admin" ? "page" : "false");
+    // Settings on the phone header is the same kind of destination: on its
+    // own tab it shows as the current page rather than as a way to get there.
+    var settingsBtn = document.getElementById("settingsBtn");
+    if(settingsBtn) settingsBtn.setAttribute("aria-current", tab === "settings" ? "page" : "false");
 
     // Overview lives outside #tabContentCard so its own cards sit on the
     // canvas rather than nesting inside one big card. That means the card
@@ -7833,7 +7873,7 @@ import { makeSchedule } from "./src/schedule.js";
     }
 
     legend.innerHTML = active.map(function(b, i){
-      return '<div class="format-leg">'+
+      return '<div class="format-leg" title="'+escapeAttr(b.label + " · " + b.count + " day" + (b.count === 1 ? "" : "s"))+'">'+
         '<i class="format-leg-dot" style="background:'+b.color+'"></i>'+
         '<span class="format-leg-pct">'+pcts[i]+'%</span>'+
         '<span class="format-leg-label">'+escapeHtml(b.label)+'</span>'+
@@ -7911,7 +7951,8 @@ import { makeSchedule } from "./src/schedule.js";
           var own = settingsByUser[p.id] || normalizeSettings({});
           var mine = byUser[p.id] || [];
           var todays = mine.find(function(e){ return e.date === today; });
-          return {p: p, st: teamStatus(mine, own), clockIn: todays ? todays.clockIn : ""};
+          return {p: p, st: teamStatus(mine, own), clockIn: todays ? todays.clockIn : "",
+            clockOut: todays ? todays.clockOut : ""};
         });
       } else {
         var rpcRes = await (pre || supabase.rpc("list_today_presence", {p_date: today}));
@@ -7924,7 +7965,8 @@ import { makeSchedule } from "./src/schedule.js";
             avatar_updated_at: row.avatar_updated_at};
           var entry = rowToEntry({user_id: row.user_id, date: today,
             clock_in: row.clock_in, clock_out: row.clock_out, type: row.type});
-          return {p: p, st: teamStatus([entry], normalizeSettings({})), clockIn: entry.clockIn};
+          return {p: p, st: teamStatus([entry], normalizeSettings({})), clockIn: entry.clockIn,
+            clockOut: entry.clockOut};
         });
       }
     }catch(err){
@@ -7964,9 +8006,9 @@ import { makeSchedule } from "./src/schedule.js";
     }
     if(countEl){
       var inNow = rows.filter(function(r){ return r.st.cls === "in"; }).length;
-      countEl.textContent = inNow
-        ? inNow + " in now"
-        : rows.length + " clocked in today";
+      var doneN = rows.length - inNow;
+      countEl.textContent = [inNow ? inNow + " in now" : "", doneN ? doneN + " done" : ""]
+        .filter(Boolean).join(" · ");
     }
     list.innerHTML = rows.map(function(r){
       var name = r.p.full_name || r.p.email;
@@ -7974,12 +8016,16 @@ import { makeSchedule } from "./src/schedule.js";
       // for anything still outstanding.
       var checkCls = r.st.cls === "in" ? " is-in"
                    : (r.st.cls === "done" || r.st.cls === "excused" || r.st.cls === "off") ? " is-done" : "";
+      // When, not just whether: "In since 8:02 AM" / "Done at 4:00 PM" says
+      // what the IN/DONE pill said and the time it happened, in the same
+      // space. The words carry the state, so it is not on colour alone.
+      var when = r.st.cls === "in"
+        ? (r.clockIn ? "In since " + formatTime12(r.clockIn) : "In")
+        : (r.clockOut ? "Done at " + formatTime12(r.clockOut) : "Done");
       return '<div class="tt-row">'+
         avatarSlotHtml(r.p)+
         '<span class="tt-name" dir="auto">'+escapeHtml(name)+'</span>'+
-        // The short form here, the full one on the Team cards: this row is the
-        // dense one, and it is the row that was rendering "D…".
-        '<span class="team-status '+r.st.cls+'">'+escapeHtml(r.st.short || r.st.label)+'</span>'+
+        '<span class="tt-when'+(r.st.cls === "in" ? " is-in" : "")+'">'+escapeHtml(when)+'</span>'+
         '<span class="tt-check'+checkCls+'" aria-hidden="true">'+
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'+
         '</span>'+

@@ -2271,10 +2271,14 @@
          it degrade gracefully well below that — the portrait crops, the dial
          has its own clamp, the roster scrolls in its own card. */
       grid-template-rows:auto minmax(150px,1fr) auto;
+      /* "In today" sits level with the photo and Day Types rather than
+         running down beside the clock as well: a short list in a column the
+         frame's full height was mostly empty card. The clock takes the
+         width instead. */
       grid-template-areas:
         "stats    stats  stats"
         "portrait format roster"
-        "clock    clock  roster";
+        "clock    clock  clock";
       /* Whatever the frame has left after the header, any banner and the
          footer — the same "one screen" rule every other tab now follows. This
          was a measured height (fitOverview() wrote --ov-chrome on every resize)
@@ -2295,6 +2299,18 @@
     .overview-panel > .today-team{grid-area:roster;}
     .overview-panel > .quick-clock{grid-area:clock;}
     .overview-panel > .stats-row{grid-area:stats;}
+    /* The scroll-shadow covers on .tab-panel.active are --card, which is
+       right for a panel inside the white tab card. The Overview sits on the
+       page itself, so they painted a white band 22px deep across the top of
+       the four figures and the foot of the roster, squaring off their corners.
+       Same layers, in the page's own colour. */
+    .tab-panel.overview-panel.active{
+      background:
+        linear-gradient(var(--paper) 30%, transparent) top    /100% 22px no-repeat local,
+        linear-gradient(transparent, var(--paper) 70%) bottom /100% 22px no-repeat local,
+        radial-gradient(farthest-side at 50% 0,    rgba(var(--ink-rgb),.17), rgba(var(--ink-rgb),0)) top    /100% 13px no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(var(--ink-rgb),.17), rgba(var(--ink-rgb),0)) bottom /100% 13px no-repeat scroll;
+    }
     /* auto-fit reflowed the figures to 2x2 inside the grid, costing height the
        fold cannot spare. Four across is explicit here. */
     /* The grid row supplies .format-body's height here, so it may shrink well
@@ -2557,11 +2573,16 @@
      for "9% Work From Home" on one line, and wrapping it there broke labels a
      word per line. There the label takes its own line under the figure, at
      the column's full width, as it did before. */
+  /* In the desktop grid the card is a narrow column: the ring sits on top
+     and the legend runs under it in two columns, so every label stays on
+     one line ("9% Work From Home") instead of stacking a word per line
+     beside the ring and scrolling out of sight. */
   @media (min-width:1100px){
-    .format-leg{flex-wrap:wrap; row-gap:2px;}
-    .format-leg-label{
-      flex-basis:100%; font-size:11px; text-transform:uppercase;
-      letter-spacing:.09em; color:var(--muted-2);
+    .overview-panel .format-body{flex-direction:column; align-items:stretch; gap:14px;}
+    .overview-panel .format-dial{width:clamp(110px, 9vw, 140px);}
+    .overview-panel .format-legend{
+      display:grid; grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:8px 12px; align-content:start; flex:0 1 auto;
     }
   }
   /* Wraps rather than truncating. Uppercase at .09em tracking, the legend's
@@ -2618,11 +2639,15 @@
   .today-team-list::-webkit-scrollbar-thumb{background:var(--line); border-radius:99px;}
   .today-team-list::-webkit-scrollbar-track{background:transparent;}
   .tt-row{
-    display:flex; align-items:center; gap:8px; padding:8px 0;
+    display:flex; align-items:center; gap:8px; padding:6px 0;
     border-bottom:1px solid var(--line-soft);
   }
   .tt-row:last-child{border-bottom:none;}
-  .tt-row .avatar{width:32px; height:32px; font-size:11px;}
+  .tt-row .avatar{width:28px; height:28px; font-size:10px;}
+  /* "In since 8:02 AM" / "Done at 4:00 PM" -- the time beside the name, in
+     place of the IN / DONE pill it replaced. Green while the shift runs. */
+  .tt-when{flex-shrink:0; font-size:12px; color:var(--muted-2); white-space:nowrap; font-variant-numeric:tabular-nums;}
+  .tt-when.is-in{color:var(--positive);}
   /* 72 -> 88: at the grid's own 1100px floor an ordinary name like "Omar
      Haddad" or "Yousef Nabhan" sat just under the old floor and still lost
      characters to its own ellipsis — the one thing this row is supposed to
@@ -2891,6 +2916,17 @@
   .pair-unit input{min-width:0; flex:1 1 0; align-self:stretch;}
   .pair-unit label{margin-bottom:0; flex-shrink:0;}
   .form-grid .full{grid-column:1 / -1;}
+  /* The entry dialog's date row: Date alone, or From and To side by side. A
+     track per 170px like .form-grid itself, auto-fill so a lone Date keeps
+     its half-width cell rather than stretching across the row. */
+  .entry-date-fields{display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:var(--space-3);}
+  .entry-link{
+    display:flex; width:fit-content; margin-right:auto; align-self:flex-start;
+    justify-content:flex-start; padding:2px 0; margin-top:var(--space-1);
+  }
+  .entry-std-row{margin-top:calc(-1 * var(--space-2));}
+  .entry-std-row .entry-link{margin-top:0;}
+  #fRangeHint{margin:var(--space-1) 0 0;}
   label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px;}
   /* type="search" is listed explicitly: it is not covered by any of the others,
      and a search box left unstyled keeps the UA's own white field, which reads
@@ -4821,7 +4857,7 @@
        still resolved to 2 columns of ~160px on a 430px phone, which is not
        enough for a native time control, and its Standard Start / Standard
        End fields collided there. */
-    .form-grid{grid-template-columns:1fr; gap:var(--space-3);}
+    .form-grid, .entry-date-fields{grid-template-columns:1fr; gap:var(--space-3);}
   }
 
   /* ---------- Password reveal ----------
@@ -5231,6 +5267,7 @@
     color:var(--ink-600); font-size:12px; text-decoration:underline; text-underline-offset:2px;
   }
   @media (min-width:1100px){ .link-btn{min-height:24px;} }
+  .link-btn[hidden]{display:none;}
   /* The one exemption, and it is the one SC 2.5.8 itself writes: a target
      inline in a sentence. "Set it now" sits inside the registration warning's
      own prose, and an inline-flex 44px box there would break the line it is
@@ -7231,7 +7268,6 @@
     <div class="filter-bar" id="monthlyFilterWrap" style="display:none;">
       <label for="monthlyYearSelect">Year</label>
       <select id="monthlyYearSelect"></select>
-      <span class="filter-count" id="monthlyCount"></span>
     </div>
 
     <div class="filter-bar" id="punctFilterWrap" style="display:none;">
@@ -8657,13 +8693,22 @@
     </div>
     <form id="entryForm" novalidate>
       <div class="form-grid">
-        <div>
-          <label for="fDate" id="fDateLabel">From</label>
-          <input type="date" id="fDate" required>
-        </div>
-        <div id="fToDateWrap">
-          <label for="fToDate">To</label>
-          <input type="date" id="fToDate">
+        <!-- One date by default: almost every entry is a single day. A range
+             (a week of planned leave) is the exception, so its To field and
+             the sentence explaining it wait behind "Several days". -->
+        <div class="full entry-date-row">
+          <div class="entry-date-fields">
+            <div>
+              <label for="fDate" id="fDateLabel">Date</label>
+              <input type="date" id="fDate" required>
+            </div>
+            <div id="fToDateWrap" style="display:none;">
+              <label for="fToDate">To</label>
+              <input type="date" id="fToDate">
+            </div>
+          </div>
+          <button type="button" class="link-btn entry-link" id="fRangeToggle" aria-expanded="false" aria-controls="fToDateWrap">Several days…</button>
+          <p class="settings-hint" id="fRangeHint" style="display:none;">Every scheduled workday from the first date to the last gets this entry — handy for a week of planned leave.</p>
         </div>
         <div>
           <label for="fIn">Clock In</label>
@@ -8672,6 +8717,12 @@
         <div>
           <label for="fOut">Clock Out</label>
           <input type="time" id="fOut">
+        </div>
+        <!-- Was a second full-size button beside Add Entry, competing with it
+             for the one action the form is for. It names the hours it fills,
+             so nobody has to press it to find out. -->
+        <div class="full entry-std-row">
+          <button type="button" class="link-btn entry-link" id="fillStandardBtn">Use standard hours</button>
         </div>
         <div>
           <label for="fType">Day Type</label>
@@ -8705,10 +8756,8 @@
           <input type="text" id="fNote" maxlength="500" dir="auto" placeholder="e.g. Left early for appointment">
         </div>
       </div>
-      <p class="settings-hint" id="fRangeHint" style="margin:8px 0 0;">Set different From/To dates to apply this entry across every scheduled workday in between — handy for a week of planned leave.</p>
       <div class="form-actions">
         <button type="submit" class="btn" id="submitBtn">Add Entry</button>
-        <button type="button" class="btn secondary" id="fillStandardBtn">Fill Standard Hours</button>
         <button type="button" class="btn ghost" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
       </div>
     </form>
