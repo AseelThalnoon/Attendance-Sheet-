@@ -135,7 +135,10 @@ const Y = (input, expected) => eq(parseTypeCell(input), expected, `parseTypeCell
 Y("", "regular");
 Y("regular", "regular");
 Y("Sick Leave", "sick");   // exact label match
-Y("WFH", "wfh");
+Y("Remotely", "wfh");      // the type's label since it was renamed
+Y("remote", "wfh");        // substring guess
+Y("WFH", "wfh");           // the old names still import
+Y("Work From Home", "wfh");
 Y("home office", "wfh");   // substring guess
 Y("half day", "halfleave"); // substring guess
 Y("annual", "leave");       // substring guess

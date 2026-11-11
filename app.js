@@ -4154,7 +4154,7 @@ import { makeSchedule } from "./src/schedule.js";
   // times) reach the calendar's type branch, so they need a short form; the
   // full label still shows everywhere there is room for it.
   var CAL_TYPE_SHORT = { leave:"Leave", sick:"Sick", holiday:"Holiday", other:"Excused",
-                         wfh:"WFH", trip:"Trip", training:"Training" };
+                         wfh:"Remote", trip:"Trip", training:"Training" };
   function calTypeShort(t){ return CAL_TYPE_SHORT[t] || typeLabel(t); }
 
   function renderCalendar(){
@@ -6382,7 +6382,7 @@ import { makeSchedule } from "./src/schedule.js";
       [day(3), "", "", "h", "Type code 'h' = Public Holiday"],
       [day(4), "08:00", "12:00", "hd", "Type code 'hd' = Half Day Leave"],
       [day(5), "", "", "l", "Type code 'l' = Annual Leave"],
-      [day(8), "08:00", "16:00", "WFH", "Full words work too, e.g. WFH"]
+      [day(8), "08:00", "16:00", "Remotely", "Full words work too, e.g. Remotely"]
     ];
     var csv = rows.map(function(r){ return r.map(csvCell).join(","); }).join("\r\n");
     download("attendance-import-template.csv", csv, "text/csv;charset=utf-8");
@@ -6507,7 +6507,9 @@ import { makeSchedule } from "./src/schedule.js";
     return "";
   }
 
-  // Maps a label like "Annual Leave", "WFH", "sick" back to its internal key.
+  // Maps a label like "Annual Leave", "Remotely", "sick" back to its internal
+  // key. The old names for the remote type ("Work From Home", "WFH") still
+  // map, so a file exported before the rename imports the same way.
   // Single/two-letter shorthand a spreadsheet or another system's export
   // might use instead of a full word. Checked as an exact match only — "s"
   // and "h" are too short to safely guess from a substring the way "sick" or
@@ -6522,7 +6524,7 @@ import { makeSchedule } from "./src/schedule.js";
     });
     if(found) return found;
     if(TYPE_SHORTHAND[v]) return TYPE_SHORTHAND[v];
-    if(v.indexOf("home") !== -1 || v === "wfh") return "wfh";
+    if(v.indexOf("remote") !== -1 || v.indexOf("home") !== -1 || v === "wfh") return "wfh";
     if(v.indexOf("half") !== -1) return "halfleave";
     if(v.indexOf("annual") !== -1 || v === "leave" || v.indexOf("vacation") !== -1) return "leave";
     if(v.indexOf("sick") !== -1) return "sick";
@@ -7759,19 +7761,29 @@ import { makeSchedule } from "./src/schedule.js";
     holiday:"var(--warn-line)",       other:"var(--surface-gray)"
   };
 
-  // Largest-remainder rounding, so the shares always total 100. Rounding each
-  // independently produced legends reading 34/33/34 and 33/33/33 for the very
-  // same split, depending only on where the fractions fell.
-  function pctSplit(counts, total){
-    var raw = counts.map(function(c){ return (c / total) * 100; });
-    var out = raw.map(function(v){ return Math.floor(v); });
-    var short = 100 - out.reduce(function(a, b){ return a + b; }, 0);
-    raw.map(function(v, i){ return {i:i, rem:v - Math.floor(v)}; })
-       .sort(function(a, b){ return b.rem - a.rem; })
-       .slice(0, Math.max(0, short))
-       .forEach(function(x){ out[x.i] += 1; });
-    return out;
+  // Pointing at a legend row lights its slice of the ring and dims the rest,
+  // and pointing at a slice does the same for its row. Wired once on the two
+  // containers; the rows and slices inside are redrawn on every render.
+  function focusDayType(type){
+    var dial = document.getElementById("formatDial");
+    var legend = document.getElementById("formatLegend");
+    [dial, legend].forEach(function(host){
+      if(!host) return;
+      host.classList.toggle("is-focusing", !!type);
+      host.querySelectorAll("[data-type]").forEach(function(el){
+        el.classList.toggle("is-hot", el.getAttribute("data-type") === type);
+      });
+    });
   }
+  ["formatDial", "formatLegend"].forEach(function(id){
+    var host = document.getElementById(id);
+    if(!host) return;
+    host.addEventListener("mouseover", function(ev){
+      var el = ev.target.closest && ev.target.closest("[data-type]");
+      focusDayType(el ? el.getAttribute("data-type") : null);
+    });
+    host.addEventListener("mouseleave", function(){ focusDayType(null); });
+  });
 
   function renderWorkingFormat(){
     var dial = document.getElementById("formatDial");
@@ -7790,6 +7802,11 @@ import { makeSchedule } from "./src/schedule.js";
       return {type:type, label:TYPE_LABELS[type], color:DAY_TYPE_COLORS[type],
         count:month.filter(function(e){ return (e.type || "regular") === type; }).length};
     }).filter(function(b){ return b.count > 0; });
+    // Biggest share first, in the ring and the legend alike, so the list
+    // reads in the order the ring is drawn (clockwise from twelve). Ties
+    // keep the taxonomy order above. Colour stays with the type, not the
+    // rank, so a type keeps its colour whatever place it lands in.
+    active.sort(function(a, b){ return b.count - a.count; });
     var total = active.reduce(function(sum, b){ return sum + b.count; }, 0);
     dial.closest(".format-card").classList.toggle("no-days", !total);
 
@@ -7800,7 +7817,7 @@ import { makeSchedule } from "./src/schedule.js";
       return;
     }
 
-    var pcts = pctSplit(active.map(function(b){ return b.count; }), total);
+    function daysText(n){ return n + " day" + (n === 1 ? "" : "s"); }
     // One ring, segments stacked end to end rather than the old concentric
     // rings — those only read cleanly for a fixed 3-way split; day types can
     // run to 9. Each segment is its own circle at a shared radius, advanced by
@@ -7823,12 +7840,13 @@ import { makeSchedule } from "./src/schedule.js";
       : 0;
     var cum = 0;
     var rings = '<circle class="format-ring-track" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'"/>' +
-      active.map(function(b){
+      active.map(function(b, i){
         var shown = circ * (b.count / total);
         var drawn = Math.max(0.5, shown - GAP);
-        var seg = '<circle class="format-ring" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'" ' +
+        var seg = '<circle class="format-ring" data-type="'+b.type+'" cx="'+C+'" cy="'+C+'" r="'+R+'" fill="none" stroke-width="'+SW+'" ' +
           'stroke="'+b.color+'" stroke-dasharray="'+drawn.toFixed(2)+' '+(circ - drawn).toFixed(2)+'" ' +
-          'stroke-dashoffset="'+(-cum).toFixed(2)+'"/>';
+          'stroke-dashoffset="'+(-cum).toFixed(2)+'">'+
+          '<title>'+escapeHtml(b.label + " · " + daysText(b.count))+'</title></circle>';
         cum += shown;
         return seg;
       }).join("") +
@@ -7840,7 +7858,7 @@ import { makeSchedule } from "./src/schedule.js";
     // as an HTML overlay it kept a fixed size while the dial shrank with the
     // row, and spilled out of the hole on a short viewport.
     var summary = total + " days: " +
-      active.map(function(b, i){ return pcts[i] + "% " + b.label; }).join(", ");
+      active.map(function(b){ return b.label + " " + daysText(b.count); }).join(", ");
     dial.innerHTML =
       '<svg viewBox="0 0 120 120" role="img" aria-label="'+escapeAttr(summary)+'">'+
         '<g transform="rotate(-90 '+C+' '+C+')">'+rings+'</g>'+
@@ -7872,11 +7890,15 @@ import { makeSchedule } from "./src/schedule.js";
       });
     }
 
-    legend.innerHTML = active.map(function(b, i){
-      return '<div class="format-leg" title="'+escapeAttr(b.label + " · " + b.count + " day" + (b.count === 1 ? "" : "s"))+'">'+
+    // The name, then the days as "3d", right-aligned so every "d" sits on
+    // one edge however many digits come before it. The slice tooltip and the
+    // ring's accessible name keep the full word.
+    legend.innerHTML = active.map(function(b){
+      return '<div class="format-leg" data-type="'+b.type+'">'+
         '<i class="format-leg-dot" style="background:'+b.color+'"></i>'+
-        '<span class="format-leg-pct">'+pcts[i]+'%</span>'+
         '<span class="format-leg-label">'+escapeHtml(b.label)+'</span>'+
+        '<span class="format-leg-num"><span aria-hidden="true">'+b.count+'d</span>'+
+          '<span class="sr-only">'+daysText(b.count)+'</span></span>'+
       '</div>';
     }).join("");
     updateFormatLegendScrollHint();

@@ -18,11 +18,11 @@
 var DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 var DAY_FULL  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 var TYPE_LABELS = {
-  // "WFH" here against "Work From Home" in the picker meant the day you
-  // chose and the day you later read back were named differently, in the
-  // only one of the nine types that disagreed with itself. The table has
-  // room — "Half Day Leave" and "Public Holiday" are the same length.
-  regular:"Regular", wfh:"Work From Home", halfleave:"Half Day Leave", leave:"Annual Leave",
+  // One name for this type everywhere it is read -- the picker, the log,
+  // the calendar, the legend, the print report and the audit history all
+  // take it from here. The stored value stays "wfh"; only the name changed
+  // (it was "Work From Home"), so every existing row reads the new way.
+  regular:"Regular", wfh:"Remotely", halfleave:"Half Day Leave", leave:"Annual Leave",
   sick:"Sick Leave", trip:"Business Trip", training:"Training", holiday:"Public Holiday",
   // "Other" alone gave no clue that this is an EXCUSED absence — it reads as
   // a shrug, and sat in a list where every other option states what it is.
@@ -57,7 +57,7 @@ var HALF_TYPES = ["halfleave"];
 var WORKED_TYPES = ["regular","halfleave"];
 function countsAsWorked(type){ return WORKED_TYPES.indexOf(type || "regular") !== -1; }
 
-// These are excused from a fixed daily target — a day working from home, at
+// These are excused from a fixed daily target — a day working remotely, at
 // a client site or in training doesn't carry the same 9-to-5 expectation a
 // Regular day does, and (per WORKED_TYPES above) doesn't roll into the
 // totals/bank at all, so there is nothing to fall short of or gain credit
