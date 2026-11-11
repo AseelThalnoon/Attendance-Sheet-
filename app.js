@@ -2736,15 +2736,19 @@ import { makeSchedule } from "./src/schedule.js";
   });
 
   // ---------- Filters ----------
-  function getMonthFilter(){ return document.getElementById("monthFilterSelect").value; }
-  function getLogYearFilter(){ return document.getElementById("logYearSelect").value; }
+  function currentPeriod(){ return sharedPeriod || {year:"all", month:"all"}; }
+  function getMonthFilter(){ return currentPeriod().month; }
+  function getLogYearFilter(){ return currentPeriod().year; }
   function getMonthlyYearFilter(){ return document.getElementById("monthlyYearSelect").value; }
 
   // One period, year + month, shared by Log/Weekly, Trends > Monthly and
   // Shortfall. Each used to keep its own pair, so looking at March in the Log
-  // and switching to Shortfall landed back on this month. `period` is the one
-  // source; the tabs' selects are views of it, redrawn by syncPeriodSelects().
-  // null until the first draw picks the defaults (this year, this month).
+  // and switching to Shortfall landed back on this month. `sharedPeriod` is the
+  // one source; the tabs' selects are views of it, redrawn by
+  // syncPeriodSelects(). null until the first draw picks the defaults (this
+  // year, this month). A chosen month always carries its own year, so the
+  // states are: all time {all,all}, a whole year {2026,all}, or a month
+  // {2026,2026-11}.
   var sharedPeriod = null;
 
   // Every month from the first entry through this one, plus any month with a
@@ -2778,24 +2782,26 @@ import { makeSchedule } from "./src/schedule.js";
     return periodMonthsIn(year, months).indexOf(todayMonthKey) !== -1 ? todayMonthKey : "all";
   }
 
-  // Draws one tab's Year (+ Month) selects from `period`. "all" is a real
-  // selection, not an absent one -- see normalisation in syncPeriodSelects().
-  function fillPeriodSelects(ySel, mSel, years, months){
-    ySel.innerHTML = '<option value="all">All Years</option>' +
-      years.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
-    ySel.value = sharedPeriod.year;
-    if(!mSel) return;
-    var year = sharedPeriod.year;
-    mSel.innerHTML = '<option value="all">All Months</option>' +
-      periodMonthsIn(year, months).reverse().map(function(k){
-        var label = year === "all" ? monthLabel(k)
-          : fmtWith(new Date(+k.split("-")[0], +k.split("-")[1]-1, 1), {month:"long"});
-        return '<option value="'+k+'">'+label+'</option>';
+  // Draws one tab's Period select -- All time, then each year as a group led
+  // by the whole year and followed by its months, newest first -- from
+  // sharedPeriod. Values: "all", "2026" or "2026-11".
+  function fillPeriodSelect(sel, years, months){
+    if(!sel) return;
+    sel.innerHTML = '<option value="all">All time</option>' +
+      years.map(function(y){
+        return '<optgroup label="'+y+'"><option value="'+y+'">All of '+y+'</option>' +
+          periodMonthsIn(y, months).reverse().map(function(k){
+            return '<option value="'+k+'">'+monthLabel(k)+'</option>';
+          }).join("") + '</optgroup>';
       }).join("");
-    mSel.value = sharedPeriod.month;
+    sel.value = sharedPeriod.month !== "all" ? sharedPeriod.month : sharedPeriod.year;
+  }
+  function periodFromValue(v){
+    if(v === "all") return {year:"all", month:"all"};
+    return v.length === 4 ? {year:v, month:"all"} : {year:v.slice(0, 4), month:v};
   }
 
-  // Keeps `period` valid against the data as it is now (a sync, an import, a
+  // Keeps sharedPeriod valid against the data as it is now (a sync, an import, a
   // delete, a switch to someone else's record), then redraws every tab's
   // selects and the month step buttons from it.
   function syncPeriodSelects(){
@@ -2816,12 +2822,16 @@ import { makeSchedule } from "./src/schedule.js";
     if(month !== "all" && periodMonthsIn(year, months).indexOf(month) === -1){
       month = periodDefaultMonth(year, months);
     }
+    if(month !== "all") year = month.slice(0, 4);
     sharedPeriod = {year:year, month:month};
 
-    fillPeriodSelects(document.getElementById("logYearSelect"), document.getElementById("monthFilterSelect"), years, months);
-    fillPeriodSelects(document.getElementById("punctYearSelect"), document.getElementById("punctMonthSelect"), years, months);
+    fillPeriodSelect(document.getElementById("logPeriodSelect"), years, months);
+    fillPeriodSelect(document.getElementById("punctPeriodSelect"), years, months);
     // Monthly is a Year filter only: the tab is the trend across months.
-    fillPeriodSelects(document.getElementById("monthlyYearSelect"), null, years, months);
+    var mySel = document.getElementById("monthlyYearSelect");
+    mySel.innerHTML = '<option value="all">All Years</option>' +
+      years.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join("");
+    mySel.value = year;
 
     var target = {"-1": stepTarget(-1, months), "1": stepTarget(1, months)};
     document.querySelectorAll(".period-step").forEach(function(btn){
@@ -2855,9 +2865,7 @@ import { makeSchedule } from "./src/schedule.js";
   function stepPeriod(dir){
     var target = stepTarget(dir, periodMonthKeys());
     if(!target) return;
-    // Under a specific year, stepping past December or January carries the
-    // year with it; under All Years it stays All Years.
-    setPeriod(sharedPeriod.year === "all" ? "all" : target.slice(0, 4), target);
+    setPeriod(target.slice(0, 4), target);
   }
 
   function populateFilters(){
@@ -2874,8 +2882,7 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   function punctEntries(){
-    var year = document.getElementById("punctYearSelect").value;
-    var month = document.getElementById("punctMonthSelect").value;
+    var sp = currentPeriod(), year = sp.year, month = sp.month;
     return entries.filter(function(e){
       if(month !== "all") return monthKey(e.date) === month;
       if(year !== "all") return yearKey(e.date) === year;
@@ -2885,8 +2892,7 @@ import { makeSchedule } from "./src/schedule.js";
   // The date span the Shortfall filters cover, for unloggedWorkdays(). "All"
   // has no span of its own; unloggedWorkdays() then runs from the first entry.
   function punctRange(){
-    var year = document.getElementById("punctYearSelect").value;
-    var month = document.getElementById("punctMonthSelect").value;
+    var sp = currentPeriod(), year = sp.year, month = sp.month;
     if(month !== "all"){
       var p = month.split("-");
       return {from: month + "-01", to: dateToStr(new Date(+p[0], +p[1], 0))};
@@ -2895,8 +2901,7 @@ import { makeSchedule } from "./src/schedule.js";
     return {from: "", to: ""};
   }
   function punctScopeLabel(){
-    var year = document.getElementById("punctYearSelect").value;
-    var month = document.getElementById("punctMonthSelect").value;
+    var sp = currentPeriod(), year = sp.year, month = sp.month;
     if(month !== "all") return monthLabel(month);
     if(year !== "all") return year;
     return "all time";
@@ -4137,10 +4142,12 @@ import { makeSchedule } from "./src/schedule.js";
   // "8:03 AM" does not fit that cell either, and on an hours grid the meridiem
   // is the part a reader can infer.
   function timeNoMeridiem(t){ return formatTime12(t).replace(/\s*[AP]M$/i, ""); }
-  // "Sick Leave" truncated to "Sick L..." in a 41px cell. Only the four
-  // EXCUSED_TYPES ever reach the calendar's type branch, so only they need a
-  // short form; the full label still shows everywhere there is room for it.
-  var CAL_TYPE_SHORT = { leave:"Leave", sick:"Sick", holiday:"Holiday", other:"Excused" };
+  // "Sick Leave" truncated to "Sick L..." in a 41px cell. The four
+  // EXCUSED_TYPES and the three NO_TARGET_TYPES (when logged without clock
+  // times) reach the calendar's type branch, so they need a short form; the
+  // full label still shows everywhere there is room for it.
+  var CAL_TYPE_SHORT = { leave:"Leave", sick:"Sick", holiday:"Holiday", other:"Excused",
+                         wfh:"WFH", trip:"Trip", training:"Training" };
   function calTypeShort(t){ return CAL_TYPE_SHORT[t] || typeLabel(t); }
 
   function renderCalendar(){
@@ -4208,15 +4215,24 @@ import { makeSchedule } from "./src/schedule.js";
       var c = entry ? computeEntry(entry) : null;
       var worked = c && c.workedMin !== null ? c.workedMin : null;
 
+      // A no-target day (WFH, trip, training) logged without clock times has
+      // no hours to state, but computes as 0h against a 0h target and so
+      // reached the hours branch below as "met": a business trip read "0h",
+      // which looks like a missed day. It is named instead, as an excused day
+      // is -- the same thing the week view's chip already does.
+      var untimedNoTarget = !!entry && !entry.clockIn && NO_TARGET_TYPES.indexOf(entry.type) !== -1;
+
       var title = entry ? (typeLabel(entry.type) + (entry.clockIn ? " · " + formatTime12(entry.clockIn) : "")) : "No entry";
       // The hours are on the cell now, so they belong in the label the screen
       // reader gets too -- otherwise the one view that finally states the
       // number states it to everyone except the reader who cannot see it.
-      if(worked !== null) title += " · " + minutesToHoursStr(worked);
+      // Only for a day with clock times: an untimed leave, sick or trip day
+      // computes as 0h, and "Sick Leave · 0h" says a missed day out loud.
+      if(worked !== null && entry.clockIn) title += " · " + minutesToHoursStr(worked);
       // Status was previously carried by background colour and a coloured dot
       // alone — indistinguishable for colour-blind users and invisible to a
       // screen reader, whose only cue was the bare day number.
-      var statusWord = CAL_STATUS_LABELS[status] || status;
+      var statusWord = untimedNoTarget ? "no target" : (CAL_STATUS_LABELS[status] || status);
       var calLabel = fmtDateLong(dStr) + ", " + statusWord +
         (entry ? ", " + title : "") + (isToday ? ", today" : "");
 
@@ -4225,7 +4241,7 @@ import { makeSchedule } from "./src/schedule.js";
       // was painted, and this grid has no clock driving it); an excused one
       // names the reason. Everything else stays empty on purpose.
       var value = "";
-      if(status === "met" || status === "under"){
+      if((status === "met" || status === "under") && !untimedNoTarget){
         value = '<span class="cal-val" aria-hidden="true">' +
             '<b class="cal-val-full">'+escapeHtml(minutesToHoursStr(worked))+'</b>' +
             '<b class="cal-val-short">'+escapeHtml(hoursCompact(worked))+'</b>' +
@@ -4235,7 +4251,7 @@ import { makeSchedule } from "./src/schedule.js";
             '<b class="cal-val-full">'+escapeHtml(formatTime12(entry.clockIn))+'</b>' +
             '<b class="cal-val-short">'+escapeHtml(timeNoMeridiem(entry.clockIn))+'</b>' +
           '</span>';
-      } else if(status === "excused" && entry){
+      } else if(entry && (status === "excused" || untimedNoTarget)){
         value = '<span class="cal-val is-type" aria-hidden="true">' +
             '<b class="cal-val-full">'+escapeHtml(typeLabel(entry.type))+'</b>' +
             '<b class="cal-val-short">'+escapeHtml(calTypeShort(entry.type))+'</b>' +
@@ -4506,15 +4522,41 @@ import { makeSchedule } from "./src/schedule.js";
   // a week at a time in week view.
   function stepCalendar(dir){
     if(calMode === "week") calendarViewDate.setDate(calendarViewDate.getDate() + dir*7);
-    else calendarViewDate.setMonth(calendarViewDate.getMonth() + dir);
+    // From the 1st, so stepping from the 31st does not skip a 30-day month.
+    else calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() + dir, 1);
     renderCalendarView();
+    periodFollowCalendar();
   }
   onId("calPrevBtn", "click", function(){ stepCalendar(-1); });
   onId("calNextBtn", "click", function(){ stepCalendar(1); });
   onId("calTodayBtn", "click", function(){
     calendarViewDate = new Date();
     renderCalendarView();
+    periodFollowCalendar();
   });
+
+  // The Calendar and the shared period follow each other while a single month
+  // is picked: March in the Log opens the Calendar on March, and paging the
+  // Calendar to May moves the Log and Shortfall to May. A whole year or All
+  // time is left alone -- paging the Calendar does not quietly narrow it.
+  function calendarFollowPeriod(){
+    var sp = currentPeriod();
+    if(sp.month === "all") return;
+    var y = +sp.month.slice(0, 4), m = +sp.month.slice(5, 7) - 1;
+    if(calendarViewDate.getFullYear() === y && calendarViewDate.getMonth() === m) return;
+    var now = new Date();
+    calendarViewDate = (now.getFullYear() === y && now.getMonth() === m) ? now : new Date(y, m, 1);
+  }
+  function periodFollowCalendar(){
+    if(calMode !== "month") return;
+    var sp = currentPeriod();
+    if(sp.month === "all") return;
+    var mk = calendarViewDate.getFullYear() + "-" + String(calendarViewDate.getMonth() + 1).padStart(2, "0");
+    // A month with nothing to show elsewhere (before the first entry, or
+    // ahead of today) leaves the shared period where it was.
+    if(mk === sp.month || periodMonthKeys().indexOf(mk) === -1) return;
+    setPeriod(mk.slice(0, 4), mk);
+  }
 
   function openNewEntryForm(dateStr){
     // resetForm() closes the dialog, so it has to run before the open — not
@@ -4673,7 +4715,7 @@ import { makeSchedule } from "./src/schedule.js";
     // Average shortfall per short day, by month. Follows the year filter but
     // ignores the month one, so the chart still gives context around the
     // month being inspected.
-    var chartYear = document.getElementById("punctYearSelect").value;
+    var chartYear = currentPeriod().year;
     var chartSource = (chartYear === "all"
       ? entries
       : entries.filter(function(e){ return yearKey(e.date) === chartYear; })
@@ -5332,7 +5374,9 @@ import { makeSchedule } from "./src/schedule.js";
   function setSelectMode(on){
     selectModeActive = on;
     selectedEntryIds.clear();
-    document.getElementById("selectModeToggle").classList.toggle("active", on);
+    var selBtn = document.getElementById("selectModeToggle");
+    selBtn.classList.toggle("active", on);
+    selBtn.textContent = on ? "Stop Selecting" : "Select Days";
     document.getElementById("bulkToolbar").style.display = on ? "flex" : "none";
     document.getElementById("selectColHead").style.display = on ? "" : "none";
     document.getElementById("bulkSelectAll").checked = false;
@@ -5343,6 +5387,44 @@ import { makeSchedule } from "./src/schedule.js";
   onId("selectModeToggle", "click", function(){
     setSelectMode(!selectModeActive);
   });
+
+  // The Log's ⋯ menu (Print Report, Select Days). Moved to the body on first
+  // open for the reason .row-menu is: #tabContentCard is overflow:hidden and
+  // clips anything positioned inside it.
+  var logMoreMenu = document.getElementById("logMoreMenu");
+  var logMoreBtn = document.getElementById("logMoreBtn");
+  function closeLogMore(returnFocus){
+    if(!logMoreMenu || logMoreMenu.hidden) return;
+    logMoreMenu.hidden = true;
+    logMoreBtn.setAttribute("aria-expanded", "false");
+    if(returnFocus) logMoreBtn.focus();
+  }
+  function openLogMore(){
+    if(logMoreMenu.parentNode !== document.body) document.body.appendChild(logMoreMenu);
+    logMoreMenu.style.left = "-9999px";
+    logMoreMenu.style.top = "0px";
+    logMoreMenu.hidden = false;
+    positionRowMenu(logMoreMenu, logMoreBtn);
+    logMoreBtn.setAttribute("aria-expanded", "true");
+    var first = logMoreMenu.querySelector(".row-menu-item:not([hidden])");
+    if(first) first.focus();
+  }
+  if(logMoreMenu && logMoreBtn){
+    logMoreBtn.addEventListener("click", function(){
+      if(logMoreMenu.hidden) openLogMore(); else closeLogMore(true);
+    });
+    // Bubbles after the item's own handler, so Print and Select run first.
+    logMoreMenu.addEventListener("click", function(ev){
+      if(ev.target.closest(".row-menu-item")) closeLogMore();
+    });
+    document.addEventListener("click", function(ev){
+      if(ev.target && ev.target.closest && ev.target.closest("#logMoreMenu, #logMoreBtn")) return;
+      closeLogMore();
+    });
+    document.addEventListener("keydown", function(ev){ if(ev.key === "Escape") closeLogMore(true); });
+    window.addEventListener("resize", function(){ closeLogMore(); });
+    window.addEventListener("scroll", function(){ closeLogMore(); }, true);
+  }
   onId("bulkCancelBtn", "click", function(){
     setSelectMode(false);
   });
@@ -5874,6 +5956,9 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("monthFilterWrap").style.display =
       (!bare && (tab === "log" || (tab === "trends" && subtab === "weekly"))) ? "flex" : "none";
     document.getElementById("searchFilterWrap").style.display = (tab === "log") ? "flex" : "none";
+    // Weekly shares the Log's period bar; selecting days only means anything
+    // on the Log's own rows.
+    document.getElementById("selectModeToggle").hidden = (tab !== "log");
     if(tab !== "log"){
       document.getElementById("advancedFiltersPanel").style.display = "none";
       document.getElementById("advancedFiltersToggle").classList.remove("active");
@@ -6029,6 +6114,13 @@ import { makeSchedule } from "./src/schedule.js";
     document.querySelectorAll(".tab-panel").forEach(function(p){ p.classList.remove("active"); });
     panel.classList.add("active");
 
+    // The phone header shrinks to the tab's name off Overview (see
+    // body.head-compact in index.html). Admin has no tab button to name it.
+    var tabBtn = document.getElementById("tabbtn-" + tab);
+    var tabName = document.getElementById("headTabName");
+    if(tabName) tabName.textContent = tabBtn ? tabBtn.textContent.trim() : (tab === "admin" ? "Admin" : "");
+    document.body.classList.toggle("head-compact", tab !== "overview");
+
 
     // Admin lives outside the tablist, so its own trigger carries the state.
     var adminBtn = document.getElementById("adminBtn");
@@ -6061,7 +6153,7 @@ import { makeSchedule } from "./src/schedule.js";
       renderTodayTeam().catch(function(){});
     }
     if(tab === "trends") renderSubtab(activeSubtab());
-    if(tab === "calendar") renderCalendarView();
+    if(tab === "calendar"){ calendarFollowPeriod(); renderCalendarView(); }
     if(tab === "punctuality") renderPunctuality();
     if(tab === "team") renderTeam();
     if(tab === "admin") renderAdmin();
@@ -6141,12 +6233,17 @@ import { makeSchedule } from "./src/schedule.js";
     });
   });
 
-  // Any tab's Year or Month select moves the one shared sharedPeriod.
-  ["logYearSelect","punctYearSelect","monthlyYearSelect"].forEach(function(id){
-    onId(id, "change", function(){ setPeriod(this.value, sharedPeriod.month); });
+  // Any tab's Period select moves the one sharedPeriod.
+  ["logPeriodSelect","punctPeriodSelect"].forEach(function(id){
+    onId(id, "change", function(){
+      var p = periodFromValue(this.value);
+      setPeriod(p.year, p.month);
+    });
   });
-  ["monthFilterSelect","punctMonthSelect"].forEach(function(id){
-    onId(id, "change", function(){ setPeriod(sharedPeriod.year, this.value); });
+  // Trends > Monthly picks a year only. All Years clears the month too: a
+  // month always carries its own year, so keeping one would snap back to it.
+  onId("monthlyYearSelect", "change", function(){
+    setPeriod(this.value, this.value === "all" ? "all" : sharedPeriod.month);
   });
   document.querySelectorAll(".period-step").forEach(function(btn){
     btn.addEventListener("click", function(){ stepPeriod(+btn.getAttribute("data-step")); });
@@ -7555,6 +7652,11 @@ import { makeSchedule } from "./src/schedule.js";
       : '<span class="portrait-mono" aria-hidden="true">'+
           escapeHtml(label ? initialsOf(label) : "—")+'</span>';
     hydrateAvatars(media);
+    // No photo to show: below the Overview grid the card shrinks to a small
+    // monogram beside the name (.portrait-card.no-photo) instead of a third
+    // of the phone screen holding two letters.
+    var card = document.getElementById("portraitCard");
+    if(card) card.classList.toggle("no-photo", !cached && !(who && who.avatar_updated_at));
 
     var nameEl = document.getElementById("personName");
     if(nameEl) nameEl.textContent = label || "—";
@@ -7732,10 +7834,8 @@ import { makeSchedule } from "./src/schedule.js";
 
     legend.innerHTML = active.map(function(b, i){
       return '<div class="format-leg">'+
-        '<div class="format-leg-top">'+
-          '<i class="format-leg-dot" style="background:'+b.color+'"></i>'+
-          '<span class="format-leg-pct">'+pcts[i]+'%</span>'+
-        '</div>'+
+        '<i class="format-leg-dot" style="background:'+b.color+'"></i>'+
+        '<span class="format-leg-pct">'+pcts[i]+'%</span>'+
         '<span class="format-leg-label">'+escapeHtml(b.label)+'</span>'+
       '</div>';
     }).join("");
