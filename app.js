@@ -8016,12 +8016,9 @@ import { makeSchedule } from "./src/schedule.js";
       // for anything still outstanding.
       var checkCls = r.st.cls === "in" ? " is-in"
                    : (r.st.cls === "done" || r.st.cls === "excused" || r.st.cls === "off") ? " is-done" : "";
-      // When, not just whether: "In since 8:02 AM" / "Done at 4:00 PM" says
-      // what the IN/DONE pill said and the time it happened, in the same
-      // space. The words carry the state, so it is not on colour alone.
-      var when = r.st.cls === "in"
-        ? (r.clockIn ? "In since " + formatTime12(r.clockIn) : "In")
-        : (r.clockOut ? "Done at " + formatTime12(r.clockOut) : "Done");
+      // A word, not a pill: "In" or "Done", green while the shift runs. The
+      // word carries the state, so it is not on colour alone.
+      var when = r.st.cls === "in" ? "In" : "Done";
       return '<div class="tt-row">'+
         avatarSlotHtml(r.p)+
         '<span class="tt-name" dir="auto">'+escapeHtml(name)+'</span>'+
@@ -8034,16 +8031,12 @@ import { makeSchedule } from "./src/schedule.js";
     hydrateAvatars(list);
   }
 
+  // No banner any more for an admin viewing someone else's record: the
+  // viewer switcher in the rail and the portrait ("Employee · viewing") say
+  // whose record is on screen. What this still does is put the page into
+  // that mode -- the clock dims and stands down.
   function updateViewingBanner(){
-    var banner = document.getElementById("viewingOtherBanner");
     var qc = document.querySelector(".quick-clock");
-    if(!isOwnData && viewedProfile){
-      document.getElementById("viewingOtherTitle").textContent =
-        "Viewing " + (viewedProfile.full_name || viewedProfile.email) + "'s attendance";
-      banner.classList.add("show");
-    } else {
-      banner.classList.remove("show");
-    }
     if(qc) qc.style.opacity = isOwnData ? "1" : ".5";
     if(!isOwnData) document.getElementById("stickyClock").classList.remove("show");
     // Every clock control's enabled state, label and icon come from one place

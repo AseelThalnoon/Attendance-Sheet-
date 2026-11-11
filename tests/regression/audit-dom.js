@@ -274,19 +274,6 @@ function ok(cond, name, detail){
     ok(rows > 0, "app renders a populated log end to end", `log rows = ${rows}`);
   }
 
-  // ---------------------------------------------------------------- H-1
-  // The banner carried an inline style="display:none" that outranked the .show
-  // class the JS toggles, so this warning had never rendered once.
-  {
-    const r = await page.evaluate(() => {
-      const el = document.getElementById("viewingOtherBanner");
-      el.classList.add("show");
-      return {d: getComputedStyle(el).display, h: el.getBoundingClientRect().height};
-    });
-    ok(r.d === "flex" && r.h > 0,
-      "H-1 the 'viewing another employee' warning actually renders", JSON.stringify(r));
-  }
-
   // ---------------------------------------------------------------- H-6
   // .show only set transform/opacity; the base rule's display:none stood, so the
   // whole sticky-clock feature was unreachable at every viewport width.

@@ -968,13 +968,10 @@ async function run(){
       titles: Array.from(document.querySelectorAll(".notif-item-title")).map(x => x.textContent),
       unread: document.querySelectorAll(".notif-item:not(.is-read)").length,
       stackInPanel: !!document.querySelector("#notifOverlay #noticeStack"),
-      stackOnPage: !!document.getElementById("noticeStack").getClientRects().length,
-      viewingBannerOutside: !document.querySelector("#notifOverlay #viewingOtherBanner")
+      stackOnPage: !!document.getElementById("noticeStack").getClientRects().length
     }));
     ok(before.stackInPanel && !before.stackOnPage,
       "the notices live in the bell's panel, not stacked on top of every screen");
-    ok(before.viewingBannerOutside,
-      "the viewing-someone-else banner is NOT in the panel: it is a mode indicator, and below 760px it is the only thing saying edits land on another person's record");
     ok(!before.titles.includes("Not for you"),
       "a message targeted at another user is not readable", JSON.stringify(before.titles));
     ok(!before.titles.includes("Still a draft"),
