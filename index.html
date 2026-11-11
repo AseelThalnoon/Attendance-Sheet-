@@ -2551,7 +2551,18 @@
   .format-leg-pct{font-size:13px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums;}
   .format-leg-label{
     min-width:0; font-size:12.5px; color:var(--muted);
-    overflow-wrap:anywhere;
+    overflow-wrap:break-word;
+  }
+  /* The Overview grid gives the legend about 95px beside the dial: too narrow
+     for "9% Work From Home" on one line, and wrapping it there broke labels a
+     word per line. There the label takes its own line under the figure, at
+     the column's full width, as it did before. */
+  @media (min-width:1100px){
+    .format-leg{flex-wrap:wrap; row-gap:2px;}
+    .format-leg-label{
+      flex-basis:100%; font-size:11px; text-transform:uppercase;
+      letter-spacing:.09em; color:var(--muted-2);
+    }
   }
   /* Wraps rather than truncating. Uppercase at .09em tracking, the legend's
      column fits about ten characters beside the dial, so "Work From Home",
