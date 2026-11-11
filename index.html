@@ -1228,6 +1228,9 @@
     background:rgba(0,0,0,.55);
     box-shadow:inset 0 0 0 1px rgba(255,255,255,.14), 0 6px 20px rgba(0,0,0,.45);
   }
+  html[data-theme="dark"] .portrait-card.no-photo .portrait-media{
+    background:rgba(0,0,0,.55); box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);
+  }
   /* The console's nav rows lift on hover toward the selected row's --card.
      Hardcoded at 62% white that lift became a near-white bar under near-white
      text, so the row you were pointing at was the one you could not read. */
@@ -1877,6 +1880,26 @@
   .today-line.status-under .today-line-value{color:var(--negative-on-dark);}
   @media (max-width:759px){ .today-line:not([hidden]){display:flex;} }
 
+  /* The phone header off Overview: the tab's name and the header buttons on
+     one line, no Today bar. Overview keeps the greeting and the bar; every
+     other tab had them as a quarter of the screen above its own content, and
+     the clock button in the bottom bar already says where today stands. */
+  .head-tab-name{display:none;}
+  /* One line when it fits. An admin's row carries a fourth button, and on a
+     320px phone even three do not leave room for "Shortfall" -- there the
+     buttons wrap under the name rather than truncating it or running off the
+     edge. */
+  @media (max-width:760px){
+    body.head-compact .head-inner{align-items:center; gap:var(--space-2);}
+    body.head-compact .head-titles{flex:1 1 auto;}
+    body.head-compact .head-title{font-size:20px; white-space:nowrap;}
+    body.head-compact #headGreeting{display:none;}
+    body.head-compact .head-tab-name{display:inline;}
+    body.head-compact .head-right{width:auto; flex:0 1 auto; max-width:100%;}
+    body.head-compact .today-line:not([hidden]){display:none;}
+  }
+  @media (max-width:359px){ body.head-compact .head-title{font-size:17px;} }
+
   /* The notice stack's fold. On a pointer the stack is just the reminders in a
      row of the page and this button never appears. On a phone the second and
      further notices fold behind it, because two open notices were costing 282px
@@ -2381,6 +2404,23 @@
     letter-spacing:.09em; color:var(--muted-2);
   }
   .portrait-card .team-status{flex-shrink:0;}
+  /* No photo, below the Overview grid: a 48px monogram beside the name plate
+     instead of a 260px tile holding two letters. The grid above 1100px keeps
+     the tile, since its row is sized by the frame, not by the card. */
+  @media (max-width:1099px){
+    .overview-panel .portrait-card.no-photo{min-height:0; align-items:center; gap:12px; padding:12px;}
+    .portrait-card.no-photo .portrait-media{
+      position:relative; inset:auto; flex:0 0 48px; width:48px; height:48px;
+      border-radius:50%; background:rgba(255,255,255,.72);
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.55);
+    }
+    .portrait-card.no-photo .portrait-mono{
+      padding-bottom:0; font-size:17px; letter-spacing:-.02em; opacity:.8;
+    }
+    /* The pill drops under the name before the name gives up its width. */
+    .portrait-card.no-photo .portrait-plate{flex:1 1 auto; min-width:0; width:auto; flex-wrap:wrap; row-gap:6px;}
+    .portrait-card.no-photo .portrait-id{min-width:120px;}
+  }
 
   /* ---------- Day types ----------
      One ring, one segment per day type logged this month, stacked end to end
@@ -2500,17 +2540,29 @@
        card's overflow:hidden. */
     flex:1 1 auto; min-width:0; min-height:0; overflow-y:auto;
   }
-  .format-leg{flex:0 0 auto; min-width:0;}
-  .format-leg-top{display:flex; align-items:center; gap:6px;}
-  .format-leg-dot{width:8px; height:8px; border-radius:50%; flex-shrink:0;}
+  /* One line per type, "30% Regular". It was a percentage over an uppercase
+     label, two lines a type, which ran nine types to a card taller than the
+     phone screen. The label still wraps under itself if a column is narrow. */
+  .format-leg{flex:0 0 auto; min-width:0; display:flex; align-items:baseline; gap:6px;}
+  .format-leg-dot{width:8px; height:8px; border-radius:50%; flex-shrink:0; align-self:center;}
   /* Was 14.5px — close enough to the dial's own centre figure (19px) that a
      row of four sat as a second, competing set of headline numbers instead
      of reading as the ring's supporting legend. */
   .format-leg-pct{font-size:13px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums;}
   .format-leg-label{
-    display:block; font-size:11px; text-transform:uppercase; letter-spacing:.09em;
-    color:var(--muted-2); margin-top:4px;
-    overflow-wrap:anywhere;
+    min-width:0; font-size:12.5px; color:var(--muted);
+    overflow-wrap:break-word;
+  }
+  /* The Overview grid gives the legend about 95px beside the dial: too narrow
+     for "9% Work From Home" on one line, and wrapping it there broke labels a
+     word per line. There the label takes its own line under the figure, at
+     the column's full width, as it did before. */
+  @media (min-width:1100px){
+    .format-leg{flex-wrap:wrap; row-gap:2px;}
+    .format-leg-label{
+      flex-basis:100%; font-size:11px; text-transform:uppercase;
+      letter-spacing:.09em; color:var(--muted-2);
+    }
   }
   /* Wraps rather than truncating. Uppercase at .09em tracking, the legend's
      column fits about ten characters beside the dial, so "Work From Home",
@@ -4025,6 +4077,10 @@
   .filter-bar .period-step-group select{min-width:0; flex:1 1 auto;}
   .period-step{flex:0 0 auto; padding-left:var(--space-2); padding-right:var(--space-2);}
   .period-step:disabled{opacity:.4; cursor:default;}
+  /* The one Period control takes the line it sits on, up to a width a month
+     name needs; the ⋯ beside it keeps its 44px. */
+  .filter-bar .period-field{flex:1 1 auto; min-width:0; max-width:340px;}
+  .filter-bar .period-field .period-step-group{flex:1 1 auto;}
 
   /* ---------- Table ---------- */
   /* No border/radius of its own: every .table-wrap already sits inside a
@@ -4198,9 +4254,8 @@
        edge with a lake between them. Sized to their content instead; the
        search field keeps flex:1 and takes the width they give back. */
     .filter-bar select{min-width:0; width:auto;}
-    .filter-bar #logYearSelect, .filter-bar #monthlyYearSelect,
-    .filter-bar #punctYearSelect{min-width:88px;}
-    .filter-bar #monthFilterSelect, .filter-bar #punctMonthSelect,
+    .filter-bar #monthlyYearSelect{min-width:88px;}
+    .filter-bar .period-select{min-width:160px;}
     .filter-bar #typeFilterSelect{min-width:128px;}
     /* Section heads are a list to scan on a pointer, so they take the module
        rather than the touch target. */
@@ -5339,6 +5394,7 @@
     font-size:13px; font-weight:500; color:var(--ink);
   }
   .row-menu-item:hover, .row-menu-item:focus-visible{background:var(--ink-50);}
+  .row-menu-item[hidden]{display:none;}
   /* Delete destroys the person and every entry they logged. It was a pill the
      same size, shape and border as Open Record, separated only by text
      colour. Here it is below a rule, last, and the only red thing in the
@@ -6793,7 +6849,11 @@
          repeated what the rail states with a lime bar and aria-current. The
          heading carries itself. -->
     <div class="head-titles">
-      <h1 class="head-title display" id="headGreeting">Attendance</h1>
+      <!-- Two names for one heading. Overview greets; every other tab on a
+           phone shows the tab's own name on one thin line (body.head-compact,
+           set by activateTab()), so the content starts near the top instead
+           of under a greeting, three buttons and the Today bar. -->
+      <h1 class="head-title display"><span id="headGreeting">Attendance</span><span class="head-tab-name" id="headTabName"></span></h1>
     </div>
     <!-- Admin, Settings and Sign Out all have a rail equivalent now (the rail
          proxies to these same buttons — see the .rail-item click handler in
@@ -7145,24 +7205,27 @@
       <button type="button" class="sub-tab-btn active" data-subtab="monthly">Monthly</button>
     </div>
 
+    <!-- One period control, "‹ November 2026 ›". Year and Month used to be two
+         selects plus two labels, which on a phone took two rows before the
+         first record; the one list holds All time, each whole year and each
+         month. Print and Select are occasional, so they sit behind ⋯. -->
     <div class="filter-bar" id="monthFilterWrap">
-      <div class="filter-field">
-        <label for="logYearSelect">Year</label>
-        <select id="logYearSelect"></select>
-      </div>
-      <div class="filter-field">
-        <label for="monthFilterSelect">Month</label>
+      <div class="filter-field period-field">
+        <label for="logPeriodSelect" class="sr-only">Period</label>
         <div class="period-step-group">
           <button type="button" class="btn ghost small period-step" data-step="-1" aria-label="Previous month" title="Previous month"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
-          <select id="monthFilterSelect"></select>
+          <select id="logPeriodSelect" class="period-select"></select>
           <button type="button" class="btn ghost small period-step" data-step="1" aria-label="Next month" title="Next month"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
         </div>
       </div>
       <div class="filter-spacer"></div>
-      <button type="button" class="btn ghost small" id="printBtn">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/></svg>
-        Print Report
+      <button type="button" class="row-menu-btn" id="logMoreBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="logMoreMenu" aria-label="More actions" title="More actions">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>
       </button>
+      <div class="row-menu" id="logMoreMenu" role="menu" aria-label="More actions" hidden>
+        <button type="button" role="menuitem" class="row-menu-item" id="printBtn">Print Report</button>
+        <button type="button" role="menuitem" class="row-menu-item" id="selectModeToggle">Select Days</button>
+      </div>
     </div>
 
     <div class="filter-bar" id="monthlyFilterWrap" style="display:none;">
@@ -7172,15 +7235,11 @@
     </div>
 
     <div class="filter-bar" id="punctFilterWrap" style="display:none;">
-      <div class="filter-field">
-        <label for="punctYearSelect">Year</label>
-        <select id="punctYearSelect"></select>
-      </div>
-      <div class="filter-field">
-        <label for="punctMonthSelect">Month</label>
+      <div class="filter-field period-field">
+        <label for="punctPeriodSelect" class="sr-only">Period</label>
         <div class="period-step-group">
           <button type="button" class="btn ghost small period-step" data-step="-1" aria-label="Previous month" title="Previous month"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
-          <select id="punctMonthSelect"></select>
+          <select id="punctPeriodSelect" class="period-select"></select>
           <button type="button" class="btn ghost small period-step" data-step="1" aria-label="Next month" title="Next month"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
         </div>
       </div>
@@ -7201,10 +7260,6 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
         Filters
         <span class="filter-badge" id="advancedFilterBadge" style="display:none;">0</span>
-      </button>
-      <button type="button" class="btn ghost small" id="selectModeToggle">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        Select
       </button>
       <span class="filter-count" id="filterCount"></span>
     </div>
