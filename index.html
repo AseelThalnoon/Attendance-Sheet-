@@ -2258,13 +2258,12 @@
        no specificity, so this needs three to win regardless of source order. */
     .tab-panel.overview-panel.active{
       display:grid; gap:var(--space-3); margin-bottom:0;
-      /* Roster gets the largest share, not an even split with format: its
-         rows carry a name AND a status pill AND a checkmark competing for
-         one line, while the portrait and Day Types columns have slack to
-         give up. At the grid's own 1100px floor an even 3-way split left
-         the roster too narrow for its own status pills ("Clocked in ·
-         8:58 AM" truncating to "CLOCKE…") well before that width. */
-      grid-template-columns:minmax(0,.78fr) minmax(0,1fr) minmax(0,1.1fr);
+      /* Three equal columns, so the photo, Day Types and In today read as one
+         even row. The uneven split was there to give the roster room for
+         status pills like "Clocked in · 8:58 AM"; its rows now say only "In"
+         or "Done", and Day Types puts its legend under the ring, so neither
+         needs the extra width any more. */
+      grid-template-columns:repeat(3, minmax(0,1fr));
       /* 150px, not the 210px this row used to floor at: inside the frame the
          row's job is to be as tall as the screen can spare, and 210 was enough
          to push a 720px window with two banners up over the edge. The cards in
@@ -2351,26 +2350,6 @@
     .overview-panel .portrait-id{min-width:150px;}
   }
 
-  /* ---------- Overview grid: where the slack actually is ----------
-     Day Types holds a dial capped at 170px by its own clamp() plus a legend
-     of a few short rows. Past 1400px the column keeps growing and the dial
-     does not, so the extra lands entirely in the legend column as a band of
-     empty white down the right of the card — 382px of card at 1440 and 409px
-     at 1920 to draw ~226px of content. The portrait, which is a photograph
-     and can use every pixel it is given, was the column paying for it at
-     298px.
-     Below 1400 this stays exactly as it was, deliberately. The legend needs
-     80px to keep its widest real label ("Half Day Leave", "Public Holiday")
-     on one line, and the same ratios that free 60px at 1440 leave it 62px at
-     1280 — reclaiming there would buy the portrait width by wrapping the
-     legend, and would take it from the roster too, whose status pills are
-     the tightest thing in the row at the 1100px end. Slack is only spent
-     where it exists. */
-  @media (min-width:1400px){
-    .tab-panel.overview-panel.active{
-      grid-template-columns:minmax(0,.95fr) minmax(0,.84fr) minmax(0,1.1fr);
-    }
-  }
 
   /* ---------- Portrait ----------
      The reference's photo tile: a full-bleed image with a frosted plate over
@@ -2578,11 +2557,15 @@
      one line ("9% Work From Home") instead of stacking a word per line
      beside the ring and scrolling out of sight. */
   @media (min-width:1100px){
-    .overview-panel .format-body{flex-direction:column; align-items:stretch; gap:14px;}
-    .overview-panel .format-dial{width:clamp(110px, 9vw, 140px);}
+    .overview-panel .format-body{flex-direction:column; align-items:stretch; gap:12px;}
+    .overview-panel .format-leg{gap:5px;}
+    .overview-panel .format-leg-label{font-size:12px;}
+    .overview-panel .format-dial{width:clamp(96px, 9vw, 140px);}
     .overview-panel .format-legend{
-      display:grid; grid-template-columns:repeat(2, minmax(0, 1fr));
-      gap:8px 12px; align-content:start; flex:0 1 auto;
+      /* Two columns when the card has the width, one when it does not
+         (about 1100-1250px), so a label never breaks across lines. */
+      display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+      gap:6px 10px; align-content:start; flex:0 1 auto;
     }
   }
   /* Wraps rather than truncating. Uppercase at .09em tracking, the legend's
@@ -2644,8 +2627,8 @@
   }
   .tt-row:last-child{border-bottom:none;}
   .tt-row .avatar{width:28px; height:28px; font-size:10px;}
-  /* "In since 8:02 AM" / "Done at 4:00 PM" -- the time beside the name, in
-     place of the IN / DONE pill it replaced. Green while the shift runs. */
+  /* "In" / "Done" beside the name, in place of the pill it replaced. Green
+     while the shift runs. */
   .tt-when{flex-shrink:0; font-size:12px; color:var(--muted-2); white-space:nowrap; font-variant-numeric:tabular-nums;}
   .tt-when.is-in{color:var(--positive);}
   /* 72 -> 88: at the grid's own 1100px floor an ordinary name like "Omar
@@ -3575,8 +3558,7 @@
      enough to need two lines was rendering as one line hard-truncated at the
      first word instead -- the -webkit-line-clamp below never got a chance to
      wrap, because nowrap forecloses wrapping before line-clamp ever sees it. */
-  .load-fail-reminder .reminder-title,
-  .viewing-other-banner .reminder-title{
+  .load-fail-reminder .reminder-title{
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
     white-space:normal; overflow:hidden; overflow-wrap:anywhere;
   }
@@ -5334,7 +5316,6 @@
   }
   .rail-logout-btn:hover{background:rgba(var(--negative-on-dark-rgb),.14); color:var(--negative-on-dark);}
   @media (min-width:1100px){ .rail-logout-btn{width:30px; height:30px;} }
-  .viewing-other-banner{border-left-color:var(--gold); background:var(--excused-bg);}
   /* announcement-banner's own colour lived here; it now carries only its
      .notif-icon-chip in the notification panel, the one place it renders. */
 
@@ -5548,8 +5529,6 @@
      which is what lets an inline-flex box shrink at all. */
   .attention-rows .link-btn{font-size:12px; padding:0; text-align:left; max-width:100%; overflow-wrap:anywhere;}
   .attention-more{font-size:11.5px; color:var(--muted-2); margin-top:2px;}
-  .viewing-other-banner svg{color:var(--excused);}
-  .viewing-other-banner .reminder-title{color:var(--excused);}
 
   /* ---------- Team tab (admin) ---------- */
   /* ---------- Team roster ---------- */
@@ -6936,10 +6915,9 @@
 
 <main id="main" tabindex="-1">
 
-  <!-- Visibility is controlled by the .show class alone. These used to also
-       carry an inline style="display:none", which outranks any class selector —
-       so .reminder.show{display:flex} could never take effect and the
-       "you are editing someone else's record" warning below never rendered once. -->
+  <!-- Notices (.reminder) show through the .show class alone. They used to
+       also carry an inline style="display:none", which outranks any class
+       selector, so .reminder.show{display:flex} could never take effect. -->
   <!-- The phone's answer to "where do I stand right now". The rail carries
        this on a pointer, and the rail does not exist below 760px — so the one
        device PRODUCT.md calls primary was the one that never showed whether
@@ -6948,25 +6926,6 @@
   <div class="today-line" id="todayLine" hidden>
     <span class="today-line-label">Today</span>
     <span class="today-line-value" id="todayLineValue">—</span>
-  </div>
-
-  <!-- One region, so a phone can show the first notice and count the rest.
-       At 393x852 these two stacked cost 132px + 150px and pushed the first
-       figure to y=438 — 51% of the screen gone before a number, on the device
-       PRODUCT.md calls the primary one. The same two cost 39px each at 1440. -->
-  <!-- NOT a notification, and deliberately still in the page: this says edits
-       on this screen save to somebody else's record. Below 760px the rail and
-       its viewer switcher are gone, so this banner is the only thing on screen
-       saying so — and unlike the load failure (which punchClock and the
-       settings Save both refuse outright), nothing guards a hand-entered day
-       against landing on the wrong person. A mode indicator has to be visible
-       without opening anything. -->
-  <div class="reminder viewing-other-banner" id="viewingOtherBanner">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
-    <div class="reminder-body">
-      <p class="reminder-title" id="viewingOtherTitle"></p>
-      <p class="reminder-text">You're an admin viewing another employee's attendance. Edits here save to their record, not yours.</p>
-    </div>
   </div>
 
   <!-- The notification centre. The five notices below used to stack at the top
