@@ -68,6 +68,11 @@ const MEASURE = (floor) => {
     if(!r.width || !r.height) continue;
     const cs = getComputedStyle(el);
     if(cs.visibility === "hidden" || +cs.opacity === 0) continue;
+    // Visually hidden for screen readers and keyboards only (the clip
+    // pattern), like the phone's refresh button, which pull-to-refresh
+    // replaces for a finger: a 1px box no finger can land on is not a touch
+    // target, and focused it shows at full size (see pull-refresh.js).
+    if(cs.clipPath === "inset(50%)" || /rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)/.test(cs.clip)) continue;
     const lab = el.closest("label");
     const lr = lab ? lab.getBoundingClientRect() : null;
     const h = Math.max(r.height, lr ? lr.height : 0);
