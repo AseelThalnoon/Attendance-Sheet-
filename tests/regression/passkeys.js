@@ -86,13 +86,23 @@ function passkeyServer(state){
 // removes the API the way a browser without it would look).
 async function start(opts){
   opts = opts || {};
-  const pk = { enabled: opts.enabled !== false, creds: opts.creds || [], log: [], signIns: 0 };
+  const pk = { enabled: opts.enabled !== false, creds: opts.creds || [], log: [], signIns: 0, passwordSignIns: 0 };
   let cdp = null, authId = null;
   const h = await boot({ hostname: "localhost", meId: opts.meId || me.id, signedOut: !!opts.signedOut,
     waitForApp: !opts.signedOut, viewport: opts.viewport, device: opts.device,
     seed: { profiles: opts.profiles || [me], entries: [], user_settings: [{ user_id: me.id, settings: D.SETTINGS }] },
     beforeLoad: async ({ page }) => {
       await page.route(`${HOST}/auth/v1/passkeys**`, passkeyServer(pk));
+      // Password sign-in: any password works, and it is counted.
+      await page.route(`${HOST}/auth/v1/token**`, route => {
+        pk.passwordSignIns++;
+        return route.fulfill({ status: 200, contentType: "application/json",
+          headers: { "Access-Control-Allow-Origin": "*", "X-Supabase-Api-Version": "2024-01-01" },
+          body: JSON.stringify({ access_token: "test-access-token", token_type: "bearer", expires_in: 3600,
+            expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: "test-refresh-token",
+            user: { id: me.id, aud: "authenticated", role: "authenticated", email: me.email,
+              app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" } }) });
+      });
       if(opts.noWebAuthn){
         await page.addInitScript(() => { delete window.PublicKeyCredential; });
         return;
@@ -100,7 +110,7 @@ async function start(opts){
       cdp = await page.context().newCDPSession(page);
       await cdp.send("WebAuthn.enable");
       authId = (await cdp.send("WebAuthn.addVirtualAuthenticator", { options: {
-        protocol: "ctap2", transport: "internal", hasResidentKey: true,
+        protocol: "ctap2", transport: opts.transport || "internal", hasResidentKey: true,
         hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } })).authenticatorId;
     } });
   await settle(h.page, 900);
@@ -255,6 +265,80 @@ const authView = page => page.evaluate(() => {
     const v = await view(h.page);
     ok(v.others && !v.add, "viewing someone else: passkeys are theirs to manage, no Add button", JSON.stringify(v));
     await h.close();
+  }
+
+  // ---- After a password sign-in: offer Face ID, once ----------------------
+  {
+    const offer = page => page.evaluate(() => {
+      const o = document.querySelector(".modal-overlay");
+      if(!o || !o.querySelector(".passkey-offer-error")) return null;
+      return { title: o.querySelector(".modal-title").textContent,
+        buttons: [...o.querySelectorAll(".modal-actions .btn")].map(b => b.textContent.trim()) };
+    });
+    const signInWithPassword = async page => {
+      await page.fill("#siEmail", me.email);
+      await page.fill("#siPassword", "correct-horse-battery");
+      await page.click("#signInBtn");
+      await settle(page, 2000);
+    };
+    const signOut = async page => {
+      await page.evaluate(() => document.getElementById("logoutBtn").click());
+      await settle(page, 400);
+      await page.evaluate(() => document.querySelector(".modal-overlay .modal-confirm").click());
+      await settle(page, 1200);
+    };
+    const { devices } = require("playwright");
+
+    // iPhone: the offer names Face ID, and Use Face ID makes the passkey.
+    const h = await start({ signedOut: true, device: devices["iPhone 15 Pro"] });
+    await signInWithPassword(h.page);
+    let o = await offer(h.page);
+    ok(!!o && o.title === "Sign in faster with Face ID?" && o.buttons.join() === "Not Now,Use Face ID",
+      "after typing a password on an iPhone, Face ID is offered", JSON.stringify(o));
+    await h.page.tap(".modal-overlay .modal-confirm");
+    await settle(h.page, 1500);
+    ok(h.pk.creds.length === 1 && !(await offer(h.page)), "Use Face ID adds the passkey and closes the offer",
+      JSON.stringify(h.pk.log));
+    const toast = await h.page.evaluate(() => [...document.querySelectorAll(".toast")].map(t => t.textContent).join(" "));
+    ok(/tap Face ID on the sign-in screen/.test(toast), "and says where to find it next time", toast);
+    await signOut(h.page);
+    await h.page.click("#passkeySignInBtn");
+    await settle(h.page, 1800);
+    ok(h.pk.signIns === 1, "and the Face ID icon then signs straight in");
+    ok(h.errors.length === 0, "offer: no script errors", h.errors.join(" | "));
+    await h.close();
+
+    // Not Now: gone for good on this device.
+    const n = await start({ signedOut: true });
+    await signInWithPassword(n.page);
+    o = await offer(n.page);
+    ok(!!o && o.title === "Sign in faster with a passkey?", "offered on a computer with a built-in sensor", JSON.stringify(o));
+    await n.page.click(".modal-overlay .modal-cancel");
+    await settle(n.page, 400);
+    ok(!(await offer(n.page)) && n.pk.creds.length === 0, "Not Now closes it, nothing added");
+    await signOut(n.page);
+    await signInWithPassword(n.page);
+    ok(n.pk.passwordSignIns === 2 && !(await offer(n.page)), "and the next password sign-in does not ask again");
+    await n.close();
+
+    // Not offered: a restored session, an existing passkey, no built-in sensor.
+    const r = await start();
+    await settle(r.page, 1500);
+    ok(!(await offer(r.page)), "opening the app already signed in: no offer");
+    await r.close();
+    const has = await start({ signedOut: true, creds: [{ id: "pk-x", credentialId: "x", friendly_name: "iCloud Keychain",
+      created_at: "2026-11-01T00:00:00Z", last_used_at: null }] });
+    await signInWithPassword(has.page);
+    ok(!(await offer(has.page)), "someone who already has a passkey: no offer");
+    await has.close();
+    const usb = await start({ signedOut: true, transport: "usb" });
+    await signInWithPassword(usb.page);
+    ok(!(await offer(usb.page)), "no Face ID / fingerprint sensor on this device: no offer");
+    await usb.close();
+    const off = await start({ signedOut: true, enabled: false });
+    await signInWithPassword(off.page);
+    ok(!(await offer(off.page)), "passkeys switched off on the server: no offer");
+    await off.close();
   }
 
   // ---- The tap target: Face ID on iPhone, the right name elsewhere --------

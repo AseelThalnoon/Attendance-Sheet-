@@ -1820,6 +1820,110 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
+  // ---------- Offering Face ID after a password sign-in ----------
+  // Settings -> Passkeys is where a passkey is added, but almost nobody goes
+  // looking. So the moment someone has just typed their password is when the
+  // app offers it, once per person per device: "Sign in faster with Face
+  // ID?". Only where it can work and is new: the device has a built-in
+  // Face ID / Touch ID / fingerprint / Windows Hello sensor (not a phone-
+  // and-QR-code flow), passkeys are switched on, and this person has none.
+  var PASSKEY_OFFER_KEY = "attendance_ledger_passkey_offered_v1:";
+  var passwordSignInPending = false;  // set by the password form, read once by handleSignedIn
+  var passkeyOfferTimer = null;
+
+  // "Face ID", "Touch ID", "your fingerprint", "Windows Hello", "a passkey".
+  function biometricPhrase(){
+    var label = biometricKind().label;
+    return label === "Fingerprint" ? "your fingerprint" : label === "Passkey" ? "a passkey" : label;
+  }
+  async function offerPasskeyAfterSignIn(){
+    if(!currentUser || !isOwnData || !supabaseConfigured || !passkeysSupported()) return;
+    var key = PASSKEY_OFFER_KEY + currentUser.id;
+    if(safeGet(key)) return;
+    try{
+      var check = window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable;
+      if(typeof check !== "function" || !(await check.call(window.PublicKeyCredential))) return;
+    }catch(e){ return; }
+    await loadPasskeys(true);
+    if(passkeyLoadError || !passkeyRows || passkeyRows.length) return;
+    showPasskeyOffer(key, 0);
+  }
+  function showPasskeyOffer(key, tries){
+    clearTimeout(passkeyOfferTimer);
+    if(!currentUser || !isOwnData || safeGet(key)) return;
+    // Never on top of another dialog (the notifications question is the
+    // likely one at sign-in): wait for it to close, for up to two minutes.
+    var entryModal = document.getElementById("entryModal");
+    if(document.querySelector(".modal-overlay") || (entryModal && !entryModal.hidden)){
+      if(tries < 80) passkeyOfferTimer = setTimeout(function(){ showPasskeyOffer(key, tries + 1); }, 1500);
+      return;
+    }
+    safeSet(key, String(Date.now()));  // once, whatever the answer
+
+    var phrase = biometricPhrase();
+    var overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    var mid = "pkoffer" + Math.random().toString(36).slice(2,8);
+    overlay.innerHTML =
+      '<div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="'+mid+'-t" aria-describedby="'+mid+'-m">' +
+        '<h3 class="modal-title" id="'+mid+'-t"></h3>' +
+        '<p class="modal-msg" id="'+mid+'-m"></p>' +
+        '<p class="modal-msg passkey-offer-error" hidden></p>' +
+        '<div class="modal-actions">' +
+          '<button type="button" class="btn ghost modal-cancel">Not Now</button>' +
+          '<button type="button" class="btn modal-confirm"></button>' +
+        '</div>' +
+      '</div>';
+    overlay.querySelector(".modal-title").textContent = "Sign in faster with " + phrase + "?";
+    overlay.querySelector(".modal-msg").textContent = "Next time, use " + phrase +
+      " instead of typing your password. Your password keeps working, and you can remove this " +
+      "any time in Settings → Passkeys.";
+    overlay.querySelector(".modal-confirm").textContent = "Use " + biometricKind().label;
+    dialogRoot().appendChild(overlay);
+    requestAnimationFrame(function(){ overlay.classList.add("show"); });
+
+    var bgRoot = document.getElementById("appShell");
+    bgRoot.setAttribute("aria-hidden", "true");
+    var previouslyFocused = document.activeElement;
+    function close(){
+      document.removeEventListener("keydown", onKey);
+      bgRoot.removeAttribute("aria-hidden");
+      overlay.classList.remove("show");
+      setTimeout(function(){
+        overlay.remove();
+        if(previouslyFocused && typeof previouslyFocused.focus === "function") previouslyFocused.focus();
+      }, 180);
+    }
+    function onKey(ev){ if(ev.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelector(".modal-cancel").addEventListener("click", close);
+    overlay.addEventListener("click", function(ev){ if(ev.target === overlay) close(); });
+    var confirmBtn = overlay.querySelector(".modal-confirm");
+    // Straight into registerPasskey(), nothing awaited before it: Safari
+    // opens Face ID only from inside the tap that asked for it.
+    confirmBtn.addEventListener("click", async function(){
+      confirmBtn.disabled = true;
+      var errEl = overlay.querySelector(".passkey-offer-error");
+      errEl.hidden = true;
+      try{
+        var res = await supabase.auth.registerPasskey();
+        if(res.error) throw res.error;
+        close();
+        showToast("Done. Next time, tap " + biometricKind().label + " on the sign-in screen.", "success");
+        loadPasskeys(true).catch(function(){});
+      }catch(err){
+        // Closing the Face ID sheet is changing one's mind: say nothing, and
+        // leave both buttons there to choose again.
+        if(!passkeyCancelled(err)){
+          errEl.textContent = passkeyErrorText(err);
+          errEl.hidden = false;
+        }
+        confirmBtn.disabled = false;
+      }
+    });
+    setTimeout(function(){ confirmBtn.focus(); }, 40);
+  }
+
   // ---------- Asking for notifications, on every device ----------
   // Everyone should have notifications on, on every device they use: the
   // clock-out reminder and an admin's messages only reach a device that has
@@ -7095,10 +7199,13 @@ import { makeSchedule } from "./src/schedule.js";
     var btn = document.getElementById("signInBtn");
     btn.disabled = true; btn.textContent = "Signing in…";
     try{
+      // Read by handleSignedIn, which the sign-in below sets off.
+      passwordSignInPending = true;
       var res = await supabase.auth.signInWithPassword({email:email, password:password});
       if(res.error) throw res.error;
       // onAuthStateChange fires from here and finishes loading the app.
     }catch(err){
+      passwordSignInPending = false;
       setAuthMsg("signInError", err ? friendlyError(err) : "Couldn't sign in.");
       showSignInResend(!!err && (err.code === "email_not_confirmed" || /email not confirmed/i.test(err.message || "")));
     }finally{
@@ -11874,6 +11981,11 @@ import { makeSchedule } from "./src/schedule.js";
     // Fire-and-forget: asks until notifications are on for this device (see
     // promptPushHere), and sign-in must not sit waiting on a dialog.
     promptPushHere();
+    // Just typed a password: the moment to offer Face ID instead (once).
+    if(passwordSignInPending){
+      passwordSignInPending = false;
+      offerPasskeyAfterSignIn().catch(function(){});
+    }
     // Last, and deliberately not awaited: a punch queued on this device in an
     // earlier session should upload itself now, but sign-in must not sit
     // waiting on it.
@@ -11890,6 +12002,7 @@ import { makeSchedule } from "./src/schedule.js";
     lastPushReminderKind = null; pushAwaySince = null;
     clearTimeout(pushDialogWaitTimer); pushDialogWaitTimer = null;
     passkeysFor = null; passkeyRows = null; passkeyLoadError = null;
+    passwordSignInPending = false; clearTimeout(passkeyOfferTimer);
     entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
     dismissedReminders = {};
     // entries is empty now, so this clears the icon. Leaving a badge behind
