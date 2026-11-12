@@ -2447,7 +2447,7 @@
      a fixed-size dial plus a legend column that takes what's left and
      scrolls internally rather than squeezing the ring. */
   .format-body{
-    display:flex; align-items:stretch; gap:16px;
+    display:flex; align-items:stretch; justify-content:center; gap:20px;
     flex:1 1 auto; min-height:0; margin:8px 0 2px;
   }
   /* Sized off the viewport, not the row: a percentage/flex-based height would
@@ -2519,35 +2519,45 @@
      thing that scrolls; the wrapper stays put at the ring's height so the
      fade lines up with the legend's own column instead of the whole card's
      width (which would paint over the ring's bottom edge too). */
+  /* Only as wide as the legend, and the ring and legend sit as one group in
+     the middle of the card. The legend centres against the ring's height
+     instead of hugging the top while the ring sits in the middle. */
   .format-legend-wrap{
-    position:relative; flex:1 1 auto; min-width:0;
-    display:flex; flex-direction:column;
+    position:relative; flex:0 1 auto; min-width:0;
+    display:flex; flex-direction:column; justify-content:center;
   }
   /* Up to 9 day types can be active in one month, not the fixed 3 this used
      to assume — stacked one per row in the column .format-legend-wrap gives
      it, rather than wrapped chips eating into the dial's row like before. */
+  /* One table for every row: the name column is as wide as the longest
+     name, and the days sit in their own column straight after it -- close
+     to every name, and lined up down one edge. Each row is a subgrid of it,
+     so a row is still one box (for the hover tint) on the shared columns. */
   .format-legend{
-    display:flex; flex-direction:column; gap:8px;
+    display:grid; grid-template-columns:10px minmax(0,max-content) max-content;
+    column-gap:8px; row-gap:6px; align-content:start;
+    /* Room for the rows' 4px hover tint each side (their negative margin),
+       which otherwise ran 4px past the list and made it scroll sideways. */
+    padding:0 4px; overflow-x:hidden;
     /* A flex item's default min-height is auto, which protects its own
        content from shrinking in a column flex container — so without this
        the legend could never give up height to its own scroll. overflow-y so
        a legend that still doesn't fit scrolls instead of spilling out of the
        card's overflow:hidden. */
-    flex:1 1 auto; min-width:0; min-height:0; overflow-y:auto;
+    flex:0 1 auto; min-width:0; min-height:0; overflow-y:auto;
   }
-  /* One row per type, laid out as a three-column grid so every row lines
-     up with every other: swatch | name | days ("3d"). The days right-align
-     in tabular figures, so every "d" shares one edge -- the month label's
-     right edge. The negative margin hands the hover tint 4px each side while
+  /* One row per type: swatch | name | days ("3d"), the days right beside
+     the name rather than pushed to the far edge, where a short name like
+     "Regular" left a wide gap before its count. Swatches and names still
+     share one left edge. The row is only as wide as its content (so is its
+     hover tint); the negative margin hands that tint 4px each side while
      the swatch stays on the card's text edge, under "Day Types". */
   .format-leg{
-    flex:0 0 auto; min-width:0;
-    /* A fixed days column, not auto: each row is its own grid, and auto
-       would size a "12d" row wider than a "3d" row. ch is measured at the
-       row's own 12.5px, the size the cells use. */
+    grid-column:1 / -1; min-width:0;
     font-size:12.5px;
-    display:grid; grid-template-columns:10px minmax(0,1fr) 3.6ch;
-    align-items:center; column-gap:8px; min-height:22px;
+    display:grid; grid-template-columns:10px minmax(0,auto) auto;
+    grid-template-columns:subgrid;
+    align-items:center; min-height:22px;
     padding:2px 4px; margin:0 -4px; border-radius:var(--radius-xs);
     transition:opacity var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
@@ -2560,14 +2570,16 @@
   }
   .format-leg-label, .format-leg-num{font-size:12.5px; line-height:18px;}
   .format-leg-label{min-width:0; font-weight:500; color:var(--ink); overflow-wrap:break-word;}
+  /* Right-aligned in tabular figures, so "12d" and "4d" end on one edge;
+     the extra margin keeps the count a step apart from the longest name. */
   .format-leg-num{
-    font-weight:700; color:var(--ink); text-align:right;
-    font-variant-numeric:tabular-nums;
+    font-weight:700; color:var(--ink); white-space:nowrap; text-align:right;
+    font-variant-numeric:tabular-nums; margin-left:6px;
   }
   /* Small phones: beside a 112px ring the list has ~120px, and names wrap
      two and three lines deep. Ring on top, list under it at full width. */
   @media (max-width:374px){
-    .format-body{flex-direction:column; align-items:stretch; gap:10px;}
+    .format-body{flex-direction:column; align-items:center; gap:10px;}
   }
   /* Pointing at a row or a slice: that type stays, the rest step back. */
   .format-legend.is-focusing .format-leg:not(.is-hot){opacity:.4;}
@@ -2578,19 +2590,17 @@
      and the legend runs under it as one list, so every name stays on one
      line instead of stacking a word per line beside the ring. */
   @media (min-width:1100px){
-    .overview-panel .format-body{flex-direction:column; align-items:stretch; gap:10px;}
+    .overview-panel .format-body{flex-direction:column; align-items:center; justify-content:center; gap:12px;}
     .overview-panel .format-leg{min-height:20px;}
     /* Stacked, the wrapper is what has to give height back: a flex item's
        min-height defaults to its content, which left the list running past
        the card's bottom edge instead of scrolling inside it. */
     .overview-panel .format-legend-wrap{min-height:0;}
     .overview-panel .format-dial{width:clamp(88px, 8vw, 130px);}
-    .overview-panel .format-legend{
-      /* One list, the numbers lined up down its right edge. A month that
-         used every type can outgrow a short window; the list then scrolls
-         inside the card, with the fade that says there is more. */
-      display:flex; flex-direction:column; gap:0;
-    }
+    /* A month that used every type can outgrow a short window; the list
+       then scrolls inside the card, with the fade that says there is more. */
+    .overview-panel .format-legend{row-gap:0;}
+    .overview-panel .format-legend-wrap{justify-content:flex-start; max-width:100%;}
   }
   /* A legend still short a scroll's worth of day types ended flush with the
      card's bottom edge, same as an unscrollable one — nothing distinguished
