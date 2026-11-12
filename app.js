@@ -1708,13 +1708,38 @@ import { makeSchedule } from "./src/schedule.js";
   // A guess from the platform, since a page cannot ask which sensor exists:
   // Face ID covers every iPhone sold for years, and the label is only the
   // name on the button -- the device's own prompt says what it really uses.
+  // label: the name on the sign-in button. setting: the Settings section and
+  // its buttons, so nobody has to know the word "passkey". signin: the thing
+  // as a noun in a sentence ("Face ID sign-in isn't switched on yet").
   function biometricKind(){
     var ua = navigator.userAgent || "";
-    if(isIOS() || isIPadAsMac()) return {label:"Face ID", icon:"face"};
-    if(/Macintosh/.test(ua)) return {label:"Touch ID", icon:"fingerprint"};
-    if(isAndroid()) return {label:"Fingerprint", icon:"fingerprint"};
-    if(/Windows/.test(ua)) return {label:"Windows Hello", icon:"face"};
-    return {label:"Passkey", icon:"key"};
+    if(isIOS() || isIPadAsMac()) return {label:"Face ID", icon:"face", setting:"Face ID", signin:"Face ID sign-in"};
+    if(/Macintosh/.test(ua)) return {label:"Touch ID", icon:"fingerprint", setting:"Touch ID", signin:"Touch ID sign-in"};
+    if(isAndroid()) return {label:"Fingerprint", icon:"fingerprint", setting:"Fingerprint Sign-In", signin:"Fingerprint sign-in"};
+    if(/Windows/.test(ua)) return {label:"Windows Hello", icon:"face", setting:"Windows Hello", signin:"Windows Hello sign-in"};
+    return {label:"Passkey", icon:"key", setting:"Passkeys", signin:"Passkey sign-in"};
+  }
+  // Names the Settings section, its menu row and its buttons after this
+  // device's sensor. Run once at start-up; the markup holds the generic text.
+  function nameBiometricSettings(){
+    var bio = biometricKind();
+    var navTitle = document.querySelector("#cnav-passkeys .console-nav-title");
+    if(navTitle) navTitle.textContent = bio.setting;
+    var head = document.querySelector("#csec-passkeys .console-section-head h3");
+    if(head) head.textContent = bio.setting;
+    var intro = document.querySelector("#csec-passkeys .console-section-head p");
+    if(intro) intro.textContent = (bio.icon === "key"
+      ? "Sign in with your device's fingerprint, face or PIN"
+      : "Sign in with " + biometricPhrase()) + " instead of typing your password. Your password keeps working too.";
+    var add = document.getElementById("passkeyAddBtn");
+    if(add) add.textContent = passkeyAddLabel();
+    var others = document.getElementById("passkeyOthers");
+    if(others) others.textContent = bio.signin + " belongs to whoever is signed in on this device, so it can " +
+      "only be set up or removed from that person\u2019s own account.";
+  }
+  function passkeyAddLabel(){
+    var bio = biometricKind();
+    return bio.icon === "key" ? "Set Up a Passkey" : "Set Up " + bio.label;
   }
   function passkeyErrCode(err){
     return (err && (err.code || err.error_code)) || "";
@@ -1729,16 +1754,18 @@ import { makeSchedule } from "./src/schedule.js";
   }
   function passkeyErrorText(err){
     var code = passkeyErrCode(err);
-    if(code === "passkey_disabled") return "Passkeys aren't switched on for this app yet.";
+    var bio = biometricKind();
+    if(code === "passkey_disabled") return bio.signin + " isn't switched on for this app yet.";
     if(code === "webauthn_credential_not_found")
-      return "That passkey isn't registered with this app any more. Sign in with your password, " +
-        "then add a new one under Settings → Passkeys.";
+      return "That " + bio.signin + " was removed from your account. Sign in with your password, " +
+        "then set it up again under Settings \u2192 " + bio.setting + ".";
     if(code === "webauthn_challenge_expired" || code === "webauthn_challenge_not_found")
       return "That took too long. Please try again.";
     if(code === "webauthn_credential_exists" || code === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED")
-      return "This device already has a passkey for your account.";
+      return bio.label === "Passkey" ? "This device is already set up for your account."
+        : bio.label + " is already set up on this device.";
     if(code === "too_many_passkeys")
-      return "Your account has the most passkeys it can hold. Remove one you no longer use first.";
+      return "Your account has the most saved sign-ins it can hold. Remove one you no longer use first.";
     return friendlyError(err);
   }
 
@@ -1766,17 +1793,18 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("passkeyOthers").hidden = isOwnData;
     own.hidden = !isOwnData;
     if(!isOwnData){ setNavDesc("cnavDescPasskeys", "Only from their own account"); return; }
+    var bio = biometricKind();
 
     var add = document.getElementById("passkeyAddBtn");
     var hint = document.getElementById("passkeyHint");
     var wrap = document.getElementById("passkeyListWrap");
     var list = document.getElementById("passkeyList");
     var blocked = "";
-    if(!passkeysSupported()) blocked = "This browser can't use passkeys. Open the app on your phone, or in Safari, Chrome or Edge.";
+    if(!passkeysSupported()) blocked = "This browser can't use Face ID or fingerprint sign-in. Open the app on your phone, or in Safari, Chrome or Edge.";
     else if(passkeyErrCode(passkeyLoadError) === "passkey_disabled") blocked = passkeyErrorText(passkeyLoadError);
     add.hidden = !!blocked;
     hint.hidden = !blocked && !passkeyLoadError;
-    hint.textContent = blocked || (passkeyLoadError ? "Couldn't load your passkeys. " + friendlyError(passkeyLoadError) : "");
+    hint.textContent = blocked || (passkeyLoadError ? "Couldn't check whether " + bio.signin + " is set up. " + friendlyError(passkeyLoadError) : "");
 
     var rows = passkeyRows || [];
     wrap.hidden = !rows.length;
@@ -1784,15 +1812,15 @@ import { makeSchedule } from "./src/schedule.js";
       var used = r.last_used_at ? "Last used " + fmtRelative(r.last_used_at) : "Not used yet";
       return '<div class="push-device">' +
         '<div class="push-device-main">' +
-          '<span class="push-device-name" dir="auto">' + escapeHtml(r.friendly_name || "Passkey") + '</span>' +
+          '<span class="push-device-name" dir="auto">' + escapeHtml(r.friendly_name || "This device") + '</span>' +
           '<div class="push-device-since">Added ' + escapeHtml(fmtRelative(r.created_at)) + ' · ' + escapeHtml(used) + '</div>' +
         '</div>' +
         '<button type="button" class="btn ghost small" data-passkey-remove="' + escapeAttr(r.id) + '">Remove</button>' +
       '</div>';
     }).join("");
     setNavDesc("cnavDescPasskeys", rows.length
-      ? (rows.length === 1 ? "1 passkey" : rows.length + " passkeys")
-      : "Sign in with Face ID or a fingerprint");
+      ? (rows.length === 1 ? "On" : "On \u00b7 saved in " + rows.length + " places")
+      : "Off \u00b7 sign in without typing your password");
   }
 
   onId("passkeyAddBtn", "click", async function(){
@@ -1802,28 +1830,29 @@ import { makeSchedule } from "./src/schedule.js";
     try{
       var res = await supabase.auth.registerPasskey();
       if(res.error) throw res.error;
-      showToast("Passkey added. Next time, tap " + biometricKind().label + " on the sign-in screen.", "success");
+      showToast(biometricKind().signin + " is set up. Next time, tap " + biometricKind().label + " on the sign-in screen.", "success");
       await loadPasskeys(true);
     }catch(err){
-      if(!passkeyCancelled(err)) showToast("Couldn't add a passkey: " + passkeyErrorText(err), "error");
+      if(!passkeyCancelled(err)) showToast("Couldn't set up " + biometricKind().label + ": " + passkeyErrorText(err), "error");
     }finally{
-      btn.textContent = "Add a Passkey";
+      btn.textContent = passkeyAddLabel();
       btn.disabled = false;
     }
   });
   onId("passkeyList", "click", async function(ev){
     var btn = ev.target.closest("[data-passkey-remove]");
     if(!btn) return;
-    if(!(await showConfirm("You won't be able to sign in with it any more. Your password still works. " +
-        "Your device may still list it in its saved passwords until you delete it there.",
-        {title:"Remove this passkey?", confirmText:"Remove"}))) return;
+    var where = btn.closest(".push-device").querySelector(".push-device-name").textContent;
+    if(!(await showConfirm("Devices that use " + where + " won't be able to sign in this way any more. " +
+        "Your password still works. Your device may still list it in its saved passwords until you delete it there.",
+        {title:"Remove " + biometricKind().signin + "?", confirmText:"Remove"}))) return;
     btn.disabled = true;
     try{
       var res = await supabase.auth.passkey.delete({passkeyId: btn.getAttribute("data-passkey-remove")});
       if(res.error) throw res.error;
       await loadPasskeys(true);
     }catch(err){
-      showToast("Couldn't remove that passkey: " + passkeyErrorText(err), "error");
+      showToast("Couldn't remove it: " + passkeyErrorText(err), "error");
       btn.disabled = false;
     }
   });
@@ -1885,7 +1914,7 @@ import { makeSchedule } from "./src/schedule.js";
     overlay.querySelector(".modal-title").textContent = "Sign in faster with " + phrase + "?";
     overlay.querySelector(".modal-msg").textContent = "Next time, use " + phrase +
       " instead of typing your password. Your password keeps working, and you can remove this " +
-      "any time in Settings → Passkeys.";
+      "any time in Settings \u2192 " + biometricKind().setting + ".";
     overlay.querySelector(".modal-confirm").textContent = "Use " + biometricKind().label;
     dialogRoot().appendChild(overlay);
     requestAnimationFrame(function(){ overlay.classList.add("show"); });
@@ -5522,7 +5551,7 @@ import { makeSchedule } from "./src/schedule.js";
       "\n\nClock in " + formatTime12(payload.clockIn) +
       ", clock out " + formatTime12(payload.clockOut) + "." +
       (wrapped ? "\n\nIf the two times got swapped, choose Go Back and switch them." : ""),
-      {title:"Is that shift right?", confirmText:"Yes, that's right", cancelText:"Go Back"}
+      {title:"Is that shift right?", confirmText:"Yes, That's Right", cancelText:"Go Back"}
     );
   }
 
@@ -5827,7 +5856,7 @@ import { makeSchedule } from "./src/schedule.js";
       "You clocked in on " + fmtDate(yest) + " at " + formatTime12(prev.clockIn) +
       " and never clocked out. Recording it there makes a " +
       minutesToHoursStr(elapsed) + " shift ending this morning.",
-      {title:"Close yesterday's shift?", confirmText:"Yes, close it", cancelText:"Go Back"}
+      {title:"Close yesterday's shift?", confirmText:"Yes, Close It", cancelText:"Go Back"}
     );
     if(ok) return yest;
     // Deliberately nothing rather than falling back to today: a clock-out on a
@@ -6912,7 +6941,7 @@ import { makeSchedule } from "./src/schedule.js";
 
         var applySettings = false;
         if(isAdmin && !Array.isArray(data) && data.settings){
-          applySettings = await showConfirm("This backup includes schedule settings. Use them too?", {confirmText:"Use them"});
+          applySettings = await showConfirm("This backup includes schedule settings. Use them too?", {confirmText:"Use Them"});
         }
 
         // Every incoming record goes through the same parsers the CSV path uses.
@@ -7215,6 +7244,7 @@ import { makeSchedule } from "./src/schedule.js";
   // The passkey way in, beside the password form. Only where the browser
   // can do WebAuthn at all; whether this account has a passkey is the
   // device's to answer, in its own prompt.
+  nameBiometricSettings();
   if(supabaseConfigured && passkeysSupported()){
     var bio = biometricKind();
     var bioBtn = document.getElementById("passkeySignInBtn");
@@ -7225,6 +7255,10 @@ import { makeSchedule } from "./src/schedule.js";
       else g.setAttribute("hidden", "");
     });
     document.getElementById("passkeySignInLabel").textContent = bio.label;
+    // The subtitle above the form said "email and password" with Face ID
+    // offered right under it.
+    var sub = document.querySelector("#signInForm .auth-sub");
+    if(sub) sub.textContent = "Enter your email and password, or use " + bio.label + ".";
     bioBtn.setAttribute("aria-label", "Sign in with " + bio.label);
     document.getElementById("passkeyOr").hidden = false;
     bioBtn.hidden = false;
@@ -7329,7 +7363,7 @@ import { makeSchedule } from "./src/schedule.js";
   // down on the button says the same thing before the person is refused.
   var RESEND_COOLDOWN_S = 60;
   var resendReadyAt = 0, resendTimer = null;
-  var RESEND_LABELS = { resendConfirmBtn: "Resend email", signInResendBtn: "Resend confirmation email" };
+  var RESEND_LABELS = { resendConfirmBtn: "Resend Email", signInResendBtn: "Resend Confirmation Email" };
   function paintResendButtons(){
     var left = Math.ceil((resendReadyAt - Date.now()) / 1000);
     Object.keys(RESEND_LABELS).forEach(function(id){
@@ -7714,7 +7748,7 @@ import { makeSchedule } from "./src/schedule.js";
     clearAllArmTimer = null;
     var b = document.getElementById("notifClearAllBtn");
     b.classList.remove("is-armed");
-    b.textContent = "Clear all";
+    b.textContent = "Clear All";
   }
   onId("notifClearAllBtn", "click", function(){
     var b = this;
@@ -7813,9 +7847,11 @@ import { makeSchedule } from "./src/schedule.js";
 
   // Pulls everything again without reloading the page: any punch still
   // waiting to upload goes first, so the fresh copy already includes it.
-  onId("refreshBtn", "click", async function(){
-    var btn = this;
-    if(btn.disabled || !currentUser) return;
+  // The header's refresh button and the phone's pull-to-refresh both land
+  // here. The button's disabled state is the one "already refreshing" flag.
+  async function refreshNow(){
+    var btn = document.getElementById("refreshBtn");
+    if(!btn || btn.disabled || !currentUser) return;
     btn.disabled = true;
     btn.classList.add("is-busy");
     try{
@@ -7830,7 +7866,91 @@ import { makeSchedule } from "./src/schedule.js";
       btn.disabled = false;
       btn.classList.remove("is-busy");
     }
-  });
+  }
+  onId("refreshBtn", "click", function(){ refreshNow(); });
+
+  // ---------- Pull to refresh (phones) ----------
+  // On a phone the refresh button gives way to the gesture every app uses:
+  // pull down from the top of the page, and a disc with the refresh arrow
+  // follows the finger, turning as it goes; let go past the mark and it
+  // refreshes, short of it and nothing happens. The button stays in the page
+  // for keyboards and screen readers (index.html shows it again on focus).
+  // The browser's own pull-to-refresh, which reloads the whole page, is off
+  // on phones (overscroll-behavior), so the two never both fire.
+  (function pullToRefresh(){
+    var ind = document.getElementById("pullRefresh");
+    if(!ind || !("ontouchstart" in window)) return;
+    var ARM = 64;          // indicator travel, in px, at which letting go refreshes
+    var MAX = 96;
+    var startY = null, startX = 0, pulling = false, dist = 0;
+    var phone = window.matchMedia("(max-width:760px)");
+
+    function blocked(target){
+      if(!phone.matches || !currentUser) return true;
+      if(document.getElementById("appShell").style.display === "none") return true;
+      if(document.querySelector(".modal-overlay") || notifPanelClose) return true;
+      var entry = document.getElementById("entryModal");
+      if(entry && !entry.hidden) return true;
+      var btn = document.getElementById("refreshBtn");
+      if(btn && btn.disabled) return true;
+      // A pull that starts in something with its own scroll or its own drag
+      // belongs to that thing.
+      return !!(target && target.closest && target.closest("input, textarea, select, [contenteditable], .format-legend, .today-team-list, .tabs-wrap"));
+    }
+    function render(){
+      ind.style.setProperty("--pull", dist + "px");
+      ind.style.setProperty("--pull-turn", (dist / ARM * 270) + "deg");
+      ind.style.opacity = String(Math.min(1, dist / (ARM * 0.6)));
+      ind.classList.toggle("is-armed", dist >= ARM);
+    }
+    function reset(){
+      pulling = false; startY = null; dist = 0;
+      ind.classList.remove("is-pulling", "is-armed");
+      ind.style.opacity = "";
+      ind.style.removeProperty("--pull");
+      ind.style.removeProperty("--pull-turn");
+    }
+    document.addEventListener("touchstart", function(e){
+      startY = null;
+      if(e.touches.length !== 1 || (document.scrollingElement || document.documentElement).scrollTop > 0) return;
+      if(blocked(e.target)) return;
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+    }, {passive:true});
+    document.addEventListener("touchmove", function(e){
+      if(startY === null) return;
+      var dy = e.touches[0].clientY - startY;
+      var dx = e.touches[0].clientX - startX;
+      if(!pulling){
+        // Only a mostly-vertical drag downwards from the very top is a pull;
+        // anything else is left to scroll or swipe as it would have.
+        if(dy < 8) { if(dy < 0) startY = null; return; }
+        if(Math.abs(dx) > dy){ startY = null; return; }
+        pulling = true;
+        ind.classList.add("is-pulling");
+      }
+      // Resistance: the disc moves half as far as the finger, and slows near
+      // the end, the way a native pull does.
+      dist = Math.max(0, Math.min(MAX, dy * 0.5));
+      render();
+      if(e.cancelable) e.preventDefault();
+    }, {passive:false});
+    function end(){
+      if(!pulling){ startY = null; return; }
+      var go = dist >= ARM;
+      pulling = false; startY = null;
+      if(!go){ reset(); return; }
+      ind.classList.remove("is-pulling", "is-armed");
+      ind.classList.add("is-busy");
+      ind.style.setProperty("--pull", ARM + "px");
+      Promise.resolve(refreshNow()).then(function(){
+        ind.classList.remove("is-busy");
+        reset();
+      });
+    }
+    document.addEventListener("touchend", end, {passive:true});
+    document.addEventListener("touchcancel", function(){ if(pulling) reset(); startY = null; }, {passive:true});
+  })();
   onId("notifCloseBtn", "click", function(){
     if(notifPanelClose) notifPanelClose();
   });
@@ -7859,9 +7979,9 @@ import { makeSchedule } from "./src/schedule.js";
   onId("logoutBtn", "click", async function(){
     var ok = await showConfirm(
       passkeyRows && passkeyRows.length
-        ? "You can get back in with your passkey, or your email and password."
+        ? "You can get back in with " + biometricPhrase() + ", or your email and password."
         : "You'll need your email and password to get back in.",
-      {title:"Sign out?", confirmText:"Sign out", danger:true}
+      {title:"Sign out?", confirmText:"Sign Out", danger:true}
     );
     if(!ok) return;
     // signOut() defaults to a global scope, which is a network call to revoke
@@ -7999,12 +8119,16 @@ import { makeSchedule } from "./src/schedule.js";
   //   no target (NO_TARGET_TYPES) limes and cream
   //   excused   (EXCUSED_TYPES)   pinks, sand and grey
   // Within a family the more common type takes the deeper value.
+  // Five of these are the --dt-* chart tokens (index.html) rather than the
+  // surface tokens they used to name directly: those surfaces turn dark in
+  // dark mode, and so did their slices -- 1.1:1 against the card, there but
+  // not visible. In light mode the tokens are exactly the old values.
   var DAY_TYPE_COLORS = {
-    regular:"var(--mint)",            halfleave:"var(--positive-bg)",
+    regular:"var(--mint)",            halfleave:"var(--dt-halfleave)",
     wfh:"var(--gold)",                trip:"var(--gold-light)",
-    training:"var(--surface-cream)",
-    leave:"var(--blush)",             sick:"var(--negative-bg)",
-    holiday:"var(--warn-line)",       other:"var(--surface-gray)"
+    training:"var(--dt-training)",
+    leave:"var(--blush)",             sick:"var(--dt-sick)",
+    holiday:"var(--dt-holiday)",      other:"var(--dt-other)"
   };
 
   // Pointing at a legend row lights its slice of the ring and dims the rest,
@@ -8495,7 +8619,7 @@ import { makeSchedule } from "./src/schedule.js";
         " (" + sample.join(", ") + (occupied.length > 3 ? " and " + (occupied.length-3) + " more" : "") + ")." +
         "\n\nOverwriting them erases those clock-in and clock-out times permanently.",
         {title:"Some days already have hours", danger:true,
-         confirmText:"Overwrite all " + totalEntries, cancelText:"Skip those " + occupied.length}
+         confirmText:"Overwrite All " + totalEntries, cancelText:"Skip Those " + occupied.length}
       );
       skipOccupied = !overwrite;
     }

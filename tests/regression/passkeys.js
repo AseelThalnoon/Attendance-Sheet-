@@ -145,7 +145,7 @@ const authView = page => page.evaluate(() => {
     const h = await start();
     await openPasskeys(h.page);
     let v = await view(h.page);
-    ok(v.add && !v.list && /Face ID/.test(v.nav), "no passkeys yet: an Add button and nothing listed", JSON.stringify(v));
+    ok(v.add && !v.list && /^Off/.test(v.nav), "not set up yet: a Set Up button, nothing listed, and the menu says Off", JSON.stringify(v));
 
     await h.page.click("#passkeyAddBtn");
     await settle(h.page, 1200);
@@ -153,8 +153,8 @@ const authView = page => page.evaluate(() => {
     ok(h.pk.creds.length === 1 && h.pk.creds[0].credentialId, "Add creates a passkey on the device and registers it", JSON.stringify(h.pk.log));
     ok(v.list && v.rows.length === 1 && /Chrome on Linux/.test(v.rows[0]) && /Not used yet/.test(v.rows[0]),
       "and it is listed by name", JSON.stringify(v.rows));
-    ok(/Passkey added/.test(v.toast), "with a toast saying so", v.toast);
-    ok(v.nav === "1 passkey", "and the Settings menu counts it", v.nav);
+    ok(/is set up/.test(v.toast), "with a toast saying so", v.toast);
+    ok(v.nav === "On", "and the Settings menu says it is on", v.nav);
     const creds = (await h.cdp().send("WebAuthn.getCredentials", { authenticatorId: h.authId() })).credentials;
     ok(creds.length === 1 && creds[0].isResidentCredential && creds[0].rpId === "localhost",
       "the device holds it as a discoverable passkey, so sign-in needs no email", JSON.stringify(creds.map(c => [c.rpId, c.isResidentCredential])));
@@ -181,7 +181,7 @@ const authView = page => page.evaluate(() => {
     await h.page.click("#passkeyList [data-passkey-remove]");
     await settle(h.page, 400);
     const rq = await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-title").textContent);
-    ok(/Remove this passkey/.test(rq), "removing asks first", rq);
+    ok(/^Remove .*sign-in\?$/.test(rq), "removing asks first", rq);
     await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-confirm").click());
     await settle(h.page, 900);
     v = await view(h.page);
@@ -218,7 +218,7 @@ const authView = page => page.evaluate(() => {
     await h.page.click("#passkeySignInBtn");
     await settle(h.page, 1500);
     const a = await authView(h.page);
-    ok(!a.app && /isn't registered with this app/.test(a.error) && /password/.test(a.error),
+    ok(!a.app && /was removed from your account/.test(a.error) && /password/.test(a.error),
       "a passkey that was removed from the account: says so, and points at the password", a.error);
     await h.close();
   }
@@ -228,14 +228,14 @@ const authView = page => page.evaluate(() => {
     const h = await start({ enabled: false });
     await openPasskeys(h.page);
     const v = await view(h.page);
-    ok(!v.add && /aren't switched on/.test(v.hint), "switched off on the server: Settings says so, no Add button", JSON.stringify(v));
+    ok(!v.add && /isn't switched on/.test(v.hint), "switched off on the server: Settings says so, no Add button", JSON.stringify(v));
     await h.close();
 
     const s = await start({ enabled: false, signedOut: true });
     await s.page.click("#passkeySignInBtn");
     await settle(s.page, 1000);
     const a = await authView(s.page);
-    ok(!a.app && /aren't switched on/.test(a.error), "and the sign-in button says so too", a.error);
+    ok(!a.app && /isn't switched on/.test(a.error), "and the sign-in button says so too", a.error);
     await s.close();
   }
 
@@ -248,7 +248,7 @@ const authView = page => page.evaluate(() => {
     const h = await start({ noWebAuthn: true });
     await openPasskeys(h.page);
     const v = await view(h.page);
-    ok(!v.add && /can't use passkeys/.test(v.hint), "and Settings explains instead of offering a button that cannot work", JSON.stringify(v));
+    ok(!v.add && /can't use Face ID or fingerprint sign-in/.test(v.hint), "and Settings explains instead of offering a button that cannot work", JSON.stringify(v));
     await h.close();
   }
 
@@ -339,6 +339,28 @@ const authView = page => page.evaluate(() => {
     await signInWithPassword(off.page);
     ok(!(await offer(off.page)), "passkeys switched off on the server: no offer");
     await off.close();
+  }
+
+  // ---- On an iPhone, Settings says Face ID, never "passkey" ---------------
+  {
+    const { devices } = require("playwright");
+    const h = await start({ device: devices["iPhone 15 Pro"] });
+    await openPasskeys(h.page);
+    const s = await h.page.evaluate(() => ({
+      nav: document.querySelector("#cnav-passkeys .console-nav-title").textContent,
+      head: document.querySelector("#csec-passkeys h3").textContent,
+      intro: document.querySelector("#csec-passkeys .console-section-head p").textContent,
+      add: document.getElementById("passkeyAddBtn").textContent,
+      visible: document.getElementById("csec-passkeys").innerText
+    }));
+    ok(s.nav === "Face ID" && s.head === "Face ID" && s.add === "Set Up Face ID" && /^Sign in with Face ID/.test(s.intro),
+      "iPhone: Settings calls it Face ID, with a Set Up Face ID button", JSON.stringify(s));
+    ok(!/passkey/i.test(s.visible) && !/passkey/i.test(s.nav), "and the word passkey appears nowhere in it", s.visible.slice(0, 200));
+    await h.close();
+    const o = await start({ signedOut: true, device: devices["iPhone 15 Pro"] });
+    const sub = await o.page.evaluate(() => document.querySelector("#signInForm .auth-sub").textContent);
+    ok(sub === "Enter your email and password, or use Face ID.", "the sign-in subtitle mentions Face ID too", sub);
+    await o.close();
   }
 
   // ---- The tap target: Face ID on iPhone, the right name elsewhere --------

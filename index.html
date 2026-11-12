@@ -1200,6 +1200,30 @@
      caret, scrollbars, and the ground behind an overscroll bounce. Without
      this a dark page keeps light scrollbars and flashes white at the top of a
      rubber-band scroll — the parts nobody draws still carry the design. */
+  /* ---------- Day Types chart colours ----------
+     Five day types are drawn in colours borrowed from surfaces (the soft
+     red behind an error, the cream of a panel). In light mode that is what
+     they stay. In dark mode those surfaces go dark, and the slices went with
+     them -- 1.07-1.7:1 against the card, invisible on the ring. There they
+     become light tints of the palette's own mint, blush and lime, which stay
+     light in every dark palette, so all nine clear 3:1 on the dark card.
+     Identity still rests on the legend's names and the ring's ink edge, as
+     in light mode: the brand mint and blush are close for red-green colour
+     blindness in both modes. */
+  :root{
+    --dt-halfleave:var(--positive-bg);
+    --dt-sick:var(--negative-bg);
+    --dt-training:var(--surface-cream);
+    --dt-holiday:var(--warn-line);
+    --dt-other:var(--surface-gray);
+  }
+  html[data-theme="dark"]{
+    --dt-halfleave:color-mix(in oklab, var(--mint) 45%, #fff);
+    --dt-sick:color-mix(in oklab, var(--blush) 45%, #fff);
+    --dt-training:color-mix(in oklab, var(--gold-light) 30%, #fff);
+    --dt-holiday:#D8BC86;
+    --dt-other:#A9A6A0;
+  }
   html[data-theme="light"]{color-scheme:light;}
   html[data-theme="dark"]{color-scheme:dark;}
 
@@ -2596,7 +2620,13 @@
        min-height defaults to its content, which left the list running past
        the card's bottom edge instead of scrolling inside it. */
     .overview-panel .format-legend-wrap{min-height:0;}
-    .overview-panel .format-dial{width:clamp(88px, 8vw, 130px);}
+    /* Sized off the card, not the window: in a typical month (two or three
+       types) a ring fixed near 8vw sat small in a card three times its
+       height, with a band of nothing under the legend. The body is a size
+       container, so the ring takes up to 48% of its height and 60% of its
+       width -- the rest is the legend's -- between 88px and 210px. */
+    .overview-panel .format-body{container-type:size;}
+    .overview-panel .format-dial{width:clamp(88px, min(60cqw, 48cqh), 210px);}
     /* A month that used every type can outgrow a short window; the list
        then scrolls inside the card, with the fade that says there is more. */
     .overview-panel .format-legend{row-gap:0;}
@@ -6694,6 +6724,56 @@
   .head-action:active{transform:translateY(0) scale(.96);}
   .btn:active{transform:translateY(0) scale(.97);}
 
+  /* ---------- Pull to refresh (phones) ----------
+     The disc waits above the top edge and comes down with the finger
+     (--pull, set by app.js), its arrow turning as it goes (--pull-turn).
+     Past the mark it darkens; let go there and it spins while the refresh
+     runs. */
+  .pull-refresh{
+    position:fixed; top:calc(env(safe-area-inset-top, 0px) + 6px); left:50%; z-index:60;
+    width:40px; height:40px; margin-left:-20px; border-radius:50%;
+    display:none; align-items:center; justify-content:center;
+    background:var(--card); color:var(--muted); border:1px solid var(--line);
+    box-shadow:var(--shadow-sm); pointer-events:none; opacity:0;
+    transform:translateY(calc(var(--pull, 0px) - 50px));
+  }
+  .pull-refresh svg{width:18px; height:18px; transform:rotate(var(--pull-turn, 0deg));}
+  .pull-refresh.is-pulling, .pull-refresh.is-busy{display:flex;}
+  .pull-refresh.is-armed{color:var(--ink); border-color:var(--ink);}
+  .pull-refresh.is-busy{opacity:1; transition:transform var(--dur-fast) var(--ease-snap);}
+  .pull-refresh.is-busy svg{animation:refresh-spin .8s linear infinite;}
+  @media (prefers-reduced-motion: reduce){ .pull-refresh.is-busy svg{animation:none;} }
+  @media (max-width:760px){
+    /* The browser's own pull-to-refresh reloads the whole page; this one
+       refreshes the data in place. One gesture, one meaning. */
+    html{overscroll-behavior-y:contain;}
+    /* Pull down replaces the button on a phone, but a keyboard or screen
+       reader still reaches it: off-screen until it has focus. */
+    #refreshBtn:not(:focus-visible){
+      position:absolute; width:1px; height:1px; margin:-1px; padding:0; border:0;
+      overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; box-shadow:none;
+    }
+  }
+
+  /* ---------- Phone reading floor: 12px ----------
+     Sentence-case text people actually read on a phone -- dates, counts,
+     "vs. last month", Settings' one-line descriptions, activity lines -- sat
+     at 11-11.5px, small enough to squint at outdoors. 12px on phones is the
+     floor for all of it. Last in the sheet so it outranks each class's own
+     size wherever that was set. Left alone on purpose: the short UPPERCASE
+     labels ("TODAY", "AVG / DAY"), whose tracking already reads larger than
+     the number, and the bottom bar and calendar cells, whose width is what
+     sets their size (see .bn-item span and the .cal-* rules). */
+  @media (max-width:760px){
+    .stat-trend, .hero-progress-label, .format-period, .tt-count, .on-target,
+    .stat-detail, .team-per, .team-daycount, .activity-row-time, .activity-row-desc,
+    .console-nav-desc, .qc-date, .filter-count, .period-meta, .push-device-since,
+    .notif-item-meta, .away-week-range,
+    .team-stats .stat-detail, .row-actions button{font-size:12px;}
+    /* Weekday heads over the calendar: 9px was the smallest text in the app. */
+    .cal-dow{font-size:10.5px;}
+  }
+
   </style>
 </head>
 <!-- Atrium is the only visual system now. The org-wide theme picker (ledger /
@@ -6758,7 +6838,7 @@
            confirmed, or a confirmation link came back spent: the one thing
            that person needs is the email again, and until this existed the
            only way to get it was to register a second time. -->
-      <button type="button" class="btn ghost" id="signInResendBtn" style="width:100%; display:none;">Resend confirmation email</button>
+      <button type="button" class="btn ghost" id="signInResendBtn" style="width:100%; display:none;">Resend Confirmation Email</button>
       <button type="submit" class="btn" id="signInBtn" style="width:100%;">Sign In</button>
       <!-- Shown only where the browser can do WebAuthn. A passkey is found by
            the device itself, so no email is needed first. -->
@@ -6827,7 +6907,7 @@
       </ol>
       <p class="auth-error" id="checkEmailError" role="alert"></p>
       <p class="auth-success" id="checkEmailSuccess" role="status"></p>
-      <button type="button" class="btn ghost" id="resendConfirmBtn" style="width:100%;">Resend email</button>
+      <button type="button" class="btn ghost" id="resendConfirmBtn" style="width:100%;">Resend Email</button>
       <div class="auth-switch">
         <button type="button" class="link-btn" id="checkEmailBackBtn">Back to sign in</button>
         <span style="color:var(--line);">·</span>
@@ -6954,7 +7034,7 @@
       <!-- Proxies to the real #logoutBtn (see app.js) rather than duplicating
          its sign-out logic, the same way rail-item already proxies to the
          Admin/Settings header buttons. -->
-      <button type="button" class="rail-logout-btn" id="railLogoutBtn" title="Sign out" aria-label="Sign out">
+      <button type="button" class="rail-logout-btn" id="railLogoutBtn" title="Sign Out" aria-label="Sign Out">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
       </button>
     </div>
@@ -7000,17 +7080,19 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
           <span>Admin</span>
         </button>
-        <!-- Labelled, not bare circles. This row only renders below 760px,
-             where the rail is gone — so on the phone these were three
-             unlabelled discs, one of them crimson and one tap from signing
-             out, with nothing on screen saying which was which. -->
-        <button type="button" class="head-action" id="settingsBtn" title="Schedule settings">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 21v-7M5 10V3M12 21v-11M12 6V3M19 21v-3M19 14V3"/><path d="M2.5 14h5M9.5 6h5M16.5 18h5"/></svg>
-          <span>Settings</span>
+        <!-- An icon, like refresh and the bell beside it. It was a labelled
+             pill when Sign out sat in this row too -- three bare discs, one of
+             them crimson and one tap from signing out -- but Sign out has since
+             moved into Settings on the phone (see #logoutBtn below), and a gear
+             is the one symbol everybody reads as Settings. aria-label and the
+             sr-only text still name it for screen readers. -->
+        <button type="button" class="head-action is-icon" id="settingsBtn" title="Settings" aria-label="Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span class="sr-only">Settings</span>
         </button>
-        <button type="button" class="head-action danger" id="logoutBtn" title="Sign out">
+        <button type="button" class="head-action danger" id="logoutBtn" title="Sign Out">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
-          <span>Sign out</span>
+          <span>Sign Out</span>
         </button>
       </div>
     </div>
@@ -7042,8 +7124,8 @@
       <div class="notif-head">
         <h2 class="notif-title" id="notifPanelTitle">Notifications</h2>
         <div class="notif-head-actions">
-          <button type="button" class="btn ghost small" id="notifMarkAllBtn" disabled>Mark all read</button>
-          <button type="button" class="btn ghost small" id="notifClearAllBtn" disabled>Clear all</button>
+          <button type="button" class="btn ghost small" id="notifMarkAllBtn" disabled>Mark All Read</button>
+          <button type="button" class="btn ghost small" id="notifClearAllBtn" disabled>Clear All</button>
         </div>
         <button type="button" class="notif-close" id="notifCloseBtn" aria-label="Close notifications">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -7766,7 +7848,7 @@
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3"/><path d="m16 7 3 3"/><path d="m18.5 4.5 2 2"/></svg></span>
             <span class="console-nav-text">
               <span class="console-nav-title">Passkeys</span>
-              <span class="console-nav-desc" id="cnavDescPasskeys">Sign in with Face ID or a fingerprint</span>
+              <span class="console-nav-desc" id="cnavDescPasskeys">Sign in without typing your password</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
@@ -7813,13 +7895,13 @@
             </div>
           </form>
           <div class="console-profile-actions">
-            <button type="button" class="btn ghost small" id="photoChooseBtn">Choose photo</button>
+            <button type="button" class="btn ghost small" id="photoChooseBtn">Choose Photo</button>
             <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
             <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
           </div>
         </div>
         <div class="console-signout">
-          <button type="button" class="btn danger-ghost small" id="settingsLogoutBtn">Sign out</button>
+          <button type="button" class="btn danger-ghost small" id="settingsLogoutBtn">Sign Out</button>
         </div>
       </div>
 
@@ -8107,9 +8189,9 @@
             <button type="button" class="btn" id="passkeyAddBtn">Add a Passkey</button>
             <p class="settings-hint" id="passkeyHint" hidden></p>
             <div id="passkeyListWrap" hidden>
-              <p class="settings-subhead">Your passkeys</p>
+              <p class="settings-subhead">Saved in</p>
               <div id="passkeyList"></div>
-              <p class="settings-hint">A passkey made on an iPhone or Mac is shared through iCloud Keychain, and one made on Android through Google Password Manager, so it usually works on your other devices too.</p>
+              <p class="settings-hint">Set up on an iPhone or Mac, it is saved in iCloud Keychain; on Android, in Google Password Manager. Either way it usually works on your other devices signed in to the same account too.</p>
             </div>
           </div>
           <p class="settings-hint" id="passkeyOthers" hidden>Passkeys belong to whoever is signed in on this device, so they can only be added or removed from that person&rsquo;s own account.</p>
@@ -8667,7 +8749,7 @@
       </div>
       <div class="empty-state" id="auditEmpty" style="display:none;">No activity recorded yet.</div>
       <div class="form-actions" id="auditMoreWrap" style="display:none;">
-        <button type="button" class="btn ghost small" id="auditMoreBtn">Show more</button>
+        <button type="button" class="btn ghost small" id="auditMoreBtn">Show More</button>
       </div>
 
         </div>
@@ -8752,6 +8834,9 @@
   </div>
 </div>
 
+<!-- Pull-to-refresh disc (phones). Driven by app.js's pullToRefresh(); the
+     same arrow as #refreshBtn, which it stands in for on a phone. -->
+<div class="pull-refresh" id="pullRefresh" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg></div>
 <nav class="bottom-nav" id="bottomNav" aria-label="Primary">
   <div class="bn-side bn-side-left" id="bnSideLeft"></div>
   <div class="bn-clock-wrap">
