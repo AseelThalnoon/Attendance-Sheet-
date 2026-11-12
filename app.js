@@ -373,7 +373,6 @@ import {
   DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
   EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
   DISMISS_KEY,
-  PUSH_PROMPT_SNOOZE_KEY, PUSH_PROMPT_SNOOZE_DAYS,
   DEFAULT_SETTINGS, VAPID_PUBLIC_KEY
 } from "./src/constants.js";
 import {
@@ -395,7 +394,6 @@ import { makeSchedule } from "./src/schedule.js";
   var viewedUserId = null;     // whose data is currently loaded (self, unless admin switched)
   var viewedProfile = null;
   var allProfiles = [];        // admin only: every registered user, for the switcher + Team tab
-  var pushPromptModalShown = false;  // at most once per sign-in — see maybeShowPushPromptModal()
   var isAdmin = false;
   var isOwnData = true;
 
@@ -1450,13 +1448,17 @@ import { makeSchedule } from "./src/schedule.js";
   }
   function isIOS(){ return /iPhone|iPad|iPod/.test(navigator.userAgent || ""); }
   function isAndroid(){ return /Android/.test(navigator.userAgent || ""); }
+  // iPadOS Safari calls itself a Mac. A Mac has no touch screen; an iPad does.
+  function isIPadAsMac(){
+    return /Macintosh/.test(navigator.userAgent || "") && (navigator.maxTouchPoints || 0) > 1;
+  }
 
   // How to get notifications working on the device the person is holding.
   // Every platform's answer is different and none of them is guessable, which
   // is why the generic "enable notifications in your settings" that most apps
   // print here is worth nothing on the two platforms most people read it on.
   function enableInstructionsFor(){
-    if(isIOS()){
+    if(isIOS() || isIPadAsMac()){
       return "On iPhone and iPad, notifications only work once this app is on your Home Screen: " +
         "open it in Safari, tap the Share icon, choose \"Add to Home Screen\", then open it from " +
         "that icon and turn this on. Notifications must also be allowed for it in iOS Settings → Notifications.";
@@ -1646,17 +1648,7 @@ import { makeSchedule } from "./src/schedule.js";
       return;
     }
     box.disabled = false;
-    // Safari's permission dialog only ever appears from a direct click —
-    // autoPromptPushIfEligible() knows this and skips itself there entirely,
-    // so on Safari this checkbox is the ONLY way in, not just the fallback.
-    // Said explicitly, since "nothing happened after I logged in" is exactly
-    // what silence here would otherwise look like.
-    if(isSafariBrowser() && Notification.permission === "default"){
-      hint.hidden = false;
-      hint.textContent = "Safari won't prompt automatically — tap this checkbox yourself to turn notifications on.";
-    } else {
-      hint.hidden = true;
-    }
+    hint.hidden = true;
     box.checked = !!(await currentPushSubscription());
     // The toggle answers "is this browser subscribed". The list answers "where
     // will notifications actually arrive", which is the question people think
@@ -1678,77 +1670,30 @@ import { makeSchedule } from "./src/schedule.js";
     await refreshPushToggle();
   });
 
-  // Wanted on by default for everyone, not just people who go looking for
-  // the Settings toggle — but the browser's own permission dialog can only
-  // ever be granted by a real click from the person it's asking, on every
-  // single device, with no way for the app to skip that. This is the closest
-  // honest equivalent: ask automatically on every sign-in until it actually
-  // sticks, rather than waiting to be found (or asking exactly once and
-  // giving up on anyone who closed the first dialog without answering it).
+  // ---------- Asking for notifications, on every device ----------
+  // Everyone should have notifications on, on every device they use: the
+  // clock-out reminder and an admin's messages only reach a device that has
+  // them. So until they are on for THIS device, the app asks each time it is
+  // opened -- each launch, and each return after PUSH_REMIND_AWAY_MS in the
+  // background, which is opening it again rather than a quick switch to
+  // another app and back. "Not Now" closes the question; it does not snooze it.
   //
-  // "Every sign-in" only matters for Notification.permission === "default"
-  // (never answered) — a browser will never show its own permission dialog
-  // again once the person has explicitly clicked Block, full stop, no matter
-  // how many times this calls requestPermission(); that call just resolves
-  // straight to "denied" with no UI, so retrying costs nothing and shows
-  // nothing for that case. Also retries subscribeToPush() when permission is
-  // already "granted" but no subscription exists (e.g. it failed offline
-  // last time) — that path shows no dialog either, just silently finishes
-  // the job. Skips entirely only once both permission and the subscription
-  // are already in place. Silent on failure/decline either way: a background
-  // prompt that also throws a visible error on the sign-in screen would read
-  // as broken, not optional — the Settings toggle is still there by hand.
-  async function autoPromptPushIfEligible(){
-    // Someone with notifications on nowhere gets the reminder below, every
-    // time. Everyone else -- notifications on some other device, or no
-    // answer about it -- keeps the gentler prompt that follows.
-    if(await remindIfNoPushAnywhere()) return;
-    if(!pushSupported()){ maybeShowPushPromptModal(); return; }
-    if(Notification.permission === "granted" && (await currentPushSubscription())){
-      return;
-    }
-    // Not a Chrome-style "might get suppressed" risk — Safari's permission
-    // dialog ONLY ever appears from a direct click, full stop. Calling
-    // requestPermission() here (sign-in, not a click) is a guaranteed silent
-    // no-op on Safari every time, so skip the attempt outright rather than
-    // pretend it might work — maybeShowPushPromptModal() below is the real,
-    // working path for a Safari user (iPhone very much included): its own
-    // button click is the direct user gesture this call site cannot supply.
-    if(isSafariBrowser()){ maybeShowPushPromptModal(); return; }
-    try{
-      await subscribeToPush();
-      refreshPushToggle();
-    }catch(e){ /* declined, blocked, or the browser suppressed an unsolicited prompt — Settings still offers it */ }
-  }
-
-  // ---------- Reminder for people with notifications on nowhere ----------
-  // Someone with no device at all receiving notifications misses the
-  // clock-out reminder and every message an admin sends. For them the prompt
-  // is not a one-off that "Not Now" snoozes for a week: it comes back every
-  // time the app is opened -- each launch, and each return after
-  // PUSH_REMIND_AWAY_MS in the background, which is opening it again rather
-  // than a quick switch to another app and back -- until notifications are
-  // on somewhere.
+  // It always asks with its own dialog, never by calling the browser's
+  // permission prompt on its own at sign-in. Safari (iPhone, iPad and Mac,
+  // installed or not) and Firefox only show that prompt from a real tap, and
+  // Chrome may hide an unprompted one behind a small icon -- each of which
+  // used to end in no question at all. The Turn On button in the dialog is
+  // the tap every browser accepts.
   //
-  // Only when the server positively says zero devices. A count that failed or
-  // came back without a number (offline, say) is not a reason to interrupt
-  // anyone. And only on a device that can act on it: one whose service worker
-  // is running, since nothing can arrive without one, or one where installing
-  // the app is the fix.
+  // Notifications already on somewhere else is no reason to skip this
+  // device: it is this one that would miss them.
   var PUSH_REMIND_AWAY_MS = 10*60*1000;
   var pushReminderOpen = false;
   var lastPushReminderKind = null;  // what this session last showed, if anything
   var pushAwaySince = null;         // when the app last went to the background
+  var pushWorkerWaiting = false;    // already waiting for the service worker to start
+  var pushDialogWaitTimer = null;   // waiting for another dialog to close first
 
-  async function myPushDeviceTotal(){
-    try{
-      var res = await supabase.from("push_subscriptions")
-        .select("endpoint", {count: "exact", head: true})
-        .eq("user_id", currentUser.id);
-      if(res.error) return null;
-      return typeof res.count === "number" ? res.count : null;
-    }catch(e){ return null; }
-  }
   // navigator.serviceWorker.ready never settles when no worker registers (see
   // currentPushSubscription), so it is raced against the same three seconds.
   async function pushWorkerHere(){
@@ -1759,29 +1704,55 @@ import { makeSchedule } from "./src/schedule.js";
       ]);
     }catch(e){ return null; }
   }
+  // Notifications are impossible in this tab, but installing the app fixes it:
+  // iPhone and iPad (only an app on the Home Screen gets them), and Android.
+  function pushNeedsInstall(){
+    return !pushSupported() && !isStandaloneDisplay() &&
+      (isIOS() || isIPadAsMac() || isAndroid());
+  }
+  // Is this device's subscription still on the server? Someone may have
+  // removed the device from their list. Unknown (offline) counts as yes:
+  // being offline is no reason to interrupt anyone.
+  async function pushRowExists(endpoint){
+    try{
+      var res = await supabase.from("push_subscriptions")
+        .select("endpoint", {count: "exact", head: true})
+        .eq("endpoint", endpoint);
+      if(res.error || typeof res.count !== "number") return true;
+      return res.count > 0;
+    }catch(e){ return true; }
+  }
 
-  // True when it dealt with this person -- reminded them, or quietly finished
-  // a registration that only needed finishing. False when they have
-  // notifications on somewhere, or it cannot tell, so the caller carries on
-  // with the ordinary prompt.
-  async function remindIfNoPushAnywhere(){
-    if(!currentUser || !isOwnData || pushReminderOpen) return false;
-    var total = await myPushDeviceTotal();
-    if(total !== 0 || !currentUser || !isOwnData) return false;
+  // Called at sign-in, and again on coming back to the app. Silent when this
+  // device already gets notifications; otherwise it either quietly finishes a
+  // registration that only needed finishing, or asks.
+  async function promptPushHere(){
+    if(!currentUser || !isOwnData || pushReminderOpen) return;
+    var who = currentUser.id;
+    var stillHere = function(){ return currentUser && currentUser.id === who && isOwnData; };
 
     if(!pushSupported()){
-      // iPhone, iPad or Android in a browser tab: installing is the fix.
-      // Anywhere else there is nothing this device can do about it.
-      if(!((isIOS() || isAndroid()) && !isStandaloneDisplay())) return false;
-      showPushPromptModal("install", true);
-      return true;
+      if(pushNeedsInstall()) showPushPromptModal("install");
+      return;
     }
-    if(!(await pushWorkerHere())) return false;
-    if(Notification.permission === "denied"){
-      showPushPromptModal("blocked", true);
-      return true;
+    // Nothing can arrive without the service worker. On the very first open
+    // of a newly installed app it may still be starting, so wait for it and
+    // ask then, rather than giving up on exactly the open this matters most.
+    if(!(await pushWorkerHere())){
+      if(!pushWorkerWaiting){
+        pushWorkerWaiting = true;
+        navigator.serviceWorker.ready.then(function(){
+          pushWorkerWaiting = false;
+          if(stillHere()) promptPushHere();
+        }).catch(function(){ pushWorkerWaiting = false; });
+      }
+      return;
     }
+    if(!stillHere()) return;
+
     if(Notification.permission === "granted"){
+      var sub = await currentPushSubscription();
+      if(sub && (await pushRowExists(sub.endpoint))){ lastPushReminderKind = null; return; }
       // Allowed already, just not registered (a subscribe that failed, a
       // device someone removed): finish the job without asking anything.
       try{
@@ -1790,13 +1761,12 @@ import { makeSchedule } from "./src/schedule.js";
         lastPushReminderKind = null;
         if(remindedBefore) showToast("Notifications are on for this device.", "success");
         refreshPushToggle();
-        return true;
+        return;
       }catch(e){ /* fall through to asking */ }
     }
-    showPushPromptModal("ask", true);
-    return true;
+    if(!stillHere()) return;
+    showPushPromptModal(Notification.permission === "denied" ? "blocked" : "ask");
   }
-
   // The other half of enableInstructionsFor(): permission was refused, and a
   // browser never shows its own dialog again after that, so the only way back
   // is the device's or the browser's settings -- and where they are differs
@@ -1823,60 +1793,29 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   // ---------- Push prompt popup ----------
-  // autoPromptPushIfEligible() above covers the platforms that can be asked
-  // silently at sign-in. Safari cannot be — its permission dialog only opens
-  // from a real click — and without this, a Safari sign-in that was eligible
-  // for push produced no dialog and no other visible sign that anything was
-  // waiting, which reads as "notifications don't work here" rather than "one
-  // tap away". iPhone is the platform this bites hardest, since it is the one
-  // place a browser tab genuinely cannot receive push at all until the app is
-  // on the Home Screen (see enableInstructionsFor).
+  // A real click on this dialog's Turn On button is the user gesture every
+  // browser requires before it shows its own permission dialog. The click
+  // handler below calls subscribeToPush() directly, with nothing awaited
+  // first, so the permission request rides that same tap.
   //
-  // A real click on this dialog's own button satisfies the same gesture
-  // requirement autoPromptPushIfEligible() cannot, so it is not just a
-  // pointer to Settings — it is a second, working path to the same dialog:
-  // the click handler below calls subscribeToPush() directly and
-  // synchronously, with nothing awaited first, so the permission request
-  // rides the same user gesture as the tap that opened it.
-  function pushPromptSnoozed(){
-    var until = parseInt(safeGet(PUSH_PROMPT_SNOOZE_KEY) || "", 10);
-    return isFinite(until) && Date.now() < until;
-  }
-  // Once per sign-in, not once per render — a modal is a real interruption,
-  // unlike the banner it replaced, and refreshSettingsPanel() alone re-runs
-  // on every admin viewer switch and every settings save.
-  async function maybeShowPushPromptModal(){
-    if(pushPromptModalShown || !isOwnData || pushPromptSnoozed()) return;
-    // Notification is ABSENT on iPadOS Safari and on iOS Safari before 16.4 --
-    // reading .permission there is a ReferenceError, not undefined. And the one
-    // caller that reaches here on those platforms is autoPromptPushIfEligible's
-    // own !pushSupported() branch, which is exactly the case this modal exists
-    // for: the instructional variant explaining Add to Home Screen. So the
-    // checks that need Notification have to sit BEHIND the support test rather
-    // than in front of it, or the only thing that tells an iPad user how to
-    // turn notifications on throws before it can say anything.
-    if(pushSupported()){
-      if(Notification.permission === "denied") return;
-      if(Notification.permission === "granted" && (await currentPushSubscription())) return;
-    }
-    pushPromptModalShown = true;
-    showPushPromptModal();
-  }
   // kind: "ask" (a Turn On button that requests permission), "install" (the
   // app has to be on the Home Screen first) or "blocked" (permission was
-  // refused, and only the device's own settings can undo that). everyTime is
-  // the reminder for someone with notifications on nowhere: it says it will
-  // come back, and "Not Now" does not snooze it.
-  function showPushPromptModal(kind, everyTime){
-    kind = kind || (pushSupported() ? "ask" : "install");
+  // refused, and only the device's own settings can undo that). Each says it
+  // will come back, because it will (see promptPushHere).
+  function showPushPromptModal(kind){
     var instructional = kind !== "ask";
-    // Never on top of another dialog -- a confirm that is waiting for an
-    // answer, or this same reminder already up.
-    if(pushReminderOpen || document.querySelector(".modal-overlay")) return;
-    if(kind === "install" && !((isIOS() || isAndroid()) && !isStandaloneDisplay())){
-      // Nothing this dialog's own button could do — window.PushManager is
-      // simply absent until the app is installed, and only worth saying on
-      // the platforms where "install it" is the actual fix.
+    if(pushReminderOpen) return;
+    // Never on top of another dialog -- a confirm waiting for an answer, or
+    // an entry being edited. Wait for it to close and ask then; skipping
+    // would mean the first open of a new install could pass with no question.
+    var entryModal = document.getElementById("entryModal");
+    if(document.querySelector(".modal-overlay") || (entryModal && !entryModal.hidden)){
+      if(!pushDialogWaitTimer){
+        pushDialogWaitTimer = setTimeout(function(){
+          pushDialogWaitTimer = null;
+          promptPushHere();
+        }, 1500);
+      }
       return;
     }
     var overlay = document.createElement("div");
@@ -1887,7 +1826,7 @@ import { makeSchedule } from "./src/schedule.js";
         '<h3 class="modal-title" id="'+mid+'-t">' +
           (kind === "blocked" ? "Notifications are blocked" : "Turn on notifications?") + '</h3>' +
         '<p class="modal-msg" id="'+mid+'-m"></p>' +
-        (everyTime ? '<p class="modal-msg push-prompt-every"></p>' : '') +
+        '<p class="modal-msg push-prompt-every"></p>' +
         '<p class="modal-msg push-prompt-error" hidden></p>' +
         '<div class="modal-actions">' +
           (instructional
@@ -1901,11 +1840,10 @@ import { makeSchedule } from "./src/schedule.js";
       : kind === "install"
         ? enableInstructionsFor()
         : "Get notified here when it matters — a forgotten clock-out, or a message from an admin.";
-    if(everyTime){
-      overlay.querySelector(".push-prompt-every").textContent =
-        "Notifications aren't on for any of your devices yet, so this reminder will show " +
-        "each time you open the app until they are.";
-    }
+    overlay.querySelector(".push-prompt-every").textContent = kind === "blocked"
+      ? "This reminder will show each time you open the app until notifications are allowed here."
+      : "Notifications aren't on for this device yet, so this reminder will show each time " +
+        "you open the app until they are.";
     pushReminderOpen = true;
     lastPushReminderKind = kind;
     dialogRoot().appendChild(overlay);
@@ -1930,12 +1868,7 @@ import { makeSchedule } from "./src/schedule.js";
     document.addEventListener("keydown", onKey);
     var cancelBtn = overlay.querySelector(".modal-cancel");
     if(cancelBtn){
-      cancelBtn.addEventListener("click", function(){
-        if(!everyTime){
-          safeSet(PUSH_PROMPT_SNOOZE_KEY, String(Date.now() + PUSH_PROMPT_SNOOZE_DAYS*24*60*60*1000));
-        }
-        close();
-      });
+      cancelBtn.addEventListener("click", close);
     }
     var confirmBtn = overlay.querySelector(".modal-confirm");
     if(instructional){
@@ -1943,7 +1876,7 @@ import { makeSchedule } from "./src/schedule.js";
     } else {
       // The click itself — nothing awaited before this line — is what makes
       // requestPermission() (inside subscribeToPush) eligible to actually
-      // open the OS dialog on Safari. If it still doesn't, the error below
+      // open the browser's own dialog. If it still doesn't, the error below
       // is the real reason (blocked, unsupported, or a failed subscribe),
       // not silence.
       confirmBtn.addEventListener("click", async function(){
@@ -11610,9 +11543,9 @@ import { makeSchedule } from "./src/schedule.js";
     // chrome, and it must not hold sign-in behind a network call.
     loadPushNotifications().catch(function(){});
     setTimeout(updateTabsScrollHint, 0);
-    // Fire-and-forget: eligible only once ever per browser (see the guard
-    // inside), and sign-in must not sit waiting on a permission dialog.
-    autoPromptPushIfEligible();
+    // Fire-and-forget: asks until notifications are on for this device (see
+    // promptPushHere), and sign-in must not sit waiting on a dialog.
+    promptPushHere();
     // Last, and deliberately not awaited: a punch queued on this device in an
     // earlier session should upload itself now, but sign-in must not sit
     // waiting on it.
@@ -11626,8 +11559,8 @@ import { makeSchedule } from "./src/schedule.js";
     currentUser = null; currentProfile = null;
     viewedUserId = null; viewedProfile = null;
     allProfiles = []; isAdmin = false; isOwnData = true;
-    pushPromptModalShown = false;
     lastPushReminderKind = null; pushAwaySince = null;
+    clearTimeout(pushDialogWaitTimer); pushDialogWaitTimer = null;
     entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
     dismissedReminders = {};
     // entries is empty now, so this clears the icon. Leaving a badge behind
@@ -11717,14 +11650,14 @@ import { makeSchedule } from "./src/schedule.js";
       // slept through the reconnection reports no transition.
       flushOutbox();
       // Coming back after a real absence is opening the app again, so the
-      // reminder for someone with notifications on nowhere comes back too.
+      // question about notifications on this device comes back too.
       // Straight away, though, after "Notifications are blocked": returning
       // from the phone's Settings is exactly how that gets fixed, and the
       // fix should be picked up the moment they are back.
       var away = pushAwaySince ? Date.now() - pushAwaySince : 0;
       var maybeUnblocked = lastPushReminderKind === "blocked" &&
         pushSupported() && Notification.permission !== "denied";
-      if(away >= PUSH_REMIND_AWAY_MS || maybeUnblocked) remindIfNoPushAnywhere();
+      if(away >= PUSH_REMIND_AWAY_MS || maybeUnblocked) promptPushHere();
     }
     if(document.visibilityState === "visible") pushAwaySince = null;
   });

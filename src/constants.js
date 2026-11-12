@@ -65,8 +65,6 @@ function countsAsWorked(type){ return WORKED_TYPES.indexOf(type || "regular") !=
 var NO_TARGET_TYPES = ["wfh","trip","training"];
 
 var DISMISS_KEY  = "attendance_ledger_dismissed_v1";
-var PUSH_PROMPT_SNOOZE_KEY = "attendance_ledger_push_prompt_snooze_v1";
-var PUSH_PROMPT_SNOOZE_DAYS = 7;
 
 var DEFAULT_SETTINGS = {
   workDays:[0,1,2,3,4],
@@ -90,6 +88,5 @@ export {
   DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
   EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
   DISMISS_KEY,
-  PUSH_PROMPT_SNOOZE_KEY, PUSH_PROMPT_SNOOZE_DAYS,
   DEFAULT_SETTINGS, VAPID_PUBLIC_KEY
 };

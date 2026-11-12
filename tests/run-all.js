@@ -51,7 +51,8 @@ const SUITES = [
   "mobile/collision.js",
   "mobile/touch-floor.js",
   "hostile/hostile.js",
-  "apple/devices.js"
+  "apple/devices.js",
+  "apple/ios-push.js"
 ];
 
 const results = [];

@@ -645,8 +645,8 @@ async function run(){
     };
     const code = grab("function isIOS()", "function enableInstructionsFor") + "\n" +
                  grab("function enableInstructionsFor", "async function refreshPushDevices");
-    const say = (ua, standalone) => {
-      const sb = { navigator: { userAgent: ua },
+    const say = (ua, standalone, touchPoints) => {
+      const sb = { navigator: { userAgent: ua, maxTouchPoints: touchPoints || 0 },
         isSafariBrowser: () => /^((?!chrome|android|crios|fxios|edgios|opios).)*safari/i.test(ua),
         isStandaloneDisplay: () => !!standalone };
       vm.createContext(sb); vm.runInContext(code, sb);
@@ -666,6 +666,10 @@ async function run(){
 
     const mac = say("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1", false);
     ok(/Add to Dock/.test(mac), "Mac Safari is told to add it to the Dock", mac.slice(0, 100));
+    // iPadOS Safari reports itself as a Mac; only the touch screen gives it away.
+    const ipad = say("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1", false, 5);
+    ok(/Home Screen/.test(ipad) && !/Add to Dock/.test(ipad),
+      "an iPad (which calls itself a Mac) gets the Home Screen steps", ipad.slice(0, 100));
   }
 
   // ---- "In today" lists people in the order they arrived ------------------
@@ -1171,27 +1175,35 @@ async function run(){
     await pre.close();
   }
 
-  // ---- notifications on nowhere: reminded every time ------------------------
-  // Someone with no device receiving notifications misses the clock-out
-  // reminder and every admin message. They are reminded on every launch and
-  // every return after a real absence, and "Not Now" does not snooze it.
+  // ---- notifications off on this device: asked every time -------------------
+  // A device without notifications misses the clock-out reminder and every
+  // admin message. It is asked on every launch and every return after a real
+  // absence, and "Not Now" does not snooze it.
   {
     // A device that can receive push. The harness blocks the real service
     // worker, so the worker and its push manager are stood in for -- along
     // with a clock the test can move, for "came back after a while".
     const pushDevice = perm => async ({ page }) => {
       await page.addInitScript(initial => {
-        let permission = initial, subscribed = null;
+        // A real browser remembers the permission and the subscription across
+        // a reload, so the stand-in keeps them in sessionStorage.
+        const KEY = "__fakePush";
+        const saved = JSON.parse(sessionStorage.getItem(KEY) || "null");
+        let permission = saved ? saved.permission : initial, subscribed = null;
+        const save = () => sessionStorage.setItem(KEY, JSON.stringify({ permission, subscribed: !!subscribed }));
         const sub = { endpoint: "https://push.example.test/me", options: null,
           toJSON(){ return { endpoint: this.endpoint, keys: { p256dh: "p256dh", auth: "auth" } }; },
           unsubscribe: async () => true };
+        if(saved && saved.subscribed) subscribed = sub;
         const reg = { pushManager: {
           getSubscription: async () => subscribed,
-          subscribe: async () => (subscribed = sub)
+          subscribe: async () => { subscribed = sub; save(); return sub; }
         } };
         Object.defineProperty(navigator.serviceWorker, "ready", { configurable: true, get: () => Promise.resolve(reg) });
         Object.defineProperty(Notification, "permission", { configurable: true, get: () => permission });
-        Notification.requestPermission = async () => (permission = permission === "denied" ? "denied" : "granted");
+        Notification.requestPermission = async () => {
+          permission = permission === "denied" ? "denied" : "granted"; save(); return permission;
+        };
         const realNow = Date.now.bind(Date);
         window.__skewMs = 0;
         Date.now = () => realNow() + window.__skewMs;
@@ -1214,7 +1226,7 @@ async function run(){
     await settle(h.page, 1200);
     const first = await dialog(h.page);
     ok(!!first && /Turn on notifications/.test(first.title) && /each time you open the app/.test(first.every),
-      "someone with notifications on nowhere is asked at launch, and told it will keep asking",
+      "a device without notifications is asked at launch, and told it will keep asking",
       JSON.stringify(first));
     await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-cancel").click());
     await settle(h.page, 400);
@@ -1261,16 +1273,47 @@ async function run(){
       "someone who blocked notifications is told how to unblock them, every launch", JSON.stringify(blocked));
     await b.close();
 
-    // Notifications on another device already: not this reminder.
+    // Notifications on another device already: this device is still asked,
+    // because it is this one that would miss them.
     const o = await boot({ meId: me.id, beforeLoad: pushDevice("default"), seed: seed({
       push_subscriptions: [{ id: 1, user_id: me.id, endpoint: "https://push.example.test/phone",
         p256dh: "x", auth: "y", user_agent: "Mozilla/5.0 (iPhone)" }] }) });
     await settle(o.page, 1200);
     const other = await dialog(o.page);
-    ok(!other || !other.every,
-      "someone with notifications on another device is not given the every-time reminder",
+    ok(!!other && /Turn on notifications/.test(other.title) && /this device/.test(other.every),
+      "someone with notifications on another device is still asked on this one",
       JSON.stringify(other));
     await o.close();
+
+    // Allowed on this device, but its registration was removed (from the
+    // device list, say): put back quietly, with no question.
+    const g = await boot({ meId: me.id, seed: seed(), beforeLoad: pushDevice("granted") });
+    await settle(g.page, 1200);
+    ok(!(await dialog(g.page)), "permission already granted: no question");
+    ok(g.backend.state.push_subscriptions.some(r => r.user_id === me.id),
+      "and this device is registered without asking");
+    await g.close();
+
+    // Another dialog already open at launch: the question waits for it to
+    // close, rather than being skipped for this whole visit.
+    const w = await boot({ meId: me.id, seed: seed(), beforeLoad: async ctx => {
+      await pushDevice("default")(ctx);
+      await ctx.page.addInitScript(() => {
+        document.addEventListener("DOMContentLoaded", () => {
+          const blocker = document.createElement("div");
+          blocker.className = "modal-overlay"; blocker.id = "testBlocker";
+          document.body.appendChild(blocker);
+        });
+      });
+    } });
+    await settle(w.page, 1200);
+    ok(!(await w.page.evaluate(() => !!document.querySelector(".modal-overlay .push-prompt-every"))),
+      "not shown on top of another dialog");
+    await w.page.evaluate(() => document.getElementById("testBlocker").remove());
+    await settle(w.page, 2200);
+    const after = await dialog(w.page);
+    ok(!!after && /Turn on notifications/.test(after.title), "asked once that dialog closes", JSON.stringify(after));
+    await w.close();
   }
 
   // ---- a notice inside the panel must still be readable -------------------
