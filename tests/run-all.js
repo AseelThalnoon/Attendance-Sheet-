@@ -44,6 +44,8 @@ const SUITES = [
   "regression/password-recovery.js",
   "regression/onboarding.js",
   "regression/crash-handler.js",
+  "regression/passkeys.js",
+  "regression/whos-away.js",
   "regression/ios.js",
   "regression/collisions.js",
   "mobile/form-grid.js",

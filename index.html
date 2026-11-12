@@ -5261,6 +5261,39 @@
     display:flex; align-items:center; justify-content:center; gap:8px;
     font-size:12px; margin-top:2px; flex-wrap:wrap;
   }
+  /* "or" between the password form and the passkey button: a hairline each
+     side, in the same muted voice as .auth-switch. */
+  .auth-or{
+    display:flex; align-items:center; gap:10px; margin:2px 0;
+    font-size:12px; color:var(--muted-2);
+  }
+  .auth-or::before, .auth-or::after{content:""; flex:1; height:1px; background:var(--line);}
+  .auth-or[hidden]{display:none;}
+  /* The Face ID / fingerprint tap target: a tile with the glyph, its name
+     underneath, centred under "or". The whole thing is the button. */
+  .auth-biometric{
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    align-self:center; margin:2px auto 0; padding:4px 8px;
+    background:none; border:0; border-radius:var(--radius-sm, 12px);
+    color:var(--ink); font:inherit; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .auth-biometric[hidden]{display:none;}
+  .auth-biometric-tile{
+    width:64px; height:64px; border-radius:18px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--card); border:1px solid var(--line);
+    box-shadow:0 1px 2px rgba(var(--ink-rgb),.06);
+    transition:transform var(--dur-fast) var(--ease-snap), border-color var(--dur-fast) var(--ease-snap);
+  }
+  .auth-biometric-tile svg{width:34px; height:34px;}
+  .auth-biometric-tile g[hidden]{display:none;}
+  .auth-biometric:hover .auth-biometric-tile{border-color:var(--ink);}
+  .auth-biometric:active .auth-biometric-tile{transform:scale(.94);}
+  .auth-biometric:focus-visible{outline:none;}
+  .auth-biometric:focus-visible .auth-biometric-tile{outline:2px solid var(--ink); outline-offset:3px;}
+  .auth-biometric:disabled{cursor:default; opacity:.6;}
+  .auth-biometric-label{font-size:12.5px; font-weight:600; color:var(--ink);}
   /* 20px tall, on five standalone controls: "Forgot password?", "Create an
      account", "Already have an account? Sign in", "Back to sign in" and the
      first-run card's "Set your working week first". Under WCAG 2.2 SC 2.5.8's
@@ -6007,6 +6040,36 @@
   }
   .push-device-since{font-size:11.5px; color:var(--muted-2); margin-top:2px;}
 
+  /* ---------- Who's Away (Admin) ----------
+     One row per person: name on the left, then each stretch away as a
+     swatch (the Day Types colour) + type + dates, one per line. */
+  .away-nav{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
+  .away-step{width:44px; min-width:44px; height:44px; min-height:44px; padding:0; justify-content:center;}
+  .away-step svg{width:18px; height:18px;}
+  .away-week{display:flex; flex-direction:column; min-width:0; padding:0 4px;}
+  .away-week-title{font-size:14px; font-weight:700; color:var(--ink);}
+  .away-week-range{font-size:12px; color:var(--muted);}
+  .away-list{display:flex; flex-direction:column;}
+  .away-row{
+    display:grid; grid-template-columns:minmax(0,11rem) minmax(0,1fr); column-gap:16px;
+    padding:10px 0; border-bottom:1px solid var(--line);
+  }
+  .away-row:last-child{border-bottom:none;}
+  .away-name{font-size:13px; font-weight:700; color:var(--ink); overflow-wrap:anywhere;}
+  .away-row.is-everyone .away-name{color:var(--muted);}
+  .away-spans{display:flex; flex-direction:column; gap:4px; min-width:0;}
+  .away-span{display:flex; align-items:baseline; gap:8px; font-size:13px; color:var(--ink); min-width:0;}
+  .away-dot{
+    width:10px; height:10px; border-radius:3px; flex:0 0 auto; align-self:center;
+    box-shadow:inset 0 0 0 1px rgba(var(--ink-rgb),.22);
+  }
+  .away-type{font-weight:500; white-space:nowrap;}
+  .away-dates{color:var(--muted); overflow-wrap:anywhere;}
+  .away-empty{margin:4px 0 0; font-size:13px; color:var(--muted);}
+  @media (max-width:560px){
+    .away-row{grid-template-columns:1fr; row-gap:6px;}
+  }
+
   .notify-people{
     margin-top:10px; padding:10px 12px;
     background:var(--card); border-radius:var(--radius-sm);
@@ -6697,6 +6760,19 @@
            only way to get it was to register a second time. -->
       <button type="button" class="btn ghost" id="signInResendBtn" style="width:100%; display:none;">Resend confirmation email</button>
       <button type="submit" class="btn" id="signInBtn" style="width:100%;">Sign In</button>
+      <!-- Shown only where the browser can do WebAuthn. A passkey is found by
+           the device itself, so no email is needed first. -->
+      <div class="auth-or" id="passkeyOr" hidden><span>or</span></div>
+      <!-- One tap: the device's own Face ID / Touch ID / fingerprint prompt
+           opens and signs in with the passkey it holds. app.js picks the icon
+           and the name for the platform (Face ID on iPhone and iPad, Touch ID
+           on a Mac, Fingerprint on Android, Windows Hello on Windows). -->
+      <button type="button" class="auth-biometric" id="passkeySignInBtn" aria-label="Sign in with a passkey" hidden>
+        <span class="auth-biometric-tile">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g data-bio="face"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9v1.5"/><path d="M15 9v1.5"/><path d="M12 9v4h-1"/><path d="M9 15.5c1.7 1.3 4.3 1.3 6 0"/></g><g data-bio="fingerprint" hidden><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M14 13.12c0 2.38 0 6.38-1 8.88"/><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/><path d="M2 12a10 10 0 0 1 18-6"/><path d="M2 16h.01"/><path d="M21.8 16c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/><path d="M8.65 22c.21-.66.45-1.32.57-2"/><path d="M9 6.8a6 6 0 0 1 9 5.2v2"/></g><g data-bio="key" hidden><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3"/><path d="m16 7 3 3"/><path d="m18.5 4.5 2 2"/></g></svg>
+        </span>
+        <span class="auth-biometric-label" id="passkeySignInLabel">Passkey</span>
+      </button>
       <div class="auth-switch">
         <button type="button" class="link-btn" id="forgotPasswordBtn">Forgot password?</button>
         <span style="color:var(--line);">·</span>
@@ -7686,6 +7762,14 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="passkeys" id="cnav-passkeys" aria-selected="false" aria-controls="csec-passkeys">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3"/><path d="m16 7 3 3"/><path d="m18.5 4.5 2 2"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Passkeys</span>
+              <span class="console-nav-desc" id="cnavDescPasskeys">Sign in with Face ID or a fingerprint</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
           <button type="button" class="console-nav-item" role="tab" data-console-target="data" id="cnav-data" aria-selected="false" aria-controls="csec-data">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
             <span class="console-nav-text">
@@ -8011,6 +8095,26 @@
           </div>
         </div>
       </div>
+      <div class="console-section" data-section="passkeys" id="csec-passkeys" role="tabpanel" aria-labelledby="cnav-passkeys" tabindex="0">
+        <div class="console-section-head">
+          <h3>Passkeys</h3>
+          <p>Sign in with Face ID, Touch ID, a fingerprint or your device&rsquo;s PIN instead of typing your password. Your password keeps working too.</p>
+        </div>
+        <div>
+          <!-- Like push, about whoever is signed in on this browser: hidden
+               while an admin is viewing someone else's settings. -->
+          <div id="passkeyOwn">
+            <button type="button" class="btn" id="passkeyAddBtn">Add a Passkey</button>
+            <p class="settings-hint" id="passkeyHint" hidden></p>
+            <div id="passkeyListWrap" hidden>
+              <p class="settings-subhead">Your passkeys</p>
+              <div id="passkeyList"></div>
+              <p class="settings-hint">A passkey made on an iPhone or Mac is shared through iCloud Keychain, and one made on Android through Google Password Manager, so it usually works on your other devices too.</p>
+            </div>
+          </div>
+          <p class="settings-hint" id="passkeyOthers" hidden>Passkeys belong to whoever is signed in on this device, so they can only be added or removed from that person&rsquo;s own account.</p>
+        </div>
+      </div>
       <div class="console-section" data-section="data" id="csec-data" role="tabpanel" aria-labelledby="cnav-data" tabindex="0">
         <div class="console-section-head">
           <h3>Backup &amp; Data</h3>
@@ -8143,6 +8247,14 @@
           </div>
           <div class="console-nav-group" role="presentation">
             <p class="console-nav-group-title" aria-hidden="true">Everyone</p>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-away" id="cnav-admin-away" aria-selected="false" aria-controls="csec-admin-away">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15.2" r="2"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Who&rsquo;s Away</span>
+              <span class="console-nav-desc" id="cnavDescAway">Leave, remote and travel, week by week</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
           <button type="button" class="console-nav-item" role="tab" data-console-target="admin-bulk" id="cnav-admin-bulk" aria-selected="false" aria-controls="csec-admin-bulk">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/></svg></span>
             <span class="console-nav-text">
@@ -8218,6 +8330,24 @@
         </div>
       </div>
       <!-- ---------- People: roles, access, accounts ---------- -->
+      <div class="console-section" data-section="admin-away" id="csec-admin-away" role="tabpanel" aria-labelledby="cnav-admin-away" tabindex="0">
+        <div class="console-section-head">
+          <h3>Who&rsquo;s Away</h3>
+          <p>Everyone not in the office on a working day: leave, sick days, public holidays, remote work, trips and training.</p>
+        </div>
+        <div>
+          <div class="away-nav">
+            <button type="button" class="btn ghost small away-step" id="awayPrevBtn" aria-label="Previous week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+            <div class="away-week" aria-live="polite">
+              <span class="away-week-title" id="awayWeekTitle">This week</span>
+              <span class="away-week-range" id="awayWeekRange"></span>
+            </div>
+            <button type="button" class="btn ghost small away-step" id="awayNextBtn" aria-label="Next week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+            <button type="button" class="link-btn" id="awayTodayBtn" hidden>This week</button>
+          </div>
+          <div id="awayList" class="away-list"></div>
+        </div>
+      </div>
       <div class="console-section" data-section="admin-people" id="csec-admin-people" role="tabpanel" aria-labelledby="cnav-admin-people" tabindex="0">
         <div class="console-section-head">
           <h3>People</h3>
@@ -8772,6 +8902,6 @@
      "console-1" through 38 separate app.js commits — so a browser holding
      that URL had no reason to ever ask for a newer file, and shipped fixes
      silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=v45"></script>
+<script type="module" src="app.js?v=v46"></script>
 </body>
 </html>

@@ -18,6 +18,19 @@ async function boot(opts){
   const engine = playwright[opts.engine || "chromium"];
   if(!engine) throw new Error("unknown engine: " + opts.engine);
   const browser = await engine.launch();
+  // A boot that throws (the app never appears, say) must not leave this
+  // browser and server running: the suite's process would then never exit,
+  // and a failing run sat silent for half an hour instead of failing.
+  try {
+    return await bootIn(browser, server, opts);
+  } catch (err) {
+    await browser.close().catch(() => {});
+    server.close();
+    throw err;
+  }
+}
+
+async function bootIn(browser, server, opts){
   // Block the service worker. app.js registers sw.js, and page.route() does not
   // intercept requests a service worker makes -- so once it is running, some
   // fetches bypass the scripted backend entirely and hit the real Supabase,
@@ -46,7 +59,10 @@ async function boot(opts){
   // that arrival is a distinct boot path -- supabase-js parses and strips it
   // during its own async init -- so it cannot be reproduced from localStorage
   // the way an ordinary signed-in boot can.
-  await page.goto(server.url + "/index.html" + (opts.hash || ""));
+  // opts.hostname swaps the 127.0.0.1 in the URL (passkeys refuse a bare IP
+  // as their relying party, so the passkey suite opens the app as localhost).
+  const base = opts.hostname ? server.url.replace("127.0.0.1", opts.hostname) : server.url;
+  await page.goto(base + "/index.html" + (opts.hash || ""));
   if(opts.waitForApp !== false) await page.waitForSelector("#appShell:not([style*='display: none'])", { timeout: 15000 });
   await settle(page);
 

@@ -15,7 +15,7 @@ build step — deployment is a file copy.
 | `index.html` | Markup, styles, and the Content-Security-Policy. No inline script. |
 | `app.js` | The entire application. Extracted from `index.html` so the page can ship a real CSP (an inline module would force `script-src 'unsafe-inline'`). |
 | `theme-boot.js` | Reads the saved palette and light/dark choice and stamps them on `<html>`. Loaded **blocking, in `<head>`**, so the page never paints in the wrong theme first — and external for the same CSP reason as `app.js`. |
-| `vendor/supabase-js.min.js` | The one runtime dependency, pinned to **2.58.0** and committed. Built with esbuild from the npm package. |
+| `vendor/supabase-js.min.js` | The one runtime dependency, pinned to **2.118.0** and committed (2.105+ is needed for passkeys). Built with esbuild from the npm package: `export { createClient } from "@supabase/supabase-js"`, bundled with `esbuild --bundle --format=esm --minify --platform=browser --target=es2020`. |
 | `sw.js` | Service worker. Caches the app shell so an installed PWA can boot offline. |
 | `manifest.json`, `*.png` | PWA manifest and icons. |
 | `supabase/migrations/` | Database schema, policies, functions and triggers. |

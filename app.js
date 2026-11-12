@@ -5,7 +5,7 @@
 // of the point of having a policy at all. Deployment is still a static file copy;
 // there is no build step.
 // The one runtime dependency is vendored (vendor/supabase-js.min.js, pinned to
-// 2.58.0) rather than fetched from a third-party CDN on every load. Previously
+// 2.118.0) rather than fetched from a third-party CDN on every load. Previously
 // a CDN outage, a blocking proxy, or simply opening the installed PWA with no
 // connection left a pixel-perfect sign-in screen with no listeners attached and
 // no error of any kind — the app looked fine and silently ignored you. Vendoring
@@ -25,6 +25,12 @@ function showBootFailure(){
   var reg = document.getElementById("registerBtn");
   if(reg){ reg.disabled = true; }
 }
+
+// The URL fragment as the page arrived with it, read before the client is
+// created: supabase-js strips a sign-up or recovery result from the fragment
+// during its own start-up, and reading it first means no library change in
+// that timing can take it away from the code further down (see __authHash).
+var __arrivalHash = (window.location.hash || "").replace(/^#/, "");
 
 let createClient;
 try {
@@ -78,7 +84,19 @@ function fetchWithTimeout(input, init){
 }
 
 const supabase = supabaseConfigured
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: fetchWithTimeout } })
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { fetch: fetchWithTimeout },
+      // supabase-js 2.11x retries a failed read up to three times by itself
+      // (waiting 1, 2 and 4 seconds) before the app hears of it. The app has
+      // its own answer to a failed or hung request -- the 20s timeout above,
+      // the "couldn't load" notice with Try Again, the offline punch queue --
+      // and the retries only delayed it: offline, the first screen took
+      // seconds longer to say anything. Off, so a failure arrives as one.
+      db: { retry: false },
+      // Passkey sign-in is still marked experimental in supabase-js and has
+      // to be opted into here (see "Passkeys" further down).
+      auth: { experimental: { passkey: true } }
+    })
   : null;
 
 // ============================================================================
@@ -328,7 +346,7 @@ if(supabase){
 // "type=recovery" in it and strips it during that same async init, so read
 // it synchronously now, while it is still there, and let it — not the event
 // ordering — decide whether this page load is a password reset.
-var __authHash = (window.location.hash || "").replace(/^#/, "");
+var __authHash = __arrivalHash;
 var __recoveryArrival = /(^|&)type=recovery(&|$)/.test(__authHash);
 // The sign-up confirmation link comes back the same way with type=signup, and
 // for the same reason it has to be read now: by the time the app has signed
@@ -390,6 +408,7 @@ import { makeSchedule } from "./src/schedule.js";
 
   // ---------- Auth / multi-user state ----------
   var currentUser = null;      // {id, email} — the signed-in Supabase auth user
+  var bootingUserId = null;    // a sign-in handed to handleSignedIn but not yet started
   var currentProfile = null;   // {id, email, full_name, role}
   var viewedUserId = null;     // whose data is currently loaded (self, unless admin switched)
   var viewedProfile = null;
@@ -1670,6 +1689,249 @@ import { makeSchedule } from "./src/schedule.js";
     await refreshPushToggle();
   });
 
+  // ---------- Passkeys ----------
+  // Supabase Auth's own passkeys (WebAuthn, opted into at createClient): sign
+  // in with Face ID, Touch ID, a fingerprint or the device PIN instead of a
+  // password. The password keeps working; a passkey is an extra way in, added
+  // from Settings -> Passkeys once signed in. Sign-in needs no email first:
+  // the device finds the account from the passkey it holds.
+  var passkeysFor = null;       // user id the list below was loaded for
+  var passkeyRows = null;       // the signed-in person's passkeys, once loaded
+  var passkeyLoadError = null;
+
+  function passkeysSupported(){
+    return !!(window.PublicKeyCredential && navigator.credentials &&
+      typeof navigator.credentials.create === "function" &&
+      typeof navigator.credentials.get === "function");
+  }
+  // What this device calls unlocking with a passkey, and the glyph for it.
+  // A guess from the platform, since a page cannot ask which sensor exists:
+  // Face ID covers every iPhone sold for years, and the label is only the
+  // name on the button -- the device's own prompt says what it really uses.
+  function biometricKind(){
+    var ua = navigator.userAgent || "";
+    if(isIOS() || isIPadAsMac()) return {label:"Face ID", icon:"face"};
+    if(/Macintosh/.test(ua)) return {label:"Touch ID", icon:"fingerprint"};
+    if(isAndroid()) return {label:"Fingerprint", icon:"fingerprint"};
+    if(/Windows/.test(ua)) return {label:"Windows Hello", icon:"face"};
+    return {label:"Passkey", icon:"key"};
+  }
+  function passkeyErrCode(err){
+    return (err && (err.code || err.error_code)) || "";
+  }
+  // Closing the device's own prompt is someone changing their mind, not a
+  // failure, and says nothing.
+  function passkeyCancelled(err){
+    var code = passkeyErrCode(err), name = (err && err.name) || "";
+    var cause = (err && err.cause && err.cause.name) || "";
+    return code === "ERROR_CEREMONY_ABORTED" || name === "NotAllowedError" || name === "AbortError" ||
+      cause === "NotAllowedError" || cause === "AbortError";
+  }
+  function passkeyErrorText(err){
+    var code = passkeyErrCode(err);
+    if(code === "passkey_disabled") return "Passkeys aren't switched on for this app yet.";
+    if(code === "webauthn_credential_not_found")
+      return "That passkey isn't registered with this app any more. Sign in with your password, " +
+        "then add a new one under Settings → Passkeys.";
+    if(code === "webauthn_challenge_expired" || code === "webauthn_challenge_not_found")
+      return "That took too long. Please try again.";
+    if(code === "webauthn_credential_exists" || code === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED")
+      return "This device already has a passkey for your account.";
+    if(code === "too_many_passkeys")
+      return "Your account has the most passkeys it can hold. Remove one you no longer use first.";
+    return friendlyError(err);
+  }
+
+  // Loaded once per signed-in person; force after adding or removing one.
+  async function loadPasskeys(force){
+    if(!currentUser || !supabaseConfigured) return;
+    if(force || passkeysFor !== currentUser.id){
+      var who = currentUser.id;
+      passkeysFor = who;
+      try{
+        var res = await supabase.auth.passkey.list();
+        if(res.error) throw res.error;
+        if(!currentUser || currentUser.id !== who) return;
+        passkeyRows = res.data || []; passkeyLoadError = null;
+      }catch(err){
+        if(!currentUser || currentUser.id !== who) return;
+        passkeyRows = null; passkeyLoadError = err;
+      }
+    }
+    renderPasskeys();
+  }
+  function renderPasskeys(){
+    var own = document.getElementById("passkeyOwn");
+    if(!own) return;
+    document.getElementById("passkeyOthers").hidden = isOwnData;
+    own.hidden = !isOwnData;
+    if(!isOwnData){ setNavDesc("cnavDescPasskeys", "Only from their own account"); return; }
+
+    var add = document.getElementById("passkeyAddBtn");
+    var hint = document.getElementById("passkeyHint");
+    var wrap = document.getElementById("passkeyListWrap");
+    var list = document.getElementById("passkeyList");
+    var blocked = "";
+    if(!passkeysSupported()) blocked = "This browser can't use passkeys. Open the app on your phone, or in Safari, Chrome or Edge.";
+    else if(passkeyErrCode(passkeyLoadError) === "passkey_disabled") blocked = passkeyErrorText(passkeyLoadError);
+    add.hidden = !!blocked;
+    hint.hidden = !blocked && !passkeyLoadError;
+    hint.textContent = blocked || (passkeyLoadError ? "Couldn't load your passkeys. " + friendlyError(passkeyLoadError) : "");
+
+    var rows = passkeyRows || [];
+    wrap.hidden = !rows.length;
+    list.innerHTML = rows.map(function(r){
+      var used = r.last_used_at ? "Last used " + fmtRelative(r.last_used_at) : "Not used yet";
+      return '<div class="push-device">' +
+        '<div class="push-device-main">' +
+          '<span class="push-device-name" dir="auto">' + escapeHtml(r.friendly_name || "Passkey") + '</span>' +
+          '<div class="push-device-since">Added ' + escapeHtml(fmtRelative(r.created_at)) + ' · ' + escapeHtml(used) + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn ghost small" data-passkey-remove="' + escapeAttr(r.id) + '">Remove</button>' +
+      '</div>';
+    }).join("");
+    setNavDesc("cnavDescPasskeys", rows.length
+      ? (rows.length === 1 ? "1 passkey" : rows.length + " passkeys")
+      : "Sign in with Face ID or a fingerprint");
+  }
+
+  onId("passkeyAddBtn", "click", async function(){
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = "Waiting for your device…";
+    try{
+      var res = await supabase.auth.registerPasskey();
+      if(res.error) throw res.error;
+      showToast("Passkey added. Next time, tap " + biometricKind().label + " on the sign-in screen.", "success");
+      await loadPasskeys(true);
+    }catch(err){
+      if(!passkeyCancelled(err)) showToast("Couldn't add a passkey: " + passkeyErrorText(err), "error");
+    }finally{
+      btn.textContent = "Add a Passkey";
+      btn.disabled = false;
+    }
+  });
+  onId("passkeyList", "click", async function(ev){
+    var btn = ev.target.closest("[data-passkey-remove]");
+    if(!btn) return;
+    if(!(await showConfirm("You won't be able to sign in with it any more. Your password still works. " +
+        "Your device may still list it in its saved passwords until you delete it there.",
+        {title:"Remove this passkey?", confirmText:"Remove"}))) return;
+    btn.disabled = true;
+    try{
+      var res = await supabase.auth.passkey.delete({passkeyId: btn.getAttribute("data-passkey-remove")});
+      if(res.error) throw res.error;
+      await loadPasskeys(true);
+    }catch(err){
+      showToast("Couldn't remove that passkey: " + passkeyErrorText(err), "error");
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- Offering Face ID after a password sign-in ----------
+  // Settings -> Passkeys is where a passkey is added, but almost nobody goes
+  // looking. So the moment someone has just typed their password is when the
+  // app offers it, once per person per device: "Sign in faster with Face
+  // ID?". Only where it can work and is new: the device has a built-in
+  // Face ID / Touch ID / fingerprint / Windows Hello sensor (not a phone-
+  // and-QR-code flow), passkeys are switched on, and this person has none.
+  var PASSKEY_OFFER_KEY = "attendance_ledger_passkey_offered_v1:";
+  var passwordSignInPending = false;  // set by the password form, read once by handleSignedIn
+  var passkeyOfferTimer = null;
+
+  // "Face ID", "Touch ID", "your fingerprint", "Windows Hello", "a passkey".
+  function biometricPhrase(){
+    var label = biometricKind().label;
+    return label === "Fingerprint" ? "your fingerprint" : label === "Passkey" ? "a passkey" : label;
+  }
+  async function offerPasskeyAfterSignIn(){
+    if(!currentUser || !isOwnData || !supabaseConfigured || !passkeysSupported()) return;
+    var key = PASSKEY_OFFER_KEY + currentUser.id;
+    if(safeGet(key)) return;
+    try{
+      var check = window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable;
+      if(typeof check !== "function" || !(await check.call(window.PublicKeyCredential))) return;
+    }catch(e){ return; }
+    await loadPasskeys(true);
+    if(passkeyLoadError || !passkeyRows || passkeyRows.length) return;
+    showPasskeyOffer(key, 0);
+  }
+  function showPasskeyOffer(key, tries){
+    clearTimeout(passkeyOfferTimer);
+    if(!currentUser || !isOwnData || safeGet(key)) return;
+    // Never on top of another dialog (the notifications question is the
+    // likely one at sign-in): wait for it to close, for up to two minutes.
+    var entryModal = document.getElementById("entryModal");
+    if(document.querySelector(".modal-overlay") || (entryModal && !entryModal.hidden)){
+      if(tries < 80) passkeyOfferTimer = setTimeout(function(){ showPasskeyOffer(key, tries + 1); }, 1500);
+      return;
+    }
+    safeSet(key, String(Date.now()));  // once, whatever the answer
+
+    var phrase = biometricPhrase();
+    var overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    var mid = "pkoffer" + Math.random().toString(36).slice(2,8);
+    overlay.innerHTML =
+      '<div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="'+mid+'-t" aria-describedby="'+mid+'-m">' +
+        '<h3 class="modal-title" id="'+mid+'-t"></h3>' +
+        '<p class="modal-msg" id="'+mid+'-m"></p>' +
+        '<p class="modal-msg passkey-offer-error" hidden></p>' +
+        '<div class="modal-actions">' +
+          '<button type="button" class="btn ghost modal-cancel">Not Now</button>' +
+          '<button type="button" class="btn modal-confirm"></button>' +
+        '</div>' +
+      '</div>';
+    overlay.querySelector(".modal-title").textContent = "Sign in faster with " + phrase + "?";
+    overlay.querySelector(".modal-msg").textContent = "Next time, use " + phrase +
+      " instead of typing your password. Your password keeps working, and you can remove this " +
+      "any time in Settings → Passkeys.";
+    overlay.querySelector(".modal-confirm").textContent = "Use " + biometricKind().label;
+    dialogRoot().appendChild(overlay);
+    requestAnimationFrame(function(){ overlay.classList.add("show"); });
+
+    var bgRoot = document.getElementById("appShell");
+    bgRoot.setAttribute("aria-hidden", "true");
+    var previouslyFocused = document.activeElement;
+    function close(){
+      document.removeEventListener("keydown", onKey);
+      bgRoot.removeAttribute("aria-hidden");
+      overlay.classList.remove("show");
+      setTimeout(function(){
+        overlay.remove();
+        if(previouslyFocused && typeof previouslyFocused.focus === "function") previouslyFocused.focus();
+      }, 180);
+    }
+    function onKey(ev){ if(ev.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelector(".modal-cancel").addEventListener("click", close);
+    overlay.addEventListener("click", function(ev){ if(ev.target === overlay) close(); });
+    var confirmBtn = overlay.querySelector(".modal-confirm");
+    // Straight into registerPasskey(), nothing awaited before it: Safari
+    // opens Face ID only from inside the tap that asked for it.
+    confirmBtn.addEventListener("click", async function(){
+      confirmBtn.disabled = true;
+      var errEl = overlay.querySelector(".passkey-offer-error");
+      errEl.hidden = true;
+      try{
+        var res = await supabase.auth.registerPasskey();
+        if(res.error) throw res.error;
+        close();
+        showToast("Done. Next time, tap " + biometricKind().label + " on the sign-in screen.", "success");
+        loadPasskeys(true).catch(function(){});
+      }catch(err){
+        // Closing the Face ID sheet is changing one's mind: say nothing, and
+        // leave both buttons there to choose again.
+        if(!passkeyCancelled(err)){
+          errEl.textContent = passkeyErrorText(err);
+          errEl.hidden = false;
+        }
+        confirmBtn.disabled = false;
+      }
+    });
+    setTimeout(function(){ confirmBtn.focus(); }, 40);
+  }
+
   // ---------- Asking for notifications, on every device ----------
   // Everyone should have notifications on, on every device they use: the
   // clock-out reminder and an admin's messages only reach a device that has
@@ -1949,6 +2211,7 @@ import { makeSchedule } from "./src/schedule.js";
   // unconditional repaints.
   function refreshSettingsPanel(){
     refreshPushToggle().catch(function(){});
+    loadPasskeys().catch(function(){});
     var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user";
     // The line above the form says what the form is. When the schedule never
     // loaded, what the form is holding is DEFAULT_SETTINGS — so it says that,
@@ -6935,14 +7198,50 @@ import { makeSchedule } from "./src/schedule.js";
     var btn = document.getElementById("signInBtn");
     btn.disabled = true; btn.textContent = "Signing in…";
     try{
+      // Read by handleSignedIn, which the sign-in below sets off.
+      passwordSignInPending = true;
       var res = await supabase.auth.signInWithPassword({email:email, password:password});
       if(res.error) throw res.error;
       // onAuthStateChange fires from here and finishes loading the app.
     }catch(err){
+      passwordSignInPending = false;
       setAuthMsg("signInError", err ? friendlyError(err) : "Couldn't sign in.");
       showSignInResend(!!err && (err.code === "email_not_confirmed" || /email not confirmed/i.test(err.message || "")));
     }finally{
       btn.disabled = false; btn.textContent = "Sign In";
+    }
+  });
+
+  // The passkey way in, beside the password form. Only where the browser
+  // can do WebAuthn at all; whether this account has a passkey is the
+  // device's to answer, in its own prompt.
+  if(supabaseConfigured && passkeysSupported()){
+    var bio = biometricKind();
+    var bioBtn = document.getElementById("passkeySignInBtn");
+    // setAttribute, not .hidden: an SVG <g> has no hidden property, so
+    // assigning one changes nothing on screen.
+    Array.prototype.forEach.call(bioBtn.querySelectorAll("[data-bio]"), function(g){
+      if(g.getAttribute("data-bio") === bio.icon) g.removeAttribute("hidden");
+      else g.setAttribute("hidden", "");
+    });
+    document.getElementById("passkeySignInLabel").textContent = bio.label;
+    bioBtn.setAttribute("aria-label", "Sign in with " + bio.label);
+    document.getElementById("passkeyOr").hidden = false;
+    bioBtn.hidden = false;
+  }
+  onId("passkeySignInBtn", "click", async function(){
+    setAuthMsg("signInError", "");
+    showSignInResend(false);
+    var btn = this;
+    btn.disabled = true;
+    try{
+      var res = await supabase.auth.signInWithPasskey();
+      if(res.error) throw res.error;
+      // onAuthStateChange fires SIGNED_IN from here and loads the app.
+    }catch(err){
+      if(!passkeyCancelled(err)) setAuthMsg("signInError", passkeyErrorText(err));
+    }finally{
+      btn.disabled = false;
     }
   });
 
@@ -7011,6 +7310,18 @@ import { makeSchedule } from "./src/schedule.js";
   }
   function clearPendingConfirm(){
     try{ localStorage.removeItem(PENDING_CONFIRM_KEY); }catch(e){}
+  }
+
+  // A spent or expired link, arriving signed out: since supabase-js 2.11x
+  // that arrival raises no SIGNED_OUT at all (only an INITIAL_SESSION with no
+  // session, which the auth listener ignores), so handleSignedOut() never
+  // gets to say it, and it is said here at boot instead. Here, below
+  // PENDING_CONFIRM_KEY, not beside refreshRegistrationVisibility() above:
+  // up there the key is not assigned yet and the address never filled in.
+  if(__authLinkError){
+    setAuthMsg("signInError", __authLinkError);
+    showSignInResend(true);
+    if(pendingConfirmEmail()) document.getElementById("siEmail").value = pendingConfirmEmail();
   }
 
   // Supabase refuses a second confirmation email to the same address inside
@@ -7547,7 +7858,9 @@ import { makeSchedule } from "./src/schedule.js";
   // before you can clock in, so it asks first.
   onId("logoutBtn", "click", async function(){
     var ok = await showConfirm(
-      "You'll need your email and password to get back in.",
+      passkeyRows && passkeyRows.length
+        ? "You can get back in with your passkey, or your email and password."
+        : "You'll need your email and password to get back in.",
       {title:"Sign out?", confirmText:"Sign out", danger:true}
     );
     if(!ok) return;
@@ -11333,6 +11646,137 @@ import { makeSchedule } from "./src/schedule.js";
     }
   }
 
+  // ---------- Who's Away (Admin) ----------
+  // Everyone not in the office on a given week: every entry whose type is
+  // not "regular" (leave, sick, holiday, remote, trip, training...), one row
+  // per person with each stretch of days collapsed to "type · first – last".
+  // A day off the whole team shares (a public holiday marked for everyone)
+  // is said once, as "Everyone", instead of on every person's row.
+  var awayWeekOffset = 0;
+  var awayLoadSeq = 0;
+
+  function awayWeekStart(offset){
+    var d = weekStartDate(todayStr());
+    d.setDate(d.getDate() + offset * 7);
+    return d;
+  }
+  function addDaysStr(s, n){
+    var d = dateFromStr(s);
+    d.setDate(d.getDate() + n);
+    return dateToStr(d);
+  }
+  // Two dates belong to one stretch when nothing but non-working days lies
+  // between them: leave Thursday and Sunday is one stretch in a Sun-Thu week.
+  function awayContiguous(a, b){
+    var work = (settings.workDays || []);
+    var d = addDaysStr(a, 1);
+    while(d < b){
+      if(work.indexOf(dateFromStr(d).getDay()) !== -1) return false;
+      d = addDaysStr(d, 1);
+    }
+    return d === b;
+  }
+  function awaySpans(rows){
+    var byType = {};
+    rows.forEach(function(r){ (byType[r.type] = byType[r.type] || []).push(r.date); });
+    var spans = [];
+    Object.keys(byType).forEach(function(type){
+      var dates = byType[type].slice().sort();
+      var cur = null;
+      dates.forEach(function(d){
+        if(cur && awayContiguous(cur.to, d)) cur.to = d;
+        else { cur = {type:type, from:d, to:d}; spans.push(cur); }
+      });
+    });
+    return spans.sort(function(a, b){ return a.from < b.from ? -1 : a.from > b.from ? 1 : 0; });
+  }
+  function awaySpanHtml(s){
+    var dates = s.from === s.to ? fmtDateShort(s.from) : fmtDateShort(s.from) + " – " + fmtDateShort(s.to);
+    return '<div class="away-span">' +
+      '<i class="away-dot" style="background:' + (DAY_TYPE_COLORS[s.type] || "var(--ink-100)") + '"></i>' +
+      '<span class="away-type">' + escapeHtml(typeLabel(s.type)) + '</span>' +
+      '<span class="away-dates">' + escapeHtml(dates) + '</span>' +
+    '</div>';
+  }
+
+  async function loadWhosAway(){
+    if(!isAdmin) return;
+    var seq = ++awayLoadSeq;
+    var startD = awayWeekStart(awayWeekOffset);
+    var from = dateToStr(startD), to = addDaysStr(from, 6);
+    document.getElementById("awayWeekTitle").textContent =
+      awayWeekOffset === 0 ? "This week" : awayWeekOffset === 1 ? "Next week" :
+      awayWeekOffset === -1 ? "Last week" : "Week of " + fmtDateNoYear(from);
+    document.getElementById("awayWeekRange").textContent = fmtDateNoYear(from) + " – " + fmtDateNoYear(to);
+    document.getElementById("awayTodayBtn").hidden = awayWeekOffset === 0;
+    var list = document.getElementById("awayList");
+
+    var rows;
+    try{
+      var res = await supabase.from("entries").select("user_id,date,type")
+        .gte("date", from).lte("date", to).neq("type", "regular");
+      if(res.error) throw res.error;
+      rows = res.data || [];
+    }catch(err){
+      if(seq !== awayLoadSeq) return;
+      list.innerHTML = '<p class="away-empty">Couldn’t load who’s away. ' + escapeHtml(friendlyError(err)) + '</p>';
+      return;
+    }
+    if(seq !== awayLoadSeq) return;
+
+    // The admin people list knows who is deactivated; the switcher's list
+    // does not, so it is only the fallback.
+    var people = (adminUsersCache.length ? adminUsersCache : allProfiles)
+      .filter(function(p){ return !p.deactivated; });
+    var active = {};
+    people.forEach(function(p){ active[p.id] = p; });
+    rows = rows.filter(function(r){ return active[r.user_id]; });
+
+    // A (date, type) every active person shares is the whole team's day.
+    var shared = {};
+    if(people.length > 1){
+      var count = {};
+      rows.forEach(function(r){ var k = r.date + "|" + r.type; count[k] = (count[k] || 0) + 1; });
+      Object.keys(count).forEach(function(k){ if(count[k] === people.length) shared[k] = true; });
+    }
+    var everyone = [], byPerson = {};
+    rows.forEach(function(r){
+      var k = r.date + "|" + r.type;
+      if(shared[k]){
+        if(!everyone.some(function(e){ return e.date === r.date && e.type === r.type; })) everyone.push(r);
+        return;
+      }
+      (byPerson[r.user_id] = byPerson[r.user_id] || []).push(r);
+    });
+
+    var groups = Object.keys(byPerson).map(function(id){
+      var p = active[id];
+      return { name: p.full_name || p.email || "Someone", spans: awaySpans(byPerson[id]) };
+    }).sort(function(a, b){
+      return a.spans[0].from < b.spans[0].from ? -1 : a.spans[0].from > b.spans[0].from ? 1 :
+        a.name.localeCompare(b.name);
+    });
+    if(everyone.length) groups.unshift({ name: "Everyone", everyone: true, spans: awaySpans(everyone) });
+
+    list.innerHTML = groups.length ? groups.map(function(g){
+      return '<div class="away-row' + (g.everyone ? ' is-everyone' : '') + '">' +
+        '<span class="away-name" dir="auto">' + escapeHtml(g.name) + '</span>' +
+        '<div class="away-spans">' + g.spans.map(awaySpanHtml).join("") + '</div>' +
+      '</div>';
+    }).join("") : '<p class="away-empty">' +
+      (awayWeekOffset < 0 ? "Everyone was in that week." : awayWeekOffset === 0 ? "Everyone’s in this week." : "Nobody is away that week so far.") + '</p>';
+
+    if(awayWeekOffset === 0){
+      var n = groups.filter(function(g){ return !g.everyone; }).length;
+      setNavDesc("cnavDescAway", n ? (n === 1 ? "1 person away this week" : n + " people away this week")
+        : everyone.length ? "A day off for everyone this week" : "Everyone’s in this week");
+    }
+  }
+  onId("awayPrevBtn", "click", function(){ awayWeekOffset--; loadWhosAway(); });
+  onId("awayNextBtn", "click", function(){ awayWeekOffset++; loadWhosAway(); });
+  onId("awayTodayBtn", "click", function(){ awayWeekOffset = 0; loadWhosAway(); });
+  onId("cnav-admin-away", "click", function(){ loadWhosAway(); });
+
   async function renderAdmin(){
     // Belt and braces. The tab button is hidden for employees and every RPC and
     // policy behind this screen re-checks is_admin() server-side, but a stale
@@ -11354,7 +11798,8 @@ import { makeSchedule } from "./src/schedule.js";
 
     await Promise.all([
       renderAdminStats(),
-      loadAdminPeople(),
+      // Who's Away after the people list: it is what says who is deactivated.
+      loadAdminPeople().then(function(){ return loadWhosAway(); }).catch(function(){}),
       resetAuditPaging(),
       renderCrashLog(),
       loadAppSettings(),
@@ -11417,6 +11862,8 @@ import { makeSchedule } from "./src/schedule.js";
 
   async function handleSignedIn(user){
     currentUser = {id:user.id, email:user.email};
+    bootingUserId = null;
+    __authLinkError = null;   // shown on the sign-in screen until now; see handleSignedOut
     // See takePrefetch(). Promise.resolve() is what sends the two app tables'
     // requests now: a supabase query does nothing until something calls its
     // then(). The catch() only stops a failure that lands before anything
@@ -11546,6 +11993,11 @@ import { makeSchedule } from "./src/schedule.js";
     // Fire-and-forget: asks until notifications are on for this device (see
     // promptPushHere), and sign-in must not sit waiting on a dialog.
     promptPushHere();
+    // Just typed a password: the moment to offer Face ID instead (once).
+    if(passwordSignInPending){
+      passwordSignInPending = false;
+      offerPasskeyAfterSignIn().catch(function(){});
+    }
     // Last, and deliberately not awaited: a punch queued on this device in an
     // earlier session should upload itself now, but sign-in must not sit
     // waiting on it.
@@ -11553,6 +12005,7 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   function handleSignedOut(){
+    bootingUserId = null;
     stopTimers();
     signInPrefetch = null;
     forgetStoredAvatars();
@@ -11561,6 +12014,8 @@ import { makeSchedule } from "./src/schedule.js";
     allProfiles = []; isAdmin = false; isOwnData = true;
     lastPushReminderKind = null; pushAwaySince = null;
     clearTimeout(pushDialogWaitTimer); pushDialogWaitTimer = null;
+    passkeysFor = null; passkeyRows = null; passkeyLoadError = null;
+    passwordSignInPending = false; clearTimeout(passkeyOfferTimer);
     entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
     dismissedReminders = {};
     // entries is empty now, so this clears the icon. Leaving a badge behind
@@ -11579,9 +12034,11 @@ import { makeSchedule } from "./src/schedule.js";
     // sign-in form again and concludes the link did nothing. This is where it
     // gets said, and it has to be here rather than at boot: a page load with
     // no session always ends in an INITIAL_SESSION carrying null, which lands
-    // in this function and blanks the field. Cleared after the one use, so a
-    // later genuine sign-out is not greeted with a stale complaint about a
-    // link from an hour ago.
+    // in this function and blanks the field. Since supabase-js 2.11x a spent
+    // link brings this function round twice (a SIGNED_OUT as well), so the
+    // message is kept until someone actually signs in -- handleSignedIn
+    // clears it -- so a later genuine sign-out is not greeted with a stale
+    // complaint about a link from an hour ago.
     setAuthMsg("signInError", __authLinkError || "");
     // A spent link is most often a confirmation opened twice or too late, and
     // the way out of that is a fresh confirmation email — offered here with
@@ -11589,7 +12046,6 @@ import { makeSchedule } from "./src/schedule.js";
     showSignInResend(!!__authLinkError);
     if(__authLinkError && pendingConfirmEmail())
       document.getElementById("siEmail").value = pendingConfirmEmail();
-    __authLinkError = null;
     setAuthMsg("registerError", ""); setAuthMsg("registerSuccess", "");
     document.getElementById("signInForm").style.display = "flex";
     document.getElementById("registerForm").style.display = "none";
@@ -11724,6 +12180,13 @@ import { makeSchedule } from "./src/schedule.js";
       if(session && session.user){
         // Already signed in as this user — nothing to re-initialise.
         if(currentUser && currentUser.id === session.user.id) return;
+        // Or about to be: supabase-js 2.11x announces a remembered session
+        // twice on load (SIGNED_IN, then INITIAL_SESSION), both before the
+        // deferred handleSignedIn below has set currentUser. Booting twice
+        // ran two loads side by side, and the second wiped what the first
+        // had to say (a failed load's notice, for one).
+        if(bootingUserId === session.user.id) return;
+        bootingUserId = session.user.id;
         // Deferred out of the callback: Supabase holds an internal auth lock
         // while it runs, and calling back into supabase.* from inside it is a
         // documented deadlock hazard. handleSignedIn awaits a profiles query
