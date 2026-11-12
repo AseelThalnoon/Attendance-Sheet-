@@ -18,6 +18,19 @@ async function boot(opts){
   const engine = playwright[opts.engine || "chromium"];
   if(!engine) throw new Error("unknown engine: " + opts.engine);
   const browser = await engine.launch();
+  // A boot that throws (the app never appears, say) must not leave this
+  // browser and server running: the suite's process would then never exit,
+  // and a failing run sat silent for half an hour instead of failing.
+  try {
+    return await bootIn(browser, server, opts);
+  } catch (err) {
+    await browser.close().catch(() => {});
+    server.close();
+    throw err;
+  }
+}
+
+async function bootIn(browser, server, opts){
   // Block the service worker. app.js registers sw.js, and page.route() does not
   // intercept requests a service worker makes -- so once it is running, some
   // fetches bypass the scripted backend entirely and hit the real Supabase,

@@ -86,6 +86,13 @@ function fetchWithTimeout(input, init){
 const supabase = supabaseConfigured
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { fetch: fetchWithTimeout },
+      // supabase-js 2.11x retries a failed read up to three times by itself
+      // (waiting 1, 2 and 4 seconds) before the app hears of it. The app has
+      // its own answer to a failed or hung request -- the 20s timeout above,
+      // the "couldn't load" notice with Try Again, the offline punch queue --
+      // and the retries only delayed it: offline, the first screen took
+      // seconds longer to say anything. Off, so a failure arrives as one.
+      db: { retry: false },
       // Passkey sign-in is still marked experimental in supabase-js and has
       // to be opted into here (see "Passkeys" further down).
       auth: { experimental: { passkey: true } }
@@ -401,6 +408,7 @@ import { makeSchedule } from "./src/schedule.js";
 
   // ---------- Auth / multi-user state ----------
   var currentUser = null;      // {id, email} — the signed-in Supabase auth user
+  var bootingUserId = null;    // a sign-in handed to handleSignedIn but not yet started
   var currentProfile = null;   // {id, email, full_name, role}
   var viewedUserId = null;     // whose data is currently loaded (self, unless admin switched)
   var viewedProfile = null;
@@ -7151,15 +7159,6 @@ import { makeSchedule } from "./src/schedule.js";
   // showAuthScreen() never runs on the path that matters -- arriving signed
   // out. It still runs on sign-out, where this is also correct.
   refreshRegistrationVisibility();
-  // The same goes for a spent or expired link: arriving signed out with it is
-  // the path that matters, and since supabase-js 2.11x that arrival raises no
-  // SIGNED_OUT at all (only an INITIAL_SESSION with no session, which the
-  // auth listener ignores), so handleSignedOut() never gets to say it.
-  if(__authLinkError){
-    setAuthMsg("signInError", __authLinkError);
-    showSignInResend(true);
-    if(pendingConfirmEmail()) document.getElementById("siEmail").value = pendingConfirmEmail();
-  }
 
   onId("showRegisterBtn", "click", function(){
     document.getElementById("signInForm").style.display = "none";
@@ -7311,6 +7310,18 @@ import { makeSchedule } from "./src/schedule.js";
   }
   function clearPendingConfirm(){
     try{ localStorage.removeItem(PENDING_CONFIRM_KEY); }catch(e){}
+  }
+
+  // A spent or expired link, arriving signed out: since supabase-js 2.11x
+  // that arrival raises no SIGNED_OUT at all (only an INITIAL_SESSION with no
+  // session, which the auth listener ignores), so handleSignedOut() never
+  // gets to say it, and it is said here at boot instead. Here, below
+  // PENDING_CONFIRM_KEY, not beside refreshRegistrationVisibility() above:
+  // up there the key is not assigned yet and the address never filled in.
+  if(__authLinkError){
+    setAuthMsg("signInError", __authLinkError);
+    showSignInResend(true);
+    if(pendingConfirmEmail()) document.getElementById("siEmail").value = pendingConfirmEmail();
   }
 
   // Supabase refuses a second confirmation email to the same address inside
@@ -11851,6 +11862,7 @@ import { makeSchedule } from "./src/schedule.js";
 
   async function handleSignedIn(user){
     currentUser = {id:user.id, email:user.email};
+    bootingUserId = null;
     __authLinkError = null;   // shown on the sign-in screen until now; see handleSignedOut
     // See takePrefetch(). Promise.resolve() is what sends the two app tables'
     // requests now: a supabase query does nothing until something calls its
@@ -11993,6 +12005,7 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   function handleSignedOut(){
+    bootingUserId = null;
     stopTimers();
     signInPrefetch = null;
     forgetStoredAvatars();
@@ -12167,6 +12180,13 @@ import { makeSchedule } from "./src/schedule.js";
       if(session && session.user){
         // Already signed in as this user — nothing to re-initialise.
         if(currentUser && currentUser.id === session.user.id) return;
+        // Or about to be: supabase-js 2.11x announces a remembered session
+        // twice on load (SIGNED_IN, then INITIAL_SESSION), both before the
+        // deferred handleSignedIn below has set currentUser. Booting twice
+        // ran two loads side by side, and the second wiped what the first
+        // had to say (a failed load's notice, for one).
+        if(bootingUserId === session.user.id) return;
+        bootingUserId = session.user.id;
         // Deferred out of the callback: Supabase holds an internal auth lock
         // while it runs, and calling back into supabase.* from inside it is a
         // documented deadlock hazard. handleSignedIn awaits a profiles query
