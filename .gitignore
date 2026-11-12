@@ -38,3 +38,15 @@ agentdb.rvf.lock
 node_modules/
 package.json
 package-lock.json
+
+# Local outputs kept on this machine, never part of the app: brag videos and
+# their compositions, brand-kit review pages and state (the logo under
+# brandkit/logo/ stays tracked), and screenshots a script saved to a folder
+# literally named "undefined".
+brag-output/
+brag-output-*/
+brandkit/reviews/
+brandkit/reviews.json
+brandkit/state.json
+brandkit/visual-axes.json
+undefined/
