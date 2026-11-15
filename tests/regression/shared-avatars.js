@@ -9,6 +9,9 @@
 // download and swap an <img> into a slot that started as initials. Reading
 // the source would only confirm the code was written, not that a second
 // person's browser ever sees the picture.
+// Before playwright is used: keeps this suite's browsers off the live project
+// and without a service worker, however it is started (see ../no-network.js).
+require("../no-network");
 const { chromium } = require("playwright");
 const http = require("http");
 const fs = require("fs");
@@ -214,8 +217,21 @@ async function makeJpegBytes(page, text, hex){
   await pageA.mouse.move(cx + 140, cy + 140, {steps: 10});
   await pageA.mouse.up();
   await pageA.waitForTimeout(200);
+  // Waited for, not timed. This used to allow a flat 900ms for the upload and
+  // the redraw, and with four suites running side by side that was sometimes
+  // not enough: the check then measured the photo that was already there (a
+  // blue average, where red was expected) and failed with nothing wrong in the
+  // app. The new photo arrives as a new image address, so that is the signal.
+  const photoBefore = await pageA.evaluate(() => {
+    const img = document.querySelector("#settingsAvatar img");
+    return img ? img.src : "";
+  });
   await pageA.click(".crop-modal-card .crop-confirm");
-  await pageA.waitForTimeout(900);
+  await pageA.waitForFunction(prev => {
+    const img = document.querySelector("#settingsAvatar img");
+    return !!img && img.src !== prev;
+  }, photoBefore, {timeout: 10000}).catch(() => {});
+  await pageA.waitForTimeout(200);
 
   const dominant = await pageA.evaluate(async () => {
     const img = document.querySelector("#settingsAvatar img");

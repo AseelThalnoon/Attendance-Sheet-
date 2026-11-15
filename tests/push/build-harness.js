@@ -34,6 +34,10 @@ async function sbUpsertEntry(userId, payload, existingId){
 }
 window.__applyCalls = [];
 function applyLocalUpsert(saved, forUserId){ window.__applyCalls.push({ saved: saved, forUserId: forUserId }); }
+// quickClockOut() reloads instead of toasting when the row it was drawn from
+// is gone (an error marked \`stale\` by sbUpsertEntry). Counted, not performed.
+window.__staleRecoveries = 0;
+async function recoverFromStaleRecord(){ window.__staleRecoveries++; }
 
 // punchClock() itself isn't under test here (see tests/clock) -- only that
 // consumeShortcutAction() still reaches it for the manifest-shortcut cases

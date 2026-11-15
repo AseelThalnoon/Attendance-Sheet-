@@ -117,6 +117,34 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   await page.waitForTimeout(60);
   eq(await saves(page), 2, "a new punch works after a failed one (flag was released)");
 
+  // ---------- a punch refused because the screen was out of step ----------
+  // The day already has a row on the server that this page never loaded -- a
+  // clock-in made from another device, typically, on a phone that was resumed
+  // rather than reopened. The insert collides, and sbUpsertEntry marks that
+  // refusal `stale`. It used to reach the person as "Couldn't record that:
+  // Another entry already exists for that date", which pressing the button
+  // again only repeats; the answer is to read the record again.
+  await page.goto(PAGE);
+  await page.click("#qcClockBtn");
+  await page.waitForFunction(() => window.__saveCalls === 1);
+  await page.evaluate(() => {
+    const e = new Error("Another entry already exists for that date.");
+    e.stale = true;
+    window.__rejectSave(e);
+  });
+  await page.waitForFunction(() => window.__staleRecoveries === 1);
+  eq(await page.evaluate(() => window.__toasts.length), 0,
+     "a stale refusal is not shown as the database's own error");
+  eq(await page.evaluate(() => outbox.length), 0, "and is not queued as if the connection had dropped");
+  eq(allDisabled(await states(page)), true,
+     "the clock stays locked while the record is being read again");
+  await tapAll(page);
+  await page.waitForTimeout(60);
+  eq(await saves(page), 1, "so a second tap cannot punch against the copy that was just proved wrong");
+  await page.evaluate(() => window.__resolveRecovery());
+  await page.waitForTimeout(60);
+  eq(allEnabled(await states(page)), true, "and unlocks once the reload has finished");
+
   // ---------- a punch with no connection ----------
   // The gap this closes: a punch used to be announced as failed and then lost.
   // A clock-in is the one write that cannot be repeated later, because the

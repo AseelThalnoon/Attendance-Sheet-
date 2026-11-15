@@ -36,7 +36,8 @@ const IPAD_AS_MAC_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWeb
 // cfg.permission: the starting Notification.permission.
 // cfg.answer: what the person picks on iOS's sheet ("granted", "denied", or
 //   "default" for closing it without choosing).
-// cfg.swDelayMs: how long the service worker takes to start.
+// cfg.swDelayMs: how long the service worker takes to start, or "manual" for
+//   one that starts when the test says so (window.__push.workerUp()).
 // cfg.touchPoints: navigator.maxTouchPoints (an iPad reports 5).
 const ios = cfg => async ({ page }) => {
   await page.addInitScript(cfg => {
@@ -95,7 +96,15 @@ const ios = cfg => async ({ page }) => {
         subscribed = true; save(); return sub;
       }
     } };
-    const ready = new Promise(r => setTimeout(() => r(reg), cfg.swDelayMs || 0));
+    // "manual" exists because a fixed delay made the late-worker case a race
+    // against the machine: "nothing yet" was checked some seconds into a five
+    // second timer, and with four suites running side by side WebKit took long
+    // enough to boot that the worker was already up. It failed on a loaded
+    // machine and passed on a quiet one, with nothing wrong in the app.
+    const ready = new Promise(r => {
+      if(cfg.swDelayMs === "manual") window.__push.workerUp = () => r(reg);
+      else setTimeout(() => r(reg), cfg.swDelayMs || 0);
+    });
     Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {
       ready, controller: null,
       register: () => Promise.resolve(reg), getRegistration: () => Promise.resolve(reg),
@@ -302,9 +311,13 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
 
   // ---- First open of a new install: the worker starts late -------------------
   {
-    const h = await start("iPhone 15 Pro", { installed: true, push: true, permission: "default", swDelayMs: 5000, ua: STANDALONE_UA });
+    const h = await start("iPhone 15 Pro", { installed: true, push: true, permission: "default", swDelayMs: "manual", ua: STANDALONE_UA });
+    // Past the app's own three-second look for a worker, so what is being
+    // checked is the wait that follows it, not the look itself.
+    await settle(h.page, 2400);
     ok(!(await dialog(h.page)), "worker still starting: nothing yet");
-    await settle(h.page, 4500);
+    await h.page.evaluate(() => window.__push.workerUp());
+    await settle(h.page, 1500);
     ok(!!(await dialog(h.page)), "asked as soon as the worker is up, in the same visit");
     noErrors(h, "late worker");
     await h.close();

@@ -62,6 +62,20 @@ async function sbUpsertEntry(userId, payload){
 // measures the punch, not the repaint.
 window.__applyCalls = 0;
 function applyLocalUpsert(saved, forUserId){ window.__applyCalls++; }
+
+// punchClock() bumps this when it lays a queued punch over the entries, so a
+// background refresh that was already in the air knows it has been overtaken
+// (see refreshOnResume in app.js). Only the counter is needed here.
+var dataEpoch = 0;
+// What punchClock() does instead of showing a database refusal when the save
+// was refused because the screen was out of step with the server. Counted and
+// held open, so a test can look at the buttons while the reload is in flight.
+window.__staleRecoveries = 0;
+window.__resolveRecovery = null;
+function recoverFromStaleRecord(){
+  window.__staleRecoveries++;
+  return new Promise(function(res){ window.__resolveRecovery = res; });
+}
 `;
 
 // resolveOvernightTarget() is inside the extracted slice below, so its own

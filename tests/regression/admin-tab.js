@@ -8,6 +8,9 @@
 // The stub takes ?role= from the page URL so the same build can be booted as an
 // employee and as an admin, which is what makes the "employees see none of it"
 // assertions meaningful.
+// Before playwright is used: keeps this suite's browsers off the live project
+// and without a service worker, however it is started (see ../no-network.js).
+require("../no-network");
 const { chromium } = require("playwright");
 const http = require("http");
 const fs = require("fs");

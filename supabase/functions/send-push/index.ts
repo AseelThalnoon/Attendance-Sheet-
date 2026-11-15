@@ -25,13 +25,117 @@ webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+// Who is calling. There are exactly two legitimate callers -- pg_cron, with the
+// service-role key, and an administrator's browser straight after composing a
+// message -- and until 2026-11-14 this function did not check for either. The
+// platform's own gate (verify_jwt) only establishes that the token is one this
+// project issued, and every signed-in account holds one of those: with sign-up
+// open, anyone who registered could run the sender on demand.
+//
+// It could not be made to send anything that was not already queued, which is
+// why this was a gap and not an incident. But "anyone may trigger the thing
+// that talks to the outside world" is not a property to leave standing.
+//
+// The role is read from the token's own payload. That is sound for one reason
+// only: this function is deployed with verify_jwt ON, so the platform has
+// already checked the signature before any of this code runs. If that setting
+// is ever turned off, the claim below becomes something a caller can type, and
+// this check has to change with it. The exact-match test beside it does not
+// depend on that setting.
+function tokenRole(token: string): string | null {
+  try {
+    const part = token.split(".")[1] ?? "";
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, "=");
+    return JSON.parse(atob(padded))?.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function callerMaySend(req: Request): Promise<boolean> {
+  const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return false;
+  if (token === SERVICE_ROLE_KEY || tokenRole(token) === "service_role") return true;
+  // Otherwise a person. Ask the auth server who, rather than trusting the
+  // token's word for it, then ask the database whether they are an admin --
+  // the same profiles.role every policy in this project keys off.
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return false;
+  const { data: profile } = await supabase
+    .from("profiles").select("role").eq("id", data.user.id).maybeSingle();
+  return profile?.role === "admin";
+}
+
+// The push services browsers actually register with. An endpoint is a URL
+// this function will make a request to, and it comes from a row any signed-in
+// account can write for itself -- so without this, registering a "device"
+// whose endpoint is somebody else's server turned every broadcast into a
+// request sent there from inside this project. https only, and only these.
+function isPushService(endpoint: string): boolean {
+  let url: URL;
+  try { url = new URL(endpoint); } catch { return false; }
+  if (url.protocol !== "https:") return false;
+  const h = url.hostname.toLowerCase();
+  return h === "fcm.googleapis.com" || h === "android.googleapis.com"   // Chrome, Edge, Opera, Brave, Samsung
+    || h.endsWith(".push.services.mozilla.com")                          // Firefox
+    || h.endsWith(".push.apple.com")                                     // Safari, and every browser on iOS
+    || h.endsWith(".notify.windows.com");                                // Edge on Windows (WNS)
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The administrator's "send now" comes from a web page on another origin, and
+// a browser asks permission for one of those first -- a preflight OPTIONS,
+// carrying no token -- and reads the headers on the answer before it will send
+// the real request. This function had no answer for it. What it did with one
+// was treat it as a tick: an OPTIONS has no body, so it fell through to "send
+// everything that is due", which included the message just composed.
+//
+// That is very likely why a send-now has gone out within seconds all along
+// (median 3.0s over the twelve on record on 2026-11-14): by way of a request
+// with no credentials, while the real one was refused by the browser for want
+// of these headers and the app, which treats the call as a best-effort nudge,
+// never said so. The preflight is answered as a preflight now, and the send
+// is done by the request that is entitled to ask for it.
+//
+// "*" is safe here because nothing rides on the browser's ambient credentials:
+// there is no cookie, and the token that authorises the call is one only this
+// app's own origin can read out of its storage.
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+const JSON_HEADERS = { ...CORS, "Content-Type": "application/json" };
+
 Deno.serve(async (req) => {
+  // Answered before anything else, and with nothing else: a preflight carries
+  // no token, and it must never be mistaken for a tick and start a send.
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS });
+  }
+  if (!(await callerMaySend(req))) {
+    return new Response(JSON.stringify({ error: "forbidden" }), {
+      status: 403,
+      headers: JSON_HEADERS,
+    });
+  }
+
   let targetId: string | null = null;
   try {
     const body = await req.json();
     targetId = body?.id ?? null;
   } catch {
     // No body (or not JSON) is the normal cron-tick case, not an error.
+  }
+  // An id that is not an id would reach Postgres as a type error and come back
+  // as a 500 carrying the database's wording.
+  if (targetId !== null && !(typeof targetId === "string" && UUID.test(targetId))) {
+    return new Response(JSON.stringify({ error: "id must be a notification id" }), {
+      status: 400,
+      headers: JSON_HEADERS,
+    });
   }
 
   let claim = supabase
@@ -45,7 +149,7 @@ Deno.serve(async (req) => {
   if (claimErr) {
     return new Response(JSON.stringify({ error: claimErr.message }), {
       status: 500,
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
     });
   }
 
@@ -54,7 +158,7 @@ Deno.serve(async (req) => {
     results.push(await sendOne(notification));
   }
   return new Response(JSON.stringify({ processed: results.length, results }), {
-    headers: { "Content-Type": "application/json" },
+    headers: JSON_HEADERS,
   });
 });
 
@@ -146,6 +250,26 @@ async function sendOne(notification: Record<string, any>) {
   // than a round trip inside the send loop.
   const deliveries: Record<string, unknown>[] = [];
   for (const sub of subs ?? []) {
+    // Counted as a failure the administrator can see, with the reason, and
+    // left for them to remove from that person's devices: nothing is sent.
+    if (!isPushService(sub.endpoint)) {
+      failed++;
+      let host = "an unreadable address";
+      try { host = new URL(sub.endpoint).hostname; } catch { /* keep the fallback */ }
+      deliveries.push({
+        notification_id: notification.id,
+        user_id: sub.user_id,
+        device: deviceLabel(sub.user_agent),
+        status: "failed",
+        status_code: null,
+        // The host goes last: the one-line summary further down is the text up
+        // to the first full stop, and a hostname is full of them.
+        error_detail: "This device is registered with a service this app does not send " +
+          "push messages to. Nothing was sent to it -- remove the device from that " +
+          "person's notifications. Host: " + host.slice(0, 120),
+      });
+      continue;
+    }
     try {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },

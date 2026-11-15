@@ -206,6 +206,30 @@ async function openRegister(page){
   } finally { await t.close(); }
 }
 
+// ---- The first screen is one screen ------------------------------------------
+// The sign-in card is sized to the viewport, and on a phone the page behind it
+// was not: body carried the 116px of clearance the app's bottom bar needs, bar
+// or no bar, so the first thing a new person saw could be dragged 116px up
+// into blank canvas. Measured signed out, where the fixtures the mobile suites
+// run on never go.
+{
+  const { PHONE } = require("../hostile/harness");
+  const t = await boot({ signedOut: true, waitForApp: false, viewport: PHONE, seed: { profiles: [] } });
+  try {
+    await t.page.waitForSelector("#authScreen");
+    await settle(t.page, 900);
+    for(const form of ["sign-in", "create account"]){
+      if(form === "create account"){ await t.page.click("#showRegisterBtn"); await settle(t.page, 300); }
+      const m = await t.page.evaluate(() => ({ page: document.documentElement.scrollHeight, screen: window.innerHeight,
+        card: Math.round(document.querySelector(".auth-card").getBoundingClientRect().bottom) }));
+      // A form taller than the screen may scroll, by exactly its own height;
+      // what it may not do is scroll past its own end.
+      const needed = Math.max(m.screen, m.card);
+      ok(m.page <= needed + 40, `phone, ${form}: the page ends where the form does`, JSON.stringify(m));
+    }
+  } finally { await t.close(); }
+}
+
 console.log(`  onboarding  pass ${pass}   fail ${fail}`);
 if(fail){
   failures.forEach(f => console.log("  ✗ " + f));

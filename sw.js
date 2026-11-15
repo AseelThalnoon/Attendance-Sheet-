@@ -1,37 +1,61 @@
 // Service worker for the Attendance Ledger PWA.
 //
-// Caches the app shell so an installed PWA can boot without a network. That now
-// genuinely works: the only runtime dependency is vendored (vendor/supabase-js.min.js)
-// instead of imported from a third-party CDN, so there is no cross-origin fetch
-// standing between "the shell loaded" and "the app can run". Previously the shell
-// was served from cache offline and the app then died silently on the CDN import,
-// leaving a sign-in screen with no listeners attached and no error message.
+// It keeps a copy of the app -- the "shell": the page, its scripts, its fonts --
+// and opens the app from that copy. The only runtime dependency is vendored
+// (vendor/supabase-js.min.js), so there is no cross-origin fetch standing
+// between "the shell loaded" and "the app can run".
 //
-// Attendance data itself still requires a connection — this does NOT implement
+// Attendance data itself still requires a connection -- this does NOT implement
 // offline data access, which would need a sync/queue layer.
+//
+// ---------------------------------------------------------------------------
+// How the app opens, and how a new release reaches it (changed 2026-11-15)
+// ---------------------------------------------------------------------------
+// Until then this worker asked the network first, every time, and fell back
+// to its copy only when the network failed or took three seconds. That bought
+// "always the latest" at the price of every launch waiting on a request for a
+// 500KB page before anything could draw -- on the phone, on the way in, which
+// is the moment this app exists for. The owner chose the other trade:
+//
+//   * Opening the app is answered from the saved copy, at once. The network is
+//     not asked.
+//   * Every file of the shell comes from that same copy, for every page. So a
+//     page and its scripts are always one release -- the mismatch that crashed
+//     the app on 2026-11-03 cannot be assembled out of this cache.
+//   * A new release arrives as a new version of this file. The browser fetches
+//     it in the background after a launch, and install() below saves the whole
+//     new shell beside the old one. Nothing running is touched.
+//   * The new shell takes over when the app is next opened, or sooner if the
+//     page asks (it does when the person comes back after a break, or presses
+//     Refresh -- see "New releases" at the foot of app.js). It never takes over
+//     underneath a page that is in use: this worker no longer calls
+//     skipWaiting() on its own.
+//
+// What that asks of a release: THIS FILE MUST CHANGE whenever any file of the
+// shell does, or nobody who has the app installed will ever receive the
+// change. The line below is how that is enforced.
 
-// activate() deletes every cache whose key is not this one, so a bump is what
-// forces an installed PWA to drop the old shell and precache the new one.
+// activate() deletes every shell cache whose key is not this one.
 // The suffix is also the release's build label: index.html loads
 // "app.js?v=<suffix>", crash reports carry it, and tests/regression/
-// crash-handler.js fails when the two differ. This comment used to ask for
-// the two to be bumped together; nothing checked, and the ?v= sat unchanged
-// for 67 commits while this went from v1x to v40.
-const CACHE_NAME = "attendance-ledger-shell-v46";
+// crash-handler.js fails when the two differ.
+const CACHE_NAME = "attendance-ledger-shell-v47";
+
+// A fingerprint of every file in SHELL_FILES, as it was when this release was
+// stamped. The worker does not read it. It is here so that this file's bytes
+// change whenever the shell's do: tests/regression/service-worker.js recomputes
+// it and fails when they differ, and `node tools/stamp-release.mjs` is what
+// moves the label on and writes the new value. With the old network-first
+// worker a forgotten bump cost only the offline copy; now it would leave every
+// installed copy of the app on the previous release.
+const SHELL_FINGERPRINT = "0b90f5ba2e555f30";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
 // for the directory and would never match a cache entry keyed to index.html.
 //
-// The theme stylesheets that used to be listed here are gone: the app ships one
-// design system (Meridian) and its CSS is inline in index.html. Leaving the three
-// dead paths in place was worse than it looked — cache.addAll rejects if ANY
-// entry 404s, and the .catch() below swallows that, so three missing files
-// meant nothing at all got precached and offline boot failed silently.
-//
-// Switzer is precached, unlike the old themes' fonts. It is behind
-// font-display:swap so a miss is survivable, but it is now the entire
-// typographic identity rather than one theme's flourish, and 72KB is cheap
+// Switzer is precached. It is behind font-display:swap so a miss is
+// survivable, but it is the entire typographic identity, and 72KB is cheap
 // insurance against an offline boot rendering in Arial.
 const SHELL_FILES = [
   "./",
@@ -66,22 +90,45 @@ const SHELL_FILES = [
   "./fonts/Switzer-Black.woff2"
 ];
 
+// The build label on its own ("v47"), as index.html spells it.
+const BUILD = CACHE_NAME.slice("attendance-ledger-shell-".length);
+
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(
-      // cache:"reload" fetches each file from the network, bypassing the HTTP
-      // cache. Without it addAll() was served from that cache, and GitHub Pages
-      // lets the browser keep a file for ten minutes (max-age=600) — so a worker
-      // installed just after a deploy could precache a fresh app.js beside a
-      // stale index.html, and every offline boot after that ran a script against
-      // a page it did not match.
-      SHELL_FILES.map((url) => new Request(url, { cache: "reload" }))
-    )).catch(() => {})
-  );
-  // Take over straight away. The shell is self-consistent (index.html, app.js and
-  // the vendored library are fetched fresh and cached together as one unit), so
-  // there is no risk of serving a half-updated pair.
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    // cache:"reload" fetches each file from the network, bypassing the HTTP
+    // cache. Without it addAll() was served from that cache, and GitHub Pages
+    // lets the browser keep a file for ten minutes (max-age=600) -- so a worker
+    // installed just after a deploy could save a fresh app.js beside a stale
+    // index.html.
+    //
+    // No catch. addAll() is all-or-nothing, and a failure here used to be
+    // swallowed: the worker installed anyway with an empty cache, activated,
+    // and deleted the previous release's complete one. A failed install now
+    // stays failed. The browser discards this worker, the one already running
+    // keeps serving its own intact copy, and the next launch tries again.
+    await cache.addAll(SHELL_FILES.map((url) => new Request(url, { cache: "reload" })));
+
+    // The page that was just saved has to be the page of THIS release. A copy
+    // of index.html still naming the previous build -- an edge cache a few
+    // seconds behind a deploy -- would be opened beside this release's scripts
+    // from now until the next one, with nothing to replace it in between.
+    const page = await cache.match("./index.html");
+    const html = page ? await page.text() : "";
+    if (html.indexOf("app.js?v=" + BUILD + '"') === -1) {
+      await caches.delete(CACHE_NAME);
+      throw new Error("sw.js is release " + BUILD + " and index.html is not");
+    }
+  })());
+  // Deliberately no skipWaiting(): see the head of this file. A first install
+  // has nobody to wait for and activates by itself.
+});
+
+// The page's way of saying "take over now" -- sent when it is about to reload
+// itself onto the new release, so there is no moment at which an old page is
+// left running under a new worker.
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 // The page's own cache of people's photos (see AVATAR_CACHE in app.js). It is
@@ -97,29 +144,21 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// How long opening the app waits on the network before using the cached
-// shell. It used to wait for as long as the network took, falling back only
-// when the request failed outright -- so on weak signal, which is slow rather
-// than absent, opening the app was slow too.
-const NAV_TIMEOUT_MS = 3000;
-
-// Pages opened from the cached shell, by client id. Their scripts and styles
-// then come from the same cache, so a cached page never runs a script from a
-// newer release that it does not match (the stale-copy crash of 2026-11-03,
-// from the other direction). Kept in memory: a page's module imports all
-// arrive in its first seconds, long before an idle worker could be stopped.
-const cachedShellClients = new Set();
-
-// The precached files, as paths. Network responses for these never overwrite
-// a cached copy -- they only fill one in that is missing -- so the cache stays
-// the one consistent snapshot install() took, and a page opened from it gets
-// the scripts that belong to it.
+// The saved files, as paths, and the two addresses that open the app.
 const SHELL_PATHS = new Set(SHELL_FILES.map((f) => new URL(f, self.location.href).pathname));
+const APP_ROOT = new URL("./", self.location.href).pathname;
+const APP_ENTRIES = new Set([APP_ROOT, APP_ROOT + "index.html"]);
 
 function cachedShell(){
   return caches.open(CACHE_NAME).then((cache) =>
     cache.match("./index.html").then((hit) => hit || cache.match("./")));
 }
+
+const OFFLINE_RESPONSE = () => new Response("Offline and not cached", {
+  status: 504,
+  statusText: "Offline",
+  headers: { "Content-Type": "text/plain" }
+});
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
@@ -128,83 +167,60 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
 
   // Only ever handle our own origin. Supabase REST, auth and realtime traffic
-  // goes straight to the network untouched — the previous version claimed to do
-  // this in a comment but actually intercepted every GET on every origin.
+  // goes straight to the network untouched.
   if (url.origin !== self.location.origin) return;
 
-  // Navigations: network first so a deployed update is picked up, falling back
-  // to the cached shell when offline -- or when the network hasn't answered
-  // within NAV_TIMEOUT_MS and there is a cached shell to open instead.
+  // Opening the app: the saved copy, at once, whatever the network is doing.
+  // Only for the app's own two addresses (with any ?action=... a shortcut or a
+  // notification put on them): anything else under this folder that someone
+  // navigates to is a file, not the app, and is left to the network.
   if (req.mode === "navigate") {
+    if (!APP_ENTRIES.has(url.pathname)) return;
     event.respondWith((async () => {
-      const network = fetch(req);
-      const fromCache = async () => {
-        const hit = await cachedShell();
-        if (hit && event.resultingClientId) cachedShellClients.add(event.resultingClientId);
-        return hit;
-      };
-      // A browser that doesn't say which page this navigation creates gives
-      // no way to keep a cached page on its own scripts, so it waits for the
-      // network as it always did.
-      let timer;
-      const slow = event.resultingClientId
-        ? new Promise((resolve) => { timer = setTimeout(() => resolve(null), NAV_TIMEOUT_MS); })
-        : new Promise(() => {});
-      try {
-        const first = await Promise.race([network, slow]);
-        if (first) return first;
-      } catch (e) {
-        return (await fromCache()) || Response.error();
-      } finally {
-        clearTimeout(timer);
-      }
-      // Still waiting on the network: open the cached copy if there is one.
-      // The request carries on, unawaited, so a slow answer isn't an error.
-      const hit = await fromCache();
-      if (hit) { network.catch(() => {}); return hit; }
-      try { return await network; } catch (e) { return Response.error(); }
+      const hit = await cachedShell();
+      if (hit) return hit;
+      // Nothing saved -- a first visit that beat install(), or storage the
+      // browser reclaimed. The network is the only place left to ask.
+      try { return await fetch(req); } catch (e) { return Response.error(); }
     })());
     return;
   }
 
-  // A page opened from the cached shell takes its files from the same cache,
-  // so its scripts match it; anything not cached still comes from the network.
-  if (event.clientId && cachedShellClients.has(event.clientId)) {
-    event.respondWith(
-      caches.open(CACHE_NAME)
-        .then((c) => c.match(req, { ignoreSearch: true }))
-        .then((hit) => hit || fetch(req))
-    );
+  // A file of the shell: from the same saved copy the page came from, so the
+  // two are one release. ignoreSearch, because index.html asks for
+  // "app.js?v=..." while the copy is saved under the bare path. The network is
+  // asked only for a file that is somehow missing, and the answer fills the gap.
+  if (SHELL_PATHS.has(url.pathname)) {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const hit = await cache.match(req, { ignoreSearch: true });
+      if (hit) return hit;
+      try {
+        const res = await fetch(req);
+        if (res && res.ok) cache.put(req, res.clone()).catch(() => {});
+        return res;
+      } catch (e) {
+        return OFFLINE_RESPONSE();
+      }
+    })());
     return;
   }
 
-  // Same-origin assets: network first, cache as a fallback. respondWith is never
-  // handed an undefined — an uncached miss returns a real error response instead
-  // of a confusing generic network failure.
+  // Everything else on this origin (a launch image, say): network first, the
+  // cache as a fallback, and a real error response rather than an undefined
+  // when neither has it.
   event.respondWith(
     fetch(req)
       .then((res) => {
         if (res && res.ok) {
           const copy = res.clone();
-          caches.open(CACHE_NAME).then(async (c) => {
-            if (SHELL_PATHS.has(url.pathname) && await c.match(req, { ignoreSearch: true })) return;
-            return c.put(req, copy);
-          }).catch(() => {});
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
         }
         return res;
       })
       .catch(async () => {
-        // ignoreSearch, because index.html requests app.js with a cache-busting
-        // version query while the shell precaches the bare path. Without it an
-        // offline boot misses on "app.js?v=..." and the app dies with the shell
-        // already on screen — the exact silent failure this worker exists to
-        // prevent. It also means a version bump costs nothing here.
         const hit = await caches.match(req, {ignoreSearch: true});
-        return hit || new Response("Offline and not cached", {
-          status: 504,
-          statusText: "Offline",
-          headers: { "Content-Type": "text/plain" }
-        });
+        return hit || OFFLINE_RESPONSE();
       })
   );
 });

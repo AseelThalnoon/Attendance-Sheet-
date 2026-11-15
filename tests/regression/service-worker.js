@@ -1,23 +1,27 @@
 // sw.js run as written, in a vm with a scripted network and an in-memory
-// Cache Storage, so its fetch rules can be checked without a browser:
-//   * opening the app waits NAV_TIMEOUT_MS for the network, then opens the
-//     cached shell (it used to wait for as long as the network took);
-//   * a page opened from the cache gets its scripts from the same cache, so a
-//     cached page never runs a newer release's script;
-//   * network answers never overwrite a precached shell file;
-//   * a new release's clean-up keeps the photo cache.
-// Timers inside the worker run 100x faster (see SCALE), so the 3s wait
-// costs 30ms here.
+// Cache Storage, so its rules can be checked without a browser.
+//
+// The rules changed on 2026-11-15, on the owner's decision: the worker used to
+// ask the network first and fall back to its saved copy after three seconds,
+// and now opens the app from the saved copy without asking. What this suite
+// holds is everything that trade depends on:
+//   * opening the app never waits on the network, slow, fast or absent;
+//   * every file of the shell comes from the same saved copy, so a page and
+//     its scripts are always one release;
+//   * a new release is saved whole or not at all -- a failed or mismatched
+//     install leaves the running release's copy exactly as it was;
+//   * the new release never takes over by itself, only when a page asks;
+//   * and sw.js cannot be left unchanged when the shell changes, which is the
+//     only way an installed app ever hears of a release.
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const { pathToFileURL } = require("url");
 
-const code = fs.readFileSync(path.join(__dirname, "..", "..", "sw.js"), "utf8");
+const ROOT = path.join(__dirname, "..", "..");
+const code = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
 const CACHE_NAME = /const CACHE_NAME = "([^"]+)"/.exec(code)[1];
-// Read from the worker so the test follows any change to it; 3000 if the
-// constant is ever renamed, so the checks below still run and say what broke.
-const NAV_TIMEOUT_MS = +((/const NAV_TIMEOUT_MS = (\d+)/.exec(code) || [])[1] || 3000);
-const SCALE = 0.01;
+const BUILD = CACHE_NAME.replace("attendance-ledger-shell-", "");
 const BASE = "https://example.test/app/";
 
 let pass = 0, fail = 0;
@@ -33,9 +37,22 @@ class SWRequest extends Request {
   constructor(input, init){ super(typeof input === "string" ? new URL(input, BASE).href : input, init); }
 }
 
+// What a server holding one release answers. `tag` marks which release, so a
+// test can tell a saved file from a freshly fetched one; the page names the
+// build the way index.html does.
+const release = (tag, build) => async (req) => {
+  const p = new URL(req.url).pathname;
+  const isPage = p === "/app/" || p === "/app/index.html";
+  return new Response(`${tag} ${p}` + (isPage ? ` <script type="module" src="app.js?v=${build || BUILD}"></script>` : ""));
+};
+const offline = async () => { throw new TypeError("Failed to fetch"); };
+const slowly = (ms, inner) => async (req) => { await wait(ms); return inner(req); };
+
 function makeWorker(){
   const handlers = {};
   const stores = new Map();
+  let network = release("A");
+  const calls = [];
   const href = (req, ignoreSearch) => {
     const u = new URL(typeof req === "string" ? req : req.url, BASE);
     if(ignoreSearch) u.search = "";
@@ -53,19 +70,27 @@ function makeWorker(){
         return undefined;
       },
       async put(req, res){ m.set(href(req), res); },
+      // All or nothing, through the network, as the real one is.
       async addAll(reqs){
-        for(const r of reqs) m.set(href(r), new Response("cached " + new URL(r.url).pathname));
+        const got = await Promise.all(reqs.map(async (r) => {
+          const res = await fetchLogged(r);
+          if(!res.ok) throw new TypeError("Request failed");
+          return [href(r), res];
+        }));
+        got.forEach(([k, res]) => m.set(k, res));
       },
       async keys(){ return [...m.keys()].map((k) => new Request(k)); },
       async delete(req){ return m.delete(href(req)); },
+      size(){ return m.size; },
     };
   };
-  let network = async (req) => new Response("network " + new URL(req.url).pathname);
+  const fetchLogged = (req) => { calls.push(new URL(req.url).pathname); return network(req); };
+  let skipped = 0;
   const sandbox = {
     self: {
       addEventListener: (type, fn) => { handlers[type] = fn; },
       location: new URL("sw.js", BASE),
-      skipWaiting(){},
+      skipWaiting(){ skipped++; },
       clients: { claim: async () => {} },
       registration: { scope: BASE },
     },
@@ -78,21 +103,22 @@ function makeWorker(){
         return undefined;
       },
     },
-    fetch: (req) => network(req),
-    setTimeout: (fn, ms) => setTimeout(fn, ms * SCALE),
-    clearTimeout, URL, Response, Request: SWRequest, Promise, Set, Map, console,
+    fetch: (req) => fetchLogged(req),
+    setTimeout, clearTimeout, URL, Response, Request: SWRequest, Promise, Set, Map, Error, console,
   };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
 
+  // Resolves to null, or to the error the lifecycle step rejected with.
   async function lifecycle(type){
-    let done;
+    let done = Promise.resolve();
     handlers[type]({ waitUntil: (p) => { done = p; } });
-    await done;
+    try { await done; return null; } catch (e) { return e; }
   }
+  // null when the worker leaves the request to the browser.
   async function fetchEvent(url, opts){
     opts = opts || {};
-    const request = { url: new URL(url, BASE).href, method: "GET", mode: opts.mode || "no-cors" };
+    const request = { url: new URL(url, BASE).href, method: opts.method || "GET", mode: opts.mode || "no-cors" };
     let responded = null;
     handlers.fetch({
       request, clientId: opts.clientId || "", resultingClientId: opts.resultingClientId || "",
@@ -100,118 +126,172 @@ function makeWorker(){
     });
     if(!responded) return null;
     const res = await responded;
-    return res.type === "error" ? "(error)" : await res.text();
+    if(res.type === "error") return "(error)";
+    const text = await res.text();
+    return res.status === 504 ? "(offline)" : text.replace(/ <script.*$/, "");
   }
   return {
-    lifecycle, fetchEvent, stores, cacheFor,
+    lifecycle, fetchEvent, stores, cacheFor, calls, handlers,
     setNetwork(fn){ network = fn; },
+    skipped: () => skipped,
+    message(data){ handlers.message({ data }); },
   };
 }
 
-const slowly = (ms, body) => async (req) => { await wait(ms); return new Response(body || ("network " + new URL(req.url).pathname)); };
-const offline = async () => { throw new TypeError("Failed to fetch"); };
-const timeout = NAV_TIMEOUT_MS * SCALE;
-
 (async () => {
-  // A fast network still wins, and its page isn't treated as a cached one.
+  // ---- Opening the app: the saved copy, and no waiting ------------------------
   {
     const w = makeWorker();
-    await w.lifecycle("install");
-    w.setNetwork(slowly(1));
-    eq(await w.fetchEvent("./", { mode: "navigate", resultingClientId: "p1" }), "network /app/",
-      "opening the app on a good connection uses the network");
-    w.setNetwork(slowly(1, "newer app.js"));
-    eq(await w.fetchEvent("./app.js?v=v99", { clientId: "p1" }), "newer app.js",
-      "that page's scripts come from the network too");
-  }
-
-  // Weak signal: the cached shell after NAV_TIMEOUT_MS, and that page stays on
-  // the cached scripts even once the network has a newer one.
-  {
-    const w = makeWorker();
-    await w.lifecycle("install");
-    // The network takes 1.5s here, against the worker's (scaled) 30ms wait, so
-    // the bound below proves the cached page didn't wait for it while leaving
-    // a busy machine plenty of room -- a 150ms bound failed under a full run.
-    w.setNetwork(slowly(1500));
+    eq(await w.lifecycle("install"), null, "a release whose files all arrive, and whose page names it, installs");
+    // A newer release is out, and the network is slow about it.
+    w.setNetwork(slowly(1500, release("B")));
+    w.calls.length = 0;
     const started = Date.now();
-    eq(await w.fetchEvent("./", { mode: "navigate", resultingClientId: "p2" }), "cached /app/index.html",
-      "on a slow network, the app opens from the cache");
-    const waited = Date.now() - started;
-    eq(waited < 750, true, `and it doesn't wait for the slow answer (took ${waited}ms of the network's 1500)`);
-    w.setNetwork(slowly(1, "newer app.js"));
-    eq(await w.fetchEvent("./app.js?v=v44", { clientId: "p2" }), "cached /app/app.js",
-      "a page opened from the cache gets the cached app.js, not a newer release's");
-    eq(await w.fetchEvent("./src/schedule.js", { clientId: "p2" }), "cached /app/src/schedule.js",
-      "and the cached modules");
-    eq(await w.fetchEvent("./not-precached.png", { clientId: "p2" }), "newer app.js",
-      "anything the cache doesn't hold still comes from the network");
+    eq(await w.fetchEvent("./", { mode: "navigate", resultingClientId: "p1" }), "A /app/index.html",
+      "opening the app is answered from the saved copy");
+    const took = Date.now() - started;
+    eq(took < 500, true, `at once -- it did not wait on the network (took ${took}ms; the network needed 1500)`);
+    eq(w.calls.length, 0, "and the network was not asked at all");
+    eq(await w.fetchEvent("./index.html", { mode: "navigate" }), "A /app/index.html",
+      "the same by its file name");
+    eq(await w.fetchEvent("./index.html?action=in", { mode: "navigate" }), "A /app/index.html",
+      "and with a shortcut's ?action= on the address");
+    eq(await w.fetchEvent("./index.html?action=out-date&date=2026-11-14", { mode: "navigate" }), "A /app/index.html",
+      "or a notification's");
   }
 
-  // A browser that doesn't report the new page's id: no timeout, so a page and
-  // its scripts can't come from two releases.
+  // ---- One release: the page and every file of it from the same copy ----------
   {
     const w = makeWorker();
     await w.lifecycle("install");
-    w.setNetwork(slowly(timeout * 3));
-    eq(await w.fetchEvent("./", { mode: "navigate" }), "network /app/",
-      "without a client id, opening the app waits for the network as before");
-  }
+    w.setNetwork(release("B"));
+    w.calls.length = 0;
+    eq(await w.fetchEvent("./app.js?v=" + BUILD, { clientId: "p1" }), "A /app/app.js",
+      "app.js comes from the saved copy, not the newer one on the network");
+    eq(await w.fetchEvent("./src/schedule.js", { clientId: "p1" }), "A /app/src/schedule.js", "and so do its modules");
+    eq(await w.fetchEvent("./theme-boot.js"), "A /app/theme-boot.js", "and the script that sets the theme");
+    eq(await w.fetchEvent("./vendor/supabase-js.min.js"), "A /app/vendor/supabase-js.min.js", "and the library");
+    eq(await w.fetchEvent("./fonts/Switzer-Bold.woff2"), "A /app/fonts/Switzer-Bold.woff2", "and the fonts");
+    eq(await w.fetchEvent("./app.js?v=some-other-label", { clientId: "p9" }), "A /app/app.js",
+      "whichever page asks, and whatever label it asks with: one worker serves one release");
+    eq(w.calls.length, 0, "none of which touched the network");
 
-  // Slow network and nothing cached yet: keep waiting rather than fail.
-  {
-    const w = makeWorker();
-    w.setNetwork(slowly(timeout * 3));
-    eq(await w.fetchEvent("./", { mode: "navigate", resultingClientId: "p3" }), "network /app/",
-      "with no cached shell, a slow network is waited for");
-  }
-
-  // Offline: the cached shell, and its scripts from the cache.
-  {
-    const w = makeWorker();
-    await w.lifecycle("install");
+    // Offline is the same answers.
     w.setNetwork(offline);
-    eq(await w.fetchEvent("./", { mode: "navigate", resultingClientId: "p4" }), "cached /app/index.html",
-      "offline, the app opens from the cache");
-    eq(await w.fetchEvent("./app.js?v=v44", { clientId: "p4" }), "cached /app/app.js",
-      "offline, app.js comes from the cache");
-    eq(await w.fetchEvent("./", { mode: "navigate" }), "cached /app/index.html",
-      "offline without a client id: still the cached shell, as before");
+    eq(await w.fetchEvent("./", { mode: "navigate" }), "A /app/index.html", "offline, the app opens from the saved copy");
+    eq(await w.fetchEvent("./app.js?v=" + BUILD), "A /app/app.js", "offline, with its scripts");
   }
 
-  // Network answers fill gaps in the cache but never overwrite the shell.
+  // ---- A file that is somehow missing -----------------------------------------
   {
     const w = makeWorker();
     await w.lifecycle("install");
-    w.setNetwork(slowly(1, "newer"));
-    // src/ modules are imported without a version, so they share one cache key
-    // with their precached copy: the case where an overwrite could happen.
-    eq(await w.fetchEvent("./src/schedule.js", { clientId: "p5" }), "newer",
-      "a page from the network gets network files");
-    await wait(20);
     const shell = w.cacheFor(CACHE_NAME);
-    eq(await (await shell.match("./src/schedule.js")).text(), "cached /app/src/schedule.js",
-      "a network answer for a shell file doesn't overwrite the cached copy");
-    await w.fetchEvent("./extra.png", { clientId: "p5" });
-    await wait(20);
-    eq(await (await shell.match("./extra.png")).text(), "newer",
-      "a file outside the shell is cached as it arrives");
     await shell.delete("./theme-boot.js");
-    await w.fetchEvent("./theme-boot.js", { clientId: "p5" });
+    w.setNetwork(release("B"));
+    eq(await w.fetchEvent("./theme-boot.js"), "B /app/theme-boot.js", "a shell file the copy has lost is fetched");
     await wait(20);
-    eq(await (await shell.match("./theme-boot.js")).text(), "newer",
-      "a shell file missing from the cache is filled in");
+    eq(((await (await shell.match("./theme-boot.js")).text())), "B /app/theme-boot.js", "and the gap is filled");
+    await shell.delete("./theme-boot.js");
+    w.setNetwork(offline);
+    eq(await w.fetchEvent("./theme-boot.js"), "(offline)", "missing and offline is an honest error response, not a hang");
   }
 
-  // A new release clears old shells but keeps people's photos.
+  // ---- Nothing saved yet -------------------------------------------------------
+  {
+    const w = makeWorker();
+    w.setNetwork(release("B"));
+    eq(await w.fetchEvent("./", { mode: "navigate", resultingClientId: "p3" }), "B /app/",
+      "with no saved copy, opening the app goes to the network");
+    w.setNetwork(offline);
+    eq(await w.fetchEvent("./", { mode: "navigate" }), "(error)", "and with neither, it fails as a failed page load does");
+  }
+
+  // ---- What is not the app is left alone ---------------------------------------
   {
     const w = makeWorker();
     await w.lifecycle("install");
+    eq(await w.fetchEvent("./README.md", { mode: "navigate" }), null,
+      "navigating to some other file under the folder is not answered with the app");
+    eq(await w.fetchEvent("./tests/", { mode: "navigate" }), null, "nor is a folder");
+    eq(await w.fetchEvent("https://project.supabase.co/rest/v1/entries"), null, "another origin is never touched");
+    eq(await w.fetchEvent("./app.js", { method: "POST" }), null, "nor anything that is not a GET");
+
+    // Files outside the shell: network first, kept as they arrive, and the kept
+    // copy is the fallback.
+    w.setNetwork(release("B"));
+    eq(await w.fetchEvent("./splash/1179x2556.png"), "B /app/splash/1179x2556.png", "a file outside the shell comes from the network");
+    await wait(20);
+    w.setNetwork(offline);
+    eq(await w.fetchEvent("./splash/1179x2556.png"), "B /app/splash/1179x2556.png", "and from the copy that kept when offline");
+    eq(await w.fetchEvent("./never-seen.png"), "(offline)", "one it never saw is an honest error response");
+  }
+
+  // ---- A release is saved whole, and as itself, or not at all -----------------
+  {
+    // An edge cache a few seconds behind a deploy: the new worker, the old page.
+    const w = makeWorker();
+    w.setNetwork(release("stale", "v-previous"));
+    const err = await w.lifecycle("install");
+    eq(!!err && /index\.html is not/.test(String(err.message)), true,
+      "a page that names a different build fails the install: " + (err && err.message));
+    eq(w.stores.has(CACHE_NAME), false, "and leaves no half-right copy behind to be opened later");
+
+    // One file of twenty does not arrive.
+    const w2 = makeWorker();
+    w2.setNetwork(async (req) => {
+      if(new URL(req.url).pathname.endsWith("/src/time.js")) throw new TypeError("Failed to fetch");
+      return release("A")(req);
+    });
+    eq(!!(await w2.lifecycle("install")), true, "one file failing to arrive fails the install");
+    eq(w2.cacheFor(CACHE_NAME).size(), 0, "with nothing saved");
+
+    // And a 404 counts as not arriving.
+    const w3 = makeWorker();
+    w3.setNetwork(async (req) => new URL(req.url).pathname.endsWith("/manifest.json")
+      ? new Response("not found", { status: 404 }) : release("A")(req));
+    eq(!!(await w3.lifecycle("install")), true, "a missing file fails the install too");
+  }
+
+  // ---- The running release is not disturbed by the next one --------------------
+  {
+    const w = makeWorker();
+    await w.lifecycle("install");
+    eq(w.skipped(), 0, "installing does not take over by itself");
+    w.message({ type: "something-else" });
+    w.message(null);
+    eq(w.skipped(), 0, "nor does an unrelated message");
+    w.message({ type: "SKIP_WAITING" });
+    eq(w.skipped(), 1, "it takes over when a page asks it to");
+
+    // Taking over clears the previous release's copy and keeps people's photos.
     w.cacheFor("attendance-ledger-shell-v1");
     w.cacheFor("attendance-avatars-v1");
-    await w.lifecycle("activate");
+    eq(await w.lifecycle("activate"), null, "activating succeeds");
     eq([...w.stores.keys()].sort(), ["attendance-avatars-v1", CACHE_NAME].sort(),
       "activate deletes the old shell and keeps the photo cache");
+  }
+
+  // ---- sw.js has to change when the shell does ---------------------------------
+  // The one thing all of the above rests on. An installed app learns of a
+  // release only by sw.js itself having changed, so sw.js records a
+  // fingerprint of the files it saves and this recomputes it. If this fails,
+  // a shell file was edited after the release was stamped: run
+  //   node tools/stamp-release.mjs
+  // which moves the build label on and writes the new fingerprint.
+  {
+    const { readStamp, shellFiles } = await import(pathToFileURL(path.join(ROOT, "tools", "stamp-release.mjs")).href);
+    const stamp = readStamp(ROOT);
+    eq(stamp.recorded, stamp.actual,
+      `sw.js is stamped for the shell as it is now (release ${stamp.label}) -- if not, run: node tools/stamp-release.mjs`);
+    const listed = shellFiles(code);
+    eq(listed.length >= 15 && listed.every((f) => fs.existsSync(path.join(ROOT, f))), true,
+      "every file sw.js saves exists: " + listed.filter((f) => !fs.existsSync(path.join(ROOT, f))).join(", "));
+    const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+    eq(html.includes(`app.js?v=${BUILD}"`), true, "index.html names the same build sw.js checks its saved page for");
+    // app.js's own imports must all be saved, or the saved app cannot start.
+    const imports = [...fs.readFileSync(path.join(ROOT, "app.js"), "utf8").matchAll(/from\s+"(\.\/src\/[^"]+)"/g)].map((m) => m[1]);
+    eq(imports.filter((f) => !listed.includes(f)), [], "every module app.js imports is in the saved shell");
   }
 
   console.log(`  service-worker  pass ${pass}   fail ${fail}`);
