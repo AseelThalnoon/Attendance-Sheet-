@@ -23,6 +23,31 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+// "Hourly cron only -- never invoked directly" was a description, not a rule:
+// the platform's own gate (verify_jwt) lets in any token this project issued,
+// and every signed-in account holds one. The guard rows stop a second run from
+// sending a second reminder, so the worst a stranger could do was make the job
+// run early -- but a job that reads every open shift and every schedule should
+// be started by the scheduler and by nobody else.
+//
+// The role is read from the token's payload, which is trustworthy only because
+// verify_jwt is ON for this function and the platform has checked the
+// signature before this code runs. Turn that off and this has to change. (See
+// send-push, which carries the same check and the longer explanation.)
+function calledByScheduler(req: Request): boolean {
+  const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return false;
+  if (token === SERVICE_ROLE_KEY) return true;
+  try {
+    const part = token.split(".")[1] ?? "";
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, "=");
+    return JSON.parse(atob(padded))?.role === "service_role";
+  } catch {
+    return false;
+  }
+}
+
 // Everything from here down to Deno.serve is pure -- no I/O, no clock reads --
 // and tests/regression/clockout-reminders.js runs it exactly as written.
 const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -149,7 +174,14 @@ function dueReminders(
   return { notifications, guards };
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  if (!calledByScheduler(req)) {
+    return new Response(JSON.stringify({ error: "forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const today = dateStr(new Date(Date.now() + RIYADH_OFFSET_MS));
 
   const [{ data: openEntries, error: entriesErr }, { data: settingsRows }, { data: appSettingsRow }] =

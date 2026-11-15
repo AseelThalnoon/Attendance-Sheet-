@@ -5,8 +5,11 @@ hand; the app computes hours worked against a configurable daily target, tracks
 punctuality and annual leave, and produces a printable timesheet with signature
 lines.
 
-Static front end on GitHub Pages, Supabase (Postgres) for auth and data. No
-build step — deployment is a file copy.
+Static front end on GitHub Pages, Supabase (Postgres) for auth and data. The
+source runs exactly as it is written — open `index.html` from any static server
+and that is the app, with nothing to compile. What is *published* is built from
+it: a workflow minifies the scripts and styles and publishes only the files the
+app loads (see **Publishing**).
 
 ## Files
 
@@ -14,12 +17,12 @@ build step — deployment is a file copy.
 |---|---|
 | `index.html` | Markup, styles, and the Content-Security-Policy. No inline script. |
 | `app.js` | The entire application. Extracted from `index.html` so the page can ship a real CSP (an inline module would force `script-src 'unsafe-inline'`). |
-| `theme-boot.js` | Reads the saved palette and light/dark choice and stamps them on `<html>`. Loaded **blocking, in `<head>`**, so the page never paints in the wrong theme first — and external for the same CSP reason as `app.js`. |
+| `theme-boot.js` | Reads the saved palette and light/dark choice and stamps them on `<html>`. Loaded **blocking, in `<head>`**, so the page never paints in the wrong theme first — and external for the same CSP reason as `app.js`. Being the first script to run, it is also where the page refuses to work inside another site's frame: GitHub Pages cannot send `frame-ancestors`, so the clickjacking guard lives here. |
 | `vendor/supabase-js.min.js` | The one runtime dependency, pinned to **2.118.0** and committed (2.105+ is needed for passkeys). Built with esbuild from the npm package: `export { createClient } from "@supabase/supabase-js"`, bundled with `esbuild --bundle --format=esm --minify --platform=browser --target=es2020`. |
-| `sw.js` | Service worker. Caches the app shell so an installed PWA can boot offline. |
+| `sw.js` | Service worker. Keeps a copy of the app shell and opens the app from it, at once, online or off; a new release is saved beside the running one and taken at a safe moment (see **Publishing**). |
 | `manifest.json`, `*.png` | PWA manifest and icons. |
 | `supabase/migrations/` | Database schema, policies, functions and triggers. |
-| `tools/` | Authoring aids, not shipped and not a build step. `palettes.mjs` generates the seven palettes' CSS and measures every pair against WCAG AA; `apply-palettes.mjs` writes the result into `index.html`. |
+| `tools/` | Not shipped. `palettes.mjs` generates the seven palettes' CSS and measures every pair against WCAG AA; `apply-palettes.mjs` writes the result into `index.html`. `build.mjs` makes the published copy; `stamp-release.mjs` moves the release label on (both under **Publishing**). |
 | `tests/` | Regression suites. See below. |
 
 ## Running locally
@@ -37,6 +40,49 @@ Configuration lives at the top of `app.js` (`SUPABASE_URL`,
 from Row Level Security, not from the key. **That means RLS is the only thing
 protecting the data; treat changes to it as security-critical.**
 
+## Publishing
+
+Two rules here replaced earlier ones on 2026-11-15, both by the owner's
+decision. They are written down because each undoes something this file used to
+state as a principle.
+
+**The published copy is built.** It used to be "no build step — deployment is a
+file copy", and for the source that is still true. But `app.js` is a third
+commentary by weight and `index.html` carries 400KB of commented stylesheet,
+and both were going to every phone as written. `node tools/build.mjs` writes
+`dist/`: each script and the stylesheet minified in place (names kept, so a
+crash report from the field still reads `at handleSignedIn`), comments removed,
+and nothing else from the repository — the tests, migrations and notes were
+being served beside the app only because they shared a folder. A first visit
+goes from about 400KB to about 200KB compressed. It is a transform of each
+file, not a bundle: `dist/` has the same files at the same paths as the source,
+so the preload hints and the service worker's list mean the same in both.
+
+`.github/workflows/deploy.yml` runs it after the test workflow passes on `main`
+and publishes `dist/`. **It publishes only once Pages is switched over:**
+Settings → Pages → Build and deployment → Source → *GitHub Actions*. Until then
+the workflow builds, says so, and stops, and Pages goes on publishing the
+repository root exactly as before.
+
+**The app opens from its saved copy.** The service worker used to ask the
+network first and fall back to its copy after three seconds, so every launch
+waited on a request for the page before anything could draw. It now answers
+from the copy at once and does not ask. The cost is that a release no longer
+arrives by itself: an installed app hears of one only because `sw.js` has
+changed. So:
+
+- `sw.js` carries a fingerprint of every file it saves, and the
+  `service-worker` suite fails if any of them has changed since. Run
+  `node tools/stamp-release.mjs` — it moves the label (`v47` → `v48`) in `sw.js`
+  and `index.html` and records the new fingerprint. The build stamps `dist/` by
+  itself on every deploy, so this is about the source tree staying honest.
+- A new release is saved in the background beside the running one and never
+  takes over underneath a page in use. The page moves onto it at launch if it
+  was already waiting, on coming back after five minutes with nothing open, on
+  Refresh, or on sign-out; until then a toast says it is ready.
+- An install that fails, or whose page names a different release than its
+  worker, is discarded whole. The release already running keeps its copy.
+
 ## Database
 
 The schema is in `supabase/migrations/`. It was previously not in version
@@ -51,8 +97,10 @@ supabase db push
 
 …or paste a migration into **Dashboard → SQL Editor → Run**.
 
-Both migrations are applied to the live project as of 2026-08-15. Each file's
-header records what it covers and how it was verified. Note that the second
+Each file's header records what it covers and how it was verified, and every
+file here is applied to the live project, the newest
+(`20261115135254_input_bounds_least_privilege_and_cron_history.sql`) on
+2026-11-15. Each is named after the version the project recorded for it. Note that the second
 file keeps its original `pending_` name so that its filename matches the version
 recorded in the remote migration history — it is applied, not pending.
 
@@ -108,6 +156,15 @@ The header button is hidden for employees, `renderAdmin()` refuses to paint for 
 non-admin, and every RPC and RLS policy behind the screen re-checks `is_admin()`
 server-side. The client-side half is convenience; the database is the authority.
 
+### Signing out
+
+Signing out reloads the page. Hiding the app was not enough: whatever the last
+person had on screen — the Admin console's list of every account, say — stayed
+in the page, and the next person to sign in on the same machine opened on it.
+A fresh page has nothing in it to leave behind. The device is also taken off
+that person's notifications on the way out, and put back without a prompt when
+they sign in again.
+
 ### Authorisation model
 
 - `is_admin()` drives every policy. Admins can read and write anyone's data.
@@ -134,7 +191,16 @@ npm run test:regression   # just the audit regression suites
 | `clock` | Punch serialisation and button state under load; which calendar day an overnight clock-out lands on; the offline outbox |
 | `regression/audit-logic` | Hours arithmetic, leave, streak, week start, long-shift guard |
 | `regression/audit-dom` | Boot failure, banner rendering, contrast, ARIA, CSP |
+| `regression/service-worker` | `sw.js` run as written: opening never waits on the network, a page and its files are always one release, a bad install is discarded whole, and `sw.js` cannot be left unstamped when the shell changes |
+| `regression/app-update` | When an open page moves onto a new release: never mid-task, never on a password-reset link, never twice, and otherwise at the first moment it costs nothing |
+| `regression/build-output` | The published copy is the same app: complete and consistent, every element styled as in the source on every screen measured, all fourteen palette compositions equal, and it boots and works |
+| `regression/release-e2e` | One release replacing another, in a real browser with the real (built) service worker: installs, opens again without one request to the server, fetches the next release behind the open app, moves onto it on Refresh, and still opens with the server gone |
 | `regression/admin-tab` | Admin console: admin-only gating, people/roles, health checks, defaults, log |
+| `regression/stale-resume` | A page that outlives its copy of the record: a punch or a save refused because another device got there first reloads and says so; coming back to the app after five minutes re-reads quietly, and stands down for a form in progress |
+| `regression/sign-out-clean` | Nothing of one person is left for the next: the page starts over after a sign-out (or is emptied by hand where it cannot), and the device stops receiving the last person's notifications |
+| `regression/csv-export` | The exported file as a spreadsheet reads it: notes cannot run as formulas, figures stay figures, Arabic survives Excel, and the file imports back unchanged |
+| `regression/frame-guard` | The app refuses to run inside another page's frame, on another site or its own origin; the description, no-index and no-JavaScript notices |
+| `regression/send-push-guards` | `send-push` run as written: only the scheduler or an administrator may trigger it, and it only ever contacts a real push service |
 | `mobile/*` | Responsive grid, control sizing, collision scanning |
 | `hostile/hostile` | Boots the real app against a scripted Supabase (`hostile/backend.js`) to check what the golden path never exercises: a viewer-switch race, a failed/hung load left readable (not presented as an empty account, and not writable over), double-submit guards, hostile names (unbroken strings, emoji, RTL, CJK) not breaking layout, and PWA-specific cases — the offline outbox still queuing alongside a failing background load, and every portrait-width breakpoint of the header/sign-in screen reserving `env(safe-area-inset-top)` for an installed app's notch/Dynamic Island. `hostile/scan.js` is the exploratory sweep this suite's cases were found with, not an assertion suite itself — run it by hand (`npm run scan:hostile`) when hunting for more. |
 
@@ -160,7 +226,10 @@ ATTENDANCE_APP_SRC=/tmp/old-app.js npm run test:regression
   a settings change or an admin action still needs a connection. The service
   worker caches the shell, not the data.
 - **No cross-tab sync.** Two open tabs hold independent state and will not see
-  each other's edits.
+  each other's edits as they happen. The gap closes by itself rather than
+  waiting for a refresh: a page that has been in the background for five
+  minutes re-reads the record when it comes back, and a save the server
+  refuses because the screen was behind reloads it and says so.
 - **No optimistic concurrency.** Two admins editing the same day overwrite each
   other; `entries.updated_at` exists but is never compared.
 - **Punch times come from the device clock** and are therefore unverifiable.

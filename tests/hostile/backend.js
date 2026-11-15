@@ -242,15 +242,21 @@ function createBackend(seed){
       return json(added);
     }
     if(name === "list_today_presence"){
-      // Mirrors the real function: every entry on that date, joined to its
-      // profile, in no particular order -- the client does the sorting.
+      // Mirrors the real function as 20261115135254 leaves it: only the people
+      // who clocked in that day (a finished leave/sick/holiday day is not one
+      // of them), no day type at all, and an address only for somebody with no
+      // name to show -- in no particular order, the client does the sorting.
+      // The function it replaced returned every entry with its type and every
+      // address; the client reads both shapes, so this is the stricter one.
+      const EXCUSED = ["leave", "sick", "holiday", "other"];
       const rows = state.entries
-        .filter(e => e.date === args.p_date)
+        .filter(e => e.date === args.p_date && e.clock_in && (!e.clock_out || !EXCUSED.includes(e.type)))
         .map(e => {
           const p = state.profiles.find(x => x.id === e.user_id);
-          return p ? { user_id: p.id, full_name: p.full_name, email: p.email,
+          return p ? { user_id: p.id, full_name: p.full_name,
+            email: String(p.full_name || "").trim() ? null : p.email,
             avatar_updated_at: p.avatar_updated_at || null,
-            clock_in: e.clock_in, clock_out: e.clock_out, type: e.type } : null;
+            clock_in: e.clock_in, clock_out: e.clock_out } : null;
         })
         .filter(Boolean);
       return json(rows);
@@ -391,6 +397,13 @@ function createBackend(seed){
         if(name === "app_settings") stampAnnouncement(before, r);
       });
       if(!prefer.includes("return=representation")) return json(null, 204);
+      // .update().select().single() on a row that is not there. PostgREST
+      // answers that with PGRST116, exactly as it does for a GET; answering
+      // with an empty 200 here made "the entry was deleted on another device"
+      // look like a successful save of nothing.
+      if(wantsObject && hit.length !== 1){
+        return json({ code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" }, 406);
+      }
       return wantsObject ? json(hit[0]) : json(hit);
     }
 
@@ -440,7 +453,20 @@ function createBackend(seed){
     const me = state.profiles.find(p => p.id === state.meId) || { id: state.meId, email: "me@example.com" };
     if(!signedOut){
       const [key, value] = sessionScript(me);
-      await page.addInitScript(([k, v]) => { try{ window.localStorage.setItem(k, v); }catch(e){} }, [key, value]);
+      // Once per tab, not once per page load. An init script runs again on
+      // every navigation, so this used to sign the browser back in on each
+      // reload -- including the reload the app now makes after a sign-out
+      // (startCleanAfterSignOut), which would have bounced every signed-out
+      // test straight back into the account it had just left. sessionStorage
+      // lasts as long as the tab does, which is how long a real session
+      // survives without anyone putting it back.
+      await page.addInitScript(([k, v]) => {
+        try{
+          if(window.sessionStorage.getItem("__sessionSeeded")) return;
+          window.sessionStorage.setItem("__sessionSeeded", "1");
+          window.localStorage.setItem(k, v);
+        }catch(e){}
+      }, [key, value]);
     }
     await page.route(`${HOST}/**`, handle);
   }

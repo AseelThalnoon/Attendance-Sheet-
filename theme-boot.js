@@ -14,6 +14,35 @@
 (function () {
   "use strict";
 
+  // ---- Not inside somebody else's page ---------------------------------
+  // The answer to clickjacking is a response header (frame-ancestors, or
+  // X-Frame-Options), and this app is served by a host that cannot send one --
+  // index.html's own comment on its Content-Security-Policy says as much, and
+  // a <meta> policy is not allowed to carry that directive. So nothing this
+  // app sent stopped another page loading it in an invisible frame and lining
+  // somebody's click up with Delete, or Deactivate, or Grant Admin.
+  //
+  // Current browsers blunt that by handing a framed copy its own empty storage,
+  // so it comes up signed out. That is the browser's protection, not this
+  // app's: it is not in every browser still in use, and it does not apply to
+  // a page on this same origin, which a github.io address shares with every
+  // other project published from the account.
+  //
+  // This is the part that can be done from here: if the page is not the top
+  // window, it marks itself, the stylesheet draws nothing, and app.js declines
+  // to start, so there is no button under the cursor to be tricked onto. It is
+  // done in this file because this is the first script to run, before the
+  // first paint.
+  //
+  // A page on this machine is let through: a local preview or a design tool
+  // may well show the app in a frame, and nobody is attacked from localhost.
+  var framed;
+  try { framed = window.top !== window.self; } catch (e) { framed = true; }
+  if (framed && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname)) {
+    document.documentElement.setAttribute("data-framed", "");
+    return;
+  }
+
   var KEY = "attendance.appearance";
   var PALETTES = ["atrium", "slate", "terracotta", "studio", "moss", "plum", "ledger"];
   var MODES = ["light", "dark", "system"];

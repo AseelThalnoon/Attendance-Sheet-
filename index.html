@@ -4,6 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Attendance Ledger</title>
+<!-- What a bookmark, an install prompt and a link preview say this is. There
+     was no description at all, so a link sent to a new teammate arrived as a
+     bare address. -->
+<meta name="description" content="Clock in and out, track hours against your target, and keep your team's attendance in one place.">
+<!-- An internal tool for one team. It has nothing to offer a search engine,
+     and a results page is not where a sign-up form for it should turn up.
+     Remove this line if the app is ever meant to be found. -->
+<meta name="robots" content="noindex, nofollow">
+<!-- The card a chat app draws when the link is shared. The image has to be an
+     absolute address -- a scraper does not resolve a relative one -- so this
+     is the one place the published URL is written down: change it here if the
+     app moves. A wrong value costs the thumbnail, nothing else. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Attendance Ledger">
+<meta property="og:title" content="Attendance Ledger">
+<meta property="og:description" content="Clock in and out, track hours against your target, and keep your team's attendance in one place.">
+<meta property="og:image" content="https://aseelthalnoon.github.io/Attendance-Sheet-/icon-512.png">
+<meta name="twitter:card" content="summary">
 
 <!-- PWA: manifest + icons. If you rename or move this HTML file, update
      manifest.json's "start_url" to match, or "Add to Home Screen" will
@@ -71,8 +89,10 @@
 <!-- Now that the one runtime dependency is vendored rather than pulled from a
      third-party CDN, script-src can be locked to this origin. That closes off
      injected-script execution against the session tokens in localStorage.
-     frame-ancestors cannot be set from a meta tag; if clickjacking of the admin
-     destructive actions matters, serve a real header from a host that can. -->
+     frame-ancestors cannot be set from a meta tag, and this host cannot send
+     a header, so framing is refused from inside the page instead: see the top
+     of theme-boot.js. A real header from a host that can send one would still
+     be the better answer, and would make that guard redundant. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
   script-src 'self';
@@ -163,6 +183,11 @@
 <meta name="apple-mobile-web-app-title" content="Attendance">
 
 <style>
+  /* Set by theme-boot.js when the page finds itself inside another site's
+     frame, and for as long as it is: nothing is drawn, so there is nothing to
+     be tricked into clicking. See that file for why it is done in script. */
+  html[data-framed] body{display:none !important;}
+
   /* Switzer — one geometric grotesk for the whole interface. Self-hosted to
      satisfy `font-src 'self'`, and because the numeral columns depend on it:
      Switzer ships no `tnum` feature, but its digits are natively uniform-width
@@ -5923,6 +5948,8 @@
     text-decoration:none; transition:top var(--dur-fast) var(--ease-snap);
   }
   .skip-link:focus{top:12px;}
+  /* display:inline-flex above outranks the browser's own [hidden] rule. */
+  .skip-link[hidden]{display:none;}
   /* ---------- Avatar ----------
      One component for every place a person appears: the rail, the team roster,
      the admin people list, the person hero. It is a photo when there is one and
@@ -6391,8 +6418,13 @@
     /* Clearance for the fixed bottom nav: the bar itself is ~63px, but the
        raised clock button pokes another ~24px above that, plus real iOS
        devices add safe-area-inset-bottom on top. Pad generously so nothing
-       in the footer ever sits underneath it. */
-    body{padding-bottom:116px;}
+       in the footer ever sits underneath it.
+
+       On the shell, not on body. The nav is part of the shell and hidden with
+       it, but the padding was on body and stayed: the sign-in screen is
+       exactly one screen tall, so on every phone it scrolled 116px further
+       into blank canvas, clearing a bar that was not there. */
+    #appShell{padding-bottom:116px;}
     /* Without this, scrollIntoView() (ours or the browser's own anchor
        navigation) has no idea the bottom nav covers part of the viewport,
        and can happily scroll a target element to a position that's
@@ -6412,7 +6444,7 @@
     .bn-clock{width:44px; height:44px; margin-top:-16px;}
     .bn-clock svg{width:19px; height:19px;}
     .bn-clock-label{display:none;}
-    body{padding-bottom:70px;}
+    #appShell{padding-bottom:70px;}
     html{scroll-padding-bottom:70px;}
     header.ledger-head{padding:12px 14px 10px;}
     .seal{display:none;}
@@ -6782,7 +6814,9 @@
      select, three stylesheets and a body attribute. -->
 <body>
 
-<a href="#main" class="skip-link">Skip to main content</a>
+<!-- Hidden until the app is on screen (showApp() in app.js): its target is
+     inside the shell, so on the sign-in screen it was a link that did nothing. -->
+<a href="#main" class="skip-link" id="skipLink" hidden>Skip to main content</a>
 
 <!-- ============ AUTH SCREEN ============ -->
 <div id="authScreen" class="auth-screen">
@@ -6808,23 +6842,35 @@
     </div>
   </aside>
 
-  <div class="auth-main">
+  <!-- role="main", not a <main> element: the stylesheet lays out the app's
+       own <main> with bare `main{...}` rules, and a second element would take
+       them too. Only one of the two is ever rendered -- this screen and the
+       shell are never shown together -- so there is still one main landmark. -->
+  <div class="auth-main" role="main">
     <div class="auth-card">
       <!-- The mark again, for the widths where the panel above is gone. Only
            ever one of the two is on screen. -->
       <p class="auth-mark" aria-hidden="true"><svg viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(35,90) rotate(20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><g transform="translate(65,90) rotate(-20)"><rect x="-9" y="-70" width="18" height="70" rx="9" fill="currentColor"/></g><circle cx="50" cy="24.2" r="8" fill="var(--gold)"/></svg></p>
 
+      <!-- With scripts off the sign-in form drew perfectly and did nothing.
+           Same notice style as the one below it. -->
+      <noscript>
+        <div class="auth-config-warning">Attendance Ledger needs JavaScript to run. Turn it on for this site in your browser's settings, then reload the page.</div>
+      </noscript>
       <div id="authConfigWarning" class="auth-config-warning" style="display:none;">
-      This page isn't connected to a database yet. Open the file and set
-      <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> near the top of the
-      <code>&lt;script&gt;</code> block — see <code>supabase-schema.sql</code> for setup steps.
+      This page isn't connected to a database yet. Set
+      <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> near the top of
+      <code>app.js</code>, and apply the files in <code>supabase/migrations/</code> to
+      the project — the README has the steps.
     </div>
 
 <form id="signInForm" class="auth-form">
-      <header class="auth-head">
+      <!-- A div, not a <header>: inside the role="main" above, a <header>
+           is still announced as the page banner, and a form's title is not one. -->
+      <div class="auth-head">
         <h1 class="display auth-title">Welcome back<span>.</span></h1>
         <p class="auth-sub">Enter your email and password.</p>
-      </header>
+      </div>
       <div>
         <label for="siEmail">Email</label>
         <input type="email" id="siEmail" autocomplete="username" maxlength="254" required>
@@ -6833,7 +6879,10 @@
         <label for="siPassword">Password</label>
         <input type="password" id="siPassword" autocomplete="current-password" required>
       </div>
-      <p class="auth-error" id="signInError"></p>
+      <!-- role="alert": a sign-in that fails changes nothing else on the screen,
+           so without it a screen reader user pressed Sign In and heard
+           nothing. The check-your-inbox panel below always had it. -->
+      <p class="auth-error" id="signInError" role="alert"></p>
       <!-- Shown only when the sign-in failed because the address was never
            confirmed, or a confirmation link came back spent: the one thing
            that person needs is the email again, and until this existed the
@@ -6861,10 +6910,10 @@
     </form>
 
 <form id="registerForm" class="auth-form" style="display:none;">
-      <header class="auth-head">
+      <div class="auth-head">
         <h1 class="display auth-title">Create your account<span>.</span></h1>
         <p class="auth-sub">This takes a minute, once.</p>
-      </header>
+      </div>
       <div>
         <label for="regName">Full Name</label>
         <input type="text" id="regName" autocomplete="name" maxlength="120" dir="auto" required>
@@ -6882,8 +6931,8 @@
         <label for="regPassword2">Confirm Password</label>
         <input type="password" id="regPassword2" autocomplete="new-password" required minlength="10">
       </div>
-      <p class="auth-error" id="registerError"></p>
-      <p class="auth-success" id="registerSuccess"></p>
+      <p class="auth-error" id="registerError" role="alert"></p>
+      <p class="auth-success" id="registerSuccess" role="status"></p>
       <button type="submit" class="btn" id="registerBtn" style="width:100%;">Create Account</button>
       <div class="auth-switch">
         <button type="button" class="link-btn" id="showSignInBtn">Already have an account? Sign in</button>
@@ -6895,11 +6944,11 @@
          screen inviting a second submit, offered no way to get the email
          again, and said nothing about where the link would take you. -->
     <div id="checkEmailPanel" class="auth-form" style="display:none;">
-      <header class="auth-head">
+      <div class="auth-head">
         <h1 class="display auth-title" id="checkEmailTitle" tabindex="-1">Check your inbox<span>.</span></h1>
         <p class="auth-sub">We sent a confirmation link to <strong class="auth-email" id="checkEmailAddress" dir="auto"></strong>.
           Open it and you&rsquo;ll come straight back here, signed in.</p>
-      </header>
+      </div>
       <ol class="auth-steps">
         <li>Open the email from <strong>Supabase Auth</strong>, the service that runs sign-in for this app.</li>
         <li>Tap the link in it. The link works once.</li>
@@ -6916,10 +6965,10 @@
     </div>
 
 <form id="resetPasswordForm" class="auth-form" style="display:none;">
-      <header class="auth-head">
+      <div class="auth-head">
         <h1 class="display auth-title">Set a new password<span>.</span></h1>
         <p class="auth-sub">Choose something you have not used here before.</p>
-      </header>
+      </div>
       <div>
         <label for="newPassword">New Password</label>
         <input type="password" id="newPassword" autocomplete="new-password" required minlength="10" aria-describedby="newPasswordHint">
@@ -6929,7 +6978,7 @@
         <label for="newPassword2">Confirm New Password</label>
         <input type="password" id="newPassword2" autocomplete="new-password" required minlength="10">
       </div>
-      <p class="auth-error" id="resetPasswordError"></p>
+      <p class="auth-error" id="resetPasswordError" role="alert"></p>
       <button type="submit" class="btn" id="resetPasswordBtn" style="width:100%;">Set New Password</button>
       <!-- showResetPasswordScreen() hides both other forms, so arriving here
            with a stale link, the wrong account, or second thoughts left no way
@@ -7372,13 +7421,13 @@
   <section class="card" id="tabContentCard" hidden>
     <div class="tabs-wrap">
       <div class="tabs" id="tabsBar" role="tablist" aria-label="Attendance views">
-        <button class="tab-btn" data-tab="overview" role="tab" id="tabbtn-overview" aria-selected="true" aria-controls="tab-overview">Overview</button>
-        <button class="tab-btn" data-tab="log" role="tab" id="tabbtn-log" aria-selected="false" aria-controls="tab-log">Log</button>
-        <button class="tab-btn" data-tab="trends" role="tab" id="tabbtn-trends" aria-selected="false" aria-controls="tab-trends">Trends</button>
-        <button class="tab-btn" data-tab="calendar" role="tab" id="tabbtn-calendar" aria-selected="false" aria-controls="tab-calendar">Calendar</button>
-        <button class="tab-btn" data-tab="punctuality" role="tab" id="tabbtn-punctuality" aria-selected="false" aria-controls="tab-punctuality">Shortfall</button>
-        <button class="tab-btn" data-tab="team" id="teamTabBtn" role="tab" aria-selected="false" aria-controls="tab-team" style="display:none;">Team</button>
-        <button class="tab-btn" data-tab="settings" role="tab" id="tabbtn-settings" aria-selected="false" aria-controls="tab-settings">Settings</button>
+        <button type="button" class="tab-btn" data-tab="overview" role="tab" id="tabbtn-overview" aria-selected="true" aria-controls="tab-overview">Overview</button>
+        <button type="button" class="tab-btn" data-tab="log" role="tab" id="tabbtn-log" aria-selected="false" aria-controls="tab-log">Log</button>
+        <button type="button" class="tab-btn" data-tab="trends" role="tab" id="tabbtn-trends" aria-selected="false" aria-controls="tab-trends">Trends</button>
+        <button type="button" class="tab-btn" data-tab="calendar" role="tab" id="tabbtn-calendar" aria-selected="false" aria-controls="tab-calendar">Calendar</button>
+        <button type="button" class="tab-btn" data-tab="punctuality" role="tab" id="tabbtn-punctuality" aria-selected="false" aria-controls="tab-punctuality">Shortfall</button>
+        <button type="button" class="tab-btn" data-tab="team" id="teamTabBtn" role="tab" aria-selected="false" aria-controls="tab-team" style="display:none;">Team</button>
+        <button type="button" class="tab-btn" data-tab="settings" role="tab" id="tabbtn-settings" aria-selected="false" aria-controls="tab-settings">Settings</button>
       </div>
     </div>
 
@@ -7484,7 +7533,7 @@
               <th class="select-col" id="selectColHead" style="display:none;"></th>
               <th>Date</th><th>Day</th><th>In</th><th>Out</th>
               <th class="num">Worked</th><th class="num">Target</th><th class="num">Diff</th>
-              <th>Type</th><th>Note</th><th></th>
+              <th>Type</th><th>Note</th><th><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody id="logBody"></tbody>
@@ -7706,7 +7755,7 @@
                 <tr>
                   <th>Date</th><th>Day</th>
                   <th class="num">Worked</th><th class="num">Target</th><th class="num">Short By</th>
-                  <th>Note</th><th></th>
+                  <th>Note</th><th><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody id="punctBody"></tbody>
@@ -7717,7 +7766,10 @@
       </div>
     </div>
 
-    <div class="tab-panel" id="tab-team" role="tabpanel" aria-labelledby="tabbtn-team" tabindex="0">
+    <!-- Labelled by the Team tab's real id. It said "tabbtn-team", which is
+         the pattern the other tabs follow and not what this one is called, so
+         the panel had no name at all. -->
+    <div class="tab-panel" id="tab-team" role="tabpanel" aria-labelledby="teamTabBtn" tabindex="0">
       <!-- The roster was a flat list of three numbers per person with no month
            control, no target to measure them against, and no way to sort or
            search. Each person is a card now, measured against their OWN
@@ -7765,11 +7817,11 @@
           <div class="team-grid" id="teamList"></div>
           <div class="empty-state" id="teamEmpty" style="display:none;">No other users have registered yet.</div>
         </div>
-        <aside class="card team-activity" id="teamActivityCard">
-          <h2>Recent Activity</h2>
+        <section class="card team-activity" id="teamActivityCard" aria-labelledby="teamActivityTitle">
+          <h2 id="teamActivityTitle">Recent Activity</h2>
           <div class="team-activity-list" id="teamActivityList"></div>
           <p class="team-activity-empty" id="teamActivityEmpty" style="display:none;">Nothing logged yet this month.</p>
-        </aside>
+        </section>
       </div>
     </div>
 
@@ -8253,7 +8305,9 @@
       </div><!-- /.console -->
     </div>
 
-    <div class="tab-panel" id="tab-admin" role="tabpanel" aria-labelledby="tabbtn-admin" tabindex="0">
+    <!-- Admin is not a tab, so there is no tab button to label it by: the
+         "tabbtn-admin" it pointed at never existed. Named directly. -->
+    <div class="tab-panel" id="tab-admin" role="tabpanel" aria-label="Organisation admin" tabindex="0">
       <div class="console-head">
         <h2>Organisation Admin</h2>
         <p>Everything here lands on other people's data. Pick a section to work in.</p>
@@ -8823,7 +8877,7 @@
 
 <div id="loadingLive" class="visually-hidden" role="status" aria-live="polite"></div>
 
-<div class="sticky-clock" id="stickyClock">
+<div class="sticky-clock" id="stickyClock" role="region" aria-label="Quick clock">
   <span class="sticky-clock-time" id="stickyClockTime">—</span>
   <!-- Same one control as the panel above, same state. -->
   <div class="sticky-clock-actions">
@@ -8982,11 +9036,13 @@
      new feature renders while the code that drives it never loads, which looks
      exactly like the feature being broken rather than being cached. Bump this
      whenever app.js changes shape enough that a stale copy would misbehave. -->
-<!-- Bump this whenever app.js changes. It is the only cache-buster the app
-     has (there is no build step to hash filenames), and it had sat on
-     "console-1" through 38 separate app.js commits — so a browser holding
-     that URL had no reason to ever ask for a newer file, and shipped fixes
-     silently failed to reach anyone already running the app. -->
-<script type="module" src="app.js?v=v46"></script>
+<!-- The release label. It had sat on "console-1" through 38 separate app.js
+     commits, so a browser holding that URL had no reason to ever ask for a
+     newer file, and shipped fixes silently failed to reach anyone already
+     running the app. It is no longer moved by hand or by memory:
+     `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
+     fails until that has been run, and the published copy gets a label of its
+     own from the build. -->
+<script type="module" src="app.js?v=v47"></script>
 </body>
 </html>

@@ -52,8 +52,19 @@ function wrapBrowser(browser){
   // Browser.newPage() creates its context through this.newContext(), so
   // wrapping newContext covers both.
   const newContext = browser.newContext.bind(browser);
-  browser.newContext = async function(...args){
-    const context = await newContext(...args);
+  browser.newContext = async function(options, ...rest){
+    // No service worker in a test browser unless a suite asks for one by name.
+    // Two reasons, and the second only showed once app.js registered its worker
+    // reliably (it used to wait for a "load" event that had usually already
+    // fired, so in these browsers it almost never registered at all):
+    //   * a request a service worker makes is not seen by page.route(), so a
+    //     running worker is a way round every scripted backend here;
+    //   * with a worker up, the app asks about notifications at sign-in, and a
+    //     headless browser reports them blocked -- so every suite would open
+    //     on a dialog it did not expect, over the thing it came to click.
+    // hostile/harness.js already did this for the suites that go through it;
+    // this is the same rule for the ones that open their own contexts.
+    const context = await newContext(Object.assign({ serviceWorkers: "block" }, options || {}), ...rest);
     await guard(context);
     return context;
   };

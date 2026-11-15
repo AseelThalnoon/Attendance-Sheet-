@@ -39,7 +39,11 @@ const SUITES = [
   "push/test-push-actions.js",
   "regression/audit-logic.js",
   "regression/clockout-reminders.js",
+  "regression/send-push-guards.js",
   "regression/service-worker.js",
+  "regression/app-update.js",
+  "regression/build-output.js",
+  "regression/release-e2e.js",
   "regression/audit-dom.js",
   "regression/settings-swap.js",
   "regression/admin-tab.js",
@@ -52,6 +56,10 @@ const SUITES = [
   "regression/passkeys.js",
   "regression/whos-away.js",
   "regression/pull-refresh.js",
+  "regression/stale-resume.js",
+  "regression/csv-export.js",
+  "regression/sign-out-clean.js",
+  "regression/frame-guard.js",
   "regression/ios.js",
   "regression/collisions.js",
   "mobile/form-grid.js",
@@ -66,7 +74,7 @@ const SUITES = [
 // The slowest go first, so they overlap each other instead of one of them
 // starting last and running alone at the end.
 const SLOW_FIRST = ["hostile/hostile.js", "regression/collisions.js", "apple/ios-push.js",
-  "apple/devices.js", "regression/passkeys.js", "regression/one-screen.js"];
+  "apple/devices.js", "regression/passkeys.js", "regression/one-screen.js", "regression/build-output.js"];
 const queue = SLOW_FIRST.filter(s => SUITES.includes(s))
   .concat(SUITES.filter(s => !SLOW_FIRST.includes(s)));
 

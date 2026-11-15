@@ -10,6 +10,9 @@
 // main's `margin:0 auto` cancelled its flex stretch and collapsed the tab card
 // to 699px, and #tabContentCard's display:flex outranked the [hidden] attribute
 // the Overview relies on, leaving an empty card standing under the panel.
+// Before playwright is used: keeps this suite's browsers off the live project
+// and without a service worker, however it is started (see ../no-network.js).
+require("../no-network");
 const { chromium } = require("playwright");
 const http = require("http");
 const fs = require("fs");

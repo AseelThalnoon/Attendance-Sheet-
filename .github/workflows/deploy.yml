@@ -1,0 +1,116 @@
+# Publishes the app: builds the minified copy (tools/build.mjs) and hands it
+# to GitHub Pages.
+#
+# Until 2026-11-15 nothing did this. Pages was set to "Deploy from a branch",
+# so every push to main published the repository root as it stood -- the app
+# as written, 1.4MB of it before compression, together with the tests, the
+# migrations, the design notes and the audit report, which were only ever
+# there because they share a folder. And it published whether or not the
+# suite had passed: the test workflow and the deploy had never heard of each
+# other.
+#
+# Two things are different here.
+#
+# It runs AFTER the tests, and only if they passed. `workflow_run` fires when
+# the "tests" workflow finishes; the job below goes ahead only for a
+# successful run, of a push, to main, in this repository. That last part is
+# not decoration: workflow_run also fires for pull requests, including ones
+# from a fork whose branch happens to be called main, and this job holds
+# permission to publish the site.
+#
+# And it publishes ONLY ONCE PAGES HAS BEEN SWITCHED OVER. That is a
+# repository setting this file cannot change for itself:
+#     Settings -> Pages -> Build and deployment -> Source -> GitHub Actions
+# Until someone makes that change the job builds, says so in its summary, and
+# stops, and Pages carries on publishing the branch exactly as before. So
+# merging this file changes nothing by itself, and switching back is the same
+# setting turned the other way.
+name: deploy
+
+on:
+  workflow_run:
+    workflows: ["tests"]
+    types: [completed]
+    branches: [main]
+  # By hand, from the Actions tab: republish main without a new commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one that has started: a
+# half-published site is worse than a late one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      publish: ${{ steps.pages.outputs.publish }}
+
+    steps:
+      # The commit the tests ran on, not whatever main has moved to since.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # esbuild lives with the test tooling: tests/package.json is the one
+      # place this repository keeps development dependencies. No lockfile and
+      # `npm install`, for the reason tests.yml gives.
+      - name: Install the build's dependency
+        working-directory: tests
+        run: npm install --no-audit --no-fund
+
+      # Stamps the build as its own release and checks its own output: every
+      # file the worker will save exists, and the page names this build. A
+      # failure here publishes nothing.
+      - name: Build
+        run: node tools/build.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Is Pages set to publish from Actions?
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          type=$(gh api "repos/${{ github.repository }}/pages" --jq .build_type 2>/dev/null || echo unknown)
+          if [ "$type" = "workflow" ]; then
+            echo "publish=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=no" >> "$GITHUB_OUTPUT"
+            {
+              echo ""
+              echo "**Built, not published.** Pages is set to \`$type\`, so it is still publishing the branch as written."
+              echo "To publish this build instead: Settings -> Pages -> Build and deployment -> Source -> **GitHub Actions**."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outputs.publish == 'yes'
+        with:
+          path: dist
+
+  publish:
+    needs: build
+    if: needs.build.outputs.publish == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -26,10 +26,12 @@ formal dispute or payroll run.
 
 ## Positioning
 
-A static front end with no build step and no framework, backed by Supabase
-Postgres for auth/data, where Row Level Security (not the client) is the
-actual authority over who can see or change what. Deployment is a file copy
-to GitHub Pages.
+A static front end with no framework, backed by Supabase Postgres for
+auth/data, where Row Level Security (not the client) is the actual authority
+over who can see or change what. The source runs as written, with nothing to
+compile; the copy published to GitHub Pages is built from it by a workflow
+that minifies it (decided 2026-11-15, replacing "no build step — deployment is
+a file copy"; see README, **Publishing**).
 
 ## Operating Context
 
@@ -47,8 +49,10 @@ to GitHub Pages.
 - Offline is scoped to punches and nothing else: a clock-in/out made with no
   connection is queued on the device and uploads when the connection returns.
   Hand-entered days, settings changes and admin actions still require a
-  connection. The service worker caches the shell only. This is deliberately
-  not a general sync layer.
+  connection. The service worker caches the shell only, and opens the app from
+  that copy at once rather than asking the network first (decided 2026-11-15;
+  a new release is taken at a safe moment, never mid-task). This is
+  deliberately not a general sync layer.
 
 ## Capabilities and Constraints
 

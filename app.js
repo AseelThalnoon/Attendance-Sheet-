@@ -2,8 +2,9 @@
 //
 // Extracted from index.html so the page can ship a real Content-Security-Policy:
 // an inline module would require script-src 'unsafe-inline', which defeats most
-// of the point of having a policy at all. Deployment is still a static file copy;
-// there is no build step.
+// of the point of having a policy at all. This file runs as written -- there is
+// nothing to compile -- and the copy that is published is this file minified by
+// tools/build.mjs, at the same path, with the names left as they are.
 // The one runtime dependency is vendored (vendor/supabase-js.min.js, pinned to
 // 2.118.0) rather than fetched from a third-party CDN on every load. Previously
 // a CDN outage, a blocking proxy, or simply opening the installed PWA with no
@@ -26,11 +27,25 @@ function showBootFailure(){
   if(reg){ reg.disabled = true; }
 }
 
+// theme-boot.js marks the page when it has been loaded inside another site's
+// frame (see that file: the host cannot send the header that would forbid it).
+// Nothing is drawn in that case, and nothing should run either -- no session
+// restored, no listener attached, no request made on a visitor's behalf from a
+// page they cannot see. A throw here ends the module before any of that.
+if(document.documentElement.hasAttribute("data-framed")){
+  throw new Error("Attendance Ledger does not run inside another page's frame.");
+}
+
 // The URL fragment as the page arrived with it, read before the client is
 // created: supabase-js strips a sign-up or recovery result from the fragment
 // during its own start-up, and reading it first means no library change in
 // that timing can take it away from the code further down (see __authHash).
 var __arrivalHash = (window.location.hash || "").replace(/^#/, "");
+// The query too, for the same reason and one more: whether this page was
+// opened by a link that DOES something (a password reset, a confirmation, a
+// Clock In shortcut) decides whether it may ever reload itself at launch --
+// see appUpdate.launchIsPlain below.
+var __arrivalSearch = window.location.search || "";
 
 let createClient;
 try {
@@ -323,6 +338,91 @@ function onId(id, type, handler, options){
   return null;
 }
 
+// ---------- New releases ----------
+// The service worker opens the app from its saved copy and keeps a new release
+// waiting beside it until a page asks for it (see the head of sw.js). This is
+// the asking. A reload is how a page moves onto a new release, so the whole
+// question is WHEN: never underneath someone in the middle of something, and
+// otherwise as soon as it costs them nothing --
+//   * at launch, if the new release was already waiting and nothing has been
+//     touched yet;
+//   * on coming back to the app after a few minutes away, when nothing is
+//     open (the app's own code decides that -- see "appIsIdle");
+//   * when they press Refresh, or pull the page down, which is them asking;
+//   * on the way out of an account, where the page reloads regardless.
+// Until one of those happens the old release carries on working, and a toast
+// says a new one is ready.
+//
+// Declared up here, outside the app's one big function, because the wiring at
+// the foot of this file is too: registering a service worker has nothing to do
+// with who is signed in. The app reaches in through the two hooks.
+var UPDATE_RELOAD_KEY = "attendance.updateReloadAt";
+var appUpdate = {
+  ready: false,          // a newer release is saved and waiting, or already in charge of this older page
+  applying: false,
+  registration: null,
+  touched: false,        // has anyone pressed or typed anything since this page loaded
+  lastCheck: 0,
+  onReady: null,         // the app's hook: say that an update is ready
+  beforeReload: null,    // the app's hook: note where the person was
+
+  // Ask the browser to look for a new sw.js. It does that by itself on every
+  // launch; this is for a page that has been open since before the last one.
+  check: function(){
+    var reg = this.registration;
+    if(!reg || typeof reg.update !== "function") return;
+    if(Date.now() - this.lastCheck < 30 * 60 * 1000) return;
+    this.lastCheck = Date.now();
+    try{ reg.update().then(null, function(){}); }catch(e){}
+  },
+
+  // Whether this page reloaded itself for an update moments ago. One reload
+  // has to be enough: a worker that will not take over must leave an app that
+  // still works on the old release, not one that reloads for ever.
+  reloadedJustNow: function(){
+    try{ return Date.now() - (+(sessionStorage.getItem(UPDATE_RELOAD_KEY) || 0)) < 60000; }
+    catch(e){ return true; }   // nowhere to keep the mark, so no automatic reloads at all
+  },
+
+  // Whether this launch is an ordinary one, safe to restart before anyone has
+  // touched it. Not when the address carried something to act on: supabase-js
+  // has already taken a reset or confirmation link's token out of the address
+  // by now, so a reload would come back as a plain signed-in session and skip
+  // the "choose a new password" step entirely; and a shortcut's punch may be
+  // on its way to the server at this very moment.
+  launchIsPlain: function(){
+    return __arrivalHash === "" && !/[?&]action=/.test(__arrivalSearch);
+  },
+
+  // Move this page onto the new release. Ends in a reload.
+  apply: function(){
+    if(this.applying) return;
+    this.applying = true;
+    try{ sessionStorage.setItem(UPDATE_RELOAD_KEY, String(Date.now())); }catch(e){}
+    if(this.beforeReload){ try{ this.beforeReload(); }catch(e){} }
+    var waiting = this.registration && this.registration.waiting;
+    if(!waiting){
+      // The new worker is already in charge (another tab asked first); the
+      // page only has to be loaded again to be served by it.
+      window.location.reload();
+      return;
+    }
+    // The reload happens on "controllerchange", once the new worker has
+    // actually taken over -- reloading before then would be answered by the
+    // old one, from the old copy. The timer is for a browser that never says.
+    try{ waiting.postMessage({type: "SKIP_WAITING"}); }catch(e){}
+    setTimeout(function(){ window.location.reload(); }, 4000);
+  }
+};
+function markUpdateReady(){
+  if(appUpdate.ready) return;
+  appUpdate.ready = true;
+  if(appUpdate.onReady){ try{ appUpdate.onReady(); }catch(e){} }
+}
+["pointerdown", "keydown"].forEach(function(type){
+  window.addEventListener(type, function(){ appUpdate.touched = true; }, {capture: true, once: true, passive: true});
+});
+
 var __earlyRecoverySession = null;
 if(supabase){
   supabase.auth.onAuthStateChange(function(event, session){
@@ -415,6 +515,9 @@ import { makeSchedule } from "./src/schedule.js";
   var allProfiles = [];        // admin only: every registered user, for the switcher + Team tab
   var isAdmin = false;
   var isOwnData = true;
+  // The app's own name, as index.html's <title> gives it; each screen's title
+  // is built on it (see activateTab) and sign-out returns to it.
+  var APP_TITLE = document.title || "Attendance Ledger";
 
   var entries = [];
   var settings = Object.assign({}, DEFAULT_SETTINGS);
@@ -504,8 +607,28 @@ import { makeSchedule } from "./src/schedule.js";
       res = await supabase.from("entries").insert(row).select().single();
     }
     if(res.error){
+      // Two refusals mean the screen and the server have drifted apart rather
+      // than that the save itself was wrong, and they are marked `stale` so the
+      // caller can reload instead of leaving the person to retry into the same
+      // wall (see recoverFromStaleRecord):
+      //   * an INSERT that collides on (user_id, date) -- the server already
+      //     holds a day this screen has no row for, because it was added on
+      //     another device or by an administrator since the last load. An
+      //     UPDATE that collides is different: that is someone moving an entry
+      //     onto a date they can already see is taken, and stays a plain error.
+      //   * an UPDATE that matches no row -- .single() reports PGRST116 -- which
+      //     is the entry having been deleted somewhere else. It used to reach
+      //     the person as "JSON object requested, multiple (or no) rows
+      //     returned".
       if(res.error.code === "23505"){
-        throw new Error("Another entry already exists for that date.");
+        var dup = new Error("Another entry already exists for that date.");
+        dup.stale = !existingDbId;
+        throw dup;
+      }
+      if(existingDbId && res.error.code === "PGRST116"){
+        var gone = new Error("That entry no longer exists.");
+        gone.stale = true;
+        throw gone;
       }
       throw res.error;
     }
@@ -753,6 +876,16 @@ import { makeSchedule } from "./src/schedule.js";
   // that had not happened.
   function dataLoadFailed(){ return !!dataLoadError; }
 
+  // When what is on screen was last read from the server, and a count that
+  // moves every time `entries` is replaced or patched. An installed app is not
+  // reopened each morning, it is resumed: the page that was loaded yesterday
+  // is still the page, holding yesterday's copy of the record. refreshOnResume()
+  // below uses the first to decide the copy is old enough to read again, and
+  // the second to notice that something newer than its own request reached the
+  // screen while that request was in the air.
+  var dataLoadedAt = 0;
+  var dataEpoch = 0;
+
   // Requests that need nothing but the signed-in person's id, started the
   // moment the session is known (handleSignedIn) instead of one after another
   // behind the profile fetch. On a phone talking to the database in Singapore,
@@ -782,6 +915,8 @@ import { makeSchedule } from "./src/schedule.js";
       entries = results[0];
       settings = results[1];
       dataLoadError = null;
+      dataLoadedAt = Date.now();
+      dataEpoch++;
       // Before any render sees it: a punch waiting to upload belongs in the
       // day it was made, not in a holding pen the rest of the app can't see.
       if(forUserId === currentUser.id) entries = applyOutbox(entries, currentUser.id);
@@ -795,6 +930,7 @@ import { makeSchedule } from "./src/schedule.js";
       entries = [];
       settings = Object.assign({}, DEFAULT_SETTINGS);
       dataLoadError = err;
+      dataEpoch++;
     }
     isOwnData = forUserId === currentUser.id;
     updateViewingBanner();
@@ -825,12 +961,137 @@ import { makeSchedule } from "./src/schedule.js";
     var idx = entries.findIndex(function(e){ return e.id === saved.id; });
     if(idx === -1) idx = entries.findIndex(function(e){ return e.date === saved.date; });
     if(idx !== -1) entries[idx] = saved; else entries.push(saved);
+    dataEpoch++;
     renderAll();
   }
   function applyLocalDelete(id, forUserId){
     if(forUserId !== viewedUserId) return;
     entries = entries.filter(function(e){ return e.id !== id; });
+    dataEpoch++;
     renderAll();
+  }
+
+  // ---------- Keeping a resumed app in step ----------
+  // Nothing re-read the record unless someone pressed Refresh, pulled the page
+  // down or signed in again. On a laptop that is a tab left open; on a phone it
+  // is the normal case, because an installed app is brought back to the front
+  // rather than started. So a day clocked in from the desktop at 08:00 was not
+  // on the phone at 16:00: the phone still offered "Clock In", and pressing it
+  // tried to insert a second row for a day that already had one.
+  //
+  // Two halves. Coming back after RESUME_REFRESH_AFTER_MS reads the record
+  // again, quietly. And a save the server refuses BECAUSE the screen was out of
+  // step (see sbUpsertEntry's `stale` errors) reloads and says so, instead of
+  // showing a database refusal that pressing the button again only repeats.
+  var RESUME_REFRESH_AFTER_MS = 5 * 60 * 1000;
+  var resumeRefreshing = false;
+
+  // Quiet on purpose, in both directions. No skeletons and no toast when it
+  // works: the person came back to do something, and a screen that blanks and
+  // redraws itself on every return is worse than one that is briefly behind.
+  // And nothing at all when it fails -- loadDataForViewedUser() answers a
+  // failure by emptying the screen and raising a notice, which is right for a
+  // load somebody asked for and wrong here, where the copy already on screen
+  // is still the best one there is.
+  //
+  // It stands down rather than queue behind anything the person is in the
+  // middle of. A redraw refills the Settings form from the saved schedule, so
+  // it never runs over an open Settings tab or an open dialog; a punch, a save
+  // or an upload already in flight will repaint from fresher data than this
+  // would fetch; and a punch still waiting in the outbox is flushOutbox()'s to
+  // settle, which reloads by itself once it has.
+  async function refreshOnResume(){
+    if(resumeRefreshing || !currentUser || !supabaseConfigured) return;
+    if(navigator.onLine === false) return;
+    if(!dataLoadedAt || Date.now() - dataLoadedAt < RESUME_REFRESH_AFTER_MS) return;
+    if(dataLoadFailed()) return;   // the failed-load notice owns that state
+    if(pendingFor(currentUser.id).length) return;
+    if(!appIsIdle()) return;
+
+    var forUserId = viewedUserId, gen = loadGeneration, epoch = dataEpoch;
+    resumeRefreshing = true;
+    try{
+      var results = await Promise.all([sbFetchEntries(forUserId), sbFetchSettings(forUserId)]);
+      // Anything that reached the screen while this was in the air is newer
+      // than what this fetched: a viewer switch, a punch, a save, a sign-out.
+      if(!currentUser || gen !== loadGeneration || epoch !== dataEpoch || forUserId !== viewedUserId) return;
+      entries = results[0];
+      settings = results[1];
+      dataLoadedAt = Date.now();
+      dataEpoch++;
+      renderAll();
+      // The bell too, now that the connection is known to be there: a message
+      // an administrator sent while the app was in the background should be
+      // counted on it without anyone having to pull the page down first.
+      loadPushNotifications();
+    }catch(err){
+      // Still behind, and no worse off. The next return tries again.
+    }finally{
+      resumeRefreshing = false;
+    }
+  }
+
+  // Whether anything is in progress that a redraw could trample. A redraw
+  // refills the Settings form from the saved schedule, so an open Settings tab
+  // counts, as does any open dialog; and a punch, a save or an upload that is
+  // mid-flight will repaint from fresher data than a refresh would fetch.
+  //
+  // `forReload` is the stricter question, asked before the page reloads onto a
+  // new release (see appUpdate, near the top of this file). A reload loses
+  // everything a redraw keeps, so the Admin screen counts too -- a half-written
+  // announcement or notification lives there -- and so does the open bell.
+  function appIsIdle(forReload){
+    if(punchInFlight || entrySubmitInFlight || flushing || bulkOpsInFlight > 0) return false;
+    if(tabIsOpen("settings") || document.querySelector(".modal-overlay")) return false;
+    var entryModal = document.getElementById("entryModal");
+    if(entryModal && !entryModal.hidden) return false;
+    if(forReload && (tabIsOpen("admin") || notifPanelClose)) return false;
+    return true;
+  }
+
+  // What the app tells the update machinery, and what it asks of it.
+  //
+  // Ready: said once, as a toast, and only to someone who is signed in -- the
+  // sign-in screen has no Refresh to point at, and gets the new release the
+  // moment it is next opened anyway.
+  appUpdate.onReady = function(){
+    if(!currentUser) return;
+    showToast("A new version of Attendance is ready. It loads the next time you open the app, " +
+      "or refresh now to switch to it.", "info");
+  };
+  // Where the person was, so the reload puts them back there instead of on
+  // Overview. sessionStorage: it has to outlive the reload and nothing else.
+  var RESUME_TAB_KEY = "attendance.resumeTab";
+  appUpdate.beforeReload = function(){
+    var panel = document.querySelector(".tab-panel.active");
+    var tab = panel ? panel.id.replace(/^tab-/, "") : "";
+    try{
+      if(currentUser && tab && tab !== "overview") sessionStorage.setItem(RESUME_TAB_KEY, tab);
+      else sessionStorage.removeItem(RESUME_TAB_KEY);
+    }catch(e){}
+  };
+  // Called once the first load after a sign-in has drawn. Admin and Team are
+  // only reopened for someone who is still an administrator.
+  function reopenTabAfterUpdate(){
+    var tab = "";
+    try{ tab = sessionStorage.getItem(RESUME_TAB_KEY) || ""; sessionStorage.removeItem(RESUME_TAB_KEY); }catch(e){}
+    if(!tab || !document.getElementById("tab-" + tab)) return;
+    if((tab === "admin" || tab === "team") && !isAdmin) return;
+    activateTab(tab);
+  }
+
+  // The answer to a save refused as `stale`: read the record again, then say
+  // what happened in terms of the day rather than the database. Not retried
+  // automatically -- after the reload the right action may be a different one
+  // (the clock now offers Clock Out, or the day already holds what they were
+  // about to type), and that is the person's call to make with the facts on
+  // screen. loadDataForViewedUser() raises its own notice if the reload fails.
+  async function recoverFromStaleRecord(){
+    await loadDataForViewedUser();
+    if(!dataLoadFailed()){
+      showToast("That day was changed somewhere else, on another device or by an administrator. " +
+        "This screen is up to date now — check the day and try again.", "error");
+    }
   }
 
   // The failure said out loud, and kept said. This is the same shape as the
@@ -1440,6 +1701,22 @@ import { makeSchedule } from "./src/schedule.js";
     // clean up.
     try{ await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); }catch(e){}
     await sub.unsubscribe();
+  }
+  // The same thing on the way out of the account (see the sign-out handler).
+  // Its own function because sign-out cannot wait the way a settings toggle
+  // can: currentPushSubscription() gives a service worker three seconds to
+  // start, and getRegistration() answers at once with whatever is there. A
+  // worker that is not up by the time someone signs out has no subscription
+  // to remove. Signing back in puts the registration back without asking, for
+  // as long as the browser's own permission still stands (promptPushHere).
+  async function dropPushForThisDevice(){
+    if(!pushSupported()) return;
+    var reg = await navigator.serviceWorker.getRegistration();
+    if(!reg || !reg.pushManager) return;
+    var sub = await reg.pushManager.getSubscription();
+    if(!sub) return;
+    try{ await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); }catch(e){}
+    try{ await sub.unsubscribe(); }catch(e){}
   }
   // Async DOM refresh, called fire-and-forget from refreshSettingsPanel() the
   // same way renderTodayTeam() is from renderAll() — checking subscription
@@ -3957,7 +4234,10 @@ import { makeSchedule } from "./src/schedule.js";
       applyLocalUpsert(saved, targetUserId);
       showToast("Clocked out " + fmtDate(entry.date) + " at " + formatTime12(payload.clockOut) + ".", "success");
     }catch(err){
-      showToast("Couldn't clock that out: " + friendlyError(err), "error");
+      // The reminder was drawn from a row that has since been deleted or
+      // closed elsewhere; the reload redraws the reminders from what is true.
+      if(err && err.stale) await recoverFromStaleRecord();
+      else showToast("Couldn't clock that out: " + friendlyError(err), "error");
       if(btn){ btn.disabled = false; btn.textContent = prevText; }
     }
   }
@@ -5467,7 +5747,10 @@ import { makeSchedule } from "./src/schedule.js";
       resetForm();
       applyLocalUpsert(saved, targetUserId);
     }catch(err){
-      showToast("Couldn't save that entry: " + friendlyError(err), "error");
+      // The form is left as typed: after the reload the person can see what
+      // the day holds now and decide whether their version still belongs.
+      if(err && err.stale) await recoverFromStaleRecord();
+      else showToast("Couldn't save that entry: " + friendlyError(err), "error");
     }finally{
       btn.disabled = false; btn.textContent = prevText;
     }
@@ -5980,11 +6263,17 @@ import { makeSchedule } from "./src/schedule.js";
         // the upload that is outstanding. The banner carries that distinction;
         // making the punch look like it failed would only get it repeated.
         entries = applyOutbox(entries, currentUser.id);
+        dataEpoch++;
         renderAll();
         pulseSeal();
         pulseQuickClock();
         showQcNote("Clocked " + kind + " at " + formatTime12(timeNow) + " · " +
                    fmtDate(targetDate) + " · saved on this device, uploads when you're back online", true);
+      } else if(err && err.stale){
+        // The day already has a row this screen did not know about (a punch
+        // from another device, usually). Awaited inside the try, so the clock
+        // stays locked until the reload has put the real state on it.
+        await recoverFromStaleRecord();
       } else {
         showToast("Couldn't record that: " + friendlyError(err), "error");
       }
@@ -6361,7 +6650,9 @@ import { makeSchedule } from "./src/schedule.js";
   // One activation path for every control that can open a panel: the tab strip,
   // the mobile bottom nav, and the header's Admin button — which is not a tab at
   // all, since managing the organisation is not a view of your own attendance.
-  function activateTab(tab){
+  // `quiet` switches the panel and every marker of which one is open, and
+  // draws nothing: forgetLastPerson() uses it on the way out of an account.
+  function activateTab(tab, quiet){
     var panel = document.getElementById("tab-" + tab);
     if(!panel) return;
 
@@ -6377,10 +6668,20 @@ import { makeSchedule } from "./src/schedule.js";
 
     // The phone header shrinks to the tab's name off Overview (see
     // body.head-compact in index.html). Admin has no tab button to name it.
-    var tabBtn = document.getElementById("tabbtn-" + tab);
+    //
+    // Found by its data-tab, not by an id built from the name: the Team tab's
+    // button is #teamTabBtn, not #tabbtn-team, so the id lookup came back
+    // empty for that one tab and a phone showed the Team screen under a blank
+    // heading -- an <h1> with nothing in it, to a screen reader as well.
+    var tabBtn = document.querySelector('.tab-btn[data-tab="' + tab + '"]');
+    var tabLabel = tabBtn ? tabBtn.textContent.trim() : (tab === "admin" ? "Admin" : "");
     var tabName = document.getElementById("headTabName");
-    if(tabName) tabName.textContent = tabBtn ? tabBtn.textContent.trim() : (tab === "admin" ? "Admin" : "");
+    if(tabName) tabName.textContent = tabLabel;
     document.body.classList.toggle("head-compact", tab !== "overview");
+    // The title is what a browser tab, a history entry and a screen reader's
+    // first words on arrival all read. It said "Attendance Ledger" on every
+    // screen, so seven places in the app were one indistinguishable entry.
+    document.title = (tab !== "overview" && tabLabel ? tabLabel + " · " : "") + APP_TITLE;
 
 
     // Admin lives outside the tablist, so its own trigger carries the state.
@@ -6411,18 +6712,20 @@ import { makeSchedule } from "./src/schedule.js";
 
     applyFilterBarVisibility(tab, activeSubtab());
 
-    if(tab === "overview"){
-      renderStats();
-      renderPersonCard();
-      renderWorkingFormat();
-      renderTodayTeam().catch(function(){});
+    if(!quiet){
+      if(tab === "overview"){
+        renderStats();
+        renderPersonCard();
+        renderWorkingFormat();
+        renderTodayTeam().catch(function(){});
+      }
+      if(tab === "trends") renderSubtab(activeSubtab());
+      if(tab === "calendar"){ calendarFollowPeriod(); renderCalendarView(); }
+      if(tab === "punctuality") renderPunctuality();
+      if(tab === "team") renderTeam();
+      if(tab === "admin") renderAdmin();
+      if(tab === "settings") refreshSettingsPanel();
     }
-    if(tab === "trends") renderSubtab(activeSubtab());
-    if(tab === "calendar"){ calendarFollowPeriod(); renderCalendarView(); }
-    if(tab === "punctuality") renderPunctuality();
-    if(tab === "team") renderTeam();
-    if(tab === "admin") renderAdmin();
-    if(tab === "settings") refreshSettingsPanel();
 
     document.querySelectorAll(".bn-item").forEach(function(b){
       b.classList.toggle("active", b.getAttribute("data-bn-tab") === tab);
@@ -6582,13 +6885,22 @@ import { makeSchedule } from "./src/schedule.js";
         typeLabel(e.type), e.note || ""
       ]);
     });
-    var csv = rows.map(function(r){
-      return r.map(function(v){
+    // Type and Note are the two columns of words, and Note is whatever someone
+    // typed. A spreadsheet runs a cell that starts with = + - or @ as a
+    // formula, and this file is opened by more people than wrote it: an
+    // administrator exporting a teammate's record opens that teammate's notes.
+    // csvCell() defuses those, as the activity-log export already did. The
+    // figures stay bare on purpose -- "-0.45" has to remain a number, and
+    // quoting it into text would break every sum drawn over the column.
+    var TEXT_COLS = [rows[0].indexOf("Type"), rows[0].indexOf("Note")];
+    var csv = rows.map(function(r, ri){
+      return r.map(function(v, ci){
+        if(ri > 0 && TEXT_COLS.indexOf(ci) !== -1) return csvCell(v);
         v = String(v == null ? "" : v);
-        return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+        return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
       }).join(",");
-    }).join("\n");
-    download("attendance-export-"+todayStr()+".csv", csv, "text/csv");
+    }).join("\r\n");
+    download("attendance-export-"+todayStr()+".csv", CSV_BOM + csv, "text/csv;charset=utf-8");
   });
 
   // A blank starter file with only the columns importCsvText() actually
@@ -6610,7 +6922,7 @@ import { makeSchedule } from "./src/schedule.js";
       [day(8), "08:00", "16:00", "Remotely", "Full words work too, e.g. Remotely"]
     ];
     var csv = rows.map(function(r){ return r.map(csvCell).join(","); }).join("\r\n");
-    download("attendance-import-template.csv", csv, "text/csv;charset=utf-8");
+    download("attendance-import-template.csv", CSV_BOM + csv, "text/csv;charset=utf-8");
     showToast("Template downloaded. Type accepts a full word or short code: s/h/hd/l.", "success");
   });
 
@@ -6836,7 +7148,10 @@ import { makeSchedule } from "./src/schedule.js";
         clockIn: parseTimeCell(cell(cIn)),
         clockOut: parseTimeCell(cell(cOut)),
         type: parseTypeCell(cell(cType)),
-        note: String(cell(cNote) || "").trim()
+        // The apostrophe csvCell() puts in front of a note that would otherwise
+        // run as a formula comes off again here, so exporting a record and
+        // importing the file back does not leave the mark in the note.
+        note: String(cell(cNote) || "").trim().replace(/^'(?=[=+\-@\t\r])/, "")
       };
       // A later row for the same date wins, matching the "last write" rule elsewhere.
       if(seen[date] !== undefined) parsed[seen[date]] = rec;
@@ -6895,9 +7210,21 @@ import { makeSchedule } from "./src/schedule.js";
   onId("importCsvBtn", "click", function(){
     document.getElementById("importCsvFile").click();
   });
+  // Ten years of weekdays is about 150KB as a CSV and 400KB as a backup. A
+  // file far past that is the wrong file, and reading it would freeze the tab
+  // on the way to finding that out.
+  var IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+  function importTooLarge(file, input){
+    if(file.size <= IMPORT_MAX_BYTES) return false;
+    showToast("That file is too large to be an attendance export (the limit is 5 MB). Check you picked the right one.", "error");
+    input.value = "";
+    return true;
+  }
+
   onId("importCsvFile", "change", function(ev){
     var file = ev.target.files[0];
     if(!file) return;
+    if(importTooLarge(file, ev.target)) return;
     var reader = new FileReader();
     reader.onload = function(){
       try{ importCsvText(String(reader.result)); }
@@ -6922,6 +7249,7 @@ import { makeSchedule } from "./src/schedule.js";
       ev.target.value = "";
       return;
     }
+    if(importTooLarge(file, ev.target)) return;
     var reader = new FileReader();
     reader.onload = async function(){
       try{
@@ -7131,11 +7459,23 @@ import { makeSchedule } from "./src/schedule.js";
     // whatever the CSS decides to be next.
     document.getElementById("authScreen").style.display = "";
     document.getElementById("appShell").style.display = "none";
+    setSignedInChrome(false);
     refreshRegistrationVisibility();
   }
   function showApp(){
     document.getElementById("authScreen").style.display = "none";
     document.getElementById("appShell").style.display = "block";
+    setSignedInChrome(true);
+  }
+  // The two things outside both screens that depend on which one is showing.
+  // "Skip to main content" points into the shell, so on the sign-in screen it
+  // was the first thing a keyboard reached and it went nowhere. And the title
+  // goes back to the app's name on the way out, rather than staying on
+  // whichever tab was open when someone signed out.
+  function setSignedInChrome(signedIn){
+    var skip = document.getElementById("skipLink");
+    if(skip) skip.hidden = !signedIn;
+    if(!signedIn) document.title = APP_TITLE;
   }
   function setAuthMsg(id, msg){
     var el = document.getElementById(id);
@@ -7173,6 +7513,7 @@ import { makeSchedule } from "./src/schedule.js";
     // Same as showAuthScreen: the stylesheet owns this element's display.
     document.getElementById("authScreen").style.display = "";
     document.getElementById("appShell").style.display = "none";
+    setSignedInChrome(false);
     document.getElementById("signInForm").style.display = "none";
     document.getElementById("registerForm").style.display = "none";
     document.getElementById("checkEmailPanel").style.display = "none";
@@ -7852,6 +8193,9 @@ import { makeSchedule } from "./src/schedule.js";
   async function refreshNow(){
     var btn = document.getElementById("refreshBtn");
     if(!btn || btn.disabled || !currentUser) return;
+    // Asked to refresh with a new release waiting: that is the refresh. The
+    // reload re-reads everything this function would have, on the new code.
+    if(appUpdate.ready && !appUpdate.reloadedJustNow()){ appUpdate.apply(); return; }
     btn.disabled = true;
     btn.classList.add("is-busy");
     try{
@@ -7996,6 +8340,20 @@ import { makeSchedule } from "./src/schedule.js";
     // happens. The refresh token stays live server-side until it expires,
     // which is worth saying plainly -- but a sign-out that half works beats
     // one that silently does nothing, and the alternative was neither.
+    //
+    // First, while there is still a session to do it with: this device stops
+    // receiving this person's notifications. Without it the browser stayed
+    // registered under their name after they had signed out of it, so an
+    // "Still clocked in" reminder went on arriving on a machine somebody else
+    // may now be sitting at -- and the next account to switch notifications on
+    // here was refused, because the device was still on file as the last one's.
+    // Capped, so a hung connection cannot hold the sign-out itself.
+    try{
+      await Promise.race([
+        dropPushForThisDevice(),
+        new Promise(function(resolve){ setTimeout(resolve, 2000); })
+      ]);
+    }catch(err0){ /* signing out matters more than tidying up */ }
     try{
       await supabase.auth.signOut();
     }catch(err){
@@ -10249,6 +10607,12 @@ import { makeSchedule } from "./src/schedule.js";
       try{
         var d = await supabase.rpc("admin_delete_user", {target_id: user.id});
         if(d.error) throw d.error;
+        // The account's rows went with it by cascade; its photo is a file in
+        // Storage, not a row, and stayed -- readable by every signed-in
+        // account, belonging to nobody. Best effort and not awaited: it rests
+        // on the admin delete policy from migration 20261115135254, and where
+        // that is missing Storage simply declines and nothing here changes.
+        supabase.storage.from(AVATAR_BUCKET).remove([avatarPath(user.id)]).then(null, function(){});
         showToast("User deleted.", "success");
         await loadAdminSettingsOwners();
         await loadAdminPeople();
@@ -10508,7 +10872,7 @@ import { makeSchedule } from "./src/schedule.js";
         auditDetail(r)
       ].map(csvCell).join(","));
     });
-    download("activity-log-" + todayStr() + ".csv", lines.join("\r\n"), "text/csv;charset=utf-8");
+    download("activity-log-" + todayStr() + ".csv", CSV_BOM + lines.join("\r\n"), "text/csv;charset=utf-8");
     showToast("Exported " + auditRowsCache.length + " log entries.", "success");
   });
 
@@ -10624,12 +10988,20 @@ import { makeSchedule } from "./src/schedule.js";
   onId("crashFilterKind", "change", renderCrashLog);
 
   // Quoted always: notes and names carry commas, quotes and newlines, and a
-  // leading =, + or - would be executed as a formula by a spreadsheet.
+  // leading =, + or - would be executed as a formula by a spreadsheet. A tab
+  // or a carriage return in front does the same job for an attacker -- the
+  // spreadsheet skips it and runs what follows -- so those count too.
   function csvCell(v){
     var s = String(v == null ? "" : v);
-    if(/^[=+\-@]/.test(s)) s = "'" + s;
+    if(/^[=+\-@\t\r]/.test(s)) s = "'" + s;
     return '"' + s.replace(/"/g, '""') + '"';
   }
+  // Excel reads a .csv as the machine's legacy code page unless the file opens
+  // with a byte-order mark, and the MIME type on a download does not reach it.
+  // Without one, a name or a note in Arabic arrived as a row of "Ø¹Ø¨Ø¯" in the
+  // one program these files are opened in. parseCsv() already strips it on the
+  // way back in, so an exported file still imports.
+  var CSV_BOM = "﻿";
 
   async function loadAppSettings(){
     try{
@@ -12101,6 +12473,9 @@ import { makeSchedule } from "./src/schedule.js";
     updateLiveClock();
     syncTimers();
     await loadDataForViewedUser();
+    // If this load is the one an update's reload led to, back to the tab they
+    // were on rather than Overview.
+    reopenTabAfterUpdate();
     // A long-press on the installed icon's "Clock In"/"Clock Out" shortcut
     // (see manifest.json) lands here as ?action=in|out — this is the earliest
     // point punchClock has what it needs (today's entry, if any, to decide
@@ -12129,6 +12504,9 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   function handleSignedOut(){
+    // Read before the resets below. This function also runs at every boot
+    // that finds no session, and only a real sign-out has anyone to forget.
+    var wasSignedIn = !!currentUser;
     bootingUserId = null;
     stopTimers();
     signInPrefetch = null;
@@ -12175,6 +12553,92 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("registerForm").style.display = "none";
     document.getElementById("checkEmailPanel").style.display = "none";
     showAuthScreen();
+    if(wasSignedIn) startCleanAfterSignOut();
+  }
+
+  // ---------- Leaving nothing of the last person behind ----------
+  // Signing out hid the app; it did not empty it. Everything the last person
+  // had drawn was still in the page under the sign-in screen, and everything
+  // they had loaded was still in memory: the Admin screen's list of every
+  // account, the activity log, the roster, the messages behind the bell. The
+  // next sign-in in the same window repainted what its own renderers own and
+  // nothing else -- so an employee who signed in after an administrator, on a
+  // shared machine, opened the app on whatever tab the administrator had left
+  // open, still showing what the administrator had been looking at. The
+  // database refused them every one of those rows. The page had kept a copy.
+  //
+  // The complete answer is a fresh page, because "everything" is a list that
+  // grows with the app: about thirty module-level caches today, and every new
+  // screen adds one. So the page is reloaded, and what loads is the sign-in
+  // screen with nothing behind it.
+  //
+  // forgetLastPerson() runs first for the cases where it cannot be: no
+  // connection and no service worker to serve the shell (a reload would land
+  // on the browser's own error page), or no sessionStorage to hold the mark
+  // that stops this from ever becoming a loop. It names the places that hold
+  // other people's data; it is the fallback, not the guarantee.
+  var SIGNOUT_RELOAD_KEY = "attendance.signedOutAt";
+  function startCleanAfterSignOut(){
+    forgetLastPerson();
+    var canReload = navigator.onLine !== false ||
+      !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+    if(!canReload) return;
+    try{
+      var last = +(sessionStorage.getItem(SIGNOUT_RELOAD_KEY) || 0);
+      if(Date.now() - last < 10000) return;
+      sessionStorage.setItem(SIGNOUT_RELOAD_KEY, String(Date.now()));
+    }catch(e){ return; }
+    // The page is about to start over regardless, so if a new release is
+    // waiting this is the reload that should land on it.
+    if(appUpdate.ready && !appUpdate.reloadedJustNow()) appUpdate.apply();
+    else window.location.reload();
+  }
+  // Whether the signed-out screen can be reloaded without costing anybody
+  // anything: the plain sign-in or sign-up form, with nothing typed into it.
+  //
+  // Never part-way through a password reset. That screen is reached by a link
+  // whose token is already spent, holding a session that exists only to set a
+  // new password; reload it and the app comes back signed in on the OLD one,
+  // which is the failure tests/regression/password-recovery.js was written
+  // for. Nor on "check your inbox", which is somebody waiting on an email.
+  function signedOutScreenIsIdle(){
+    if(__recoveryArrival || recoverySessionUser) return false;
+    var busy = ["resetPasswordForm", "checkEmailPanel"].some(function(id){
+      var el = document.getElementById(id);
+      return !!el && el.style.display !== "none";
+    });
+    if(busy) return false;
+    return !Array.prototype.some.call(document.querySelectorAll("#authScreen input"), function(input){
+      return input.value !== "" || input === document.activeElement;
+    });
+  }
+  function forgetLastPerson(){
+    try{
+      if(notifPanelClose) notifPanelClose();
+      resetForm();
+      // Back to Overview without drawing it: there is nobody to draw it for.
+      activateTab("overview", true);
+
+      pushNotifs = []; pushNotifsLoaded = false; pushNotifsError = null;
+      teamSettingsCache = null; teamRowsCache = []; teamMonth = null;
+      adminUsersCache = []; adminSettingsOwners = null;
+      auditRowsCache = []; auditLimit = AUDIT_PAGE;
+      notifySelectedIds = new Set(); notifyReachCache = null; notifyHistoryRows = [];
+      announcementHiddenAt = null;
+      selectedEntryIds = new Set();
+
+      // Only containers that are nothing but what a renderer last wrote. The
+      // ones with markup of their own inside (the Admin overview's stat cards,
+      // say) hold figures rather than people, and are left alone.
+      ["adminUsersList", "auditBody", "crashBody", "notifyPeopleList", "awayList",
+       "teamList", "teamActivityList", "teamSummary", "todayTeamList", "notifList",
+       "viewerSelect", "logBody", "pushDevicesList", "passkeyList"].forEach(function(id){
+        var el = document.getElementById(id);
+        if(el) el.innerHTML = "";
+      });
+      var sent = document.getElementById("notifyHistoryList");
+      if(sent) sent.innerHTML = '<p class="settings-hint" style="margin:0;">Nothing sent yet.</p>';
+    }catch(e){ /* a tidy-up that throws must not stop the sign-out */ }
   }
 
   // ---------- Init ----------
@@ -12222,6 +12686,22 @@ import { makeSchedule } from "./src/schedule.js";
     // Coming back after a long pause: the clock and any open-shift reminder
     // would otherwise show whatever they showed when the tab was hidden.
     if(document.visibilityState === "hidden") pushAwaySince = Date.now();
+    // Read before anything below resets it: how long the app was out of sight.
+    var away = pushAwaySince ? Date.now() - pushAwaySince : 0;
+    if(document.visibilityState === "visible"){
+      // A page left open since before the last release would otherwise never
+      // hear of it: the browser looks for a new worker at launch, and this
+      // page was not launched, it was returned to.
+      appUpdate.check();
+      // And if one is already waiting, a return after a real absence, with
+      // nothing open, is the moment to take it: the screen was about to be
+      // re-read anyway. Signed out, there is nothing to interrupt at all.
+      if(appUpdate.ready && !appUpdate.reloadedJustNow() &&
+         (currentUser ? (away >= RESUME_REFRESH_AFTER_MS && appIsIdle(true)) : signedOutScreenIsIdle())){
+        appUpdate.apply();
+        return;
+      }
+    }
     if(document.visibilityState === "visible" && currentUser){
       updateLiveClock();
       renderReminder();
@@ -12229,12 +12709,16 @@ import { makeSchedule } from "./src/schedule.js";
       // have returned without an "online" event ever firing — a phone that
       // slept through the reconnection reports no transition.
       flushOutbox();
+      // And the most common moment for the record to have moved on without
+      // this page: a punch from another device, an edit by an administrator.
+      // It checks for itself whether the copy on screen is old enough to
+      // bother, and stands down while a punch is still waiting to upload.
+      refreshOnResume();
       // Coming back after a real absence is opening the app again, so the
       // question about notifications on this device comes back too.
       // Straight away, though, after "Notifications are blocked": returning
       // from the phone's Settings is exactly how that gets fixed, and the
       // fix should be picked up the moment they are back.
-      var away = pushAwaySince ? Date.now() - pushAwaySince : 0;
       var maybeUnblocked = lastPushReminderKind === "blocked" &&
         pushSupported() && Notification.permission !== "denied";
       if(away >= PUSH_REMIND_AWAY_MS || maybeUnblocked) promptPushHere();
@@ -12329,11 +12813,57 @@ import { makeSchedule } from "./src/schedule.js";
 // localhost) — this silently no-ops on file:// or plain HTTP, which is
 // expected when just opening the file directly to test.
 if("serviceWorker" in navigator){
-  window.addEventListener("load", function(){
-    navigator.serviceWorker.register("sw.js").catch(function(){
+  // Whether a worker was already serving this page when it loaded. The first
+  // worker a browser ever installs also "takes control", and that is not an
+  // update: there was nothing older for it to replace.
+  var hadServiceWorker = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", function(){
+    if(appUpdate.applying){ window.location.reload(); return; }
+    // A new worker took over without this page asking: another tab did. This
+    // page is the old release under the new worker now, and is brought across
+    // at its own next quiet moment like any other.
+    if(hadServiceWorker) markUpdateReady();
+    hadServiceWorker = true;
+  });
+
+  // After the page has finished loading, so the worker's own downloads do not
+  // compete with the page's -- but NOT by listening for "load" alone. This
+  // module pauses at the top on `await import(...)`, and the browser does not
+  // hold the load event for that: by the time execution reaches this line,
+  // "load" has very often already fired, a listener added now is never called,
+  // and the worker was simply not registered on that visit. It went unnoticed
+  // because a registration made on any earlier visit persists; a first visit
+  // that lost the race had no worker, so no offline copy and no notifications,
+  // until some later visit happened to win it.
+  var registerWorker = function(){
+    navigator.serviceWorker.register("sw.js").then(function(reg){
+      appUpdate.registration = reg;
+      // "installed", with a worker already in charge, is a new release saved
+      // and waiting behind the one that is running.
+      function watch(worker){
+        if(!worker) return;
+        worker.addEventListener("statechange", function(){
+          if(worker.state === "installed" && navigator.serviceWorker.controller) markUpdateReady();
+        });
+      }
+      watch(reg.installing);
+      reg.addEventListener("updatefound", function(){ watch(reg.installing); });
+
+      if(reg.waiting && navigator.serviceWorker.controller){
+        // It was waiting before this page even loaded. The page is seconds
+        // old and nobody has touched it, so this is the cheapest moment there
+        // will ever be: one quick reload, and the launch is on the new release
+        // instead of a whole session behind it.
+        appUpdate.ready = true;
+        if(!appUpdate.touched && appUpdate.launchIsPlain() && !appUpdate.reloadedJustNow()) appUpdate.apply();
+        else if(appUpdate.onReady){ try{ appUpdate.onReady(); }catch(e){} }
+      }
+    }).catch(function(){
       // Not fatal — the app still works, it just won't be installable
       // as a PWA until served over HTTPS (e.g. GitHub Pages).
     });
-  });
+  };
+  if(document.readyState === "complete") registerWorker();
+  else window.addEventListener("load", registerWorker, {once: true});
 }
 

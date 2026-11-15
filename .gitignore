@@ -15,6 +15,10 @@ tests/node_modules/
 tests/package-lock.json
 tests/**/harness.html
 
+# The published copy, made from the source by tools/build.mjs (locally, and by
+# the deploy workflow). Generated, so never committed.
+dist/
+
 # Ruflo runtime state, wherever it gets created (it writes to CWD)
 **/.claude-flow/
 **/.swarm/

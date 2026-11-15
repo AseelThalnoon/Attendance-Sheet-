@@ -9,7 +9,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = path.join(__dirname, "..", "..");
+const REPO_ROOT = path.join(__dirname, "..", "..");
 const TYPES = {
   ".html":"text/html; charset=utf-8", ".js":"text/javascript; charset=utf-8",
   ".mjs":"text/javascript; charset=utf-8", ".json":"application/json; charset=utf-8",
@@ -17,7 +17,10 @@ const TYPES = {
   ".jpg":"image/jpeg", ".woff2":"font/woff2", ".svg":"image/svg+xml"
 };
 
-function start(){
+// `root` serves some other folder instead of the repository: the built copy
+// (tools/build.mjs), so a suite can run the app as it is published.
+function start(root){
+  const ROOT = root ? path.resolve(root) : REPO_ROOT;
   return new Promise(resolve => {
     const server = http.createServer((req, res) => {
       let rel = decodeURIComponent(req.url.split("?")[0]);

@@ -12,9 +12,11 @@ const PHONE   = { width: 393, height: 852 };
 // devices["iPhone 15 Pro"] and friends, which carry the viewport, DPR, touch
 // flags and user agent together. Neither is set by any existing caller, so
 // every suite that predates them keeps the Chromium/viewport behaviour it had.
+// opts.root serves another folder in place of the repository -- the built copy
+// of the app -- and is passed straight to the test server.
 async function boot(opts){
   opts = opts || {};
-  const server = await start();
+  const server = await start(opts.root);
   const engine = playwright[opts.engine || "chromium"];
   if(!engine) throw new Error("unknown engine: " + opts.engine);
   const browser = await engine.launch();
