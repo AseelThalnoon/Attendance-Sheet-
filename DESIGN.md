@@ -1278,6 +1278,33 @@ base duration, a hint of direction rather than a swipe. The entry form opened
 from a Log row starts a third of the way toward that row and returns the same
 way. Both fall under the blanket reduced-motion rule.
 
+A saved punch is shown at the size of the thing it confirms (added 2026-11-16,
+on the owner's request for an animation on clocking in and out). The colour of
+the action floods out from the control that was pressed, states the minute that
+was recorded beside a drawn check, and drains back into that control: two
+seconds in all — out in half a second, held for one, back in under half. A
+clock-in floods in the accent, a clock-out in the positive pair; both are pairs
+the palette tool already measures, with the mark drawn as the same pair turned
+over. On a phone it takes the screen. Above 760px it stays inside the Overview's
+clock panel or the sticky bar, and in the panel its three lines carry the
+panel's own three classes, so the live clock appears to freeze into the recorded
+time. A tap sends it away, and nothing under it can be pressed while it is up.
+This is the one place motion is this large, because it is the one moment the app
+exists for. It is not built at all under reduced motion: the note and the toast
+remain the confirmation, and remain the only spoken one.
+
+The punch is also heard and felt (added 2026-11-17, on the owner's request).
+The press answers at once: the control goes down further than an ordinary
+button (.9 on the bar, .94 in the panel), springs back, and a ring in the accent
+goes out from its edge. When the punch is saved a two-note chime plays — G5 to
+C6 clocking in, E6 down to the same C6 clocking out — synthesised with Web
+Audio so that an iPhone on silent stays silent. Where the device allows a web
+page to vibrate, it ticks at the press and beats twice at the save; an iPhone
+does not allow it, so there the press effect is the whole of the push feedback.
+Sound and vibration each have an On/Off switch under Settings › Appearance,
+kept per device like the palette, both on by default. Neither is motion: both
+still play under reduced motion.
+
 ## Do's and Don'ts
 
 ### Do

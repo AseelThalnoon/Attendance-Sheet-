@@ -57,6 +57,7 @@ const SUITES = [
   "regression/whos-away.js",
   "regression/pull-refresh.js",
   "regression/stale-resume.js",
+  "regression/punch-flood.js",
   "regression/csv-export.js",
   "regression/sign-out-clean.js",
   "regression/frame-guard.js",

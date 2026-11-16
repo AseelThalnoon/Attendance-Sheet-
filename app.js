@@ -4284,7 +4284,7 @@ import { makeSchedule } from "./src/schedule.js";
       var outBtn = document.createElement("button");
       outBtn.className = "btn small";
       outBtn.textContent = "Clock Out Now";
-      outBtn.addEventListener("click", function(){ punchClock("out"); });
+      outBtn.addEventListener("click", function(){ punchPressFeedback(outBtn); punchClock("out"); });
       actions.appendChild(outBtn);
     } else {
       // A one-tap fix beats a form: the person's own standard end time is
@@ -6245,6 +6245,363 @@ import { makeSchedule } from "./src/schedule.js";
     panel.classList.add("punched");
   }
 
+  // ---------- The punch, shown ----------
+  // The moment a punch is saved, drawn from the control that made it: see
+  // ".punch-flood" in the stylesheet for what it is and why. This measures the
+  // three numbers the stylesheet cannot -- where the control is, and how far
+  // the farthest corner of the stage is from it -- builds the sheet, and takes
+  // it away again.
+  //
+  // Decoration only, and written so it can never be more than that: it runs
+  // inside punchClock's try block, after the save, where a throw would land in
+  // the catch and tell someone their recorded punch had failed. Hence the
+  // try/catch around all of it. It announces nothing either -- the note and the
+  // toast are still the spoken confirmation -- so it is aria-hidden.
+  var PUNCH_FLOOD_HOLD_MS = 1500;   // out and held; then it starts back
+  var PUNCH_FLOOD_MS = 2000;        // the whole of it
+  var punchFloodTimers = [];
+  function punchControlShown(el){ return !!(el && el.getClientRects().length); }
+
+  // Where a punch was made from, taken as it is pressed and answerable again
+  // later. "Later" is the point: the page does not hold still under the flood.
+  // The save repaints the Overview, a finished day hides the panel's button
+  // altogether, and the "In today" card redraws a moment after that when the
+  // presence call lands -- 41px shorter on a phone, measured, which moved the
+  // button 30px while the flood was up and left it draining into empty card.
+  // So the origin is kept as the control itself, plus the same spot in the
+  // panel or bar that holds it for when the control is gone.
+  function punchOrigin(el){
+    if(!punchControlShown(el)) return {el: el || null, holder: null, dx: 0, dy: 0, at: null};
+    var r = el.getBoundingClientRect();
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    var holder = el.closest(".quick-clock, .sticky-clock");
+    var hb = holder ? holder.getBoundingClientRect() : null;
+    return {el: el, holder: holder, dx: hb ? cx - hb.left : 0, dy: hb ? cy - hb.top : 0, at: [cx, cy]};
+  }
+  function punchOriginPoint(o){
+    if(punchControlShown(o.el)){
+      var r = o.el.getBoundingClientRect();
+      return [r.left + r.width / 2, r.top + r.height / 2];
+    }
+    if(punchControlShown(o.holder)){
+      var hb = o.holder.getBoundingClientRect();
+      return [hb.left + o.dx, hb.top + o.dy];
+    }
+    return o.at;
+  }
+
+  function playPunchFlood(p){
+    try{
+      punchFloodTimers.forEach(clearTimeout);
+      punchFloodTimers = [];
+      var old = document.querySelectorAll(".punch-flood");
+      for(var i = 0; i < old.length; i++) old[i].remove();
+      if(document.hidden) return;
+      if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+      var o = p.origin || punchOrigin(null);
+      if(!o.at){
+        // No control was pressed -- a home-screen shortcut, the reminder's own
+        // button. It comes from whichever clock control is on screen.
+        var ids = ["bnClockBtn", "qcClockBtn", "qcEditBtn", "stickyClockBtn"];
+        for(var j = 0; j < ids.length && !o.at; j++) o = punchOrigin(document.getElementById(ids[j]));
+      }
+      // On a phone the stage is the screen. Above that it is the panel or bar
+      // the control belongs to.
+      var phone = !!(window.matchMedia && window.matchMedia("(max-width:760px)").matches);
+      var host = (!phone && punchControlShown(o.holder)) ? o.holder : null;
+
+      function part(tag, cls, text){
+        var n = document.createElement(tag);
+        if(cls) n.className = cls;
+        if(text) n.textContent = text;
+        return n;
+      }
+      var isOut = p.kind === "out";
+      var flood = part("div", "punch-flood " + (isOut ? "is-out" : "is-in") +
+                       (host ? (host.classList.contains("sticky-clock") ? " is-bar" : "") : " is-screen"));
+      flood.setAttribute("aria-hidden", "true");
+
+      // The centre of the control and the distance from it to the farthest
+      // corner of the stage, in the stage's own coordinates. Asked twice: as
+      // the flood goes out, and again as it turns back.
+      function place(){
+        var pt = punchOriginPoint(o);
+        var box = host ? host.getBoundingClientRect()
+                       : {left:0, top:0, width:window.innerWidth, height:window.innerHeight};
+        var x = pt ? pt[0] - box.left : box.width / 2;
+        var y = pt ? pt[1] - box.top : box.height / 2;
+        var dx = Math.max(x, box.width - x), dy = Math.max(y, box.height - y);
+        flood.style.setProperty("--px", x.toFixed(1) + "px");
+        flood.style.setProperty("--py", y.toFixed(1) + "px");
+        flood.style.setProperty("--pr", (Math.ceil(Math.sqrt(dx * dx + dy * dy)) + 2) + "px");
+      }
+      place();
+
+      // The three lines carry the panel's own classes as well as the flood's:
+      // that is what sets them in the panel's sizes at every breakpoint.
+      var fill = part("div", "punch-flood-fill");
+      var text = part("div", "punch-flood-text");
+      text.appendChild(part("span", "punch-flood-label qc-label", isOut ? "Clocked out" : "Clocked in"));
+
+      // "4:27 PM": the figures rise one after another, the period last.
+      var shown = String(formatTime12(p.time)), cut = shown.indexOf(" ");
+      var figures = cut === -1 ? shown : shown.slice(0, cut);
+      var time = part("span", "punch-flood-time qc-time");
+      for(var k = 0; k < figures.length; k++){
+        var ch = part("span", "", figures.charAt(k));
+        ch.style.setProperty("--i", String(k));
+        time.appendChild(ch);
+      }
+      if(cut !== -1){
+        var period = part("span", "punch-flood-period", shown.slice(cut + 1));
+        period.style.setProperty("--i", String(figures.length));
+        time.appendChild(period);
+      }
+      text.appendChild(time);
+
+      // One more fact under the time: what the day came to, or the day it is.
+      var sub = p.queued ? "Saved on this device"
+              : (typeof p.workedMin === "number" ? minutesToHoursStr(p.workedMin) + " worked"
+              : fmtDateLong(p.date));
+      text.appendChild(part("span", "punch-flood-sub qc-date", sub));
+
+      var mark = part("span", "punch-flood-mark");
+      mark.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path pathLength="1" d="' + CLOCK_DONE_PATH + '"/></svg>';
+      fill.appendChild(text);
+      fill.appendChild(mark);
+      flood.appendChild(fill);
+
+      var over = false;
+      function finish(){
+        if(over) return;
+        over = true;
+        punchFloodTimers.forEach(clearTimeout);
+        punchFloodTimers = [];
+        flood.remove();
+        // The control it drained back into takes the landing, if it is there.
+        if(punchControlShown(o.el)){
+          o.el.classList.remove("punch-landed");
+          void o.el.offsetWidth;
+          o.el.classList.add("punch-landed");
+        }
+      }
+      flood.addEventListener("animationend", function(e){
+        if(e.target === flood && e.animationName === "punchBack") finish();
+      });
+      flood.addEventListener("click", function(){
+        flood.classList.add("is-dismissed");
+        punchFloodTimers.push(setTimeout(finish, 220));
+      });
+      // Back to wherever the control is NOW, which is the reason the way out
+      // and the way back are two animations rather than one: the second is
+      // started here, after measuring again, so no engine has to re-read a
+      // custom property halfway through a keyframe to get it right.
+      punchFloodTimers.push(setTimeout(function(){
+        if(over) return;
+        place();
+        flood.classList.add("is-leaving");
+      }, PUNCH_FLOOD_HOLD_MS));
+      // The guarantee: a sheet over the whole screen must never depend on an
+      // animation event to leave.
+      punchFloodTimers.push(setTimeout(finish, PUNCH_FLOOD_MS + 200));
+      (host || document.body).appendChild(flood);
+    }catch(err){ /* the flourish must never fail the punch */ }
+  }
+
+  // ---------- The punch, heard and felt ----------
+  // A chime when a punch is saved, and on a phone that allows it a tap under
+  // the thumb as the button is pressed and a second one as the punch lands.
+  // With the flood above, that is the confirmation in all three senses a
+  // screen has -- and the two here still work for someone who asked for less
+  // motion and so never sees the flood.
+  //
+  // Two switches, per device like the palette and for the same reason: a
+  // phone in a pocket and a desk in a quiet office are different answers.
+  // Both start on. Saved in this browser; the settings blob and its Save
+  // button are not involved, so flipping one is instant.
+  var PUNCH_FEEDBACK_KEY = "attendance.punchFeedback";
+  function readPunchFeedback(){
+    var out = {sound: true, haptics: true};
+    try{
+      var raw = JSON.parse(safeGet(PUNCH_FEEDBACK_KEY) || "null");
+      if(raw && raw.sound === false) out.sound = false;
+      if(raw && raw.haptics === false) out.haptics = false;
+    }catch(e){ /* defaults stand */ }
+    return out;
+  }
+  var punchFeedback = readPunchFeedback();
+  // Can this device vibrate for a web page at all? Android can. An iPhone
+  // cannot: Safari has never implemented it, and the one workaround -- a
+  // hidden native switch toggled for its haptic -- was closed in iOS 26.5.
+  function punchHapticsAvailable(){ return typeof navigator.vibrate === "function"; }
+
+  // Browsers only let a page start sound from inside a real press, and only
+  // let it vibrate once there has been one. Asking first, where the browser
+  // can be asked, keeps a refusal out of the console.
+  function inUserGesture(){
+    var ua = navigator.userActivation;
+    return ua ? !!ua.isActive : true;
+  }
+  function hadUserGesture(){
+    var ua = navigator.userActivation;
+    return ua ? !!ua.hasBeenActive : true;
+  }
+
+  // ---- Sound ----
+  // Synthesised, two notes, under a second: nothing to download, nothing to
+  // cache, and it works with no connection. Web Audio rather than an <audio>
+  // element on purpose -- on an iPhone the first obeys the silent switch and
+  // the second plays straight through it, and a clock-in chime in a meeting
+  // is the wrong answer.
+  //
+  // The context is MADE in the press (primePunchSound) and PLAYED when the
+  // save comes back (playPunchSound), because those are different moments and
+  // only the first is a user gesture. One context per punch, closed after: a
+  // context kept across a trip to the background comes back "interrupted" on
+  // iOS and stays silent, where a new one made in a new press does not.
+  var punchAudio = null, punchAudioTimer = 0;
+  function closePunchAudio(){
+    clearTimeout(punchAudioTimer);
+    var ctx = punchAudio;
+    punchAudio = null;
+    try{
+      if(ctx && ctx.state !== "closed"){
+        var closing = ctx.close();
+        if(closing && closing.catch) closing.catch(function(){});
+      }
+    }catch(e){ /* already gone */ }
+  }
+  function primePunchSound(){
+    try{
+      if(!punchFeedback.sound || !inUserGesture()) return;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC) return;
+      closePunchAudio();
+      var ctx = punchAudio = new AC();
+      if(ctx.state === "suspended" && ctx.resume){
+        var waking = ctx.resume();
+        if(waking && waking.catch) waking.catch(function(){});
+      }
+      // One silent sample, started inside the gesture: what iOS needs to have
+      // heard before it lets this context make a sound later.
+      var blip = ctx.createBufferSource();
+      blip.buffer = ctx.createBuffer(1, 1, 22050);
+      blip.connect(ctx.destination);
+      blip.start(0);
+      // A press that never becomes a punch -- refused, or a "replace it?"
+      // dialog left open -- must not leave the audio device held.
+      punchAudioTimer = setTimeout(closePunchAudio, 30000);
+    }catch(e){ punchAudio = null; }
+  }
+  // One partial of one note: a sine with a 12ms attack and a long decay.
+  function punchTone(ctx, freq, when, length, peak){
+    var osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, when);
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(peak, when + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + length);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(when);
+    osc.stop(when + length + 0.03);
+  }
+  // Both end on the same note, C6. Clocking in climbs to it (G5, a fourth
+  // below); clocking out comes down to it (E6, a third above) -- arriving and
+  // settling. Each note is its fundamental and a quiet octave over it, which
+  // is what makes it a chime rather than a beep, and the whole thing peaks
+  // near 0.19 of full scale: heard, not announced.
+  var PUNCH_NOTES = {"in": [783.99, 1046.50], "out": [1318.51, 1046.50]};
+  function playPunchSound(kind){
+    try{
+      var ctx = punchAudio;
+      if(!ctx || ctx.state === "closed" || !punchFeedback.sound) return;
+      var notes = PUNCH_NOTES[kind === "out" ? "out" : "in"];
+      var start = ctx.currentTime + 0.03;
+      notes.forEach(function(freq, i){
+        var when = start + i * 0.115, last = i === notes.length - 1;
+        punchTone(ctx, freq, when, last ? 0.62 : 0.34, last ? 0.15 : 0.12);
+        punchTone(ctx, freq * 2, when, last ? 0.30 : 0.20, last ? 0.035 : 0.028);
+      });
+      clearTimeout(punchAudioTimer);
+      punchAudioTimer = setTimeout(closePunchAudio, 1500);
+    }catch(e){ /* a punch is not worth less for being quiet */ }
+  }
+
+  // ---- Touch ----
+  // A 12ms tick as the button goes down; two beats as the punch lands.
+  var PUNCH_BUZZ_PRESS = 12, PUNCH_BUZZ_SAVED = [16, 70, 28];
+  function punchBuzz(pattern){
+    try{
+      if(!punchFeedback.haptics || !punchHapticsAvailable() || !hadUserGesture()) return;
+      navigator.vibrate(pattern);
+    }catch(e){ /* nothing to feel, nothing lost */ }
+  }
+
+  // The press itself, before anything is saved: the sound is made ready, the
+  // phone ticks, and the control springs back with a ring going out from it
+  // (.punch-pressed in the stylesheet). This is the answer to "did it take my
+  // tap?", which the flood cannot give -- it waits for the server.
+  function punchPressFeedback(el){
+    primePunchSound();
+    punchBuzz(PUNCH_BUZZ_PRESS);
+    try{
+      if(el && el.classList){
+        el.classList.remove("punch-pressed");
+        void el.offsetWidth;
+        el.classList.add("punch-pressed");
+      }
+    }catch(e){ /* decoration */ }
+  }
+
+  // The one call punchClock makes for a punch that was recorded: heard, felt,
+  // seen. Each part looks after its own failures; none of them can throw into
+  // punchClock's try block and turn a saved punch into a reported error.
+  function confirmPunch(p){
+    playPunchSound(p.kind);
+    punchBuzz(PUNCH_BUZZ_SAVED);
+    playPunchFlood(p);
+  }
+
+  // The two switches in Settings > Appearance.
+  function refreshPunchFeedbackPanel(){
+    [["punchSoundSeg", "data-sound", punchFeedback.sound],
+     ["punchHapticsSeg", "data-haptics", punchFeedback.haptics]].forEach(function(row){
+      var seg = document.getElementById(row[0]);
+      if(!seg) return;
+      Array.prototype.forEach.call(seg.querySelectorAll("[" + row[1] + "]"), function(btn){
+        var on = (btn.getAttribute(row[1]) === "on") === row[2];
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+        btn.tabIndex = on ? 0 : -1;
+      });
+    });
+    // No switch for something this device cannot do.
+    var hapticsGroup = document.getElementById("punchHapticsGroup");
+    if(hapticsGroup) hapticsGroup.hidden = !punchHapticsAvailable();
+  }
+  function setPunchFeedback(key, on){
+    punchFeedback[key] = !!on;
+    // safeSet swallows a storage failure; the choice still holds for this visit.
+    safeSet(PUNCH_FEEDBACK_KEY, JSON.stringify(punchFeedback));
+    refreshPunchFeedbackPanel();
+  }
+  // Wired here rather than beside the palette's controls, which run a few
+  // thousand lines earlier: everything these touch is declared in this
+  // section, and a `var` is not yet a value above the line that assigns it.
+  // Choosing On plays what was chosen -- the choice is a press, so the browser
+  // allows it, and nobody should have to clock in to find out what they just
+  // switched on.
+  initRadioGroup(document.getElementById("punchSoundSeg"), "data-sound", function(value){
+    setPunchFeedback("sound", value === "on");
+    if(value === "on"){ primePunchSound(); playPunchSound("in"); }
+  });
+  initRadioGroup(document.getElementById("punchHapticsSeg"), "data-haptics", function(value){
+    setPunchFeedback("haptics", value === "on");
+    if(value === "on") punchBuzz(PUNCH_BUZZ_SAVED);
+  });
+  refreshPunchFeedbackPanel();
+
   // Disabled buttons only stop taps, and punchClock is also reachable
   // programmatically (see the quick-clock dispatch further up). The buttons
   // are the visual affordance; this flag is the actual lock that serialises
@@ -6315,8 +6672,11 @@ import { makeSchedule } from "./src/schedule.js";
     return null;
   }
 
-  async function punchClock(kind){
+  async function punchClock(kind, originEl){
     if(punchInFlight) return;
+    // Where the punch was made from, taken now: by the time it is saved the
+    // control may have been repainted or hidden (a finished day has no button).
+    var origin = punchOrigin(originEl);
     if(!isOwnData){
       showToast("Switch back to \"Viewing: Me\" to clock in or out — you can only punch your own clock.", "error");
       return;
@@ -6421,6 +6781,8 @@ import { makeSchedule } from "./src/schedule.js";
         if(c.workedMin !== null) msg += " · " + minutesToHoursStr(c.workedMin) + " worked";
       }
       showQcNote(msg, true);
+      confirmPunch({kind:kind, origin:origin, time:timeNow, date:targetDate,
+                    workedMin: kind === "out" ? c.workedMin : null});
     }catch(err){
       if(isNetworkError(err)){
         queuePunch(currentUser.id, targetDate, field, timeNow);
@@ -6435,6 +6797,7 @@ import { makeSchedule } from "./src/schedule.js";
         pulseQuickClock();
         showQcNote("Clocked " + kind + " at " + formatTime12(timeNow) + " · " +
                    fmtDate(targetDate) + " · saved on this device, uploads when you're back online", true);
+        confirmPunch({kind:kind, origin:origin, time:timeNow, date:targetDate, queued:true});
       } else if(err && err.stale){
         // The day already has a row this screen did not know about (a punch
         // from another device, usually). Awaited inside the try, so the clock
@@ -6597,7 +6960,8 @@ import { makeSchedule } from "./src/schedule.js";
     if(el.disabled || el.classList.contains("disabled")) return;
     var action = el.getAttribute("data-clock-action") || "in";
     if(action === "edit"){ editToday(); return; }
-    punchClock(action);
+    punchPressFeedback(el);
+    punchClock(action, el);
   }
 
   onId("qcClockBtn", "click", function(){ clockControlClick(this); });
