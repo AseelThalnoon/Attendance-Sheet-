@@ -7215,9 +7215,21 @@
           <span class="sr-only">Alerts</span>
           <span class="notif-badge" id="notifBadge" hidden></span>
         </button>
-        <button type="button" class="head-action" id="adminBtn" style="display:none;" aria-current="false" title="Organisation admin">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
-          <span>Admin</span>
+        <!-- Team, on a phone, for administrators. It was a sixth slot in the
+             bottom bar, which made that bar five places for an admin and four
+             for everyone else, with an empty slot beside the clock. It sits
+             with Admin and Settings instead: the three destinations that are
+             about the organisation or the app rather than your own days. Above
+             760px the rail's Team item does this job and this is hidden. -->
+        <button type="button" class="head-action is-icon" id="teamBtn" style="display:none;" aria-current="false" title="Team" aria-label="Team">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span class="sr-only">Team</span>
+        </button>
+        <!-- An icon like its neighbours. The shield is the label; the word is
+             kept for screen readers and the tooltip. -->
+        <button type="button" class="head-action is-icon" id="adminBtn" style="display:none;" aria-current="false" title="Organisation admin" aria-label="Admin">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.2-2.9 8-7 9.5-4.1-1.5-7-5.3-7-9.5V6z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>
+          <span class="sr-only">Admin</span>
         </button>
         <!-- An icon, like refresh and the bell beside it. It was a labelled
              pill when Sign out sat in this row too -- three bare discs, one of
@@ -9027,10 +9039,6 @@
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>
       <span>Calen&shy;dar</span>
     </button>
-    <button type="button" class="bn-item" data-bn-tab="team" id="bnTeamBtn">
-      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span>Team</span>
-    </button>
   </div>
 </nav>
 
@@ -9148,6 +9156,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v50"></script>
+<script type="module" src="app.js?v=v51"></script>
 </body>
 </html>
