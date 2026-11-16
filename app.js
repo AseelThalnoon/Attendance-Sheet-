@@ -1554,6 +1554,14 @@ import { makeSchedule } from "./src/schedule.js";
     if(card) card.scrollIntoView({behavior:"smooth", block:"start"});
   });
 
+  // The phone header's Team button. Through the real tab button, like every
+  // other nav surface, so the admin guard and the render live in one place.
+  onId("teamBtn", "click", function(){
+    if(!isAdmin) return;
+    var realTab = document.querySelector('.tab-btn[data-tab="team"]');
+    if(realTab) realTab.click();
+  });
+
   // ---------- Settings UI ----------
   function buildDayPicker(){
     var wrap = document.getElementById("dayPicker");
@@ -6744,8 +6752,10 @@ import { makeSchedule } from "./src/schedule.js";
     // slots for an admin and the labels get tight at 320px — but the rail is
     // hidden below 760px and the tab strip with it, so anything dropped here
     // would be unreachable on a phone entirely rather than merely crowded.
-    var order = ["overview", "log", "trends", "calendar"]
-      .concat(isAdmin ? ["team"] : []);
+    // The same four for everyone. Team used to be appended here for an admin,
+    // which made the bar five places with a spacer beside the clock; it is a
+    // header button now (#teamBtn), next to Admin and Settings.
+    var order = ["overview", "log", "trends", "calendar"];
 
     // Return anything no longer in scope to the hidden pool FIRST. Without this,
     // an admin who demoted themselves kept Team and Admin sitting in the visible
@@ -6885,6 +6895,8 @@ import { makeSchedule } from "./src/schedule.js";
     // Admin lives outside the tablist, so its own trigger carries the state.
     var adminBtn = document.getElementById("adminBtn");
     if(adminBtn) adminBtn.setAttribute("aria-current", tab === "admin" ? "page" : "false");
+    var teamBtn = document.getElementById("teamBtn");
+    if(teamBtn) teamBtn.setAttribute("aria-current", tab === "team" ? "page" : "false");
     // Settings on the phone header is the same kind of destination: on its
     // own tab it shows as the current page rather than as a way to get there.
     var settingsBtn = document.getElementById("settingsBtn");
@@ -9901,11 +9913,13 @@ import { makeSchedule } from "./src/schedule.js";
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
       document.getElementById("adminBtn").style.display = "";
+      document.getElementById("teamBtn").style.display = "";
       layoutBottomNav();
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
       document.getElementById("adminBtn").style.display = "none";
+      document.getElementById("teamBtn").style.display = "none";
       layoutBottomNav();
       if(viewedUserId !== currentUser.id){
         viewedUserId = currentUser.id;
@@ -12651,11 +12665,13 @@ import { makeSchedule } from "./src/schedule.js";
       document.getElementById("viewerSwitchWrap").style.display = "flex";
       document.getElementById("teamTabBtn").style.display = "";
       document.getElementById("adminBtn").style.display = "";
+      document.getElementById("teamBtn").style.display = "";
       layoutBottomNav();
     } else {
       document.getElementById("viewerSwitchWrap").style.display = "none";
       document.getElementById("teamTabBtn").style.display = "none";
       document.getElementById("adminBtn").style.display = "none";
+      document.getElementById("teamBtn").style.display = "none";
       layoutBottomNav();
     }
 

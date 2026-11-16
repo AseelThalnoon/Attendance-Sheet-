@@ -1263,8 +1263,10 @@ Four things changed on 2026-11-16, on the owner's decision:
 ### Navigation and motion
 Shortfall is a view inside Trends — the third button on the Weekly / Monthly
 switch — rather than a destination of its own (changed 2026-11-16, on the
-owner's decision). The phone bar is Overview, Log, Trends, the clock, Calendar,
-and Team for an admin. The Shortfall panel itself is unchanged; only the way in
+owner's decision). The phone bar is the same for everyone: Overview, Log, the
+clock, Trends, Calendar. Team, for an admin, is an icon in the phone header beside
+Admin and Settings, and Admin is an icon (the shield) rather than a labelled
+pill. The Shortfall panel itself is unchanged; only the way in
 moved.
 
 The clock button draws start and stop (a triangle and a square), not a right and
