@@ -39,6 +39,12 @@ const allEnabled = s => IDS.every(id => s[id] === false);
 // A disabled button swallows el.click() exactly as it swallows a real tap.
 const tapAll = page => page.evaluate(ids => ids.forEach(id => document.getElementById(id).click()), IDS);
 const saves = page => page.evaluate(() => window.__saveCalls);
+// What the punch asked the flood to draw. The element goes back as its id: a
+// node does not survive the trip out of the page.
+const floods = page => page.evaluate(() => window.__floods.map(f => ({
+  kind: f.kind, from: f.origin && f.origin.el ? f.origin.el.id : null,
+  measured: !!(f.origin && f.origin.at), time: f.time, queued: !!f.queued
+})));
 
 (async () => {
   const browser = await chromium.launch();
@@ -70,6 +76,16 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   const after = await states(page);
   eq(allEnabled(after), true, "all five re-enabled once the punch completes");
   eq(after._bnPointerEvents, "auto", "bottom-nav button clickable again (measured)");
+
+  // ---------- the punch, shown ----------
+  // The flood is drawn from the control that was pressed, so the punch has to
+  // say which one that was and where it stood BEFORE the repaint that follows
+  // a save -- a finished day hides the Overview's button, and a hidden node
+  // has no position left to measure.
+  eq(await page.evaluate(() => window.__presses), ["qcClockBtn"],
+     "the press is answered once, at the press: the taps swallowed during the save are not");
+  eq(await floods(page), [{ kind: "in", from: "qcClockBtn", measured: true, time: "09:00", queued: false }],
+     "a saved punch plays the flood once, from the control that was pressed, with the minute it recorded");
 
   // ---------- a caller that doesn't go through the buttons ----------
   // Disabled buttons only stop taps, and punchClock is also reachable
@@ -111,6 +127,7 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   eq(afterFail._bnHasDisabledClass, false, "bottom-nav .disabled removed after failure");
   eq(await page.evaluate(() => window.__toasts.length > 0), true, "a failed save surfaces an error toast");
   eq(await page.evaluate(() => outbox.length), 0, "a rejected punch is NOT queued for retry");
+  eq((await floods(page)).length, 0, "and plays no flood: nothing was recorded, so nothing is celebrated");
 
   // A punch must still be possible after a failure — the flag can't wedge on.
   await page.click("#qcClockBtn");
@@ -136,6 +153,7 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   eq(await page.evaluate(() => window.__toasts.length), 0,
      "a stale refusal is not shown as the database's own error");
   eq(await page.evaluate(() => outbox.length), 0, "and is not queued as if the connection had dropped");
+  eq((await floods(page)).length, 0, "nor shown as a punch that went through");
   eq(allDisabled(await states(page)), true,
      "the clock stays locked while the record is being read again");
   await tapAll(page);
@@ -159,6 +177,8 @@ const saves = page => page.evaluate(() => window.__saveCalls);
   eq(await page.evaluate(() => (outbox[0] || {}).time  || null), "09:00", "the queued punch keeps the time it was made, not the time it uploads");
   eq(await page.evaluate(() => window.__toasts.length), 0, "a queued punch is not reported as an error");
   eq(await page.evaluate(() => window.__notes.length > 0), true, "a queued punch still confirms to the person who made it");
+  eq(await floods(page), [{ kind: "in", from: "qcClockBtn", measured: true, time: "09:00", queued: true }],
+     "and plays the flood, marked as saved on this device rather than uploaded");
 
   // Tapping again with no signal must not stack duplicates: the server would
   // have collapsed repeats into one value, so the queue does too.

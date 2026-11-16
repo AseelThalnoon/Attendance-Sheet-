@@ -25,6 +25,23 @@ function fmtDate(d){ return d; }
 function renderAll(){}
 function pulseSeal(){}
 function pulseQuickClock(){}
+// What a saved punch asks for: the chime, the two-beat buzz and the flood from
+// the control that made it, all behind one call. Recorded, not performed: this
+// page has no stylesheet to draw with, and what matters here is that a saved
+// punch asks and a refused punch does not.
+window.__floods = [];
+function confirmPunch(p){ window.__floods.push(p); }
+// What a press does before anything is saved: readies the sound, ticks the
+// phone, springs the control. Counted by which control it was given.
+window.__presses = [];
+function punchPressFeedback(el){ window.__presses.push(el ? el.id : null); }
+// The origin punchClock() takes as the control is pressed. The real one also
+// measures the panel around the control; all this suite needs is which control
+// it was and that it was measured before the save, not after.
+function punchOrigin(el){
+  var shown = !!(el && el.getClientRects().length);
+  return { el: el || null, at: shown ? [0, 0] : null };
+}
 function safeGet(){ return null; }
 function safeSet(){ return true; }
 function showQcNote(m){ window.__notes.push(m); }

@@ -2969,6 +2969,215 @@
   .qc-note.success{color:var(--positive-on-dark);}
   .qc-note.pulse{animation:fadeIn .3s var(--ease-soft);}
 
+  /* ---------- The punch, shown ----------
+     Clocking in or out is the one thing most people open this app to do, and
+     its confirmation was a line of 11.5px text that on a phone sits below the
+     bottom of the screen. This is that moment drawn at the size it deserves:
+     the colour of the action floods out from the control that was pressed,
+     states the minute that was recorded, and drains back into that control.
+
+     Clock-in floods in the accent (the gold button, spread); clock-out in the
+     positive pair the app already uses for a day that is met. Both pairs are
+     ones tools/palettes.mjs measures in all fourteen compositions, and every
+     colour here is a token, so the flood is the palette's own in each of them.
+
+     Two layers move, a beat apart. .punch-flood is the leading wave -- the
+     same fill at 38% -- and .punch-flood-fill is the solid sheet that carries
+     the words. Each is a clip-path circle about --px/--py, the centre of the
+     control, grown to --pr, the distance to the farthest corner (playPunchFlood
+     in app.js measures all three).
+
+     Inside a host (the Overview's clock panel, the sticky bar) it is that
+     host's own box and padding, and its text is set in the panel's own three
+     sizes so the live clock appears to freeze into the recorded time. On a
+     phone there is no host: it takes the screen. */
+  .punch-flood{
+    --pf-bg:var(--gradient-gold); --pf-solid:var(--gold); --pf-dir:1;
+    position:absolute; inset:0; z-index:5; overflow:hidden;
+    border-radius:inherit; padding:inherit; color:var(--ink-on-gold);
+    clip-path:circle(0px at var(--px, 50%) var(--py, 50%));
+    animation:punchOut .48s cubic-bezier(.2,.8,.2,1) both;
+    -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none;
+  }
+  /* Out settles where in rises: its label and last line arrive from above
+     instead of below. */
+  .punch-flood.is-out{
+    --pf-bg:var(--positive-bg); --pf-solid:var(--positive-bg); --pf-dir:-1;
+    color:var(--positive);
+  }
+  .punch-flood::before{
+    content:""; position:absolute; inset:0; background:var(--pf-solid); opacity:.38;
+  }
+  /* align-content:flex-start keeps the one flex line at its natural height at
+     the top of the box, which is exactly how the panel underneath lays out its
+     own first row -- so the words land on the words they replace, whether or
+     not the note below has added a second row. */
+  .punch-flood-fill{
+    position:absolute; inset:0; border-radius:inherit; padding:inherit;
+    display:flex; flex-wrap:wrap; align-items:center; align-content:flex-start;
+    justify-content:space-between; gap:14px;
+    background:var(--pf-bg);
+    clip-path:circle(0px at var(--px, 50%) var(--py, 50%));
+    animation:punchOut .5s cubic-bezier(.2,.8,.2,1) .08s both;
+  }
+  .punch-flood-text{display:flex; flex-direction:column; gap:2px; min-width:0;}
+  /* The three lines ARE .qc-label, .qc-time and .qc-date -- playPunchFlood()
+     gives them those classes -- so they take the panel's own sizes at every
+     breakpoint and land on the words they replace to the pixel. Only the
+     colour is the flood's. A second copy of those sizes here would have been
+     right at 1440px and 8px out at 780, where the panel's time steps down. */
+  .punch-flood .punch-flood-label{
+    font-weight:700; color:inherit;
+    animation:punchTextIn .4s var(--ease-soft) .28s both;
+  }
+  /* overflow:hidden is the slot the figures rise out of. */
+  .punch-flood .punch-flood-time{
+    display:flex; align-items:baseline; overflow:hidden; color:inherit;
+  }
+  /* Always up from below, in both directions. The figures stand on the bottom
+     edge of the slot, so 110% of their own height clears it; from above, "PM"
+     -- a fraction of the height of the line it shares -- would have had to
+     travel the whole line and instead sat in view from the first frame. */
+  .punch-flood-time span{
+    display:inline-block; white-space:pre;
+    transform:translateY(110%);
+    animation:punchFigureIn .5s var(--ease-soft) calc(.3s + var(--i, 0) * .032s) both;
+  }
+  /* max(): .42em of the panel's 23px step, or of the sticky bar's 15px, would
+     put "PM" under the 11px floor. */
+  .punch-flood-time .punch-flood-period{font-size:max(11px, .42em); letter-spacing:.06em; margin-left:.3em;}
+  .punch-flood .punch-flood-sub{
+    color:inherit;
+    animation:punchTextIn .4s var(--ease-soft) .5s both;
+  }
+  /* The mark is the text colour as a fill with the flood's colour drawn on it:
+     the measured pair, turned over. */
+  .punch-flood-mark{
+    position:relative; flex:0 0 auto; width:44px; height:44px; border-radius:50%;
+    background:currentColor; display:grid; place-items:center;
+    animation:punchMarkIn .52s cubic-bezier(.34,1.56,.64,1) .2s both;
+  }
+  .punch-flood-mark::after{
+    content:""; position:absolute; inset:0; border-radius:50%; border:2px solid currentColor;
+    animation:punchMarkRing .8s var(--ease-soft) .36s both;
+  }
+  .punch-flood-mark svg{
+    width:54%; height:54%; fill:none; stroke:var(--pf-solid); stroke-width:2.6;
+    stroke-linecap:round; stroke-linejoin:round;
+  }
+  .punch-flood-mark path{
+    stroke-dasharray:1; stroke-dashoffset:1;
+    animation:punchCheck .32s var(--ease-snap) .46s both;
+  }
+
+  /* The sticky bar is one line tall: the label and the time share it. */
+  .punch-flood.is-bar .punch-flood-fill{align-content:center;}
+  .punch-flood.is-bar .punch-flood-text{flex-direction:row; align-items:baseline; gap:10px;}
+  .punch-flood.is-bar .punch-flood-time{font-size:15px; line-height:1.3;}
+  .punch-flood.is-bar .punch-flood-sub{display:none;}
+  .punch-flood.is-bar .punch-flood-mark{width:30px; height:30px;}
+
+  /* The whole screen. 220 puts it over the toast stack (200) and a dialog
+     (210) and under the status-bar strip (300), the skip link and the crash
+     notice, which nothing may cover. */
+  .punch-flood.is-screen{position:fixed; z-index:220; border-radius:0; padding:0;}
+  .punch-flood.is-screen .punch-flood-fill{
+    flex-direction:column-reverse; flex-wrap:nowrap; justify-content:center; gap:26px;
+    text-align:center;
+    padding:calc(24px + env(safe-area-inset-top, 0px)) calc(24px + env(safe-area-inset-right, 0px))
+            calc(24px + env(safe-area-inset-bottom, 0px)) calc(24px + env(safe-area-inset-left, 0px));
+  }
+  .punch-flood.is-screen .punch-flood-text{align-items:center; gap:6px;}
+  .punch-flood.is-screen .punch-flood-label{font-size:13px; letter-spacing:.16em;}
+  .punch-flood.is-screen .punch-flood-time{
+    font-size:clamp(52px, 19vw, 84px); line-height:1.05; letter-spacing:-.02em;
+  }
+  .punch-flood.is-screen .punch-flood-sub{font-size:15px; margin-top:6px;}
+  .punch-flood.is-screen .punch-flood-mark{width:88px; height:88px;}
+  .punch-flood.is-screen .punch-flood-mark::after{border-width:3px;}
+  /* A phone on its side: 360px of height has to hold the mark and three lines. */
+  @media (max-height:500px){
+    .punch-flood.is-screen .punch-flood-fill{gap:14px;}
+    .punch-flood.is-screen .punch-flood-time{font-size:52px;}
+    .punch-flood.is-screen .punch-flood-mark{width:60px; height:60px;}
+  }
+
+  /* A tap anywhere on it sends it away early. */
+  .punch-flood.is-dismissed{
+    opacity:0; pointer-events:none; transition:opacity var(--dur-base) var(--ease-snap);
+  }
+
+  /* Out, then back, as two animations rather than one. The page moves under
+     the flood (see punchOrigin in app.js), so the way back has to be aimed at
+     where the control is by then: playPunchFlood() measures again, rewrites
+     --px/--py/--pr and adds .is-leaving, which starts punchBack from scratch
+     with the new numbers. Both hold a full-stage circle at the join, so the
+     change of centre is never seen.
+
+     The wave leads out and trails back; the sheet follows it out and leaves
+     first: 80ms apart each way. */
+  .punch-flood.is-leaving{animation:punchBack .42s cubic-bezier(.5,0,.85,.35) .08s both;}
+  .punch-flood.is-leaving .punch-flood-fill{animation:punchBack .42s cubic-bezier(.5,0,.85,.35) both;}
+  @keyframes punchOut{
+    from{clip-path:circle(0px at var(--px, 50%) var(--py, 50%));}
+    to{clip-path:circle(var(--pr, 150vmax) at var(--px, 50%) var(--py, 50%));}
+  }
+  @keyframes punchBack{
+    from{clip-path:circle(var(--pr, 150vmax) at var(--px, 50%) var(--py, 50%));}
+    to{clip-path:circle(0px at var(--px, 50%) var(--py, 50%));}
+  }
+  @keyframes punchTextIn{
+    from{opacity:0; transform:translateY(calc(var(--pf-dir) * 8px));}
+    to{opacity:1; transform:none;}
+  }
+  @keyframes punchFigureIn{to{transform:none;}}
+  @keyframes punchMarkIn{from{opacity:0; transform:scale(.2);} to{opacity:1; transform:none;}}
+  @keyframes punchMarkRing{from{opacity:.55; transform:scale(1);} to{opacity:0; transform:scale(1.9);}}
+  @keyframes punchCheck{to{stroke-dashoffset:0;}}
+
+  /* The press, before anything is saved (punchPressFeedback in app.js). The
+     control springs back from where the finger pushed it and a ring goes out
+     from its edge: the answer to "did it take my tap?", given at once, where
+     the flood has to wait for the server. On an iPhone this is the whole of
+     the push feedback -- Safari gives a web page no way to vibrate.
+
+     The ring is a box-shadow, so it follows the control's own shape -- the
+     round bar button and the pill in the panel alike -- and is not clipped by
+     .btn's overflow:hidden, which only clips what is inside the box. It is the
+     accent at 60% going to nothing; over the ink bar button, which a gold ring
+     would not belong to, it is the ink instead. */
+  .punch-pressed{
+    --punch-ring:var(--gold-rgb);
+    animation:punchPress .46s var(--ease-soft);
+  }
+  .bn-clock.clocked-in.punch-pressed, .bn-clock.is-done.punch-pressed{--punch-ring:var(--ink-950-rgb);}
+  @keyframes punchPress{
+    0%{transform:scale(.9); box-shadow:0 0 0 0 rgba(var(--punch-ring), .6);}
+    55%{transform:scale(1.04);}
+    100%{transform:scale(1); box-shadow:0 0 0 18px rgba(var(--punch-ring), 0);}
+  }
+  /* And while the finger is still down, further than an ordinary button goes
+     (.97): this is the control the app exists for. It outranks the :active
+     block near the end of the sheet by specificity, not by order -- two
+     classes against its one. The bar button's own press is with .bn-clock. */
+  .btn.qc-btn:active{transform:translateY(0) scale(.94);}
+
+  /* The control it drained back into takes the landing -- the seal's beat. */
+  .punch-landed{animation:punchLand .5s var(--ease-soft);}
+  @keyframes punchLand{
+    0%{transform:scale(1);}
+    40%{transform:scale(1.08);}
+    100%{transform:scale(1);}
+  }
+
+  /* Asked for less motion: no flood at all, and playPunchFlood() never builds
+     one. This is the belt to that brace -- the blanket rule above would
+     otherwise shorten both animations to nothing and leave a sheet that
+     appears whole and vanishes on a timer. */
+  @media (prefers-reduced-motion: reduce){
+    .punch-flood{display:none;}
+  }
+
   /* ---------- Form ---------- */
   /* auto-fit with a 150px floor rather than a fixed 6 columns: a fixed count
      squeezed each cell to ~95px between 761px and 932px (phone landscape,
@@ -6475,7 +6684,9 @@
     transition:transform var(--dur-fast) var(--ease-snap), background var(--dur-fast) var(--ease-snap);
   }
   .bn-clock svg{width:27px; height:27px;}
-  .bn-clock:active{transform:scale(.96);}
+  /* .9, where it was .96: 2.5px of travel on a 64px button was under what a
+     thumb covering it can see. See .punch-pressed for what follows the press. */
+  .bn-clock:active{transform:scale(.9);}
   .bn-clock.clocked-in{background:var(--gradient-ink); color:#fff; box-shadow:0 4px 14px rgba(17,17,16,.4);}
   /* The third state. Gold invites a punch, the ink fill says "you are on the
      clock" — a finished day is neither, and leaving it gold made the loudest
@@ -8195,7 +8406,7 @@
       <div class="console-section" data-section="appearance" id="csec-appearance" role="tabpanel" aria-labelledby="cnav-appearance" tabindex="0">
         <div class="console-section-head">
           <h3>Appearance</h3>
-          <p>How the app looks on this device. Saved in this browser, not to your account — so a phone can sit in dark while the desk stays light.</p>
+          <p>How the app looks, sounds and feels on this device. Saved in this browser, not to your account — so a phone can sit in dark while the desk stays light.</p>
         </div>
 
         <div class="appearance-group">
@@ -8305,6 +8516,29 @@
               </span>
             </button>
           </div>
+        </div>
+
+        <!-- Clocking in and out, heard and felt. Per device, like everything
+             else in this section, and instant: no Save button. The segmented
+             tray is the Mode control's, doing the same job. -->
+        <div class="appearance-group" id="punchSoundGroup">
+          <label id="punchSoundLabel">Clock-in sound</label>
+          <div class="appearance-seg" role="radiogroup" aria-labelledby="punchSoundLabel" id="punchSoundSeg">
+            <button type="button" class="appearance-seg-btn" role="radio" data-sound="on" aria-checked="true">On</button>
+            <button type="button" class="appearance-seg-btn" role="radio" data-sound="off" aria-checked="false">Off</button>
+          </div>
+          <p class="settings-hint">A short chime when you clock in or out. A phone on silent stays silent.</p>
+        </div>
+
+        <!-- Hidden where the device cannot vibrate for a web page, which is
+             every iPhone: refreshPunchFeedbackPanel() decides. -->
+        <div class="appearance-group" id="punchHapticsGroup" hidden>
+          <label id="punchHapticsLabel">Vibration</label>
+          <div class="appearance-seg" role="radiogroup" aria-labelledby="punchHapticsLabel" id="punchHapticsSeg">
+            <button type="button" class="appearance-seg-btn" role="radio" data-haptics="on" aria-checked="true">On</button>
+            <button type="button" class="appearance-seg-btn" role="radio" data-haptics="off" aria-checked="false">Off</button>
+          </div>
+          <p class="settings-hint">A tap you can feel as you press the clock button, and two more when the punch is saved.</p>
         </div>
       </div>
 
@@ -9156,6 +9390,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v52"></script>
+<script type="module" src="app.js?v=v53"></script>
 </body>
 </html>
