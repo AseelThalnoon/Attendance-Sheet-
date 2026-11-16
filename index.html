@@ -1461,6 +1461,8 @@
     line-height:1.1; color:#fff; letter-spacing:-.02em;
   }
   .seal .seal-value.long{font-size:14px; letter-spacing:0;}
+  /* Second line of an open shift: what is left of the target. */
+  .seal .seal-sub{font-size:12px; color:var(--muted-on-dark); margin:0;}
   /* Status reads as a coloured edge, not a tinted panel — the accents are
      fills here, at a size where they never carry text. */
   .seal.status-over{border-left:3px solid var(--mint);}
@@ -1916,7 +1918,7 @@
      the mirror. --rail is dark in both modes by contract, which is what every
      token on top of it already assumes. */
   .today-line{
-    display:none; align-items:baseline; gap:var(--space-3);
+    display:none; align-items:center; gap:var(--space-3);
     padding:var(--space-3) var(--space-4); margin-bottom:var(--space-4);
     background:var(--rail); border-radius:var(--radius-md); color:#fff;
   }
@@ -1924,7 +1926,9 @@
     font-size:11px; font-weight:500; text-transform:uppercase;
     letter-spacing:.12em; color:var(--muted-on-dark);
   }
-  .today-line-value{font-size:20px; font-weight:900; letter-spacing:-.02em; margin-left:auto;}
+  .today-line-text{display:flex; flex-direction:column; gap:2px; min-width:0;}
+  .today-line-sub{font-size:12px; color:var(--muted-on-dark);}
+  .today-line-value{font-size:20px; font-weight:900; letter-spacing:-.02em; margin-left:auto; white-space:nowrap; font-variant-numeric:tabular-nums;}
   .today-line.status-over .today-line-value{color:var(--positive-on-dark);}
   .today-line.status-under .today-line-value{color:var(--negative-on-dark);}
   @media (max-width:759px){ .today-line:not([hidden]){display:flex;} }
@@ -1934,18 +1938,39 @@
      other tab had them as a quarter of the screen above its own content, and
      the clock button in the bottom bar already says where today stands. */
   .head-tab-name{display:none;}
+  /* The name of the tab, at every width. It was phone-only, and a pointer got
+     "Hello Frame" above the Log, the Calendar and Settings alike: a greeting
+     where the page title belongs, on the screens where the rail's lime bar was
+     the only thing saying which one this is. */
+  body.head-compact #headGreeting{display:none;}
+  body.head-compact .head-tab-name{display:inline;}
+  .head-titles{display:flex; align-items:center; gap:10px;}
+  .avatar.head-avatar{display:none; flex:0 0 auto; width:36px; height:36px; font-size:13px;}
   /* One line when it fits. An admin's row carries a fourth button, and on a
      320px phone even three do not leave room for "Shortfall" -- there the
      buttons wrap under the name rather than truncating it or running off the
      edge. */
   @media (max-width:760px){
-    body.head-compact .head-inner{align-items:center; gap:var(--space-2);}
-    body.head-compact .head-titles{flex:1 1 auto;}
-    body.head-compact .head-title{font-size:20px; white-space:nowrap;}
-    body.head-compact #headGreeting{display:none;}
-    body.head-compact .head-tab-name{display:inline;}
-    body.head-compact .head-right{width:auto; flex:0 1 auto; max-width:100%;}
+    /* Overview too. Its buttons used to sit on a row of their own under the
+       greeting -- the one tab whose header was two rows, and the one tab
+       people open most. */
+    /* Two classes each: the 860px block further down sets .head-right to
+       width:100% (which is what put the buttons on their own row), and at one
+       class apiece the later rule wins. */
+    .ledger-head .head-inner{align-items:center; gap:var(--space-2);}
+    .head-inner .head-titles{flex:1 1 auto;}
+    .head-inner .head-title{font-size:20px; min-width:0; overflow-wrap:anywhere;}
+    /* A tab's name is one short word and stays on one line; the greeting
+       carries a first name of any length and wraps instead of running off a
+       320px screen. */
+    body.head-compact .head-inner .head-title{white-space:nowrap;}
+    .head-inner .head-right{width:auto; flex:0 1 auto; max-width:100%;}
     body.head-compact .today-line:not([hidden]){display:none;}
+    /* Only for your own record with no photo (body.own-monogram, set by
+       renderPersonCard). With a photo the card is the one image in the app and
+       stays; on someone else's record it says whose days these are. */
+    body.own-monogram:not(.head-compact) .head-avatar{display:flex;}
+    body.own-monogram .overview-panel > .portrait-card{display:none;}
   }
   @media (max-width:359px){ body.head-compact .head-title{font-size:17px;} }
 
@@ -3647,6 +3672,16 @@
   }
 
   .punct-stats{margin-bottom:24px;}
+  /* Two by two on a phone, the way Team's four tiles already are. Inside the
+     tab card there are 333px to share at 393, a few short of the two 170px
+     columns the page-level grid asks for, so the four figures stacked into one
+     column and put the chart a full screen down. */
+  @media (max-width:700px){
+    .stats-row.punct-stats{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:14px;}
+    .punct-stats .stat-card{padding:10px 12px; border-radius:var(--radius-sm);}
+    .punct-stats .stat-value{font-size:19px;}
+    .punct-stats .stat-detail{font-size:12px;}
+  }
   .late-cell{color:var(--negative); font-weight:700;}
   /* The one line that replaces three empty findings cards. Positive, not
      neutral: nothing to flag is the good outcome on this tab, and it should
@@ -3693,6 +3728,21 @@
   .tab-btn[data-tab="team"]{margin-left:10px; padding-left:16px; border-left:1px solid var(--line-soft);}
   .tab-panel{display:none;}
   .tab-panel.active{display:block; animation:fadeIn .25s var(--ease-soft);}
+  /* On a phone the tabs are a row of places along the bottom bar, so moving
+     between them goes the way the thumb went: a tab to the right of the one
+     you were on comes in from the right, one to the left from the left.
+     activateTab() writes data-enter; without it (the first screen, a view
+     switch inside Trends, a pointer) this is the plain fade above. 12px and
+     the base duration -- a hint of direction, not a page being swiped. */
+  @keyframes tabInFwd{from{opacity:0; transform:translateX(12px);} to{opacity:1; transform:none;}}
+  @keyframes tabInBack{from{opacity:0; transform:translateX(-12px);} to{opacity:1; transform:none;}}
+  @media (max-width:760px){
+    /* The 12px start position must not widen the page for the length of the
+       animation; clip, not hidden, so main does not become a scroll box. */
+    main{overflow-x:clip;}
+    .tab-panel.active[data-enter="fwd"]{animation:tabInFwd var(--dur-base) var(--ease-soft);}
+    .tab-panel.active[data-enter="back"]{animation:tabInBack var(--dur-base) var(--ease-soft);}
+  }
 
   .sub-tabs{
     display:flex; gap:6px; margin:16px 0 16px; padding:4px;
@@ -4230,10 +4280,12 @@
      the way the rest of the system separates one surface from another —
      the border-left this used to carry alongside the tint was the same
      signal twice, and the loudest thing on the row. */
-  tbody tr.row-under{background:var(--negative-bg);}
-  tbody tr.row-open{background:var(--warn-bg);}
-  tbody tr.row-excused{background:var(--excused-bg);}
-  tbody tr.row-over{background:var(--positive-bg);}
+  /* -- And the tint is gone too (2026-11-16), for the reason the border went:
+     it was the same signal again. The Status cell already carries a dot and
+     the difference in its own colour, so a month of the Log was pink, green
+     and cream bands with the reason for each band printed inside it. The
+     phone dropped the tints first (.mobile-rows, below); the row classes stay
+     on the <tr> for anything that reads them. */
   td.num, th.num{text-align:right; font-variant-numeric:tabular-nums;}
   td.num{font-family:var(--font-num); font-size:13.5px;}
   /* The one number worth a glance is the actual worked total; Target and
@@ -5606,7 +5658,11 @@
        label ("Org settings changed") has to be allowed a second line. */
     #auditBody .audit-action{white-space:normal; max-width:100%;}
   }
-  .admin-badge.unconfigured{background:var(--negative-bg); color:var(--negative);}
+  /* Neutral, not crimson. "No schedule" means this person runs on the
+     organisation's default hours -- a fact about their setup, true of most of
+     a small team, and nothing anyone did wrong. In the error colour it was the
+     loudest thing on every Team card it appeared on. */
+  .admin-badge.unconfigured{background:var(--ink-50); color:var(--muted);}
 
   /* Data health. Findings are listed even when the count is zero — an admin
      needs to see that a check ran and passed, not just silence. */
@@ -5729,6 +5785,10 @@
     display:flex; flex-direction:column; gap:8px; width:100%; min-width:0; text-align:left;
     padding:12px 14px; border-radius:var(--radius-md);
     background:var(--card); box-shadow:var(--shadow-sm); cursor:pointer; font-family:inherit;
+    /* Said, because a .team-card is a <button> and the browser gives a button
+       a 2px border of its own: the comment above promised "no border" while
+       every card on a pointer was drawn with a dark outline round it. */
+    border:none;
     transition:box-shadow var(--dur-fast) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
   }
   .team-card:focus-visible{outline:2px solid var(--gold); outline-offset:2px;}
@@ -5778,6 +5838,9 @@
      "met", so the pair carried no hue relationship at all. Crimson is the
      under-target hue everywhere else in the app. */
   .team-bar.is-short span{background:var(--negative);}
+  /* Within a tenth of the target the bar keeps the plain ink fill: a month at
+     99% drew a full-width crimson bar, the same alarm as a month at 40%. The
+     figure beside it still says exactly how far off it is. */
   .team-bar-note{font-size:11px; color:var(--muted-2); margin-top:6px;}
 
   /* No margin-left:auto. It existed to push this pill to the end of the card
@@ -6190,6 +6253,15 @@
   .toast-success .toast-icon{color:var(--positive);}
   .toast-info .toast-icon{color:var(--ink-600);}
   .toast-msg{flex:1; font-size:13px; line-height:1.45; color:var(--ink); white-space:pre-line;}
+  /* One action a toast can carry -- Undo, after a delete. A text button in the
+     ink colour, underlined, so it is not mistaken for part of the sentence. */
+  .toast-action{
+    flex-shrink:0; background:none; border:none; cursor:pointer; font:inherit;
+    font-size:13px; font-weight:700; color:var(--ink); text-decoration:underline;
+    text-underline-offset:3px; padding:6px 8px; min-height:44px; margin-top:-8px;
+    border-radius:var(--radius-xs);
+  }
+  @media (min-width:1100px){ .toast-action{min-height:32px; margin-top:-4px;} }
   .toast-close{
     flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--muted-2);
     padding:6px; min-width:44px; min-height:44px; display:inline-flex;
@@ -6274,6 +6346,11 @@
   .sticky-clock-time{
     font-family:var(--font-num); font-weight:700; font-size:15px; color:#fff;
     font-variant-numeric:tabular-nums; flex-shrink:0;
+  }
+  .sticky-clock-shift{
+    flex:1 1 auto; min-width:0; font-size:13px; color:var(--muted-on-dark);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-variant-numeric:tabular-nums;
   }
   .sticky-clock-actions{display:flex; gap:8px;}
   .sticky-clock .btn{padding:8px 14px; min-height:44px;}
@@ -6479,7 +6556,14 @@
     scrollbar-width:thin; scrollbar-color:var(--line) transparent;
     background:var(--card); border-radius:var(--radius);
     box-shadow:var(--shadow-lg); padding:20px 24px 24px;
-    transform:translateY(8px) scale(.98); transition:transform var(--dur-slow) var(--ease-soft);
+    /* --from-x/--from-y: where the form was opened from. Opened from a Log
+       row the card starts a third of the way toward that row and a little
+       smaller, so it reads as that day opening rather than as a dialog
+       arriving from nowhere -- and it goes back the same way on close. Opened
+       from anywhere else the offsets are unset and this is the plain 8px rise
+       it always was. Set by openEntryModal(). */
+    transform:translate(var(--from-x, 0px), calc(var(--from-y, 0px) + 8px)) scale(var(--from-scale, .98));
+    transition:transform var(--dur-slow) var(--ease-soft);
   }
   /* Same pairing as every other scroll surface -- see .notif-body above. */
   .entry-modal-card::-webkit-scrollbar{width:8px;}
@@ -6492,6 +6576,8 @@
   }
   .entry-modal-head h2{margin:0;}
   .entry-modal-card .form-actions{margin-bottom:0;}
+  /* Apart from Save and Cancel, at the far end of the row. */
+  .entry-modal-card .entry-delete{margin-left:auto;}
 
   /* ---------- Confirm modal ---------- */
   /* The scrim was rgba(6,25,23,.45) — #061917, Gilt Ledger's teal-black, still
@@ -6733,10 +6819,6 @@
     .cal-cell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm);}
     .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted-2);}
     tbody tr:hover{background:var(--ink-100);}
-    tbody tr.row-under:hover{filter:brightness(0.97);}
-    tbody tr.row-open:hover{filter:brightness(0.97);}
-    tbody tr.row-excused:hover{filter:brightness(0.97);}
-    tbody tr.row-over:hover{filter:brightness(0.97);}
     .row-actions button:hover{color:var(--ink-600); background:var(--ink-50);}
     .period-card:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
     .link-btn:hover{color:var(--ink);}  /* see .bn-item.active on --ink-700 */
@@ -7051,10 +7133,10 @@
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>
       <span>Calendar</span>
     </button>
-    <button type="button" class="rail-item" data-rail-tab="punctuality">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M23 18l-9.5-9.5-5 5L1 6"/><path d="M17 18h6v-6"/></svg>
-      <span>Shortfall</span>
-    </button>
+    <!-- No Shortfall here. It is a view inside Trends now (the third sub-tab,
+         next to Weekly and Monthly): both are charts of the same hours over
+         time, and as a destination of its own it was the sixth item in a
+         phone bar that also has to hold the clock. -->
     <button type="button" class="rail-item" data-rail-tab="team" id="railTeamBtn" style="display:none;">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span>Team</span>
@@ -7071,8 +7153,9 @@
 
   <div class="rail-foot">
     <div class="seal" id="todaySeal">
-      <p class="seal-label">Today</p>
+      <p class="seal-label" id="sealLabel">Today</p>
       <p class="seal-value" id="sealValue">—</p>
+      <p class="seal-sub" id="sealSub" hidden></p>
     </div>
     <div class="rail-user">
       <div class="avatar" id="railUserAvatar"></div>
@@ -7098,6 +7181,13 @@
          repeated what the rail states with a lime bar and aria-current. The
          heading carries itself. -->
     <div class="head-titles">
+      <!-- You, on the phone's Overview. Your own name on a card of its own was
+           the fifth thing on that screen and told you nothing the greeting had
+           not; with no photo to show, the initials ride beside the greeting
+           instead (body.own-monogram). The card is kept wherever it informs:
+           when there is a photo, and when an admin is looking at someone
+           else's record. Filled by renderIdentityChrome(). -->
+      <span class="avatar head-avatar" id="headAvatar" aria-hidden="true"></span>
       <!-- Two names for one heading. Overview greets; every other tab on a
            phone shows the tab's own name on one thin line (body.head-compact,
            set by activateTab()), so the content starts near the top instead
@@ -7159,7 +7249,14 @@
        you were clocked in. Same two facts as the rail seal, same source
        (renderTodayStatus), laid out for a screen that is read at arm's length. -->
   <div class="today-line" id="todayLine" hidden>
-    <span class="today-line-label">Today</span>
+    <!-- While a shift is open the label says when it started and the second
+         line says how far the target is; the figure is time elapsed, repainted
+         each minute by paintLiveShift() in app.js. Any other state is the one
+         label and the one figure this line always had. -->
+    <span class="today-line-text">
+      <span class="today-line-label" id="todayLineLabel">Today</span>
+      <span class="today-line-sub" id="todayLineSub" hidden></span>
+    </span>
     <span class="today-line-value" id="todayLineValue">—</span>
   </div>
 
@@ -7357,6 +7454,18 @@
     </div>
   </section>
 
+  <!-- Who is in today. Everyone sees this: an admin reads entries/profiles
+       directly, and a non-admin goes through list_today_presence(), the
+       SECURITY DEFINER function added for exactly this panel so it did not
+       need a wider grant on either table. -->
+  <section class="card today-team" id="todayTeamCard" hidden>
+    <div class="tt-head">
+      <h2>In today</h2>
+      <span class="tt-count" id="todayTeamCount"></span>
+    </div>
+    <div class="today-team-list" id="todayTeamList"></div>
+  </section>
+
   <!-- Every day type logged this month, not just the worked ones — a month
        of annual leave shows as 100% Annual Leave rather than as no data. -->
   <section class="card format-card" id="formatCard">
@@ -7375,18 +7484,6 @@
     </div>
   </section>
 
-  <!-- Who is in today. Everyone sees this: an admin reads entries/profiles
-       directly, and a non-admin goes through list_today_presence(), the
-       SECURITY DEFINER function added for exactly this panel so it did not
-       need a wider grant on either table. -->
-  <section class="card today-team" id="todayTeamCard" hidden>
-    <div class="tt-head">
-      <h2>In today</h2>
-      <span class="tt-count" id="todayTeamCount"></span>
-    </div>
-    <div class="today-team-list" id="todayTeamList"></div>
-  </section>
-
   <section class="quick-clock">
     <div class="quick-clock-time">
       <span class="qc-label">Right now</span>
@@ -7402,7 +7499,7 @@
     <div class="quick-clock-actions">
       <p class="qc-done" id="qcDoneText" hidden></p>
       <button type="button" class="btn qc-btn" id="qcClockBtn" data-clock-action="in">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" id="qcClockIcon"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" id="qcClockIcon"><path d="M8 5.5v13l11-6.5z"/></svg>
         <span id="qcClockLabel">Clock In Now</span>
       </button>
       <button type="button" class="btn secondary qc-btn" id="qcEditBtn" hidden>
@@ -7434,6 +7531,10 @@
     <div class="sub-tabs" id="trendsSubTabs" style="display:none;">
       <button type="button" class="sub-tab-btn" data-subtab="weekly">Weekly</button>
       <button type="button" class="sub-tab-btn active" data-subtab="monthly">Monthly</button>
+      <!-- Not a .sub-tab-panel of its own: it opens the Shortfall panel
+           (#tab-punctuality), which keeps its period bar, its first-run card
+           and its renderer. See the .sub-tab-btn handler in app.js. -->
+      <button type="button" class="sub-tab-btn" data-subtab="shortfall">Shortfall</button>
     </div>
 
     <!-- One period control, "‹ November 2026 ›". Year and Month used to be two
@@ -8879,10 +8980,13 @@
 
 <div class="sticky-clock" id="stickyClock" role="region" aria-label="Quick clock">
   <span class="sticky-clock-time" id="stickyClockTime">—</span>
+  <!-- An open shift, said in full: when it started, how long it has run and
+       what is left of the target. Empty in every other state. -->
+  <span class="sticky-clock-shift" id="stickyClockShift"></span>
   <!-- Same one control as the panel above, same state. -->
   <div class="sticky-clock-actions">
     <button type="button" class="btn small qc-btn" id="stickyClockBtn" data-clock-action="in">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" id="stickyClockIcon"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" id="stickyClockIcon"><path d="M8 5.5v13l11-6.5z"/></svg>
       <span id="stickyClockLabel">In</span>
     </button>
   </div>
@@ -8895,7 +8999,7 @@
   <div class="bn-side bn-side-left" id="bnSideLeft"></div>
   <div class="bn-clock-wrap">
     <button type="button" class="bn-clock" id="bnClockBtn" aria-label="Clock in or out">
-      <svg id="bnClockIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h11M12 5l7 7-7 7"/></svg>
+      <svg id="bnClockIcon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.5v13l11-6.5z"/></svg>
     </button>
     <span class="bn-clock-label" id="bnClockLabel">Clock In</span>
   </div>
@@ -8922,10 +9026,6 @@
     <button type="button" class="bn-item" data-bn-tab="calendar">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>
       <span>Calen&shy;dar</span>
-    </button>
-    <button type="button" class="bn-item" data-bn-tab="punctuality">
-      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M23 18l-9.5-9.5-5 5L1 6"/><path d="M17 18h6v-6"/></svg>
-      <span>Shortfall</span>
     </button>
     <button type="button" class="bn-item" data-bn-tab="team" id="bnTeamBtn">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -9015,6 +9115,11 @@
       <div class="form-actions">
         <button type="submit" class="btn" id="submitBtn">Add Entry</button>
         <button type="button" class="btn ghost" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
+        <!-- Delete lives here, on the one entry that is open, instead of as a
+             crimson link beside Edit on every row of the Log. Shown only while
+             editing (loadEntryIntoForm / resetForm); it deletes at once and
+             offers Undo in the toast, so there is no dialog to answer. -->
+        <button type="button" class="btn danger-ghost entry-delete" id="deleteEntryBtn" style="display:none;">Delete</button>
       </div>
     </form>
   </div>
@@ -9043,6 +9148,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v47"></script>
+<script type="module" src="app.js?v=v50"></script>
 </body>
 </html>

@@ -915,6 +915,12 @@ It replaces the old wax-seal badge, keeping the job (one glanceable number for
 today) and dropping the skeuomorphism. Over/under status shows as a coloured
 left edge, never a tinted panel.
 
+While a shift is open the card says the shift instead of "Clocked in": the label
+becomes "Since 8:02 AM", the figure is the time elapsed, and a third line says
+what is left of the day's target ("4h 46m to go", then "Target reached"). It is
+repainted when the minute changes, not every second. The sticky clock bar
+carries the same three facts as one line beside the time.
+
 ### The notice stack
 The reminder banners live in one `.notice-stack` wrapper rather than loose in
 `main`. On a pointer that changes nothing — it is the same row of the page. On a
@@ -939,6 +945,9 @@ exists because the top of a phone screen was a greeting and two notices — the
 one figure the person opened the app for was below the fold on every tab, at
 `firstContentTop: 438` on an 852px screen.
 
+An open shift is said here the same way as in the rail: "In since 8:02 AM" with
+the remainder under it, and the elapsed time as the figure.
+
 ### The Overview grid
 Four figures across the top; the portrait, the month's shape and who is in today
 across the middle; the clock as a band along the bottom. Above 1100px it is a
@@ -951,6 +960,18 @@ reason the card is a portrait rather than a header. A pass that judged it from a
 test fixture saw the monogram fallback instead, mistook the card for decoration,
 and cut it; it is here because what it renders for the person who owns the record
 is not a monogram.
+
+That reasoning is about the photograph, and it is applied that way on a phone
+(changed 2026-11-16, on the owner's decision). Below 760px, someone looking at
+their own record **with no photo** gets their initials as a small avatar beside
+the greeting, and the card is not drawn: there it was a tile holding a name the
+greeting had already said. With a photo the card stays, and it always stays when
+an admin is looking at someone else's record, where it says whose days are about
+to be edited.
+
+On a phone the header is one row on every tab, the Overview included, and above
+760px the heading names the tab ("Log", "Calendar") rather than greeting on all
+of them.
 
 **The roster spans the middle row and the clock's**, so the clock is a band under
 the portrait and Day Types rather than the full width of the tab. A pass tried it
@@ -1222,6 +1243,38 @@ line.
 ### Badges / Pills, Inputs, Tables, Modals
 Unchanged in structure from the previous system and inherited via the token
 layer; only their palette, radii and type moved.
+
+Four things changed on 2026-11-16, on the owner's decision:
+
+- **A Log row carries one status signal.** The row tints (over, under, open,
+  excused) are gone at every width; the Status cell's dot and coloured figure
+  say the same thing once. The phone layout had already dropped them.
+- **Delete is in the entry form, with Undo.** A row offers Edit only. The form
+  that opens has Delete at the far end of its actions; it deletes at once and
+  the toast offers Undo for eight seconds, which writes the day back. There is
+  no confirmation for one entry. Deleting several from Select mode still asks.
+- **"No schedule" is a neutral pill**, not a crimson one: it describes a
+  person's setup, not a fault. A Team bar within a tenth of its target keeps the
+  ink fill; crimson is for a month that is actually behind.
+- **Hours are written one way.** The phone calendar used a decimal ("6.9h") to
+  fit its cells; it writes "6h 55m" like every other screen and wraps at the
+  space when the cell is narrow.
+
+### Navigation and motion
+Shortfall is a view inside Trends — the third button on the Weekly / Monthly
+switch — rather than a destination of its own (changed 2026-11-16, on the
+owner's decision). The phone bar is Overview, Log, Trends, the clock, Calendar,
+and Team for an admin. The Shortfall panel itself is unchanged; only the way in
+moved.
+
+The clock button draws start and stop (a triangle and a square), not a right and
+a left arrow, and keeps its three fills: gold to clock in, ink while a shift is
+open, the positive pair when the day is done.
+
+On a phone a tab comes in from the side it sits on in the bar: 12px over the
+base duration, a hint of direction rather than a swipe. The entry form opened
+from a Log row starts a third of the way toward that row and returns the same
+way. Both fall under the blanket reduced-motion rule.
 
 ## Do's and Don'ts
 

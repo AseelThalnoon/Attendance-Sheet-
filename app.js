@@ -1242,7 +1242,11 @@ import { makeSchedule } from "./src/schedule.js";
   };
 
   // Non-blocking notification. Replaces informational/error alert() calls.
-  function showToast(message, type){
+  // opts.actionText / opts.onAction: one button inside the toast (Undo). A
+  // toast that offers something stays up for eight seconds, not four -- it is
+  // the only chance to take the offer.
+  function showToast(message, type, opts){
+    opts = opts || {};
     type = (type === "error" || type === "success") ? type : "info";
     var stack = document.getElementById("toastStack");
     if(!stack){
@@ -1257,6 +1261,7 @@ import { makeSchedule } from "./src/schedule.js";
     el.innerHTML =
       '<span class="toast-icon">'+TOAST_ICONS[type]+'</span>' +
       '<span class="toast-msg"></span>' +
+      (opts.actionText ? '<button type="button" class="toast-action"></button>' : '') +
       '<button type="button" class="toast-close" aria-label="Dismiss">' +
         '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>' +
       '</button>';
@@ -1264,7 +1269,15 @@ import { makeSchedule } from "./src/schedule.js";
     stack.appendChild(el);
     requestAnimationFrame(function(){ el.classList.add("show"); });
 
-    var timer = setTimeout(dismiss, type === "error" ? 7000 : 4200);
+    var actionBtn = el.querySelector(".toast-action");
+    if(actionBtn){
+      actionBtn.textContent = opts.actionText;
+      actionBtn.addEventListener("click", function(){
+        dismiss();
+        if(typeof opts.onAction === "function") opts.onAction();
+      });
+    }
+    var timer = setTimeout(dismiss, opts.actionText ? 8000 : (type === "error" ? 7000 : 4200));
     function dismiss(){
       clearTimeout(timer);
       el.classList.add("hiding");
@@ -4022,11 +4035,14 @@ import { makeSchedule } from "./src/schedule.js";
     if(todayEntry){
       var tc = computeEntry(todayEntry);
       if(tc.excused){ sealText = typeLabel(todayEntry.type); }
+      // Open first. A running remote/trip/training shift owes no target, so
+      // computeEntry reports it as zero hours worked -- and with the figure
+      // tested first, the seal said "0h" all day to someone who was clocked in.
+      else if(tc.open){ sealText = "Clocked in"; }
       else if(tc.workedMin !== null){
         sealText = minutesToHoursStr(tc.workedMin);
         seal.classList.add(tc.diffMin >= 0 ? "status-over" : "status-under");
       }
-      else if(tc.open){ sealText = "Clocked in"; }
       else { sealText = "Not logged"; }
     } else {
       sealText = isScheduled(today) ? "Not logged" : "Day off";
@@ -4043,10 +4059,95 @@ import { makeSchedule } from "./src/schedule.js";
       todayLine.className = "today-line" + seal.className.replace(/^seal/, "");
       document.getElementById("todayLineValue").textContent = sealText;
     }
+    // An open shift replaces "Clocked in" with the shift itself.
+    liveShiftKey = null;
+    paintLiveShift();
 
     renderClockControls();
 
     renderLeaveBalance();
+  }
+
+  // ---------- The open shift, live ----------
+  // "Clocked in" answered one question and raised three: since when, how long
+  // so far, and how long to go. All three are already known -- the clock-in is
+  // on today's row and the target is the schedule's -- so the three surfaces
+  // that report today (the rail's status card, the phone's Today line and the
+  // sticky bar) say them while a shift is open. Minutes, not seconds: the
+  // record is kept to the minute, and a figure that changed every second would
+  // be the busiest thing on a screen whose live clock already ticks.
+  var liveShiftKey = null;
+  function liveShift(){
+    var e = entries.find(function(x){ return x.date === todayStr(); });
+    if(!e || !e.clockIn || e.clockOut) return null;
+    var c;
+    try{ c = computeEntry(e); }catch(err){ return null; }
+    if(c.excused) return null;
+    var d = new Date();
+    // A clock-in later than now (a hand-entered time, or a device clock that
+    // moved) is zero elapsed, never a negative shift.
+    var elapsed = Math.max(0, d.getHours()*60 + d.getMinutes() - timeToMinutes(e.clockIn));
+    return {since: formatTime12(e.clockIn), elapsed: elapsed, target: c.targetMin || 0};
+  }
+  function liveShiftRemainder(s){
+    if(!s.target) return "";
+    var left = s.target - s.elapsed;
+    if(left > 0) return minutesToHoursStr(left) + " to go";
+    return left === 0 ? "Target reached" : "Target reached · " + minutesOnlyStr(-left) + " over";
+  }
+  // Called on every render and once a second by the live clock; repaints only
+  // when the minute, the clock-in or the target has actually changed.
+  function paintLiveShift(){
+    var s = liveShift();
+    var key = s ? s.since + "|" + s.elapsed + "|" + s.target : "";
+    if(key === liveShiftKey) return;
+    var wasLive = !!liveShiftKey;
+    liveShiftKey = key;
+
+    var sealLabel = document.getElementById("sealLabel");
+    var sealSub = document.getElementById("sealSub");
+    var lineLabel = document.getElementById("todayLineLabel");
+    var lineSub = document.getElementById("todayLineSub");
+    var sticky = document.getElementById("stickyClockShift");
+    if(!s){
+      if(sealLabel) sealLabel.textContent = "Today";
+      if(sealSub) sealSub.hidden = true;
+      if(lineLabel) lineLabel.textContent = "Today";
+      if(lineSub) lineSub.hidden = true;
+      if(sticky) sticky.textContent = "";
+      // The shift stopped being live without a render (midnight passed with
+      // the app open): the figure it left behind is yesterday's.
+      if(wasLive) renderTodayStatusSoon();
+      return;
+    }
+    var elapsed = minutesToHoursStr(s.elapsed);
+    var rest = liveShiftRemainder(s);
+    var met = !!s.target && s.elapsed >= s.target;
+
+    var seal = document.getElementById("todaySeal");
+    var sealValue = document.getElementById("sealValue");
+    if(seal) seal.classList.toggle("status-over", met);
+    if(sealLabel) sealLabel.textContent = "Since " + s.since;
+    if(sealValue){
+      sealValue.textContent = elapsed;
+      sealValue.classList.toggle("long", elapsed.length > 6);
+    }
+    if(sealSub){ sealSub.textContent = rest; sealSub.hidden = !rest; }
+
+    var line = document.getElementById("todayLine");
+    if(line) line.classList.toggle("status-over", met);
+    if(lineLabel) lineLabel.textContent = "In since " + s.since;
+    if(lineSub){ lineSub.textContent = rest; lineSub.hidden = !rest; }
+    var lineValue = document.getElementById("todayLineValue");
+    if(lineValue) lineValue.textContent = elapsed;
+
+    if(sticky) sticky.textContent = "In since " + s.since + " · " + elapsed + (rest ? " · " + rest : "");
+  }
+  var todayStatusQueued = false;
+  function renderTodayStatusSoon(){
+    if(todayStatusQueued) return;
+    todayStatusQueued = true;
+    setTimeout(function(){ todayStatusQueued = false; renderAll(); }, 0);
   }
 
   // Annual Leave Days is a per-year entitlement. "Used" counts Annual Leave
@@ -4389,8 +4490,10 @@ import { makeSchedule } from "./src/schedule.js";
         // name a screen-reader user hears the same two words over and over with
         // no way to tell which day they are about to delete.
         "<td class='row-actions'>"+
+          // Edit only. Delete was a crimson link beside it on every row --
+          // thirty-odd chances a month to hit the wrong one of two adjacent
+          // words -- and is in the form Edit opens now (#deleteEntryBtn).
           "<button type='button' data-edit='"+e.id+"' aria-label='Edit entry for "+escapeAttr(fmtDate(e.date))+"'>Edit</button>"+
-          "<button type='button' data-del='"+e.id+"' aria-label='Delete entry for "+escapeAttr(fmtDate(e.date))+"'>Delete</button>"+
         "</td>";
       body.appendChild(tr);
     });
@@ -4642,14 +4745,17 @@ import { makeSchedule } from "./src/schedule.js";
     return "under";
   }
 
-  // A compact hours form for the phone grid, where "8h 24m" has no chance in a
-  // 41px cell: one decimal still separates 8.4h from 6.2h at a glance. Both
-  // forms are rendered and CSS picks one, rather than the format depending on
-  // a width JS measured once — a calendar that was correct until the window
-  // was resized is the same defect as one that was never correct.
+  // The phone grid's hours. This was a decimal -- "6.9h" for 6h 55m -- because
+  // "8h 24m" does not fit a 41px cell on one line. But it made the calendar
+  // the one place in the app that wrote hours differently: the same day read
+  // 6h 55m in the Log and 6.9h here, and a tenth of an hour is not a unit
+  // anybody clocks in. The cell wraps at the space instead (.cal-val b), so a
+  // day with minutes is "6h" over "55m": two short lines of the same words
+  // every other screen uses. Both forms are still rendered and CSS still picks
+  // one, because the short form keeps its own smaller type.
   function hoursCompact(mins){
     if(mins === null || mins === undefined || isNaN(mins)) return "";
-    return (Math.round(mins / 6) / 10) + "h";
+    return minutesToHoursStr(mins);
   }
   // "8:03 AM" does not fit that cell either, and on an hours grid the meridiem
   // is the part a reader can infer.
@@ -4783,7 +4889,7 @@ import { makeSchedule } from "./src/schedule.js";
         // with it; the phone gets the same signed shorthand the hours use.
         short = '<span class="cal-short" aria-hidden="true">' +
             '<b class="cal-val-full">'+escapeHtml(behind)+' short</b>' +
-            '<b class="cal-val-short">−'+escapeHtml(behind.replace(/\s/g, ""))+'</b>' +
+            '<b class="cal-val-short">−'+escapeHtml(behind)+'</b>' +
           '</span>';
       } else if(status === "missing"){
         short = '<span class="cal-short" aria-hidden="true">Not logged</span>';
@@ -5529,11 +5635,36 @@ import { makeSchedule } from "./src/schedule.js";
   // cancel the pending flip, or the dialog opens and then vanishes 180ms later
   // when the stale timer lands.
   var entryModalHideTimer = null;
+  // The control the form is being opened from, when there is one worth
+  // pointing back at (a Log row). Set by the caller just before it opens the
+  // form and consumed here; see .entry-modal-card.
+  var entryModalOrigin = null;
+  function placeEntryModalOrigin(modal){
+    var card = modal.querySelector(".entry-modal-card");
+    var from = entryModalOrigin;
+    entryModalOrigin = null;
+    if(!card) return;
+    var r = from && from.getBoundingClientRect ? from.getBoundingClientRect() : null;
+    if(!r || !r.width || !r.height){
+      card.style.removeProperty("--from-x");
+      card.style.removeProperty("--from-y");
+      card.style.removeProperty("--from-scale");
+      return;
+    }
+    // A third of the way toward the origin: enough to say where the form came
+    // from, not so far that a 560px card is seen crossing the screen.
+    var dx = (r.left + r.width / 2 - window.innerWidth / 2) / 3;
+    var dy = (r.top + r.height / 2 - window.innerHeight / 2) / 3;
+    card.style.setProperty("--from-x", Math.round(dx) + "px");
+    card.style.setProperty("--from-y", Math.round(dy) + "px");
+    card.style.setProperty("--from-scale", ".94");
+  }
 
   function openEntryModal(focusId){
     var modal = document.getElementById("entryModal");
     if(!modal) return;
     var wasOpen = !modal.hidden && modal.classList.contains("show");
+    if(!wasOpen) placeEntryModalOrigin(modal);
     clearTimeout(entryModalHideTimer);
     entryModalHideTimer = null;
     if(!wasOpen) entryModalReturn = document.activeElement;
@@ -5626,6 +5757,7 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("fType").value = "regular";
     document.getElementById("submitBtn").textContent = "Add Entry";
     document.getElementById("cancelEditBtn").style.display = "none";
+    document.getElementById("deleteEntryBtn").style.display = "none";
     setEntryRange(false);
     document.getElementById("fRangeToggle").hidden = false;
   }
@@ -5649,6 +5781,7 @@ import { makeSchedule } from "./src/schedule.js";
     editingId = e.id;
     document.getElementById("submitBtn").textContent = "Save Changes";
     document.getElementById("cancelEditBtn").style.display = "inline-flex";
+    document.getElementById("deleteEntryBtn").style.display = "inline-flex";
     // Editing modifies exactly one existing entry, so the range picker
     // doesn't apply here — just the single date being edited.
     setEntryRange(false);
@@ -5863,46 +5996,70 @@ import { makeSchedule } from "./src/schedule.js";
       // not the one it booted at.
       if(!selectModeActive && window.matchMedia("(max-width:700px)").matches){
         var openRow = ev.target.closest("#logBody tr[data-entry-id]");
-        if(openRow) loadEntryIntoForm(openRow.getAttribute("data-entry-id"));
+        if(openRow){
+          entryModalOrigin = openRow;
+          loadEntryIntoForm(openRow.getAttribute("data-entry-id"));
+        }
       }
       return;
     }
     var editId = btn.getAttribute("data-edit");
-    var delId = btn.getAttribute("data-del");
-    if(editId) loadEntryIntoForm(editId);
-    // "Delete this entry?" named nothing, in an app with no undo and thirty-odd
-    // identical Delete links down one column — the trigger's own aria-label
-    // already carried the date, so the screen reader was better informed than
-    // the dialog. Say which day, and what is on it.
-    if(delId){
-      var victim = entries.find(function(e){ return e.id === delId; });
-      // Same reason as the edit guard: there may be no server row to delete,
-      // and deleting one the flush is about to write to would resurrect it.
-      if(victim && victim.pending){
-        showToast("That day has a punch that hasn't uploaded yet. It'll be deletable once it syncs.", "error");
-        return;
-      }
-      var what = "this entry";
-      if(victim){
-        var vc = computeEntry(victim);
-        var detail = vc.workedMin !== null ? minutesToHoursStr(vc.workedMin) : typeLabel(victim.type);
-        what = fmtDate(victim.date) + (detail ? " (" + detail + ")" : "");
-      }
-      if(!await showConfirm(
-        "Delete " + what + "? This can't be undone.",
-        {title:"Delete entry?", danger:true, confirmText:"Delete"}
-      )) return;
+    if(editId){
+      entryModalOrigin = btn.closest("tr") || btn;
+      loadEntryIntoForm(editId);
     }
-    if(delId){
-      if(editingId === delId) resetForm();
+  });
+
+  // Deleting one entry. No dialog: it is deleted at once and the toast that
+  // says so offers Undo, which writes the same day back. "This can't be
+  // undone" was true only because nothing had been built to undo it, and a
+  // question asked before every delete is answered without being read -- the
+  // offer afterwards is the one that arrives when a mistake has actually been
+  // made. (Deleting several days at once, from Select mode, still asks.)
+  // The restored day is a new row with the same contents; the Activity Log
+  // records the delete and the restore as the two things that happened.
+  async function deleteEntryWithUndo(delId){
+    var victim = entries.find(function(e){ return e.id === delId; });
+    // There may be no server row to delete, and deleting one the flush is
+    // about to write to would resurrect it.
+    if(victim && victim.pending){
+      showToast("That day has a punch that hasn't uploaded yet. It'll be deletable once it syncs.", "error");
+      return;
+    }
+    var what = "that entry";
+    if(victim){
+      var detail = "";
       try{
-        var targetUserId = viewedUserId;
-        await sbDeleteEntry(delId);
-        applyLocalDelete(delId, targetUserId);
-      }catch(err){
-        showToast("Couldn't delete that entry: " + friendlyError(err), "error");
-      }
+        var vc = computeEntry(victim);
+        detail = vc.workedMin !== null ? minutesToHoursStr(vc.workedMin) : typeLabel(victim.type);
+      }catch(err){ /* the sentence can do without it */ }
+      what = fmtDate(victim.date) + (detail ? " (" + detail + ")" : "");
     }
+    if(editingId === delId) resetForm();
+    var targetUserId = viewedUserId;
+    try{
+      await sbDeleteEntry(delId);
+      applyLocalDelete(delId, targetUserId);
+    }catch(err){
+      showToast("Couldn't delete that entry: " + friendlyError(err), "error");
+      return;
+    }
+    if(!victim){ showToast("Deleted " + what + ".", "success"); return; }
+    showToast("Deleted " + what + ".", "success", {
+      actionText: "Undo",
+      onAction: async function(){
+        try{
+          var restored = await sbUpsertEntry(targetUserId, victim, null);
+          applyLocalUpsert(restored, targetUserId);
+          showToast("Restored " + fmtDate(victim.date) + ".", "success");
+        }catch(err){
+          showToast("Couldn't restore that entry: " + friendlyError(err), "error");
+        }
+      }
+    });
+  }
+  onId("deleteEntryBtn", "click", function(){
+    if(editingId) deleteEntryWithUndo(editingId);
   });
 
   // ---------- Bulk select ----------
@@ -6035,6 +6192,7 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("liveDate").textContent = fmtDateLong(todayStr());
     var stickyTime = document.getElementById("stickyClockTime");
     if(stickyTime) stickyTime.textContent = h12 + ":" + pad2(d.getMinutes()) + " " + period;
+    paintLiveShift();
   }
   function showQcNote(msg, success){
     var el = document.getElementById("qcStatusNote");
@@ -6314,8 +6472,13 @@ import { makeSchedule } from "./src/schedule.js";
   // it shows whichever action makes sense given today's entry, and simply
   // calls the same punchClock() used everywhere else (including its
   // existing "already clocked in, replace?" confirmation).
-  var CLOCK_IN_PATH   = 'M5 12h11M12 5l7 7-7 7';
-  var CLOCK_OUT_PATH  = 'M19 12H8M11 5l-7 7 7 7';
+  // Start and stop, the two marks every timer uses. These were a right arrow
+  // and a left arrow: the same shape mirrored, which says "forward" and "back"
+  // rather than "start work" and "finish", and on the phone's round button --
+  // read at a glance, with the label in 11px beneath it -- a left arrow is
+  // also how every other app draws Back.
+  var CLOCK_IN_PATH   = 'M8 5.5v13l11-6.5z';
+  var CLOCK_OUT_PATH  = 'M7.5 7.5h9v9h-9z';
   var CLOCK_DONE_PATH = 'M5 13l4 4L19 7';
 
   // Which of the three states every clock surface is in.
@@ -6516,7 +6679,9 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("monthlyFilterWrap").style.display =
       (!bare && tab === "trends" && subtab === "monthly") ? "flex" : "none";
     document.getElementById("punctFilterWrap").style.display = (!bare && tab === "punctuality") ? "flex" : "none";
-    document.getElementById("trendsSubTabs").style.display = (!bare && tab === "trends") ? "flex" : "none";
+    // Shortfall is the third view of Trends, so the switch stays up on it.
+    document.getElementById("trendsSubTabs").style.display =
+      (!bare && (tab === "trends" || tab === "punctuality")) ? "flex" : "none";
   }
 
   function renderSubtab(subtab){
@@ -6524,21 +6689,39 @@ import { makeSchedule } from "./src/schedule.js";
     if(subtab === "monthly") renderMonthly();
   }
 
+  // Weekly and Monthly are two panels inside the Trends tab. Shortfall is the
+  // third button on the same switch but opens its own tab panel
+  // (#tab-punctuality), which is what it was before it moved in here -- so
+  // everything that already knew how to draw, filter and deep-link Shortfall
+  // still does, and only the way in changed.
   document.querySelectorAll(".sub-tab-btn").forEach(function(btn){
     btn.addEventListener("click", function(){
-      document.querySelectorAll(".sub-tab-btn").forEach(function(b){ b.classList.remove("active"); });
-      document.querySelectorAll(".sub-tab-panel").forEach(function(p){ p.classList.remove("active"); });
-      btn.classList.add("active");
       var subtab = btn.getAttribute("data-subtab");
+      if(subtab === "shortfall"){ activateTab("punctuality"); return; }
+      document.querySelectorAll(".sub-tab-panel").forEach(function(p){ p.classList.remove("active"); });
       document.getElementById("subtab-"+subtab).classList.add("active");
+      // Coming back from Shortfall: activateTab draws the sub-view itself.
+      if(!tabIsOpen("trends")){ activateTab("trends"); return; }
+      syncSubTabButtons("trends");
       applyFilterBarVisibility("trends", subtab);
       renderSubtab(subtab);
     });
   });
 
+  // Read off the panel, not the button: on Shortfall the lit button is
+  // "Shortfall", and the Trends view to come back to is still whichever of the
+  // two panels was last open.
   function activeSubtab(){
-    var el = document.querySelector(".sub-tab-btn.active");
-    return el ? el.getAttribute("data-subtab") : "monthly";
+    var el = document.querySelector(".sub-tab-panel.active");
+    return el ? el.id.replace(/^subtab-/, "") : "monthly";
+  }
+  function syncSubTabButtons(tab){
+    var current = tab === "punctuality" ? "shortfall" : activeSubtab();
+    document.querySelectorAll(".sub-tab-btn").forEach(function(b){
+      var on = b.getAttribute("data-subtab") === current;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
   }
 
   // Distributes the bottom-nav items into left/right zones so spacing stays
@@ -6561,7 +6744,7 @@ import { makeSchedule } from "./src/schedule.js";
     // slots for an admin and the labels get tight at 320px — but the rail is
     // hidden below 760px and the tab strip with it, so anything dropped here
     // would be unreachable on a phone entirely rather than merely crowded.
-    var order = ["overview", "log", "trends", "calendar", "punctuality"]
+    var order = ["overview", "log", "trends", "calendar"]
       .concat(isAdmin ? ["team"] : []);
 
     // Return anything no longer in scope to the hidden pool FIRST. Without this,
@@ -6652,6 +6835,9 @@ import { makeSchedule } from "./src/schedule.js";
   // all, since managing the organisation is not a view of your own attendance.
   // `quiet` switches the panel and every marker of which one is open, and
   // draws nothing: forgetLastPerson() uses it on the way out of an account.
+  var TAB_MOTION_ORDER = ["overview", "log", "trends", "punctuality", "calendar", "team", "admin", "settings"];
+  var TAB_MOTION_SLOT = {punctuality: 2};
+  var lastActiveTab = "overview";
   function activateTab(tab, quiet){
     var panel = document.getElementById("tab-" + tab);
     if(!panel) return;
@@ -6663,6 +6849,18 @@ import { makeSchedule } from "./src/schedule.js";
       // assistive tech could not tell which of the tabs was selected.
       b.setAttribute("aria-selected", on ? "true" : "false");
     });
+    // Which way the new panel comes in on a phone (see tabInFwd/tabInBack in
+    // index.html): its place in the bottom bar against the one being left.
+    // Shortfall shares Trends' place, so switching between those two is not a
+    // move along the bar and keeps the plain fade.
+    var fromIdx = TAB_MOTION_ORDER.indexOf(lastActiveTab), toIdx = TAB_MOTION_ORDER.indexOf(tab);
+    var fromSlot = TAB_MOTION_SLOT[lastActiveTab] || fromIdx, toSlot = TAB_MOTION_SLOT[tab] || toIdx;
+    if(lastActiveTab && fromIdx !== -1 && toIdx !== -1 && fromSlot !== toSlot){
+      panel.setAttribute("data-enter", toSlot > fromSlot ? "fwd" : "back");
+    } else {
+      panel.removeAttribute("data-enter");
+    }
+    lastActiveTab = tab;
     document.querySelectorAll(".tab-panel").forEach(function(p){ p.classList.remove("active"); });
     panel.classList.add("active");
 
@@ -6710,6 +6908,7 @@ import { makeSchedule } from "./src/schedule.js";
     // still takes the whole frame. See #tabContentCard.fill in index.html.
     if(tabCard) tabCard.classList.toggle("fill", CARD_FILLS_FRAME.indexOf(tab) !== -1);
 
+    syncSubTabButtons(tab);
     applyFilterBarVisibility(tab, activeSubtab());
 
     if(!quiet){
@@ -6727,8 +6926,10 @@ import { makeSchedule } from "./src/schedule.js";
       if(tab === "settings") refreshSettingsPanel();
     }
 
+    // Shortfall has no item of its own in either nav: it is inside Trends.
+    var navTab = tab === "punctuality" ? "trends" : tab;
     document.querySelectorAll(".bn-item").forEach(function(b){
-      b.classList.toggle("active", b.getAttribute("data-bn-tab") === tab);
+      b.classList.toggle("active", b.getAttribute("data-bn-tab") === navTab);
     });
     // The rail mirrors the same active state. Admin is not a tab, so it is
     // matched on its action attribute rather than data-rail-tab. aria-current
@@ -6736,7 +6937,7 @@ import { makeSchedule } from "./src/schedule.js";
     // tablist, and the real tab strip it delegates to is display:none, so the
     // active class alone would be invisible to a screen reader.
     document.querySelectorAll(".rail-item").forEach(function(b){
-      var isTab = b.getAttribute("data-rail-tab") === tab;
+      var isTab = b.getAttribute("data-rail-tab") === navTab;
       var isAdmin = b.getAttribute("data-rail-action") === "admin" && tab === "admin";
       var on = isTab || isAdmin;
       b.classList.toggle("active", on);
@@ -8422,7 +8623,11 @@ import { makeSchedule } from "./src/schedule.js";
     // monogram beside the name (.portrait-card.no-photo) instead of a third
     // of the phone screen holding two letters.
     var card = document.getElementById("portraitCard");
-    if(card) card.classList.toggle("no-photo", !cached && !(who && who.avatar_updated_at));
+    var noPhoto = !cached && !(who && who.avatar_updated_at);
+    if(card) card.classList.toggle("no-photo", noPhoto);
+    // Your own record with no photo: on a phone the card steps aside for the
+    // initials beside the greeting (see .head-avatar in index.html).
+    document.body.classList.toggle("own-monogram", isOwnData && noPhoto);
 
     var nameEl = document.getElementById("personName");
     if(nameEl) nameEl.textContent = label || "—";
@@ -9647,7 +9852,9 @@ import { makeSchedule } from "./src/schedule.js";
     var greeting = document.getElementById("headGreeting");
     if(greeting) greeting.textContent = "Hello " + firstNameOf(currentProfile);
 
-    var railAvatar = document.getElementById("railUserAvatar");
+    // The rail's avatar and the phone header's are the same picture.
+    ["railUserAvatar", "headAvatar"].forEach(function(avatarId){
+    var railAvatar = document.getElementById(avatarId);
     if(railAvatar){
       var key = avatarCacheKey(currentProfile);
       var cached = key ? avatarBlobCache[key] : null;
@@ -9663,6 +9870,7 @@ import { makeSchedule } from "./src/schedule.js";
         : escapeHtml(initialsOf(currentProfile.full_name || currentProfile.email));
       hydrateAvatars(railAvatar);
     }
+    });
     var railName = document.getElementById("railUserName");
     if(railName) railName.textContent = currentProfile.full_name || currentProfile.email;
     var railRole = document.getElementById("railUserRole");
@@ -10092,7 +10300,7 @@ import { makeSchedule } from "./src/schedule.js";
       // Floored, not rounded, so a bar/figure a few minutes short of target
       // never reads as a full "100%" — see the note by pMetRate for why.
       var pct = s.targetSum ? Math.min(100, Math.floor((s.workedSum / s.targetSum) * 100)) : 0;
-      var barCls = !s.targetSum ? "" : (s.diffSum >= 0 ? " is-met" : (pct >= 90 ? " is-short" : " is-short"));
+      var barCls = !s.targetSum ? "" : (s.diffSum >= 0 ? " is-met" : (pct >= 90 ? "" : " is-short"));
       var diffCls = s.diffSum > 0 ? " over" : (s.diffSum < 0 ? " short" : "");
       var diffTxt = (s.diffSum > 0 ? "+" : "") + minutesToHoursStr(s.diffSum);
 
