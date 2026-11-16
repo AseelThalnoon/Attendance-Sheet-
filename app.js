@@ -6480,13 +6480,14 @@ import { makeSchedule } from "./src/schedule.js";
   // it shows whichever action makes sense given today's entry, and simply
   // calls the same punchClock() used everywhere else (including its
   // existing "already clocked in, replace?" confirmation).
-  // Start and stop, the two marks every timer uses. These were a right arrow
-  // and a left arrow: the same shape mirrored, which says "forward" and "back"
-  // rather than "start work" and "finish", and on the phone's round button --
-  // read at a glance, with the label in 11px beneath it -- a left arrow is
-  // also how every other app draws Back.
-  var CLOCK_IN_PATH   = 'M8 5.5v13l11-6.5z';
-  var CLOCK_OUT_PATH  = 'M7.5 7.5h9v9h-9z';
+  // Signing in and signing out: an arrow going in through a door, then out of
+  // it. These were a bare right and left arrow, the same shape mirrored, which
+  // says "forward" and "back" -- and a left arrow is how every other app draws
+  // Back. Play and stop were tried next and read as a media player. The door
+  // is what makes these two different shapes rather than one shape flipped,
+  // and it is the mark everyone already knows for "in" and "out".
+  var CLOCK_IN_PATH   = 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3';
+  var CLOCK_OUT_PATH  = 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9';
   var CLOCK_DONE_PATH = 'M5 13l4 4L19 7';
 
   // Which of the three states every clock surface is in.

@@ -1269,8 +1269,8 @@ Admin and Settings, and Admin is an icon (the shield) rather than a labelled
 pill. The Shortfall panel itself is unchanged; only the way in
 moved.
 
-The clock button draws start and stop (a triangle and a square), not a right and
-a left arrow, and keeps its three fills: gold to clock in, ink while a shift is
+The clock button draws signing in and signing out (an arrow going in through a
+door, then out of it), chosen by the owner from six drawn options on 2026-11-16, and keeps its three fills: gold to clock in, ink while a shift is
 open, the positive pair when the day is done.
 
 On a phone a tab comes in from the side it sits on in the bar: 12px over the
