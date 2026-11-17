@@ -40,19 +40,27 @@ a file copy"; see README, **Publishing**).
 - Admin work (people, org defaults, company-wide days, activity log, storage)
   lives in one dedicated Admin screen, not the tab strip used for the
   individual's own attendance views.
-- In-app notices (announcement, open shift, backup due, unsent punch, failed
-  load) do not sit on top of the screen: they are rows in a notification panel
-  opened from a bell that carries a count, alongside the messages an admin
-  sent. The bell is in the rail above 760px and the header row below it. The
-  one exception is the "you are viewing someone else's record" banner, which
-  stays in the page because it is a mode indicator rather than a notification.
+- In-app notices (announcement, open shift, backup due, unsent punch) do not
+  sit on top of the screen: they are rows in a notification panel opened from a
+  bell that carries a count, alongside the messages an admin sent. The bell is
+  in the rail above 760px and the header row below it. Two exceptions stay in
+  the page: the "you are viewing someone else's record" banner, a mode
+  indicator rather than a notification, and the failed-load notice (moved out
+  of the panel 2026-11-17), because it says the figures on screen cannot be
+  trusted and has to be where they are.
+- Notifications are asked for once per person per device, in a dialog straight
+  after their first clock-in there; otherwise a quiet line in the Overview's
+  clock panel says they are off and carries the button (owner's decision,
+  2026-11-17, replacing "ask on every open until they are on").
 - Offline is scoped to punches and nothing else: a clock-in/out made with no
   connection is queued on the device and uploads when the connection returns.
   Hand-entered days, settings changes and admin actions still require a
   connection. The service worker caches the shell only, and opens the app from
   that copy at once rather than asking the network first (decided 2026-11-15;
-  a new release is taken at a safe moment, never mid-task). This is
-  deliberately not a general sync layer.
+  a new release is taken at a safe moment, never mid-task). The signed-in
+  person's own record is kept on the device so the app opens straight into it
+  (decided 2026-11-17) and is removed on sign-out. This is deliberately not a
+  general sync layer.
 
 ## Capabilities and Constraints
 

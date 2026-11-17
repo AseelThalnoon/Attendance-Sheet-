@@ -1,7 +1,10 @@
 // Asking for notifications on iPhone and iPad, in Safari's own engine.
 //
-// The app asks each time it is opened until notifications are on for the
-// device in hand. iOS is where that is hardest to get right:
+// Since 2026-11-17 the app asks once per person per device, in a dialog,
+// straight after their first clock-in there; the rest of the time a quiet line
+// in the Overview's clock panel says notifications are off and carries the
+// button. (Before, the dialog came on every open until the answer was yes.)
+// iOS is where that is hardest to get right:
 //   - In a Safari tab there is no Notification, no PushManager and no service
 //     worker at all (iOS 16.4+ gives them only to an app on the Home Screen),
 //     so the only useful thing to say is how to install it.
@@ -156,23 +159,39 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
     return;
   }
 
-  // ---- iPhone, Safari tab: explain the Home Screen, every launch ----------
+  // The quiet line in the clock panel, when it is showing.
+  const line = page => page.evaluate(() => {
+    const l = document.getElementById("pushLine");
+    return l && !l.hidden && l.getClientRects().length
+      ? { text: document.getElementById("pushLineText").textContent, button: document.getElementById("pushLineBtn").textContent }
+      : null;
+  });
+  // The first clock-in, from the day-one card (the record starts empty). The
+  // flood covers the screen for two seconds; the question waits for it.
+  const clockIn = async page => { await page.tap("#firstRunClockBtn"); await settle(page, 2900); };
+
+  // ---- iPhone, Safari tab: explain the Home Screen, once ------------------
   {
     const h = await start("iPhone 15 Pro", { push: false });
+    ok(!(await dialog(h.page)), "iPhone Safari tab: nothing pops up at launch");
+    const l = await line(h.page);
+    ok(!!l && /Home Screen/.test(l.text) && l.button === "How", "the clock panel says to add the app to the Home Screen", JSON.stringify(l));
+    await clockIn(h.page);
     const d = await dialog(h.page);
     ok(!!d && /Home Screen/.test(d.msg) && /Share/.test(d.msg) && /iOS Settings/.test(d.msg),
-      "iPhone Safari tab: told to add the app to the Home Screen", JSON.stringify(d));
+      "the first clock-in: told how to add the app to the Home Screen", JSON.stringify(d));
     ok(!!d && d.buttons.join() === "Got It", "with one Got It button, nothing pretending it can ask", d && d.buttons.join());
-    ok(!!d && /each time you open the app/.test(d.every), "and told it will keep asking");
+    ok(!!d && /won't pop up again/.test(d.every), "and told it won't pop up again", d && d.every);
     await tapButton(h.page, ".modal-confirm");
     await settle(h.page, 400);
     ok(!(await dialog(h.page)), "Got It closes it");
-    await awayFor(h.page, 60 * 1000); await settle(h.page, 600);
-    ok(!(await dialog(h.page)), "a one-minute switch away does not bring it back");
     await awayFor(h.page, 11 * 60 * 1000); await settle(h.page, 800);
-    ok(!!(await dialog(h.page)), "coming back after ten minutes does");
+    ok(!(await dialog(h.page)), "coming back later does not bring it back");
     await h.page.reload(); await settle(h.page, 1200);
-    ok(!!(await dialog(h.page)), "and so does every launch");
+    ok(!(await dialog(h.page)), "nor does the next launch");
+    await h.page.tap("#pushLineBtn"); await settle(h.page, 500);
+    const again = await dialog(h.page);
+    ok(!!again && /Home Screen/.test(again.msg), "the line's How shows the steps again, on request", JSON.stringify(again));
     noErrors(h, "iPhone tab");
     await h.close();
   }
@@ -180,12 +199,14 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
   // ---- iPad, Safari tab: both user agents ---------------------------------
   {
     const h = await start("iPad Pro 11", { push: false });
+    await h.page.tap("#pushLineBtn"); await settle(h.page, 500);
     const d = await dialog(h.page);
     ok(!!d && /Home Screen/.test(d.msg), "iPad Safari tab (iPad user agent): Home Screen steps", JSON.stringify(d));
     noErrors(h, "iPad tab");
     await h.close();
 
     const m = await start("iPad Pro 11", { push: false, ua: IPAD_AS_MAC_UA, touchPoints: 5 });
+    await m.page.tap("#pushLineBtn"); await settle(m.page, 500);
     const dm = await dialog(m.page);
     ok(!!dm && /Home Screen/.test(dm.msg) && !/Dock/.test(dm.msg),
       "iPad Safari tab that calls itself a Mac: still the Home Screen steps", JSON.stringify(dm));
@@ -193,15 +214,19 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
     await m.close();
   }
 
-  // ---- Installed, never asked: the first open asks --------------------------
+  // ---- Installed, never asked: the first clock-in asks ----------------------
   for(const device of ["iPhone SE", "iPhone 15 Pro", "iPhone 14 Pro Max"]){
     const h = await start(device, { installed: true, push: true, permission: "default", ua: STANDALONE_UA });
+    ok(!(await dialog(h.page)), `${device} installed: no dialog at launch`);
+    const l = await line(h.page);
+    ok(!!l && /off on this device/.test(l.text) && l.button === "Turn On", `${device}: the line says they're off here`, JSON.stringify(l));
+    await clockIn(h.page);
     const d = await dialog(h.page);
     ok(!!d && /Turn on notifications/.test(d.title) && d.buttons.join() === "Not Now,Turn On",
-      `${device} installed: the first open asks`, JSON.stringify(d));
-    ok(!!d && /this device/.test(d.every), `${device}: says it will keep asking on this device`, d && d.every);
+      `${device}: the first clock-in asks`, JSON.stringify(d));
+    ok(!!d && /this device/.test(d.every), `${device}: says the line will stay until they're on for this device`, d && d.every);
     const launchAsks = await h.page.evaluate(() => window.__push.requests.length);
-    ok(launchAsks === 0, `${device}: never asks iOS at launch, outside a tap (it would show nothing)`, "requests=" + launchAsks);
+    ok(launchAsks === 0, `${device}: never asks iOS outside a tap (it would show nothing)`, "requests=" + launchAsks);
 
     // Fits the screen, and the buttons are big enough to tap.
     const fit = await h.page.evaluate(() => {
@@ -224,6 +249,7 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
     ok(rows.length === 1 && rows[0].endpoint.includes("web.push.apple.com") && /iPhone/.test(rows[0].user_agent),
       `${device}: this iPhone is registered`, JSON.stringify(rows));
     ok(!(await dialog(h.page)), `${device}: and the question closes`);
+    ok(!(await line(h.page)), `${device}: and the line goes`);
     const toast = await h.page.evaluate(() => [...document.querySelectorAll(".toast")].map(t => t.textContent).join(" "));
     ok(/on for this device/.test(toast), `${device}: confirmed with a toast`, toast);
 
@@ -232,23 +258,28 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
     ok(box === true, `${device}: Settings shows notifications on`);
 
     await h.page.reload(); await settle(h.page, 1200);
-    ok(!(await dialog(h.page)), `${device}: once on, the next launch does not ask`);
+    ok(!(await dialog(h.page)) && !(await line(h.page)), `${device}: once on, the next launch says nothing`);
     await awayFor(h.page, 11 * 60 * 1000); await settle(h.page, 800);
     ok(!(await dialog(h.page)), `${device}: nor does coming back later`);
     noErrors(h, device + " installed");
     await h.close();
   }
 
-  // ---- Not Now: back next time, never snoozed ------------------------------
+  // ---- Not Now: the line stays, the dialog does not come back ----------------
   {
     const h = await start("iPhone 15 Pro", { installed: true, push: true, permission: "default", ua: STANDALONE_UA });
+    await clockIn(h.page);
     await tapButton(h.page, ".modal-cancel"); await settle(h.page, 400);
     ok(!(await dialog(h.page)), "Not Now closes it");
+    ok(!!(await line(h.page)), "Not Now: the line stays");
     await awayFor(h.page, 11 * 60 * 1000); await settle(h.page, 800);
-    ok(!!(await dialog(h.page)), "Not Now: asked again on coming back after ten minutes");
-    await tapButton(h.page, ".modal-cancel"); await settle(h.page, 400);
     await h.page.reload(); await settle(h.page, 1200);
-    ok(!!(await dialog(h.page)), "Not Now: asked again on the next launch");
+    ok(!(await dialog(h.page)), "Not Now: not asked again, on coming back or on the next launch");
+    // The line's own Turn On is a tap too, so iOS shows its sheet.
+    await h.page.tap("#pushLineBtn"); await settle(h.page, 900);
+    const reqs = await h.page.evaluate(() => window.__push.requests);
+    ok(reqs.length === 1 && reqs[0].inTap && registered(h).length === 1,
+      "the line's Turn On asks iOS from inside the tap, and registers", JSON.stringify(reqs));
     noErrors(h, "Not Now");
     await h.close();
   }
@@ -256,6 +287,7 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
   // ---- Closing iOS's sheet without choosing --------------------------------
   {
     const h = await start("iPhone 15 Pro", { installed: true, push: true, permission: "default", answer: "default", ua: STANDALONE_UA });
+    await clockIn(h.page);
     await tapButton(h.page, ".modal-confirm"); await settle(h.page, 700);
     const d = await dialog(h.page);
     ok(!!d && /wasn't granted/i.test(d.error), "sheet closed without an answer: the dialog says so", JSON.stringify(d));
@@ -269,14 +301,18 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
   // ---- Don't Allow, then fixing it in iOS Settings ---------------------------
   {
     const h = await start("iPhone 15 Pro", { installed: true, push: true, permission: "default", answer: "denied", ua: STANDALONE_UA });
+    await clockIn(h.page);
     await tapButton(h.page, ".modal-confirm"); await settle(h.page, 700);
     const d = await dialog(h.page);
     ok(!!d && /blocked/i.test(d.error), "Don't Allow: the dialog says notifications are blocked", JSON.stringify(d));
     await h.page.reload(); await settle(h.page, 1200);
+    ok(!(await dialog(h.page)), "next launch: no dialog");
+    const bl = await line(h.page);
+    ok(!!bl && /blocked/.test(bl.text) && bl.button === "How to Allow", "the line says they're blocked", JSON.stringify(bl));
+    await h.page.tap("#pushLineBtn"); await settle(h.page, 500);
     const b = await dialog(h.page);
     ok(!!b && /blocked/i.test(b.title) && /iOS Settings/.test(b.msg) && b.buttons.join() === "Got It",
-      "next launch: how to allow them in iOS Settings, no button pretending to ask", JSON.stringify(b));
-    ok(!!b && /until notifications are allowed/.test(b.every), "and it will keep reminding", b && b.every);
+      "How to Allow: how to allow them in iOS Settings, no button pretending to ask", JSON.stringify(b));
     await tapButton(h.page, ".modal-confirm"); await settle(h.page, 400);
 
     // Off to iOS Settings and straight back: picked up at once, no question.
@@ -284,25 +320,26 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
     await awayFor(h.page, 20 * 1000); await settle(h.page, 900);
     ok(!(await dialog(h.page)), "allowed in iOS Settings: no question on coming back");
     ok(registered(h).length === 1, "and this iPhone is registered by itself");
+    ok(!(await line(h.page)), "and the line goes");
     const toast = await h.page.evaluate(() => [...document.querySelectorAll(".toast")].map(t => t.textContent).join(" "));
     ok(/on for this device/.test(toast), "with a toast saying so", toast);
     noErrors(h, "blocked then fixed");
     await h.close();
   }
 
-  // ---- On for another device, but not this iPhone: still asked --------------
+  // ---- On for another device, but not this iPhone: still said ---------------
   {
     const h = await start("iPhone 15 Pro", { installed: true, push: true, permission: "default", ua: STANDALONE_UA },
       { push_subscriptions: [{ id: 1, user_id: me.id, endpoint: "https://fcm.googleapis.com/laptop",
         p256dh: "x", auth: "y", user_agent: "Mozilla/5.0 (Windows NT 10.0)" }] });
-    ok(!!(await dialog(h.page)), "notifications on a laptop already: this iPhone is still asked");
+    ok(!!(await line(h.page)), "notifications on a laptop already: this iPhone still shows the line");
     await h.close();
   }
 
   // ---- Allowed, but the device was removed from the list ---------------------
   {
     const h = await start("iPhone 15 Pro", { installed: true, push: true, permission: "granted", ua: STANDALONE_UA });
-    ok(!(await dialog(h.page)), "allowed already: no question");
+    ok(!(await dialog(h.page)) && !(await line(h.page)), "allowed already: no question, no line");
     ok(registered(h).length === 1, "and the missing registration is put back quietly");
     const asked = await h.page.evaluate(() => window.__push.requests.filter(r => !r.inTap && r.before !== "granted").length);
     ok(asked === 0, "without a request iOS would ignore");
@@ -315,10 +352,11 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
     // Past the app's own three-second look for a worker, so what is being
     // checked is the wait that follows it, not the look itself.
     await settle(h.page, 2400);
-    ok(!(await dialog(h.page)), "worker still starting: nothing yet");
+    ok(!(await line(h.page)), "worker still starting: nothing yet");
     await h.page.evaluate(() => window.__push.workerUp());
     await settle(h.page, 1500);
-    ok(!!(await dialog(h.page)), "asked as soon as the worker is up, in the same visit");
+    ok(!!(await line(h.page)), "the line appears as soon as the worker is up, in the same visit");
+    ok(!(await dialog(h.page)), "and still no dialog");
     noErrors(h, "late worker");
     await h.close();
   }
@@ -326,7 +364,9 @@ const noErrors = (h, label) => ok(h.errors.length === 0, label + ": no script er
   // ---- Installed on an iOS too old for push ---------------------------------
   {
     const h = await start("iPhone 15 Pro", { installed: true, push: false, ua: STANDALONE_UA });
-    ok(!(await dialog(h.page)), "installed on iOS before 16.4: no misleading Add to Home Screen steps");
+    ok(!(await dialog(h.page)) && !(await line(h.page)), "installed on iOS before 16.4: no misleading Add to Home Screen steps");
+    await clockIn(h.page);
+    ok(!(await dialog(h.page)), "not even after a clock-in");
     noErrors(h, "old iOS installed");
     await h.close();
   }

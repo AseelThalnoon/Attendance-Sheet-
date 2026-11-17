@@ -58,6 +58,8 @@ const SUITES = [
   "regression/pull-refresh.js",
   "regression/stale-resume.js",
   "regression/punch-flood.js",
+  "regression/undo-and-replace.js",
+  "regression/device-copy.js",
   "regression/csv-export.js",
   "regression/sign-out-clean.js",
   "regression/frame-guard.js",

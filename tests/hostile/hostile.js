@@ -251,39 +251,38 @@ async function run(){
     }, beforeLoad: ({ backend }) => backend.fail("/rest/v1/entries", { status: 500, message: "boom" }, 1) });
     await settle(h.page, 900);
 
-    const snap = await h.page.evaluate(() => ({
-      failBanner: document.getElementById("loadFailBanner").classList.contains("show"),
-      badge: document.getElementById("notifBadge").textContent,
-      badgeHidden: document.getElementById("notifBadge").hidden,
-      retryExists: !!document.getElementById("loadFailRetryBtn")
-    }));
-    ok(snap.failBanner, "a failed load shows the persistent failure banner");
-    // The banner lives in the notification panel now, so it is no longer
-    // painted on the page. The failure still has to reach someone who opens
-    // nothing, and the badge is what does that -- if this ever reads 0, a
-    // failed load has gone completely silent, which is the whole defect this
-    // block exists to prevent.
-    ok(!snap.badgeHidden && snap.badge !== "0",
-      "a failed load is announced on the bell without opening anything", "badge=" + snap.badge);
-    ok(snap.retryExists, "the failure banner still carries its Try Again button");
-
-    const reachable = await h.page.evaluate(() => {
-      document.getElementById("notifBtn").click();
-      return new Promise(r => setTimeout(() => r(
-        !!document.getElementById("loadFailRetryBtn").getClientRects().length), 350));
+    const snap = await h.page.evaluate(() => {
+      const b = document.getElementById("loadFailBanner");
+      const r = b.getBoundingClientRect();
+      const retry = document.getElementById("loadFailRetryBtn");
+      return {
+        failBanner: b.classList.contains("show"),
+        // On the page since 2026-11-17, not inside Alerts: the notice that
+        // says the figures cannot be trusted is where the figures are.
+        onScreen: r.height > 0 && r.top >= 0 && r.bottom <= innerHeight,
+        retryShown: !!retry.getClientRects().length,
+        figures: ["monthAvg", "otBank", "streak", "leaveBalance"].map(id => document.getElementById(id).textContent),
+        toasts: [...document.querySelectorAll(".toast-msg")].map(t => t.textContent)
+      };
     });
-    ok(reachable, "and Try Again is visible once the panel is open");
-    await h.page.keyboard.press("Escape");
-    await settle(h.page, 300);
+    ok(snap.failBanner, "a failed load shows the persistent failure banner");
+    ok(snap.onScreen && snap.retryShown, "on the screen, with its Try Again button, without opening anything", JSON.stringify(snap));
+    ok(snap.figures.every(f => f === "—"),
+      "the four figures say \"—\", not zeros that read as an empty account", JSON.stringify(snap.figures));
+    ok(snap.toasts.length === 0, "and it is the only message: no toast saying the same thing", JSON.stringify(snap.toasts));
 
-    // The toast clearing must not clear the banner too — that was the bug:
-    // a 7-second toast was the only signal the load had failed.
-    await h.page.waitForTimeout(7600);
+    // Try Again is the way out, and it works.
+    await h.page.evaluate(() => document.getElementById("loadFailRetryBtn").click());
+    await settle(h.page, 900);
     const after = await h.page.evaluate(() => ({
-      toasts: document.querySelectorAll(".toast").length,
-      failBanner: document.getElementById("loadFailBanner").classList.contains("show")
+      failBanner: document.getElementById("loadFailBanner").classList.contains("show"),
+      avg: document.getElementById("monthAvg").textContent
     }));
-    ok(after.toasts === 0 && after.failBanner, "the failure banner outlives the toast that reported it");
+    ok(!after.failBanner && after.avg !== "—", "Try Again loads the record and the notice goes", JSON.stringify(after));
+    // Fail it again for what follows.
+    h.backend.fail("/rest/v1/entries", { status: 500, message: "boom" }, 1);
+    await h.page.evaluate(() => document.getElementById("loadFailRetryBtn").click());
+    await settle(h.page, 900);
 
     // Save Settings must refuse to write the fallback defaults over the
     // still-unloaded real schedule.
@@ -1175,10 +1174,13 @@ async function run(){
     await pre.close();
   }
 
-  // ---- notifications off on this device: asked every time -------------------
-  // A device without notifications misses the clock-out reminder and every
-  // admin message. It is asked on every launch and every return after a real
-  // absence, and "Not Now" does not snooze it.
+  // ---- notifications off on this device: asked once, then a quiet line ------
+  // A device without notifications misses the reminders and every admin
+  // message. Until 2026-11-17 it was asked in a dialog on every launch and
+  // every return after a real absence; the owner changed that. Now the dialog
+  // comes once per person per device, straight after their first clock-in
+  // there, and the rest of the time a line in the Overview's clock panel says
+  // notifications are off and carries the button.
   {
     // A device that can receive push. The harness blocks the real service
     // worker, so the worker and its push manager are stood in for -- along
@@ -1221,92 +1223,113 @@ async function run(){
         every: every ? every.textContent : "",
         buttons: [...o.querySelectorAll(".modal-actions .btn")].map(b => b.textContent.trim()) };
     });
+    const line = page => page.evaluate(() => {
+      const l = document.getElementById("pushLine");
+      return l && !l.hidden && l.getClientRects().length
+        ? { text: document.getElementById("pushLineText").textContent, button: document.getElementById("pushLineBtn").textContent }
+        : null;
+    });
+    // The day-one card's clock (the record starts empty). The flood plays
+    // over the whole screen from it; the question waits for it to clear.
+    const clockIn = async page => {
+      await page.evaluate(() => document.getElementById("firstRunClockBtn").click());
+      await settle(page, 2900);
+    };
 
     const h = await boot({ meId: me.id, seed: seed(), beforeLoad: pushDevice("default") });
     await settle(h.page, 1200);
-    const first = await dialog(h.page);
-    ok(!!first && /Turn on notifications/.test(first.title) && /each time you open the app/.test(first.every),
-      "a device without notifications is asked at launch, and told it will keep asking",
-      JSON.stringify(first));
-    await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-cancel").click());
-    await settle(h.page, 400);
-    ok(!(await dialog(h.page)), "Not Now closes it");
-    const snooze = await h.page.evaluate(() => localStorage.getItem("attendance_ledger_push_prompt_snooze_v1"));
-    ok(!snooze, "and does not snooze it", "snooze=" + snooze);
+    ok(!(await dialog(h.page)), "a device without notifications is not asked at launch");
+    const quiet = await line(h.page);
+    ok(!!quiet && /off on this device/.test(quiet.text) && quiet.button === "Turn On",
+      "the clock panel says notifications are off here, with Turn On", JSON.stringify(quiet));
 
-    // A quick switch to another app and back is not opening the app again; a
-    // real absence is.
     const awayFor = ms => h.page.evaluate(ms => {
       const set = v => Object.defineProperty(document, "visibilityState", { configurable: true, get: () => v });
       set("hidden"); document.dispatchEvent(new Event("visibilitychange"));
       window.__skewMs += ms;
       set("visible"); document.dispatchEvent(new Event("visibilitychange"));
     }, ms);
-    await awayFor(60 * 1000);
-    await settle(h.page, 800);
-    ok(!(await dialog(h.page)), "a one-minute switch away does not bring it back");
     await awayFor(11 * 60 * 1000);
     await settle(h.page, 800);
-    ok(!!(await dialog(h.page)), "coming back after ten minutes or more does");
+    ok(!(await dialog(h.page)), "coming back after a long absence does not ask either");
+
+    await clockIn(h.page);
+    const first = await dialog(h.page);
+    ok(!!first && /Turn on notifications/.test(first.title) && /won't pop up again/.test(first.every),
+      "the first clock-in on this device asks, once, and says it won't again", JSON.stringify(first));
     await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-cancel").click());
     await settle(h.page, 400);
-    await h.page.reload();
-    await settle(h.page, 1200);
-    ok(!!(await dialog(h.page)), "and so does every launch");
+    ok(!(await dialog(h.page)), "Not Now closes it");
+    ok(!!(await line(h.page)), "and the line stays");
 
-    // Turning it on is what ends it.
-    await h.page.evaluate(() => document.querySelector(".modal-overlay .modal-confirm").click());
-    await settle(h.page, 900);
-    ok(h.backend.state.push_subscriptions.some(r => r.user_id === me.id), "Turn On registers this device");
-    ok(!(await dialog(h.page)), "and closes the reminder");
+    // A later clock-in on this device: no question. (Today's punch is taken
+    // away on the server, so the day can be clocked into again.)
+    h.backend.state.entries = [];
     await h.page.reload();
     await settle(h.page, 1200);
-    ok(!(await dialog(h.page)), "with a device registered, the next launch does not ask");
+    ok(!(await dialog(h.page)), "a launch after it was asked does not ask");
+    await clockIn(h.page);
+    ok(!(await dialog(h.page)), "nor does the next clock-in");
+
+    // The line's Turn On is what ends it.
+    await h.page.evaluate(() => document.getElementById("pushLineBtn").click());
+    await settle(h.page, 900);
+    ok(h.backend.state.push_subscriptions.some(r => r.user_id === me.id), "the line's Turn On registers this device");
+    ok(!(await line(h.page)), "and the line goes");
+    await h.page.reload();
+    await settle(h.page, 1200);
+    ok(!(await line(h.page)) && !(await dialog(h.page)), "with a device registered, nothing asks at all");
     await h.close();
 
-    // Blocked: how to undo it, and no button pretending it can ask again.
+    // Blocked: the line says so, and its button explains how to undo it.
     const b = await boot({ meId: me.id, seed: seed(), beforeLoad: pushDevice("denied") });
     await settle(b.page, 1200);
+    ok(!(await dialog(b.page)), "blocked: no dialog at launch");
+    const bl = await line(b.page);
+    ok(!!bl && /blocked/.test(bl.text) && bl.button === "How to Allow", "blocked: the line says so", JSON.stringify(bl));
+    await b.page.evaluate(() => document.getElementById("pushLineBtn").click());
+    await settle(b.page, 500);
     const blocked = await dialog(b.page);
-    ok(!!blocked && /blocked/i.test(blocked.title) && blocked.buttons.join() === "Got It" &&
-       /each time you open the app/.test(blocked.every),
-      "someone who blocked notifications is told how to unblock them, every launch", JSON.stringify(blocked));
+    ok(!!blocked && /blocked/i.test(blocked.title) && blocked.buttons.join() === "Got It",
+      "and How to Allow says how, with no button pretending it can ask again", JSON.stringify(blocked));
     await b.close();
 
-    // Notifications on another device already: this device is still asked,
+    // Notifications on another device already: this device still says it,
     // because it is this one that would miss them.
     const o = await boot({ meId: me.id, beforeLoad: pushDevice("default"), seed: seed({
       push_subscriptions: [{ id: 1, user_id: me.id, endpoint: "https://push.example.test/phone",
         p256dh: "x", auth: "y", user_agent: "Mozilla/5.0 (iPhone)" }] }) });
     await settle(o.page, 1200);
-    const other = await dialog(o.page);
-    ok(!!other && /Turn on notifications/.test(other.title) && /this device/.test(other.every),
-      "someone with notifications on another device is still asked on this one",
-      JSON.stringify(other));
+    ok(!!(await line(o.page)), "someone with notifications on another device still sees the line on this one");
+    // Hidden for a while by its ×, and still hidden after a reload.
+    await o.page.evaluate(() => document.getElementById("pushLineHideBtn").click());
+    await settle(o.page, 300);
+    ok(!(await line(o.page)), "the × hides the line");
+    await o.page.reload();
+    await settle(o.page, 1200);
+    ok(!(await line(o.page)), "and it stays hidden on the next launch");
     await o.close();
 
     // Allowed on this device, but its registration was removed (from the
-    // device list, say): put back quietly, with no question.
+    // device list, say): put back quietly, with no question and no line.
     const g = await boot({ meId: me.id, seed: seed(), beforeLoad: pushDevice("granted") });
     await settle(g.page, 1200);
-    ok(!(await dialog(g.page)), "permission already granted: no question");
+    ok(!(await dialog(g.page)) && !(await line(g.page)), "permission already granted: no question, no line");
     ok(g.backend.state.push_subscriptions.some(r => r.user_id === me.id),
       "and this device is registered without asking");
     await g.close();
 
-    // Another dialog already open at launch: the question waits for it to
-    // close, rather than being skipped for this whole visit.
-    const w = await boot({ meId: me.id, seed: seed(), beforeLoad: async ctx => {
-      await pushDevice("default")(ctx);
-      await ctx.page.addInitScript(() => {
-        document.addEventListener("DOMContentLoaded", () => {
-          const blocker = document.createElement("div");
-          blocker.className = "modal-overlay"; blocker.id = "testBlocker";
-          document.body.appendChild(blocker);
-        });
-      });
-    } });
+    // Another dialog open when the clock-in asks: the question waits for it
+    // to close, rather than being lost -- it is the one time it is asked.
+    const w = await boot({ meId: me.id, seed: seed(), beforeLoad: pushDevice("default") });
     await settle(w.page, 1200);
+    await w.page.evaluate(() => {
+      document.getElementById("firstRunClockBtn").click();
+      const blocker = document.createElement("div");
+      blocker.className = "modal-overlay"; blocker.id = "testBlocker";
+      document.body.appendChild(blocker);
+    });
+    await settle(w.page, 2900);
     ok(!(await w.page.evaluate(() => !!document.querySelector(".modal-overlay .push-prompt-every"))),
       "not shown on top of another dialog");
     await w.page.evaluate(() => document.getElementById("testBlocker").remove());
@@ -1601,17 +1624,18 @@ async function run(){
     await h.close();
   }
 
-  // ---- the first-run card's two offers ---------------------------------------
-  // The only screen a brand-new account sees, and both of its controls were
-  // pointing at the wrong thing.
+  // ---- the first-run card's offers -------------------------------------------
+  // The only screen a brand-new account sees, and its controls kept pointing
+  // at the wrong thing.
   //
-  // The dashed ring around a plus is the universal add affordance and was an
-  // aria-hidden decoration with no handler — it read as the button on the one
-  // screen whose whole job is to offer the first action, and pressing it did
-  // nothing. And "Set your working week first" clicked the Settings tab and
-  // stopped, which lands on Profile, because Profile is deliberately the
-  // console's first section: the label named the working week and delivered a
-  // name and a photo.
+  // The big control was a dashed ring around a plus: first an aria-hidden
+  // decoration with no handler, then a button that opened the hand-entry form
+  // -- under a sentence telling the reader to clock in. Since 2026-11-17 it is
+  // the clock itself (Clock In, then Clock Out while the first day is open),
+  // and hand entry is a link beside "Set your working week first". That link
+  // clicked the Settings tab and stopped at one point, which lands on Profile,
+  // because Profile is deliberately the console's first section: the label
+  // named the working week and delivered a name and a photo.
   {
     const people = D.roster(2), me = people[0];
     const h = await boot({ meId: me.id, seed: {
@@ -1624,35 +1648,39 @@ async function run(){
 
     const card = await h.page.evaluate(() => {
       const panel = document.querySelector(".overview-panel");
-      const add = document.getElementById("firstRunAddBtn");
-      if(!add) return { firstRun: !!(panel && panel.classList.contains("is-first-run")), missing: true };
-      const r = add.getBoundingClientRect();
+      const clock = document.getElementById("firstRunClockBtn");
+      if(!clock) return { firstRun: !!(panel && panel.classList.contains("is-first-run")), missing: true };
+      const r = clock.getBoundingClientRect();
+      const qc = document.getElementById("qcClockBtn");
       return {
         firstRun: !!(panel && panel.classList.contains("is-first-run")),
         missing: false,
-        tag: add.tagName,
-        name: (add.getAttribute("aria-label") || "").trim(),
+        tag: clock.tagName,
+        name: (clock.getAttribute("aria-label") || "").trim(),
+        action: clock.getAttribute("data-clock-action"),
         w: Math.round(r.width), h: Math.round(r.height),
         hit: (() => { const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-                      return !!(e && (e === add || add.contains(e))); })()
+                      return !!(e && (e === clock || clock.contains(e))); })(),
+        panelButtonShown: !!(qc && qc.getClientRects().length)
       };
     });
     ok(card.firstRun, "an account with no entries gets the first-run overview");
-    ok(!card.missing, "the first-run card offers a control for adding a day");
-    ok(card.tag === "BUTTON", "the dashed ring is a real control, not a decoration", String(card.tag));
-    ok(!!card.name, "the ring says what it does", JSON.stringify(card.name || null));
-    ok(card.w >= 44 && card.h >= 44, "the ring clears the touch floor", `${card.w}x${card.h}`);
-    ok(card.hit, "nothing is sitting on top of the ring");
+    ok(!card.missing, "the first-run card's big control is the clock");
+    ok(card.tag === "BUTTON" && card.action === "in" && card.name === "Clock in",
+      "it clocks in, and says so", JSON.stringify(card));
+    ok(card.w >= 44 && card.h >= 44, "it clears the touch floor", `${card.w}x${card.h}`);
+    ok(card.hit, "nothing is sitting on top of it");
+    ok(!card.panelButtonShown, "the clock panel's own button steps aside while the card shows it");
 
     const modal = await h.page.evaluate(async () => {
-      const add = document.getElementById("firstRunAddBtn");
-      if(add) add.click();
+      const hand = document.getElementById("firstRunHandBtn");
+      if(hand) hand.click();
       await new Promise(r => setTimeout(r, 300));
       const m = document.getElementById("entryModal");
       return { open: !!(m && m.getClientRects().length), focus: document.activeElement.id };
     });
     await settle(h.page, 400);
-    ok(modal.open, "the ring opens the entry form");
+    ok(modal.open, "\"Add a past day by hand\" opens the entry form");
     ok(modal.focus === "fDate", "the entry form starts on the date", modal.focus || "(none)");
     if(modal.open){ await h.page.keyboard.press("Escape"); await settle(h.page, 400); }
 

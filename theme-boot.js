@@ -102,4 +102,22 @@
   } else {
     window.__applyThemeColor();
   }
+
+  // Someone with a session stored on this device is opening the app, not
+  // signing in: the sign-in form is what the page shows until app.js decides,
+  // and it flashed up on every open of a signed-in device -- for 0.8s on
+  // office Wi-Fi and longer on mobile data, long enough to look signed out.
+  // data-opening hides it (see #authScreen's rule in index.html) until app.js
+  // shows one screen or the other and takes the mark off; the timer is the
+  // floor under that, so a page whose script never runs still gets its form.
+  try {
+    for (var i = 0; i < window.localStorage.length; i++) {
+      var k = window.localStorage.key(i);
+      if (k && /^sb-[a-z0-9]+-auth-token$/.test(k) && window.localStorage.getItem(k)) {
+        root.setAttribute("data-opening", "");
+        setTimeout(function () { root.removeAttribute("data-opening"); }, 4000);
+        break;
+      }
+    }
+  } catch (e) { /* no storage: nothing stored to open, and the form stays */ }
 })();

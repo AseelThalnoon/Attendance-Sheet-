@@ -56,6 +56,13 @@ async function showConfirm(){ return true; }
 function persistDismissals(){}
 function friendlyError(e){ return (e && e.message) || String(e); }
 window.__toasts = []; window.__notes = [];
+// The device copy (app.js "Your record, kept on this device"): this page is
+// a signed-in session with its record read from the server, so a punch is
+// sent, not queued for the sign-in to finish.
+var deviceCopyShowing = false, authSettled = true;
+// What a clock-in asks once the flood clears: the once-per-device question
+// about notifications. Not this suite's business.
+function askPushOnce(){}
 
 // Counts how many punches actually reached the save call. Stays pending until
 // the test resolves it, so the in-flight window can be inspected, not raced.

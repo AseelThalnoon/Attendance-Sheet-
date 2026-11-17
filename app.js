@@ -16,6 +16,7 @@
 // Loaded dynamically so that failing to load is a state we can actually report,
 // rather than a module that never executes.
 function showBootFailure(){
+  document.documentElement.removeAttribute("data-opening");
   var warn = document.getElementById("authConfigWarning");
   if(!warn) return;
   warn.textContent = "Couldn't load the application. Check your connection and " +
@@ -752,6 +753,8 @@ import { makeSchedule } from "./src/schedule.js";
   async function flushOutbox(){
     if(flushing || !currentUser || !supabaseConfigured) return;
     if(navigator.onLine === false) return;
+    // The sign-in behind the device copy flushes once it has finished.
+    if(deviceCopyShowing && !authSettled) return;
     var mine = pendingFor(currentUser.id);
     if(!mine.length) return;
 
@@ -902,10 +905,142 @@ import { makeSchedule } from "./src/schedule.js";
     return promise;
   }
 
+  // ---------- Your record, kept on this device ----------
+  // Every open started on the sign-in form: supabase-js restores a session
+  // asynchronously, and the app drew nothing of the record until the profile,
+  // the entries and the schedule had come back from Singapore -- 0.8s on
+  // office Wi-Fi, 1.7s on mobile data, measured. With no signal in the morning
+  // it stayed there, so the person looked signed out and could not clock in.
+  //
+  // So the signed-in person's own record -- their profile, entries and
+  // schedule, never anyone else's -- is kept on this device after each load,
+  // and the next open draws straight from it while the real load runs behind
+  // it. The owner approved storing it on 2026-11-17. It is removed on sign-out
+  // (handleSignedOut), and never used for a session that is not its owner's.
+  //
+  // While the screen holds only this copy (deviceCopyShowing), a punch is
+  // queued rather than sent -- the session may still be being restored, and a
+  // request made then waits on it -- and Settings refuses to save over a
+  // schedule it has not read from the server. If the real load fails, the copy
+  // stays on screen with a notice saying so, instead of the empty record a
+  // failed load used to leave.
+  var DEVICE_COPY_KEY = "attendance.record.v1";
+  var deviceCopyShowing = false;   // the screen holds the device copy, not a server read
+  var deviceCopyFailure = null;    // why the load behind the copy failed, if it did
+  var authSettled = false;         // supabase-js has said who is signed in
+  var deviceCopyTimer = null, deviceCopyLast = "";
+  function authStorageKey(){
+    try{ return "sb-" + new URL(SUPABASE_URL).hostname.split(".")[0] + "-auth-token"; }
+    catch(e){ return ""; }
+  }
+  // Who the stored session belongs to, read synchronously: supabase-js keeps
+  // it in localStorage and takes its time handing it back.
+  function storedSessionUser(){
+    try{
+      var s = JSON.parse(localStorage.getItem(authStorageKey()) || "null");
+      return s && s.user && s.user.id ? {id: s.user.id, email: s.user.email || ""} : null;
+    }catch(e){ return null; }
+  }
+  function readDeviceCopy(){
+    try{
+      var c = JSON.parse(localStorage.getItem(DEVICE_COPY_KEY) || "null");
+      if(!c || typeof c.userId !== "string" || !Array.isArray(c.entries) || !c.profile) return null;
+      return c;
+    }catch(e){ return null; }
+  }
+  function forgetDeviceCopy(){
+    clearTimeout(deviceCopyTimer);
+    deviceCopyLast = "";
+    try{ localStorage.removeItem(DEVICE_COPY_KEY); }catch(e){}
+  }
+  // Called from renderAll(), which every change to the record ends in; the
+  // write waits a moment and is skipped when nothing has changed.
+  function scheduleDeviceCopySave(){
+    clearTimeout(deviceCopyTimer);
+    deviceCopyTimer = setTimeout(saveDeviceCopy, 400);
+  }
+  function saveDeviceCopy(){
+    if(!currentUser || !currentProfile || !isOwnData || viewedUserId !== currentUser.id) return;
+    if(dataLoadFailed()) return;
+    var copy = {
+      userId: currentUser.id,
+      profile: {
+        id: currentProfile.id, email: currentProfile.email, full_name: currentProfile.full_name,
+        role: currentProfile.role, avatar_updated_at: currentProfile.avatar_updated_at || null
+      },
+      settings: settings,
+      // Not the queued punches laid over the top: those live in the outbox,
+      // which is laid over again on the next open.
+      entries: entries.filter(function(e){ return String(e.id).indexOf(PENDING_PREFIX) !== 0; })
+        .map(function(e){ var o = Object.assign({}, e); delete o.pending; return o; })
+    };
+    var text = JSON.stringify(copy);
+    if(text === deviceCopyLast) return;
+    try{
+      localStorage.setItem(DEVICE_COPY_KEY, JSON.stringify(Object.assign({savedAt: Date.now()}, copy)));
+      deviceCopyLast = text;
+    }catch(e){ /* full or blocked: the next open simply waits for the network */ }
+  }
+  // At boot, before supabase-js has said anything: if the stored session and
+  // the device copy belong to the same person, draw the app from the copy.
+  function openFromDeviceCopy(){
+    if(!supabaseConfigured || __recoveryArrival || __authLinkError) return false;
+    var who = storedSessionUser();
+    var copy = readDeviceCopy();
+    if(!who || !copy) return false;
+    if(copy.userId !== who.id){ forgetDeviceCopy(); return false; }
+    try{
+      currentUser = {id: who.id, email: who.email || copy.profile.email || ""};
+      currentProfile = copy.profile;
+      viewedUserId = currentUser.id;
+      viewedProfile = currentProfile;
+      isOwnData = true;
+      // Administrator chrome waits for the real sign-in: its screens need the
+      // people list, which only the server has.
+      isAdmin = false;
+      settings = normalizeSettings(copy.settings);
+      entries = applyOutbox(copy.entries.slice(), currentUser.id);
+      dataLoadError = null;
+      dataLoadedAt = 0;
+      dataEpoch++;
+      deviceCopyShowing = true;
+      deviceCopyLast = "";
+      refreshAvatars();
+      showApp();
+      positionRailIndicator();
+      buildDayPicker();
+      buildDefaultsDayPicker();
+      document.getElementById("fDate").value = todayStr();
+      document.getElementById("fToDate").value = todayStr();
+      updateLiveClock();
+      syncTimers();
+      updateViewingBanner();
+      renderLoadFailure();
+      renderAll();
+      fillSettingsForm();
+      return true;
+    }catch(err){
+      // A copy this build cannot draw is worth nothing: start the ordinary way.
+      deviceCopyShowing = false;
+      currentUser = null; currentProfile = null; viewedUserId = null; viewedProfile = null;
+      entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
+      forgetDeviceCopy();
+      showAuthScreen();
+      return false;
+    }
+  }
+
   async function loadDataForViewedUser(){
     var gen = ++loadGeneration;
     var forUserId = viewedUserId;
-    setLoadingSkeletons(true);
+    // Over the device copy, quietly: the copy is the right thing to look at
+    // until the real record replaces it, and skeletons would blank it.
+    // Leaving it for somebody else's record ends it for good: coming back is
+    // an ordinary load, and a failure then must not keep that other person's
+    // days on screen under the copy's name.
+    if(forUserId !== currentUser.id) deviceCopyShowing = false;
+    var overCopy = deviceCopyShowing && isOwnData && forUserId === currentUser.id;
+    if(!overCopy) setLoadingSkeletons(true);
     try{
       var results = await (takePrefetch("data", forUserId) || Promise.all([
         sbFetchEntries(forUserId),
@@ -917,20 +1052,31 @@ import { makeSchedule } from "./src/schedule.js";
       dataLoadError = null;
       dataLoadedAt = Date.now();
       dataEpoch++;
+      deviceCopyFailure = null;
+      if(forUserId === currentUser.id) deviceCopyShowing = false;
       // Before any render sees it: a punch waiting to upload belongs in the
       // day it was made, not in a holding pen the rest of the app can't see.
       if(forUserId === currentUser.id) entries = applyOutbox(entries, currentUser.id);
     }catch(err){
       if(gen !== loadGeneration) return;
       console.error(err);
-      showToast("Couldn't load attendance data: " + friendlyError(err), "error");
-      // The renderers all read `settings`, so it still has to be an object —
-      // but nothing may treat it as this person's schedule. dataLoadError is
-      // what every screen that would otherwise present it as fact checks.
-      entries = [];
-      settings = Object.assign({}, DEFAULT_SETTINGS);
-      dataLoadError = err;
-      dataEpoch++;
+      if(overCopy){
+        // The copy stays: it is this person's real record as of the last
+        // load, which is a better answer than an empty one. The notice says
+        // which it is (renderLoadFailure).
+        deviceCopyFailure = err;
+      } else {
+        // No toast: the notice at the top of the screen says it, with Try
+        // Again, for as long as it is true. The toast was a second message
+        // saying the same thing, over the bottom bar, and it expired.
+        // The renderers all read `settings`, so it still has to be an object —
+        // but nothing may treat it as this person's schedule. dataLoadError is
+        // what every screen that would otherwise present it as fact checks.
+        entries = [];
+        settings = Object.assign({}, DEFAULT_SETTINGS);
+        dataLoadError = err;
+        dataEpoch++;
+      }
     }
     isOwnData = forUserId === currentUser.id;
     updateViewingBanner();
@@ -1098,17 +1244,29 @@ import { makeSchedule } from "./src/schedule.js";
   // outbox banner — a persistent notice that names the problem and carries the
   // one button that resolves it — rather than a toast, because a toast that
   // expires leaves a screen that is quietly wrong.
+  //
+  // On screen, at the top of every tab, rather than inside Alerts where it
+  // used to be: the one notice that says the figures cannot be trusted has to
+  // be where the figures are. And it is the only message about it -- the load
+  // no longer raises a toast as well.
   function renderLoadFailure(){
     var banner = document.getElementById("loadFailBanner");
     if(!banner) return;
-    if(!dataLoadFailed()){ banner.classList.remove("show"); return; }
-    document.getElementById("loadFailTitle").textContent =
-      isOwnData || !viewedProfile
-        ? "Couldn't load your attendance"
-        : "Couldn't load " + (viewedProfile.full_name || viewedProfile.email) + "'s attendance";
-    document.getElementById("loadFailText").textContent =
-      friendlyError(dataLoadError) + " Nothing below is this record — it's what the app shows " +
-      "when it has no data at all.";
+    var onCopy = deviceCopyShowing && !!deviceCopyFailure && isOwnData;
+    if(!dataLoadFailed() && !onCopy){ banner.classList.remove("show"); return; }
+    banner.classList.toggle("is-copy", onCopy);
+    if(onCopy){
+      document.getElementById("loadFailTitle").textContent = "Showing the copy saved on this device";
+      document.getElementById("loadFailText").textContent =
+        friendlyError(deviceCopyFailure) + " Clocking in and out still works — punches are kept here and upload once you're back.";
+    } else {
+      document.getElementById("loadFailTitle").textContent =
+        isOwnData || !viewedProfile
+          ? "Couldn't load your attendance"
+          : "Couldn't load " + (viewedProfile.full_name || viewedProfile.email) + "'s attendance";
+      document.getElementById("loadFailText").textContent =
+        friendlyError(dataLoadError) + " The figures stay blank until it loads.";
+    }
     banner.classList.add("show");
   }
 
@@ -1729,7 +1887,7 @@ import { makeSchedule } from "./src/schedule.js";
   // start, and getRegistration() answers at once with whatever is there. A
   // worker that is not up by the time someone signs out has no subscription
   // to remove. Signing back in puts the registration back without asking, for
-  // as long as the browser's own permission still stands (promptPushHere).
+  // as long as the browser's own permission still stands (pushStateHere).
   async function dropPushForThisDevice(){
     if(!pushSupported()) return;
     var reg = await navigator.serviceWorker.getRegistration();
@@ -2259,24 +2417,33 @@ import { makeSchedule } from "./src/schedule.js";
     setTimeout(function(){ confirmBtn.focus(); }, 40);
   }
 
-  // ---------- Asking for notifications, on every device ----------
+  // ---------- Asking for notifications, once per device ----------
   // Everyone should have notifications on, on every device they use: the
-  // clock-out reminder and an admin's messages only reach a device that has
-  // them. So until they are on for THIS device, the app asks each time it is
-  // opened -- each launch, and each return after PUSH_REMIND_AWAY_MS in the
-  // background, which is opening it again rather than a quick switch to
-  // another app and back. "Not Now" closes the question; it does not snooze it.
+  // reminders and an admin's messages only reach a device that has them.
   //
-  // It always asks with its own dialog, never by calling the browser's
-  // permission prompt on its own at sign-in. Safari (iPhone, iPad and Mac,
+  // Until 2026-11-17 the app asked with a dialog every time it was opened, on
+  // each device, until the answer was yes. Four people of sixteen had said yes,
+  // and everyone else met a dialog -- on an iPhone in Safari, a paragraph of
+  // install instructions -- before anything else, every morning. The owner
+  // chose the change:
+  //   * the dialog comes once per person per device, straight after their first
+  //     clock-in there, when the punch has just shown what the app is for and a
+  //     reminder to clock out is the obvious next thing to want (askPushOnce);
+  //   * after that, a quiet line in the Overview's clock panel says
+  //     notifications are off here and carries the button (renderPushLine).
+  //     Its × hides it for PUSH_LINE_SNOOZE_DAYS.
+  //
+  // It always asks with its own dialog or button, never by calling the
+  // browser's permission prompt on its own. Safari (iPhone, iPad and Mac,
   // installed or not) and Firefox only show that prompt from a real tap, and
-  // Chrome may hide an unprompted one behind a small icon -- each of which
-  // used to end in no question at all. The Turn On button in the dialog is
-  // the tap every browser accepts.
+  // Chrome may hide an unprompted one behind a small icon. The Turn On button
+  // is the tap every browser accepts.
   //
   // Notifications already on somewhere else is no reason to skip this
   // device: it is this one that would miss them.
-  var PUSH_REMIND_AWAY_MS = 10*60*1000;
+  var PUSH_ASKED_KEY = "attendance.pushAsked:";        // + user id: the dialog has been shown here
+  var PUSH_LINE_HIDDEN_KEY = "attendance.pushLineHidden:"; // + user id: when the line was hidden
+  var PUSH_LINE_SNOOZE_DAYS = 30;
   var pushReminderOpen = false;
   var lastPushReminderKind = null;  // what this session last showed, if anything
   var pushAwaySince = null;         // when the app last went to the background
@@ -2312,50 +2479,112 @@ import { makeSchedule } from "./src/schedule.js";
     }catch(e){ return true; }
   }
 
-  // Called at sign-in, and again on coming back to the app. Silent when this
-  // device already gets notifications; otherwise it either quietly finishes a
-  // registration that only needed finishing, or asks.
-  async function promptPushHere(){
-    if(!currentUser || !isOwnData || pushReminderOpen) return;
+  // Where this device stands, as the line and the dialog need it: "on", or the
+  // kind of question to put -- "ask" (a Turn On button), "install" (only an
+  // app on the Home Screen can have them) or "blocked" (refused, and only the
+  // device's settings can undo that) -- or null when there is nothing to say
+  // (a browser without notifications, or no answer yet). Silent on the way:
+  // permission already given but no registration (a subscribe that failed, a
+  // device someone removed) is finished here without asking anything.
+  async function pushStateHere(){
+    if(!currentUser || !isOwnData) return null;
     var who = currentUser.id;
     var stillHere = function(){ return currentUser && currentUser.id === who && isOwnData; };
-
-    if(!pushSupported()){
-      if(pushNeedsInstall()) showPushPromptModal("install");
-      return;
-    }
+    if(!pushSupported()) return pushNeedsInstall() ? "install" : null;
     // Nothing can arrive without the service worker. On the very first open
     // of a newly installed app it may still be starting, so wait for it and
-    // ask then, rather than giving up on exactly the open this matters most.
+    // look again then.
     if(!(await pushWorkerHere())){
       if(!pushWorkerWaiting){
         pushWorkerWaiting = true;
         navigator.serviceWorker.ready.then(function(){
           pushWorkerWaiting = false;
-          if(stillHere()) promptPushHere();
+          if(stillHere()) syncPushHere();
         }).catch(function(){ pushWorkerWaiting = false; });
       }
-      return;
+      return null;
     }
-    if(!stillHere()) return;
-
+    if(!stillHere()) return null;
     if(Notification.permission === "granted"){
       var sub = await currentPushSubscription();
-      if(sub && (await pushRowExists(sub.endpoint))){ lastPushReminderKind = null; return; }
-      // Allowed already, just not registered (a subscribe that failed, a
-      // device someone removed): finish the job without asking anything.
+      if(sub && (await pushRowExists(sub.endpoint))) return "on";
       try{
-        var remindedBefore = !!lastPushReminderKind;
         await subscribeToPush();
-        lastPushReminderKind = null;
-        if(remindedBefore) showToast("Notifications are on for this device.", "success");
+        // Said only when the line or the dialog had been asking for it --
+        // otherwise this is housekeeping nobody needs to hear about.
+        if(lastPushReminderKind) showToast("Notifications are on for this device.", "success");
         refreshPushToggle();
-        return;
-      }catch(e){ /* fall through to asking */ }
+        return "on";
+      }catch(e){ /* not finished after all: ask */ }
     }
-    if(!stillHere()) return;
-    showPushPromptModal(Notification.permission === "denied" ? "blocked" : "ask");
+    if(!stillHere()) return null;
+    return Notification.permission === "denied" ? "blocked" : "ask";
   }
+
+  // At sign-in and on coming back to the app: no dialog, only the line.
+  var pushLineKind = null;
+  async function syncPushHere(){
+    var kind = await pushStateHere();
+    renderPushLine(kind === "on" ? null : kind);
+    if(kind === "on") lastPushReminderKind = null;
+  }
+
+  // The once-only question, straight after a clock-in on this device. Run
+  // from the punch's after-flood hook, so it opens once the flood has cleared.
+  async function askPushOnce(){
+    if(!currentUser || !isOwnData) return;
+    var key = PUSH_ASKED_KEY + currentUser.id;
+    if(safeGet(key)) return;
+    var kind = await pushStateHere();
+    if(!kind || kind === "on"){ renderPushLine(null); return; }
+    safeSet(key, String(Date.now()));   // once, whatever the answer
+    showPushPromptModal(kind);
+  }
+
+  // The quiet line in the Overview's clock panel. kind is pushStateHere()'s
+  // question, or null to hide it.
+  function renderPushLine(kind){
+    var line = document.getElementById("pushLine");
+    if(!line) return;
+    if(kind && currentUser){
+      var hiddenAt = +(safeGet(PUSH_LINE_HIDDEN_KEY + currentUser.id) || 0);
+      if(hiddenAt && Date.now() - hiddenAt < PUSH_LINE_SNOOZE_DAYS * 86400000) kind = null;
+    }
+    pushLineKind = kind || null;
+    line.hidden = !kind;
+    if(!kind) return;
+    lastPushReminderKind = kind;
+    document.getElementById("pushLineText").textContent =
+      kind === "install" ? "Add the app to your Home Screen to get reminders."
+      : kind === "blocked" ? "Notifications are blocked on this device."
+      : "Notifications are off on this device.";
+    document.getElementById("pushLineBtn").textContent =
+      kind === "install" ? "How" : kind === "blocked" ? "How to Allow" : "Turn On";
+  }
+  onId("pushLineBtn", "click", async function(){
+    var kind = pushLineKind;
+    if(kind !== "ask"){ if(kind) showPushPromptModal(kind); return; }
+    // Straight into subscribeToPush, nothing awaited first: this click is
+    // the gesture the browser's own permission prompt needs.
+    var btn = this;
+    btn.disabled = true;
+    try{
+      await subscribeToPush();
+      showToast("Notifications are on for this device.", "success");
+      renderPushLine(null);
+      lastPushReminderKind = null;
+      refreshPushToggle();
+    }catch(err){
+      showToast(friendlyError(err), "error");
+      syncPushHere();
+    }finally{
+      btn.disabled = false;
+    }
+  });
+  onId("pushLineHideBtn", "click", function(){
+    if(currentUser) safeSet(PUSH_LINE_HIDDEN_KEY + currentUser.id, String(Date.now()));
+    renderPushLine(null);
+  });
   // The other half of enableInstructionsFor(): permission was refused, and a
   // browser never shows its own dialog again after that, so the only way back
   // is the device's or the browser's settings -- and where they are differs
@@ -2389,20 +2618,20 @@ import { makeSchedule } from "./src/schedule.js";
   //
   // kind: "ask" (a Turn On button that requests permission), "install" (the
   // app has to be on the Home Screen first) or "blocked" (permission was
-  // refused, and only the device's own settings can undo that). Each says it
-  // will come back, because it will (see promptPushHere).
+  // refused, and only the device's own settings can undo that). Each says
+  // where to find it again: the line in the clock panel (see renderPushLine).
   function showPushPromptModal(kind){
     var instructional = kind !== "ask";
     if(pushReminderOpen) return;
     // Never on top of another dialog -- a confirm waiting for an answer, or
-    // an entry being edited. Wait for it to close and ask then; skipping
-    // would mean the first open of a new install could pass with no question.
+    // an entry being edited. Wait for it to close and ask then: this is the
+    // one time it is asked on this device.
     var entryModal = document.getElementById("entryModal");
     if(document.querySelector(".modal-overlay") || (entryModal && !entryModal.hidden)){
       if(!pushDialogWaitTimer){
         pushDialogWaitTimer = setTimeout(function(){
           pushDialogWaitTimer = null;
-          promptPushHere();
+          if(currentUser && isOwnData) showPushPromptModal(kind);
         }, 1500);
       }
       return;
@@ -2429,10 +2658,9 @@ import { makeSchedule } from "./src/schedule.js";
       : kind === "install"
         ? enableInstructionsFor()
         : "Get notified here when it matters — a forgotten clock-out, or a message from an admin.";
-    overlay.querySelector(".push-prompt-every").textContent = kind === "blocked"
-      ? "This reminder will show each time you open the app until notifications are allowed here."
-      : "Notifications aren't on for this device yet, so this reminder will show each time " +
-        "you open the app until they are.";
+    overlay.querySelector(".push-prompt-every").textContent =
+      "This won't pop up again. The Overview's clock panel will show a line about it until " +
+      (kind === "blocked" ? "notifications are allowed here." : "they're on for this device.");
     pushReminderOpen = true;
     lastPushReminderKind = kind;
     dialogRoot().appendChild(overlay);
@@ -2443,11 +2671,16 @@ import { makeSchedule } from "./src/schedule.js";
     bgRoot.setAttribute("aria-hidden", "true");
     var previouslyFocused = document.activeElement;
 
+    var turnedOn = false;
     function close(){
       document.removeEventListener("keydown", onKey);
       bgRoot.removeAttribute("aria-hidden");
       overlay.classList.remove("show");
       pushReminderOpen = false;
+      // From here on the line says it, quietly -- read afresh, since the
+      // answer given in the dialog may have changed it (Don't Allow makes
+      // "off" into "blocked").
+      if(turnedOn) renderPushLine(null); else syncPushHere();
       setTimeout(function(){
         overlay.remove();
         if(previouslyFocused && typeof previouslyFocused.focus === "function") previouslyFocused.focus();
@@ -2475,6 +2708,8 @@ import { makeSchedule } from "./src/schedule.js";
           await subscribeToPush();
           showToast("Notifications are on for this device.", "success");
           await refreshPushToggle();
+          turnedOn = true;
+          lastPushReminderKind = null;
           close();
         }catch(err){
           errEl.textContent = friendlyError(err);
@@ -2497,6 +2732,8 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("sIn").value = settings.standardIn;
     document.getElementById("sOut").value = settings.standardOut;
     document.getElementById("sRemind").value = settings.remindAfterHours;
+    var remindIn = document.getElementById("sRemindIn");
+    if(remindIn) remindIn.checked = settings.remindClockIn !== false;
     document.getElementById("sGrace").value = settings.graceMin;
     document.getElementById("sLeaveDays").value = settings.annualLeaveDays;
     document.getElementById("sLateOnlyShort").checked = settings.lateOnlyIfShort;
@@ -3173,7 +3410,14 @@ import { makeSchedule } from "./src/schedule.js";
     // gone. The load has to succeed before the form is allowed to overwrite it.
     if(dataLoadFailed()){
       showToast("This schedule never loaded, so the form isn't showing the saved one. " +
-                "Open Alerts and use Try Again first.", "error");
+                "Use Try Again at the top of the screen first.", "error");
+      return;
+    }
+    // The same for the copy kept on this device: it may be older than the
+    // schedule on the server, and saving it would put the old one back.
+    if(deviceCopyShowing && isOwnData){
+      showToast("This is the copy saved on this device, and it may be out of date. " +
+                "Wait for the app to reconnect, then save.", "error");
       return;
     }
 
@@ -3188,6 +3432,7 @@ import { makeSchedule } from "./src/schedule.js";
       standardIn: document.getElementById("sIn").value || DEFAULT_SETTINGS.standardIn,
       standardOut: document.getElementById("sOut").value || DEFAULT_SETTINGS.standardOut,
       remindAfterHours: remind,
+      remindClockIn: !document.getElementById("sRemindIn") || document.getElementById("sRemindIn").checked,
       graceMin: grace,
       annualLeaveDays: leaveDays,
       lateOnlyIfShort: document.getElementById("sLateOnlyShort").checked,
@@ -3881,8 +4126,21 @@ import { makeSchedule } from "./src/schedule.js";
   // clause is the one that matters: telling somebody with four hundred days
   // that their weeks take shape here, because a fetch failed, is exactly what
   // dataLoadFailed() exists to prevent.
+  //
+  // And it lasts through the first shift. It used to end at the first clock-in,
+  // which swapped this card for a row of zeros -- "0h", "+0h", "0d" -- at the
+  // moment someone had just started: four figures about a day that was not over
+  // yet. The card stays until that first day has a clock-out (or anything else
+  // has been logged), and says the day is underway meanwhile.
   function firstRunActive(){
-    return isOwnData && entries.length === 0 && !dataLoadFailed();
+    if(!isOwnData || dataLoadFailed()) return false;
+    return entries.length === 0 || !!firstDayOpen();
+  }
+  // The one entry of a record whose only entry is today's open shift.
+  function firstDayOpen(){
+    if(entries.length !== 1) return null;
+    var e = entries[0];
+    return e.date === todayStr() && e.clockIn && !e.clockOut && countsAsWorked(e.type) ? e : null;
   }
 
   function renderOverviewFirstRun(){
@@ -3893,6 +4151,13 @@ import { makeSchedule } from "./src/schedule.js";
     // someone with four hundred days that their weeks take shape here, because
     // a fetch failed, is exactly what dataLoadFailed() exists to prevent.
     var firstRun = firstRunActive();
+    var open = firstRun && firstDayOpen();
+    var title = document.getElementById("firstRunTitle");
+    var sub = document.getElementById("firstRunSub");
+    if(title) title.textContent = open ? "Your first day is underway" : "Your first day starts here";
+    if(sub) sub.textContent = open
+      ? "Clocked in at " + formatTime12(open.clockIn) + ". Clock out when you finish, and your hours, punctuality and leave start from there."
+      : "Clock in when you start and out when you finish. Hours, punctuality and leave all build themselves from there.";
     [["tab-overview", "overviewFirstRun"],
      ["tab-trends", "trendsFirstRun"],
      ["tab-punctuality", "punctFirstRun"]].forEach(function(pair){
@@ -3935,6 +4200,7 @@ import { makeSchedule } from "./src/schedule.js";
     // climbing — the same reading the Team bar and the Calendar dots give.
     progressFill.closest(".hero-progress")
       .classList.toggle("is-met", ms.loggedDays > 0 && progressPct >= 100);
+    progressFill.closest(".hero-progress").classList.toggle("is-empty", !ms.loggedDays);
     // Unclamped ratio for the Velocity cluster's tachometer, published here
     // so the gauge reads the figure this function already computed rather
     // than deriving its own. The bar above stays clamped to 100%; the gauge
@@ -3947,7 +4213,7 @@ import { makeSchedule } from "./src/schedule.js";
     progressFill.setAttribute("data-target-min", targetPerDay);
     document.getElementById("heroProgressLabel").textContent = ms.loggedDays
       ? progressPct + "% of " + minutesToHoursStr(targetPerDay) + " target"
-      : "No regular workdays logged yet this month";
+      : "No workdays logged yet this month";
 
     var otEl = document.getElementById("otBank");
     otEl.textContent = signed(ms.diffSum);
@@ -4074,6 +4340,42 @@ import { makeSchedule } from "./src/schedule.js";
     renderClockControls();
 
     renderLeaveBalance();
+    if(dataLoadFailed()) blankStatsForFailedLoad();
+  }
+
+  // A failed load has no figures, and zeros are figures: "0h", "+0h", "0d"
+  // and a full leave balance read as an account that had never logged a day,
+  // to people with hundreds. The four tiles and today's status say "—" until
+  // the record loads; the notice at the top says why.
+  function blankStatsForFailedLoad(){
+    ["monthAvg", "otBank", "streak", "leaveBalance"].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el){ el.textContent = "—"; el.className = "stat-value"; }
+    });
+    ["monthAvgDetail", "otBankDetail", "leaveBalanceDetail"].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) el.textContent = "Not loaded";
+    });
+    var streakDetail = document.querySelector("#streak + .stat-detail");
+    if(streakDetail){ streakDetail.textContent = "Not loaded"; streakDetail.classList.remove("milestone"); }
+    ["monthTrend", "otBankTrend"].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el){ el.textContent = ""; el.className = "stat-trend"; }
+    });
+    var progress = document.getElementById("heroProgressFill");
+    if(progress){
+      progress.style.transform = "scaleX(0)";
+      progress.closest(".hero-progress").classList.add("is-empty");
+      document.getElementById("heroProgressLabel").textContent = "";
+    }
+    var sealValue = document.getElementById("sealValue");
+    if(sealValue){ sealValue.textContent = "—"; sealValue.classList.remove("long"); }
+    var seal = document.getElementById("todaySeal");
+    if(seal) seal.className = "seal";
+    var lineValue = document.getElementById("todayLineValue");
+    if(lineValue) lineValue.textContent = "—";
+    var line = document.getElementById("todayLine");
+    if(line) line.className = "today-line";
   }
 
   // ---------- The open shift, live ----------
@@ -4401,7 +4703,7 @@ import { makeSchedule } from "./src/schedule.js";
           '</svg>' +
           '<p class="first-run-title">Couldn\'t load this record</p>' +
           '<p class="first-run-sub">' + escapeHtml(friendlyError(dataLoadError)) +
-            ' This is not an empty month — open <strong>Alerts</strong> and use Try Again.</p>' +
+            ' This is not an empty month — use Try Again at the top of the screen.</p>' +
         '</div>';
     } else if(entries.length === 0){
       // The dashed ring echoes the Day Types donut on Overview — an "empty"
@@ -4737,13 +5039,30 @@ import { makeSchedule } from "./src/schedule.js";
   // ---------- Calendar ----------
   var calendarViewDate = new Date(); // tracks which month is currently shown
 
+  // The first day this record holds: its earliest entry, or null for a record
+  // with none. A workday before it is not a day someone failed to log -- they
+  // were not using the app yet. The calendar marked every earlier workday of
+  // the month "Not logged", eleven of them on an account opened that morning;
+  // Shortfall already started from the first entry (unloggedWorkdays), and
+  // the calendar now starts from the same place.
+  var recordStartMemo = {epoch: -1, value: null};
+  function recordStartDate(){
+    if(recordStartMemo.epoch === dataEpoch) return recordStartMemo.value;
+    var first = null;
+    entries.forEach(function(e){ if(!first || e.date < first) first = e.date; });
+    recordStartMemo = {epoch: dataEpoch, value: first};
+    return first;
+  }
+
   // One badge per day: what actually happened, in priority order.
   function calendarDayStatus(dateStr){
     var entry = entries.find(function(e){ return e.date === dateStr; });
     var scheduled = isScheduled(dateStr);
     if(!entry){
       if(!scheduled) return "off";
-      return dateStr > todayStr() ? "future" : "missing";
+      if(dateStr > todayStr()) return "future";
+      var start = recordStartDate();
+      return !start || dateStr < start ? "before" : "missing";
     }
     var c = computeEntry(entry);
     if(c.open) return "open";
@@ -5481,6 +5800,9 @@ import { makeSchedule } from "./src/schedule.js";
     // the default view, and rendering a hidden panel on every data change is
     // work nobody sees.
     if(document.querySelector('.tab-btn[data-tab="calendar"].active')) renderCalendarView();
+    // Every change to the record ends here, so this is where the copy kept
+    // on this device is brought up to date (see openFromDeviceCopy).
+    scheduleDeviceCopySave();
   }
 
   // ---------- Print report ----------
@@ -5837,6 +6159,54 @@ import { makeSchedule } from "./src/schedule.js";
     finally{ entrySubmitInFlight = false; }
   });
 
+  // A worked day (Regular, Half Day Leave) needs the time it started. Add Entry
+  // pressed twice with nothing typed saved an empty Regular day, without a
+  // word -- a row that counts no hours, marks the day "incomplete" and then has
+  // to be found and deleted. A clock-out with no clock-in is the same row with
+  // one field filled. Leave, holidays, remote days and trips are whole without
+  // times, so they pass.
+  function blankDayProblem(p){
+    if(!countsAsWorked(p.type) || p.clockIn) return null;
+    return p.clockOut
+      ? "Add the clock-in time too. A day with only a clock-out counts no hours."
+      : "Add the time you clocked in, or choose a day type such as Annual Leave for a day you didn't work.";
+  }
+  // "Regular · in 8:02 AM, still open", "Regular · 8:00 AM – 4:00 PM",
+  // "Annual Leave": what a Replace is about to write over, and with what.
+  function describeDay(e){
+    var label = typeLabel(e.type);
+    if(e.clockIn && e.clockOut) return label + " · " + formatTime12(e.clockIn) + " – " + formatTime12(e.clockOut);
+    if(e.clockIn) return label + " · in " + formatTime12(e.clockIn) + ", still open";
+    if(e.clockOut) return label + " · out " + formatTime12(e.clockOut) + " with no clock-in";
+    return countsAsWorked(e.type) ? label + " with no times" : label;
+  }
+  // Undo for a Replace: the old day is written back over the new one, while
+  // the new one is still what the day holds.
+  function offerReplaceUndo(saved, replaced, userId){
+    showToast("Replaced " + fmtDate(saved.date) + ".", "success", {
+      actionText: "Undo",
+      onAction: async function(){
+        var cur = viewedUserId === userId && entries.find(function(e){ return e.id === saved.id; });
+        if(!cur || cur.clockIn !== saved.clockIn || cur.clockOut !== saved.clockOut ||
+           cur.type !== saved.type || (cur.note || "") !== (saved.note || "")){
+          showToast("That day has changed since, so there's nothing to undo. Edit the day instead.", "error");
+          return;
+        }
+        try{
+          var restored = await sbUpsertEntry(userId, {
+            date: replaced.date, clockIn: replaced.clockIn || "", clockOut: replaced.clockOut || "",
+            type: replaced.type, note: replaced.note || ""
+          }, cur.id);
+          applyLocalUpsert(restored, userId);
+          showToast("Put " + fmtDate(replaced.date) + " back as it was.", "success");
+        }catch(err){
+          if(err && err.stale) await recoverFromStaleRecord();
+          else showToast("Couldn't undo that: " + friendlyError(err), "error");
+        }
+      }
+    });
+  }
+
   async function handleEntrySubmit(){
     var date = document.getElementById("fDate").value;
     if(!date){ showToast("Pick a date first.", "error"); markFieldInvalid("fDate"); return; }
@@ -5853,6 +6223,9 @@ import { makeSchedule } from "./src/schedule.js";
       note: document.getElementById("fNote").value.trim()
     };
 
+    var blank = blankDayProblem(basePayload);
+    if(blank){ showToast(blank, "error"); markFieldInvalid("fIn"); return; }
+
     if(isRange){
       await submitRecurringRange(date, basePayload);
       return;
@@ -5867,13 +6240,27 @@ import { makeSchedule } from "./src/schedule.js";
 
     var payload = Object.assign({date: date}, basePayload);
     var existingDbId = null;
+    var replaced = null;   // the day as it was, when this save writes over one
     if(editingId){
       existingDbId = editingId;
     } else {
       var existing = entries.find(function(e){ return e.date === date; });
       if(existing){
-        if(!(await showConfirm("An entry for "+fmtDate(date)+" already exists. Replace it?", {confirmText:"Replace"}))) return;
+        // A day with a punch still waiting to upload has no server row to
+        // replace yet, and the upload would land on top of whatever this saved.
+        if(existing.pending){
+          showToast("That day has a punch that hasn't uploaded yet. Add this once it syncs.", "error");
+          return;
+        }
+        // Said in full. "An entry for 17 Nov already exists. Replace it?" did
+        // not say that the entry was this morning's clock-in, and one tap on
+        // Replace wiped it.
+        if(!(await showConfirm(
+          fmtDate(date) + " already has " + describeDay(existing) + ". Replace it with " +
+          describeDay(payload) + "?",
+          {title:"Replace this day?", confirmText:"Replace"}))) return;
         existingDbId = existing.id;
+        replaced = Object.assign({}, existing);
       }
     }
 
@@ -5887,6 +6274,7 @@ import { makeSchedule } from "./src/schedule.js";
       persistDismissals();
       resetForm();
       applyLocalUpsert(saved, targetUserId);
+      if(replaced) offerReplaceUndo(saved, replaced, targetUserId);
     }catch(err){
       // The form is left as typed: after the reload the person can see what
       // the day holds now and decide whether their version still belongs.
@@ -6202,7 +6590,9 @@ import { makeSchedule } from "./src/schedule.js";
     if(stickyTime) stickyTime.textContent = h12 + ":" + pad2(d.getMinutes()) + " " + period;
     paintLiveShift();
   }
-  function showQcNote(msg, success){
+  // quiet: the caller says it in a toast of its own (the clock-out's, which
+  // carries Undo), so this must not raise a second one beside it.
+  function showQcNote(msg, success, quiet){
     var el = document.getElementById("qcStatusNote");
     el.textContent = msg;
     el.className = "qc-note" + (success ? " success" : "");
@@ -6221,7 +6611,7 @@ import { makeSchedule } from "./src/schedule.js";
     // being scrolled, hidden or replaced. The toast is the channel every other
     // outcome in the app already uses, and it carries its own live region, so
     // this also gives the punch a spoken confirmation it never had.
-    if(!el.getClientRects().length) showToast(msg, success ? "success" : "error");
+    if(!quiet && !el.getClientRects().length) showToast(msg, success ? "success" : "error");
   }
 
   // The one-shot "confirmed" beat on the seal, separate from its ambient
@@ -6290,14 +6680,28 @@ import { makeSchedule } from "./src/schedule.js";
     return o.at;
   }
 
+  // What waits for the flood to clear (p.after: the Undo after a clock-out). A
+  // full-screen flood sits above the messages, so anything said while it is up
+  // would spend two of its seconds hidden. It runs when the flood ends, at once
+  // when there is no flood or the flood is only inside a panel, and before the
+  // next flood replaces this one -- it is never dropped.
+  var punchFloodAfter = null;
+  function runPunchFloodAfter(){
+    var f = punchFloodAfter;
+    punchFloodAfter = null;
+    if(f){ try{ f(); }catch(e){ /* its own business */ } }
+  }
+
   function playPunchFlood(p){
+    runPunchFloodAfter();
+    punchFloodAfter = typeof p.after === "function" ? p.after : null;
     try{
       punchFloodTimers.forEach(clearTimeout);
       punchFloodTimers = [];
       var old = document.querySelectorAll(".punch-flood");
       for(var i = 0; i < old.length; i++) old[i].remove();
-      if(document.hidden) return;
-      if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      if(document.hidden){ runPunchFloodAfter(); return; }
+      if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches){ runPunchFloodAfter(); return; }
 
       var o = p.origin || punchOrigin(null);
       if(!o.at){
@@ -6310,6 +6714,7 @@ import { makeSchedule } from "./src/schedule.js";
       // the control belongs to.
       var phone = !!(window.matchMedia && window.matchMedia("(max-width:760px)").matches);
       var host = (!phone && punchControlShown(o.holder)) ? o.holder : null;
+      if(host) runPunchFloodAfter();
 
       function part(tag, cls, text){
         var n = document.createElement(tag);
@@ -6385,6 +6790,7 @@ import { makeSchedule } from "./src/schedule.js";
           void o.el.offsetWidth;
           o.el.classList.add("punch-landed");
         }
+        runPunchFloodAfter();
       }
       flood.addEventListener("animationend", function(e){
         if(e.target === flood && e.animationName === "punchBack") finish();
@@ -6406,7 +6812,7 @@ import { makeSchedule } from "./src/schedule.js";
       // animation event to leave.
       punchFloodTimers.push(setTimeout(finish, PUNCH_FLOOD_MS + 200));
       (host || document.body).appendChild(flood);
-    }catch(err){ /* the flourish must never fail the punch */ }
+    }catch(err){ runPunchFloodAfter(); /* the flourish must never fail the punch */ }
   }
 
   // ---------- The punch, heard and felt ----------
@@ -6672,6 +7078,79 @@ import { makeSchedule } from "./src/schedule.js";
     return null;
   }
 
+  // ---------- Taking a clock-out back ----------
+  // One tap on Clock Out ended the day, and the only way back was the entry
+  // form: find the day, empty the clock-out, save. In a test a stray tap at
+  // 3h 14m closed the day and moved the month's overtime from +0h 10m to
+  // -4h 36m. So the clock-out's message offers Undo, the way a delete does.
+  // A clock-in has no Undo: a stray one is fixed by clocking out or by editing
+  // the day, and nothing about the month moves until then.
+  function offerPunchUndo(msg, undo){
+    showToast(msg, "success", {actionText: "Undo", onAction: undo});
+  }
+  // The day is put back to what it held before the punch -- open, or the
+  // clock-out it had before a Replace -- but only while it still holds what
+  // the punch wrote. A day changed since (edited, punched again, deleted) is
+  // left alone: undoing over that would throw away the newer change.
+  async function undoClockOut(saved, previousOut, userId){
+    if(!currentUser || currentUser.id !== userId) return;
+    if(!isOwnData){
+      showToast("Switch back to \"Viewing: Me\" to undo your clock-out.", "error");
+      return;
+    }
+    var cur = entries.find(function(e){ return e.id === saved.id; });
+    if(!cur || cur.clockOut !== saved.clockOut){
+      showToast("That day has changed since, so there's nothing to undo. Edit the day instead.", "error");
+      return;
+    }
+    if(punchInFlight) return;
+    punchInFlight = true;
+    try{
+      var restored = await sbUpsertEntry(userId,
+        {date: cur.date, clockIn: cur.clockIn, clockOut: previousOut, type: cur.type, note: cur.note}, cur.id);
+      applyLocalUpsert(restored, userId);
+      showToast(previousOut
+        ? "Clock-out put back to " + formatTime12(previousOut) + "."
+        : "Clock-out undone. You're clocked in since " + formatTime12(cur.clockIn) + ".", "success");
+    }catch(err){
+      if(err && err.stale) await recoverFromStaleRecord();
+      else showToast("Couldn't undo the clock-out: " + friendlyError(err), "error");
+    }finally{
+      punchInFlight = false;
+    }
+  }
+  // The same for a clock-out still waiting on the device: it leaves the queue
+  // (and a clock-out it had replaced there goes back in), and the day on
+  // screen returns to what it showed before.
+  function undoQueuedClockOut(userId, date, time, priorQueued, previousOut){
+    if(!currentUser || currentUser.id !== userId) return;
+    var mine = outbox.find(function(q){
+      return q.userId === userId && q.date === date && q.field === "clockOut" && q.time === time;
+    });
+    if(!mine){
+      showToast("That clock-out has already uploaded. Edit the day to change it.", "error");
+      return;
+    }
+    outbox = outbox.filter(function(q){ return q !== mine; });
+    if(priorQueued) outbox.push(priorQueued);
+    persistOutbox();
+    if(isOwnData){
+      var row = entries.find(function(e){ return e.date === date; });
+      if(row){
+        row.clockOut = previousOut;
+        if(!pendingFor(userId).some(function(q){ return q.date === date; })) delete row.pending;
+      }
+      dataEpoch++;
+      renderAll();
+    }
+    renderOutbox();
+    var row2 = entries.find(function(e){ return e.date === date; });
+    showToast(previousOut
+      ? "Clock-out put back to " + formatTime12(previousOut) + "."
+      : "Clock-out undone." + (row2 && row2.clockIn ? " You're clocked in since " + formatTime12(row2.clockIn) + "." : ""),
+      "success");
+  }
+
   async function punchClock(kind, originEl){
     if(punchInFlight) return;
     // Where the punch was made from, taken now: by the time it is saved the
@@ -6741,7 +7220,8 @@ import { makeSchedule } from "./src/schedule.js";
     var clockBtns = [
       document.getElementById("qcClockBtn"),
       document.getElementById("stickyClockBtn"),
-      document.getElementById("bnClockBtn")
+      document.getElementById("bnClockBtn"),
+      document.getElementById("firstRunClockBtn")
     ].filter(Boolean);
     // Set only now, after the "replace it?" confirmation has resolved — an
     // open modal must never leave the flag wedged on.
@@ -6757,6 +7237,10 @@ import { makeSchedule } from "./src/schedule.js";
       // never to conclude that one will succeed. That case is handled by
       // catching the failure below.
       if(navigator.onLine === false) throw OFFLINE;
+      // Drawn from the device copy, with the session still being restored: a
+      // request now would wait on that, for as long as it takes. Queued, it
+      // is recorded this minute and uploads as soon as the sign-in completes.
+      if(deviceCopyShowing && !authSettled) throw OFFLINE;
       var targetUserId = currentUser.id;
       var saved = await sbUpsertEntry(targetUserId, payload, existing ? existing.id : null);
       // Clearing on the way out as well as the way in: a day that has just been
@@ -6780,11 +7264,17 @@ import { makeSchedule } from "./src/schedule.js";
         var c = computeEntry(saved);
         if(c.workedMin !== null) msg += " · " + minutesToHoursStr(c.workedMin) + " worked";
       }
-      showQcNote(msg, true);
+      showQcNote(msg, true, kind === "out");
       confirmPunch({kind:kind, origin:origin, time:timeNow, date:targetDate,
-                    workedMin: kind === "out" ? c.workedMin : null});
+                    workedMin: kind === "out" ? c.workedMin : null,
+                    after: kind === "out" ? function(){
+                      offerPunchUndo(msg, function(){ undoClockOut(saved, existing.clockOut || "", targetUserId); });
+                    } : askPushOnce});
     }catch(err){
       if(isNetworkError(err)){
+        var priorQueued = outbox.find(function(q){
+          return q.userId === currentUser.id && q.date === targetDate && q.field === field;
+        }) || null;
         queuePunch(currentUser.id, targetDate, field, timeNow);
         // Shown exactly the way a saved punch is shown, because from the
         // record's point of view it IS one — the time is captured and it is
@@ -6795,9 +7285,16 @@ import { makeSchedule } from "./src/schedule.js";
         renderAll();
         pulseSeal();
         pulseQuickClock();
-        showQcNote("Clocked " + kind + " at " + formatTime12(timeNow) + " · " +
-                   fmtDate(targetDate) + " · saved on this device, uploads when you're back online", true);
-        confirmPunch({kind:kind, origin:origin, time:timeNow, date:targetDate, queued:true});
+        var queuedMsg = "Clocked " + kind + " at " + formatTime12(timeNow) + " · " +
+                   fmtDate(targetDate) + " · saved on this device, uploads when you're back online";
+        showQcNote(queuedMsg, true, kind === "out");
+        var queuedUserId = currentUser.id, previousOut = existing ? existing.clockOut || "" : "";
+        confirmPunch({kind:kind, origin:origin, time:timeNow, date:targetDate, queued:true,
+                      after: kind === "out" ? function(){
+                        offerPunchUndo(queuedMsg, function(){
+                          undoQueuedClockOut(queuedUserId, targetDate, timeNow, priorQueued, previousOut);
+                        });
+                      } : null});
       } else if(err && err.stale){
         // The day already has a row this screen did not know about (a punch
         // from another device, usually). Awaited inside the try, so the clock
@@ -6945,6 +7442,14 @@ import { makeSchedule } from "./src/schedule.js";
           isDone ? "Done" : (isOut ? "Clock Out" : "Clock In"),
           isDone ? "Today's shift is complete — edit today's entry"
                  : (isOut ? "Clock out" : "Clock in"));
+
+    // --- The day-one card's clock (only on screen while that card is). ---
+    var fr = document.getElementById("firstRunClockBtn");
+    if(fr) fr.classList.toggle("is-out", isOut);
+    paint("firstRunClockBtn", "firstRunClockIcon", "firstRunClockLabel",
+          isDone ? "Done" : (isOut ? "Clock Out" : "Clock In"),
+          isDone ? "Today's shift is complete — edit today's entry"
+                 : (isOut ? "Clock out" : "Clock in"));
   }
 
   // Today's row in the edit dialog — the "done" state's action on every
@@ -6968,6 +7473,8 @@ import { makeSchedule } from "./src/schedule.js";
   onId("qcEditBtn", "click", function(){ if(!this.disabled) editToday(); });
   onId("stickyClockBtn", "click", function(){ clockControlClick(this); });
   onId("bnClockBtn", "click", function(){ clockControlClick(this); });
+  onId("firstRunClockBtn", "click", function(){ clockControlClick(this); });
+  onId("firstRunHandBtn", "click", function(){ entryModalOrigin = this; openNewEntryForm(); });
 
   // The sticky bar only appears once the main punch card has scrolled out of
   // view. It also steps aside whenever Settings is open, since clocking in
@@ -8051,9 +8558,15 @@ import { makeSchedule } from "./src/schedule.js";
   // goes back to the app's name on the way out, rather than staying on
   // whichever tab was open when someone signed out.
   function setSignedInChrome(signedIn){
+    // Whichever screen this is, it has been decided: the sign-in form no
+    // longer waits hidden (theme-boot.js's data-opening).
+    document.documentElement.removeAttribute("data-opening");
     var skip = document.getElementById("skipLink");
     if(skip) skip.hidden = !signedIn;
     if(!signedIn) document.title = APP_TITLE;
+    // Read by the stylesheet: on a phone the bottom bar exists only inside the
+    // app, and messages rise above it there (see .toast-stack).
+    document.body.classList.toggle("signed-in", !!signedIn);
   }
   function setAuthMsg(id, msg){
     var el = document.getElementById(id);
@@ -10227,7 +10740,7 @@ import { makeSchedule } from "./src/schedule.js";
   function renderIdentityChrome(){
     if(!currentProfile) return;
     var greeting = document.getElementById("headGreeting");
-    if(greeting) greeting.textContent = "Hello " + firstNameOf(currentProfile);
+    if(greeting) greeting.textContent = currentProfile.notLoaded ? "Hello" : "Hello " + firstNameOf(currentProfile);
 
     // The rail's avatar and the phone header's are the same picture.
     ["railUserAvatar", "headAvatar"].forEach(function(avatarId){
@@ -10826,8 +11339,101 @@ import { makeSchedule } from "./src/schedule.js";
     return Math.round(hrs/24) + "d";
   }
 
+  // ---------- Export everything ----------
+  // The project is on Supabase's free plan, which keeps no backups that can be
+  // restored, and Settings > Backup & Data exports one person's own record. So
+  // nothing held a copy of the team's records outside the live database: one
+  // bad migration, one deleted account, one mistaken bulk delete, and the days
+  // were gone. This is that copy, for an administrator to download.
+  //
+  // The tables a rebuild needs, as the database holds them: every account,
+  // every entry, every schedule and the organisation settings. Not the
+  // activity log, the crash reports or the notification history -- they record
+  // what happened to the records rather than being them, and the activity log
+  // alone would outweigh the rest.
+  //
+  // When it was last done is kept on this device, which is where the reminder
+  // reads it: the Storage row in the Admin menu says how long ago, and turns
+  // to a warning once it has been a month.
+  var BACKUP_AT_KEY = "attendance.orgBackupAt";
+  var BACKUP_DUE_DAYS = 30;
+  var storageSummary = "";
+  async function fetchAllRows(table, order){
+    var all = [], from = 0;
+    for(;;){
+      var res = await supabase.from(table).select("*").order(order).range(from, from + ENTRIES_PAGE_SIZE - 1);
+      if(res.error) throw res.error;
+      var page = res.data || [];
+      all = all.concat(page);
+      if(page.length < ENTRIES_PAGE_SIZE) break;
+      from += ENTRIES_PAGE_SIZE;
+    }
+    return all;
+  }
+  function refreshBackupStatus(){
+    var at = +(safeGet(BACKUP_AT_KEY) || 0);
+    var days = at ? Math.floor((Date.now() - at) / 86400000) : null;
+    var due = days === null || days >= BACKUP_DUE_DAYS;
+    var said = days === null ? "No backup on this device yet"
+             : days === 0 ? "Backed up today"
+             : "Backed up " + days + (days === 1 ? " day" : " days") + " ago";
+    setNavDesc("cnavDescStorage", (storageSummary ? storageSummary + " · " : "") + said, due);
+    var status = document.getElementById("exportAllStatus");
+    if(status && !status.classList.contains("is-working")){
+      status.textContent = days === null
+        ? "No backup has been downloaded on this device."
+        : "Last downloaded on this device " + fmtDate(dateToStr(new Date(at))) +
+          (due ? " — over a month ago. Download a fresh copy." : ".");
+      status.classList.toggle("is-due", due);
+    }
+  }
+  async function exportEverything(){
+    if(!isAdmin) return;
+    var btn = document.getElementById("exportAllBtn");
+    var status = document.getElementById("exportAllStatus");
+    btn.disabled = true;
+    status.classList.add("is-working");
+    status.classList.remove("is-due");
+    status.textContent = "Collecting every account's records…";
+    try{
+      var parts = await Promise.all([
+        fetchAllRows("profiles", "id"),
+        fetchAllRows("user_settings", "user_id"),
+        fetchAllRows("entries", "id"),
+        supabase.from("app_settings").select("*").eq("id", 1).maybeSingle()
+      ]);
+      if(parts[3].error) throw parts[3].error;
+      var backup = {
+        kind: "attendance-organisation-backup",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        exportedBy: currentProfile && currentProfile.email || "",
+        counts: {profiles: parts[0].length, user_settings: parts[1].length, entries: parts[2].length},
+        app_settings: parts[3].data || null,
+        profiles: parts[0],
+        user_settings: parts[1],
+        entries: parts[2]
+      };
+      download("attendance-organisation-backup-" + todayStr() + ".json",
+        JSON.stringify(backup, null, 1), "application/json");
+      safeSet(BACKUP_AT_KEY, String(Date.now()));
+      status.classList.remove("is-working");
+      refreshBackupStatus();
+      showToast("Downloaded " + parts[2].length.toLocaleString() + " entries from " +
+        parts[0].length + (parts[0].length === 1 ? " account." : " accounts."), "success");
+    }catch(err){
+      status.classList.remove("is-working");
+      refreshBackupStatus();
+      showToast("Couldn't export everything: " + friendlyError(err), "error");
+    }finally{
+      btn.disabled = false;
+    }
+  }
+  onId("exportAllBtn", "click", exportEverything);
+
   async function renderAdminStats(){
     var res;
+    refreshBackupStatus();   // said even when the figures below fail to load
     try{
       res = await supabase.rpc("admin_db_stats");
       if(res.error) throw res.error;
@@ -10860,9 +11466,8 @@ import { makeSchedule } from "./src/schedule.js";
       body.appendChild(tr);
     });
 
-    var tableCount = (s.tables && s.tables.length) || 0;
-    setNavDesc("cnavDescStorage", fmtBytes(s.db_size_bytes) + " · " +
-      tableCount + (tableCount === 1 ? " table" : " tables"));
+    storageSummary = fmtBytes(s.db_size_bytes);
+    refreshBackupStatus();
     document.getElementById("adminStatsFooter").textContent =
       "Postgres " + (s.postgres_version || "?") +
       " · Updated " + new Date(s.generated_at || Date.now()).toLocaleTimeString() +
@@ -11613,8 +12218,13 @@ import { makeSchedule } from "./src/schedule.js";
       applyAppSettings(s);
     }catch(err){
       // Non-fatal: the app works without org settings. Surfaced rather than
-      // swallowed so a misconfigured announcement isn't invisible.
-      showToast("Couldn't load app settings — announcements may not be shown.", "error");
+      // swallowed so a misconfigured announcement isn't invisible -- except
+      // when the record itself failed too, which is the connection, and the
+      // notice at the top already says so. Two messages about one dropped
+      // connection stacked over the clock button.
+      if(!dataLoadFailed() && !deviceCopyFailure && !isNetworkError(err)){
+        showToast("Couldn't load app settings — announcements may not be shown.", "error");
+      }
     }
   }
 
@@ -12944,6 +13554,12 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   async function handleSignedIn(user){
+    // The device copy on screen is this person's (openFromDeviceCopy checked
+    // the stored session); anyone else's sign-in replaces it outright.
+    var overCopy = deviceCopyShowing && !!currentUser && currentUser.id === user.id;
+    var copiedProfile = overCopy ? currentProfile : null;
+    if(deviceCopyShowing && !overCopy) deviceCopyShowing = false;
+    authSettled = true;
     currentUser = {id:user.id, email:user.email};
     bootingUserId = null;
     __authLinkError = null;   // shown on the sign-in screen until now; see handleSignedOut
@@ -12998,7 +13614,11 @@ import { makeSchedule } from "./src/schedule.js";
         if(!res2.data) throw new Error("no profile row for " + user.id);
         currentProfile = res2.data;
       }catch(err2){
-        currentProfile = {id:user.id, email:user.email, full_name:null, role:"user"};
+        // The copy kept on this device knows who this is; failing that, the
+        // greeting says "Hello" rather than greeting the email address
+        // ("Hello frame") as though it were a name (see renderIdentityChrome).
+        currentProfile = copiedProfile ||
+          {id:user.id, email:user.email, full_name:null, role:"user", notLoaded:true};
       }
     }
     // Belt and braces: nothing below may assume a profile object exists.
@@ -13057,8 +13677,12 @@ import { makeSchedule } from "./src/schedule.js";
     // Built before loadAppSettings() below, which fills it from
     // app_settings.default_settings.
     buildDefaultsDayPicker();
-    document.getElementById("fDate").value = todayStr();
-    document.getElementById("fToDate").value = todayStr();
+    // Not under an entry someone began typing while the device copy was up.
+    var entryModalNow = document.getElementById("entryModal");
+    if(!(overCopy && entryModalNow && !entryModalNow.hidden)){
+      document.getElementById("fDate").value = todayStr();
+      document.getElementById("fToDate").value = todayStr();
+    }
     updateLiveClock();
     syncTimers();
     await loadDataForViewedUser();
@@ -13078,9 +13702,9 @@ import { makeSchedule } from "./src/schedule.js";
     // chrome, and it must not hold sign-in behind a network call.
     loadPushNotifications().catch(function(){});
     setTimeout(updateTabsScrollHint, 0);
-    // Fire-and-forget: asks until notifications are on for this device (see
-    // promptPushHere), and sign-in must not sit waiting on a dialog.
-    promptPushHere();
+    // Fire-and-forget: the clock panel's line about notifications on this
+    // device. No dialog at sign-in any more -- see askPushOnce.
+    syncPushHere();
     // Just typed a password: the moment to offer Face ID instead (once).
     if(passwordSignInPending){
       passwordSignInPending = false;
@@ -13104,11 +13728,17 @@ import { makeSchedule } from "./src/schedule.js";
     viewedUserId = null; viewedProfile = null;
     allProfiles = []; isAdmin = false; isOwnData = true;
     lastPushReminderKind = null; pushAwaySince = null;
+    renderPushLine(null);
     clearTimeout(pushDialogWaitTimer); pushDialogWaitTimer = null;
     passkeysFor = null; passkeyRows = null; passkeyLoadError = null;
     passwordSignInPending = false; clearTimeout(passkeyOfferTimer);
     entries = []; settings = Object.assign({}, DEFAULT_SETTINGS);
     dismissedReminders = {};
+    // The record kept on this device goes with the session: the next person
+    // to sign in on it must not open into this one's days. Also at a boot
+    // that finds no session at all, where a copy left behind is an orphan.
+    forgetDeviceCopy();
+    deviceCopyShowing = false; deviceCopyFailure = null; authSettled = true;
     // entries is empty now, so this clears the icon. Leaving a badge behind
     // after sign-out would advertise one person's open shift to whoever signs
     // in next on a shared device.
@@ -13265,7 +13895,15 @@ import { makeSchedule } from "./src/schedule.js";
   // The browser saw the connection return. Not the only trigger — see the
   // visibilitychange handler — because this event does not fire on a device
   // that was asleep when the network came back.
-  window.addEventListener("online", function(){ flushOutbox(); });
+  window.addEventListener("online", function(){ flushOutbox(); retryLoadBehindCopy(); });
+  // The device copy is on screen because the server could not be reached:
+  // when the connection is back, read the real record without being asked.
+  function retryLoadBehindCopy(){
+    if(currentUser && authSettled && deviceCopyShowing && deviceCopyFailure && isOwnData &&
+       !pendingFor(currentUser.id).length){
+      loadDataForViewedUser();
+    }
+  }
 
   document.addEventListener("visibilitychange", function(){
     syncTimers();
@@ -13298,19 +13936,17 @@ import { makeSchedule } from "./src/schedule.js";
       // have returned without an "online" event ever firing — a phone that
       // slept through the reconnection reports no transition.
       flushOutbox();
+      retryLoadBehindCopy();
       // And the most common moment for the record to have moved on without
       // this page: a punch from another device, an edit by an administrator.
       // It checks for itself whether the copy on screen is old enough to
       // bother, and stands down while a punch is still waiting to upload.
       refreshOnResume();
-      // Coming back after a real absence is opening the app again, so the
-      // question about notifications on this device comes back too.
-      // Straight away, though, after "Notifications are blocked": returning
-      // from the phone's Settings is exactly how that gets fixed, and the
-      // fix should be picked up the moment they are back.
-      var maybeUnblocked = lastPushReminderKind === "blocked" &&
-        pushSupported() && Notification.permission !== "denied";
-      if(away >= PUSH_REMIND_AWAY_MS || maybeUnblocked) promptPushHere();
+      // The line about notifications, read again: returning from the phone's
+      // Settings is how "blocked" gets fixed, and adding the app to the Home
+      // Screen is how "install" does, so it is picked up the moment they are
+      // back. Never a dialog (see askPushOnce).
+      if(lastPushReminderKind) syncPushHere();
     }
     if(document.visibilityState === "visible") pushAwaySince = null;
   });
@@ -13326,6 +13962,9 @@ import { makeSchedule } from "./src/schedule.js";
   if(!supabaseConfigured){
     showAuthScreen();
   } else {
+    // Before the listener: draw the app from the copy kept on this device, if
+    // it belongs to the session supabase-js is about to restore.
+    openFromDeviceCopy();
     supabase.auth.onAuthStateChange(function(event, session){
       // The reset-password email link lands here as PASSWORD_RECOVERY, not a
       // normal SIGNED_IN — it must show the "choose a new password" form
@@ -13367,16 +14006,21 @@ import { makeSchedule } from "./src/schedule.js";
       // routine hourly token refresh silently yanked an admin out of the employee
       // record they were editing and wiped any half-filled form. Only genuine
       // sign-in / sign-out transitions should re-boot the app.
+      // The device copy drew the app before any of this arrived (see
+      // openFromDeviceCopy, called just below), so currentUser is already set
+      // on that path: it still needs the real sign-in, once.
+      var onCopy = deviceCopyShowing && !authSettled;
       if(event === "TOKEN_REFRESHED" || event === "USER_UPDATED" || event === "INITIAL_SESSION"){
-        if(event === "INITIAL_SESSION" && session && session.user && !currentUser){
-          // The one case where INITIAL_SESSION must boot: a restored session on load.
+        if(session && session.user && (event === "INITIAL_SESSION" || onCopy) && (!currentUser || onCopy)){
+          // The one case where INITIAL_SESSION must boot: a restored session on
+          // load. (Or the first word of any kind while the copy is up.)
         } else {
           return;
         }
       }
       if(session && session.user){
         // Already signed in as this user — nothing to re-initialise.
-        if(currentUser && currentUser.id === session.user.id) return;
+        if(currentUser && currentUser.id === session.user.id && !onCopy) return;
         // Or about to be: supabase-js 2.11x announces a remembered session
         // twice on load (SIGNED_IN, then INITIAL_SESSION), both before the
         // deferred handleSignedIn below has set currentUser. Booting twice

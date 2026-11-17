@@ -29,7 +29,7 @@ process.emitWarning = emitWarning;
 const sandbox = { Date, Math, JSON, Number, String, Array, Object, Map, Set, isFinite };
 vm.createContext(sandbox);
 vm.runInContext(js, sandbox);
-const { dueReminders } = sandbox;
+const { dueReminders, dueClockInReminders } = sandbox;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -117,6 +117,53 @@ const titles = (res) => res.notifications.map(n => n.title);
   // the hours threshold applies whatever the shift's date.
   eq(titles(dueReminders([shift("2026-11-08", "22:00")], mine({ standardIn: "00:00" }), {}, [], at("2026-11-09", "02:00"))), [],
     "a shift under remindAfterHours old is left alone");
+}
+
+// ---------- The clock-in reminder (2026-11-17) ----------
+// dueClockInReminders(userIds, settingsByUser, orgDefault, recentEntries,
+// sentTodayIds, nowMs). 9 Nov 2026 is a Monday, a workday on the default
+// Sun-Thu week; 13 Nov is a Friday.
+{
+  const due = (opts) => dueClockInReminders(
+    opts.users || ["u1"], opts.settings || mine(), opts.org || {}, opts.recent || [],
+    new Set(opts.sent || []), opts.now);
+  eq(titles(due({ now: at("2026-11-09", "08:29") })), [],
+    "clock-in: nothing before 30 minutes past the start time");
+  const r = due({ now: at("2026-11-09", "08:30") });
+  eq(titles(r), ["You haven't clocked in"], "clock-in: reminded 30 minutes after the start time");
+  eq(r.guards, [{ user_id: "u1", sent_on: "2026-11-09" }], "clock-in: recorded against today");
+  eq([r.notifications[0].action, r.notifications[0].action_payload],
+    ["clock_in", { date: "2026-11-09", label: "Clock In Now" }], "clock-in: carries the Clock In action and its label");
+  eq(/8:00 AM/.test(r.notifications[0].body), true, "clock-in: says when the day started");
+  eq(titles(due({ now: at("2026-11-09", "09:30"), sent: ["u1"] })), [],
+    "clock-in: once a day -- not again on the next run");
+  eq(titles(due({ now: at("2026-11-09", "16:00") })), [],
+    "clock-in: not once the working day is over");
+  eq(titles(due({ now: at("2026-11-13", "09:00") })), [],
+    "clock-in: not on a day off (Friday)");
+  eq(titles(due({ now: at("2026-11-09", "09:00"),
+    recent: [{ user_id: "u1", date: "2026-11-09", clock_in: "08:05", clock_out: null, type: "regular" }] })), [],
+    "clock-in: not when today already has a punch");
+  eq(titles(due({ now: at("2026-11-09", "09:00"),
+    recent: [{ user_id: "u1", date: "2026-11-09", clock_in: null, clock_out: null, type: "leave" }] })), [],
+    "clock-in: not on a day already logged as leave");
+  eq(titles(due({ now: at("2026-11-09", "09:00"),
+    recent: [{ user_id: "u1", date: "2026-11-08", clock_in: "22:00", clock_out: null, type: "regular" }] })), [],
+    "clock-in: not while last night's shift is still open");
+  eq(titles(due({ now: at("2026-11-09", "09:00"),
+    recent: [{ user_id: "u2", date: "2026-11-09", clock_in: "08:00", clock_out: null, type: "regular" }] })),
+    ["You haven't clocked in"], "clock-in: someone else's punch is not yours");
+  eq(titles(due({ now: at("2026-11-09", "09:00"), settings: mine({ remindClockIn: false }) })), [],
+    "clock-in: not for someone who switched it off");
+  eq(titles(due({ now: at("2026-11-09", "09:00"), users: [] })), [],
+    "clock-in: nobody without a device registered for notifications");
+  const ramadan = { periods: [{ start: "2026-11-01", end: "2026-11-30", standardIn: "10:00", standardOut: "15:00" }] };
+  eq(titles(due({ now: at("2026-11-09", "10:15"), settings: mine(ramadan) })), [],
+    "clock-in: seasonal hours move the start time");
+  eq(titles(due({ now: at("2026-11-09", "10:30"), settings: mine(ramadan) })), ["You haven't clocked in"],
+    "clock-in: reminded 30 minutes after the period's start time");
+  eq(titles(due({ now: at("2026-11-09", "09:15"), users: ["nobody"], settings: mine(), org: { standardIn: "09:00" } })), [],
+    "clock-in: no settings row -- the org default's start time applies");
 }
 
 console.log(`  clockout-reminders  pass ${pass}   fail ${fail}`);
