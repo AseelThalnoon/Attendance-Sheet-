@@ -75,8 +75,9 @@ var DEFAULT_SETTINGS = {
   periods:[],
   standardIn:"08:00",
   standardOut:"16:00",
-  remindAfterHours:9,
+  remindAfterHours:9,     // no longer read; see REMINDER_GRACE_MIN
   remindClockIn:true,
+  remindClockOut:true,
   annualLeaveDays:21
 };
 
@@ -84,11 +85,17 @@ var DEFAULT_SETTINGS = {
 // the send-push Edge Function's own secrets. This one is paired with
 // whatever VAPID_PRIVATE_KEY is set as that function's secret; the two
 // must be regenerated and redeployed together, never independently.
+// Both reminders fire this long after the moment the day says you should
+// have acted: the start time for clocking in, the end of your hours (clock-in
+// plus the day's target) for clocking out. The in-app "still clocked in"
+// banner and badge use the same moment. Mirrored in check-clockout-reminders.
+var REMINDER_GRACE_MIN = 30;
+
 var VAPID_PUBLIC_KEY = "BJlxibKyLbjnTvhH6hFdlNHSugC15FqdNxT55UJbY0RJtn3DGIWMTX4XG0FKB-K1H8SbvGcWYhLpmCD58OiD-es";
 
 export {
   DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
   EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
   DISMISS_KEY,
-  DEFAULT_SETTINGS, VAPID_PUBLIC_KEY
+  DEFAULT_SETTINGS, VAPID_PUBLIC_KEY, REMINDER_GRACE_MIN
 };

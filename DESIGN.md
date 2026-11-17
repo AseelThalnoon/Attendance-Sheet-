@@ -1099,8 +1099,43 @@ Danger-solid uses its own fixed
 segmented controls and header actions.
 
 ### The Settings console
-A vertical nav of six sections, one showing at a time: **Profile**, Working
-Hours, Log Highlighting, Seasonal Hours, Appearance, Backup & Data.
+Five sections, one list, no group headings: **Profile**, **Schedule**,
+**Reminders**, **Appearance**, **Backup & Data**.
+
+**Simple first** (2026-11-17: the owner called the tab "a mess" of long
+labels, then, after a first trim, "still looks complicated"). It had eight
+sections in three groups, a heading repeating the page title, and a paragraph
+under most fields. Now:
+
+- **Five places, named the way people ask.** Profile holds name, photo, Face
+  ID / fingerprint sign-in and Sign Out. Schedule holds everything a day is
+  measured against: the week, the day's length, leave, how lateness is counted
+  and Ramadan / shorter days. Reminders holds the notification switch for this
+  device and which reminders to send. Section ids `hours` and `notifications`
+  are unchanged, so links into them hold; `punctuality`, `seasonal` and
+  `passkeys` no longer exist as sections.
+- **Short words.** A field label is a few words ("Start", "Leave days a
+  year"); a section's sentence is one short line; a hint appears only where
+  the label can't carry it. A checkbox says its effect in the first person
+  ("Don't mark me late if I make up the hours").
+- **An everyday switch is not a warning.** A ticked `.check-row` turns amber
+  because Apply to everyone is armed when ticked; a preference
+  (`.check-row.pref`) keeps its plain box.
+- **The week is one row on a phone**: "Sun" to "Sat", the full name for screen
+  readers and as the tooltip. **Palettes are two to a row on a phone**, by
+  picture and name; descriptions show from 760px up.
+- **No heading over the console.** The phone header and desktop tab title
+  already say Settings; the `h2` is for screen readers, and the line under it
+  shows only when it is news (an admin viewing someone, a failed load).
+- **Both reminders follow one rule**: a switch each, and each fires 30
+  minutes after the moment the day says you should have acted: the start time
+  for clocking in, the end of your hours (your clock-in plus the day's hours)
+  for clocking out. The clock-out one used to be a free number of hours
+  (`remindAfterHours`, 9) with no switch; that field is no longer read. The
+  in-app "still clocked in" banner and badge use the same moment
+  (`REMINDER_GRACE_MIN`, mirrored in check-clockout-reminders).
+- **On an iPhone the sign-in group says Face ID**, never "passkey"
+  (`nameBiometricSettings()` names it after the device's sensor).
 
 **Profile is a section, and the first one.** It was a permanent card pinned
 above the nav in the side column — the tallest thing on the screen, always
@@ -1111,9 +1146,9 @@ had: the avatar is the full 56px rather than a 38px marker, and the buttons
 size to their labels instead of stretching to fill a narrow column.
 
 **Save belongs to three sections, not to the console.** The Save / Apply-to-
-everyone pair sits outside the sections, because Working Hours, Log Highlighting
-and Seasonal Hours share one settings object and one write. It carries
-`data-for-sections` naming those three, and `initConsole` hides it everywhere
+everyone pair sits outside the sections, because Schedule and Reminders share
+one settings object and one write. It carries `data-for-sections` naming those
+two, and `initConsole` hides it everywhere
 else. Showing it under every section was survivable while Working Hours was the
 landing view and merely wrong once you clicked Backup & Data; putting Profile
 first made it the first thing on screen — a "Save Settings" button directly

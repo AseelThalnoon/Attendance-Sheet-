@@ -3393,6 +3393,12 @@
     box-shadow:0 2px 8px rgba(17,17,16,.22);
   }
   .daypicker input:focus-visible + label{outline:2px solid var(--gold); outline-offset:2px;}
+  /* Short names ("Sun"), so the week is one row on a phone: seven equal
+     buttons instead of full names wrapping onto three rows. */
+  @media (max-width:760px){
+    .daypicker{flex-wrap:nowrap; gap:4px;}
+    .daypicker label{flex:1 1 0; min-width:0; justify-content:center; padding:8px 0; border-radius:var(--radius-md);}
+  }
   .settings-warn{
     display:flex; align-items:flex-start; gap:var(--space-2);
     margin:0 0 var(--space-3); padding:var(--space-3) var(--space-4);
@@ -3683,6 +3689,17 @@
     font-family:var(--font-display); font-size:13.5px; font-weight:700;
     letter-spacing:-.01em; color:var(--ink);
   }
+  /* As a paragraph (Settings' Late & Reminders, Backup & Data) it heads the
+     group below it; the gap above separates one group from the last. */
+  p.console-subhead{margin:0 0 var(--space-2);}
+  /* One short number on its own: a field the width of the pane for "10"
+     read as a text box. */
+  .form-grid.single{grid-template-columns:minmax(0, 260px);}
+  #csec-hours .settings-warn{margin-top:var(--space-3);}
+  p.console-subhead.settings-group-gap{margin-top:var(--space-5);}
+  /* Settings' heading is for screen readers; with no line under it either,
+     the empty row would leave a gap above the console. */
+  #tab-settings .console-head:has(> #settingsForLabel[hidden]){margin:0;}
   .console-section .periods-empty{padding:6px 0;}
   /* Admin > Storage's backup, above the table list it is about. */
   .backup-block{margin:0 0 var(--space-5); padding-bottom:var(--space-4); border-bottom:1px solid var(--line-soft);}
@@ -3782,6 +3799,10 @@
      like it — and it should be obvious at a glance on returning to the tab,
      because the box survives a save. */
   .check-row:has(input:checked){border-color:var(--warn); background:var(--warn-bg);}
+  /* An everyday preference (a reminder, how lateness is marked) is not armed
+     when it is on, so it keeps its plain box: the warning wash made "Remind
+     me to clock in" look like an alert. */
+  .check-row.pref:has(input:checked){border-color:var(--line-soft); background:var(--ink-50);}
   .check-row > span{flex:1; min-width:0;}
   .check-row strong{display:block; font-size:12.5px; font-weight:500; color:var(--ink); text-transform:none; letter-spacing:0;}
   .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted-2); margin-top:4px; text-transform:none; letter-spacing:0;}
@@ -7055,6 +7076,13 @@
   .palette-swatch-name svg{flex-shrink:0; opacity:0; transition:opacity var(--dur-fast) var(--ease-snap);}
   .palette-swatch[aria-checked="true"] .palette-swatch-name svg{opacity:1;}
   .palette-swatch-desc{font-size:11px; color:var(--muted); line-height:1.35;}
+  /* Seven full-width cards made Appearance the longest page in the app on a
+     phone. Two to a row, named by their picture and name alone. */
+  @media (max-width:760px){
+    .palette-grid{grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--space-2);}
+    .palette-swatch-desc{display:none;}
+    .palette-mini{height:48px;}
+  }
 
   /* One Module: pointer sizes only inside the frame, and the base stays at
      the 44px touch floor everywhere else. */
@@ -8241,9 +8269,13 @@
     </div>
 
     <div class="tab-panel" id="tab-settings" role="tabpanel" aria-labelledby="tabbtn-settings" tabindex="0">
+      <!-- The page heading already says Settings (the phone header, the
+           desktop tab title), so this one is for screen readers only. The
+           line under it shows only when it says something: whose schedule an
+           admin is editing, or that the schedule didn't load. -->
       <div class="console-head">
-        <h2>Settings &amp; Profile</h2>
-        <p class="settings-hint" id="settingsForLabel" style="margin:6px 0 0;"></p>
+        <h2 class="visually-hidden">Settings</h2>
+        <p class="settings-hint" id="settingsForLabel" style="margin:6px 0 0;" hidden></p>
       </div>
 
       <div class="console" id="settingsConsole">
@@ -8256,66 +8288,35 @@
              as "who all of this is about" without holding the column open. -->
         <div class="console-nav" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
           <div class="console-nav-group" role="presentation">
-            <p class="console-nav-group-title" aria-hidden="true">You</p>
           <button type="button" class="console-nav-item" role="tab" data-console-target="profile" id="cnav-profile" aria-selected="false" aria-controls="csec-profile">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></span>
             <span class="console-nav-text">
               <span class="console-nav-title">Profile</span>
-              <span class="console-nav-desc" id="cnavDescProfile">Your name and photo, as the team sees them</span>
+              <span class="console-nav-desc" id="cnavDescProfile">Name, photo and sign-in</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
-          </div>
-          <div class="console-nav-group" role="presentation">
-            <p class="console-nav-group-title" aria-hidden="true">Schedule</p>
           <button type="button" class="console-nav-item" role="tab" data-console-target="hours" id="cnav-hours" aria-selected="false" aria-controls="csec-hours">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg></span>
             <span class="console-nav-text">
-              <span class="console-nav-title">Working Hours</span>
-              <span class="console-nav-desc" id="cnavDescHours">Working days, target hours, start and end</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="punctuality" id="cnav-punctuality" aria-selected="false" aria-controls="csec-punctuality">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="M6.5 16.5 15 8l3.5 3.5-8.5 8.5H6.5z"/><path d="M14 5.5 16.5 3 21 7.5 18.5 10"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Log Highlighting</span>
-              <span class="console-nav-desc" id="cnavDescPunctuality">When the Log marks a clock time red</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="seasonal" id="cnav-seasonal" aria-selected="false" aria-controls="csec-seasonal">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Seasonal Hours</span>
-              <span class="console-nav-desc" id="cnavDescSeasonal">Reduced hours for Ramadan and other date ranges</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          </div>
-          <div class="console-nav-group" role="presentation">
-            <p class="console-nav-group-title" aria-hidden="true">App & Data</p>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="appearance" id="cnav-appearance" aria-selected="false" aria-controls="csec-appearance">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Appearance</span>
-              <span class="console-nav-desc" id="cnavDescAppearance">Colour palette and light or dark</span>
+              <span class="console-nav-title">Schedule</span>
+              <span class="console-nav-desc" id="cnavDescHours">Workdays and hours</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
           <button type="button" class="console-nav-item" role="tab" data-console-target="notifications" id="cnav-notifications" aria-selected="false" aria-controls="csec-notifications">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
             <span class="console-nav-text">
-              <span class="console-nav-title">Notifications</span>
-              <span class="console-nav-desc" id="cnavDescNotificationsSelf">Push notifications on this device</span>
+              <span class="console-nav-title">Reminders</span>
+              <span class="console-nav-desc" id="cnavDescNotificationsSelf">Notifications and reminders</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="passkeys" id="cnav-passkeys" aria-selected="false" aria-controls="csec-passkeys">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3"/><path d="m16 7 3 3"/><path d="m18.5 4.5 2 2"/></svg></span>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="appearance" id="cnav-appearance" aria-selected="false" aria-controls="csec-appearance">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></span>
             <span class="console-nav-text">
-              <span class="console-nav-title">Passkeys</span>
-              <span class="console-nav-desc" id="cnavDescPasskeys">Sign in without typing your password</span>
+              <span class="console-nav-title">Appearance</span>
+              <span class="console-nav-desc" id="cnavDescAppearance">Colours, sound and vibration</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
@@ -8323,7 +8324,7 @@
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
             <span class="console-nav-text">
               <span class="console-nav-title">Backup &amp; Data</span>
-              <span class="console-nav-desc" id="cnavDescData">Export, import, or clear your attendance records</span>
+              <span class="console-nav-desc" id="cnavDescData">Download, import or clear</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
@@ -8336,17 +8337,14 @@
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
             All settings
           </button>
-      <!-- Both the name and the photo are shared with the team — the photo
-           lives in Supabase Storage (migration 20260830153418), not this
-           browser — so one line covers both, rather than the two captions this
-           block carried back when they had opposite answers to "who sees
-           this". Own profile only for either: renaming or re-picturing a
-           teammate is not a thing this screen does, whatever RLS would let an
-           admin get away with. -->
+      <!-- Profile: who you are to the team, and how you sign in. Face ID /
+           fingerprint sign-in (passkeys) lives here rather than in a section
+           of its own; nameBiometricSettings() names it after this device's
+           sensor, and on an iPhone the word "passkey" never shows. -->
       <div class="console-section" data-section="profile" id="csec-profile" role="tabpanel" aria-labelledby="cnav-profile" tabindex="0">
         <div class="console-section-head">
           <h3>Profile</h3>
-          <p>Your name and photo. Both are visible to your whole team, and both are yours alone to change.</p>
+          <p>Your team sees your name and photo.</p>
         </div>
         <div class="console-profile" id="photoRow">
           <div class="console-profile-id">
@@ -8354,7 +8352,7 @@
             <p class="console-profile-name" id="settingsProfileName">Your profile</p>
           </div>
           <form class="console-profile-name-form" id="displayNameForm" novalidate>
-            <label for="displayNameInput">Display name</label>
+            <label for="displayNameInput">Name</label>
             <div class="console-profile-name-row">
               <input type="text" id="displayNameInput" maxlength="120" dir="auto"
                      autocomplete="name" placeholder="Your name">
@@ -8367,147 +8365,96 @@
             <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
           </div>
         </div>
+        <div class="profile-signin" id="passkeyBlock">
+          <p class="console-subhead settings-group-gap" id="passkeyTitle">Passkeys</p>
+          <p class="settings-hint" id="passkeyIntro" style="margin:0 0 var(--space-3);">Sign in without typing your password.</p>
+          <div id="passkeyOwn">
+            <button type="button" class="btn ghost small" id="passkeyAddBtn">Add a Passkey</button>
+            <p class="settings-hint" id="passkeyHint" hidden></p>
+            <div id="passkeyListWrap" hidden>
+              <p class="settings-subhead">Set up on</p>
+              <div id="passkeyList"></div>
+              <p class="settings-hint">Usually works on your other devices too.</p>
+            </div>
+          </div>
+          <p class="settings-hint" id="passkeyOthers" hidden>Only the person themselves can set this up.</p>
+        </div>
         <div class="console-signout">
           <button type="button" class="btn danger-ghost small" id="settingsLogoutBtn">Sign Out</button>
         </div>
       </div>
 
+      <!-- Schedule: everything the day is measured against, on one page --
+           the week, how lateness is judged, and Ramadan / other shorter
+           periods. Shares one settings object and one Save with Reminders. -->
       <div class="console-section" data-section="hours" id="csec-hours" role="tabpanel" aria-labelledby="cnav-hours" tabindex="0">
         <div class="console-section-head">
-          <h3>Working Hours &amp; Schedule</h3>
-          <p>The week this person is measured against — which days they work, how long a day is, and when it normally starts.</p>
+          <h3>Schedule</h3>
+          <p>Your week, your hours and how lateness is counted.</p>
         </div>
         <div>
           <div style="margin-bottom:var(--space-3);">
-            <label>Working Days</label>
-            <div class="daypicker" id="dayPicker"></div>
+            <label id="dayPickerLabel">Workdays</label>
+            <div class="daypicker" id="dayPicker" role="group" aria-labelledby="dayPickerLabel"></div>
           </div>
-          <!-- Six fields the same weight, one after another, read as one
-               undifferentiated list — worse on a phone, where they are six
-               full-width rows with nothing to tell a reader "the first three
-               are the shape of your day; the next two are about running
-               late; the last one is a different year altogether entirely."
-               .console-subhead already exists for exactly this (see
-               Seasonal Hours inside Organisation Defaults) and .full already
-               spans a .form-grid row, so grouping costs one label each,
-               reusing both rather than inventing a container per group. -->
           <div class="form-grid">
             <fieldset class="field-pair">
-              <legend>Daily Target</legend>
+              <legend>Hours a day</legend>
               <div class="pair-row">
                 <span class="pair-unit"><input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric"><label for="sTargetH">hrs</label></span>
                 <span class="pair-unit"><input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric"><label for="sTargetM">min</label></span>
               </div>
             </fieldset>
             <div>
-              <label for="sIn">Standard Start</label>
+              <label for="sIn">Start</label>
               <input type="time" id="sIn">
             </div>
             <div>
-              <label for="sOut">Standard End</label>
+              <label for="sOut">End</label>
               <input type="time" id="sOut">
             </div>
-
-            <div class="console-subhead full">Lateness &amp; Reminders</div>
             <div>
-              <label for="sRemind">Remind After (hours)</label>
-              <input type="number" id="sRemind" min="1" max="24" step="0.5">
-            </div>
-            <div>
-              <label for="sGrace">Grace Period (minutes)</label>
-              <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
-            </div>
-            <p class="settings-hint full" style="margin:0;">Grace period is how late you can arrive before a day counts as a late arrival. Remind after flags a day you&rsquo;ve clocked in but not out for this long — it&rsquo;s also what triggers the reminder notification.</p>
-            <!-- Read by the check-clockout-reminders Edge Function, which also
-                 sends the clock-in reminder: settings.remindClockIn, on unless
-                 switched off here. -->
-            <label class="check-row full" for="sRemindIn" style="margin-top:0;">
-              <input type="checkbox" id="sRemindIn">
-              <span>
-                <strong>Remind me to clock in</strong>
-                <em>A notification 30 minutes after your start time on a workday with nothing logged yet. Days you&rsquo;ve already logged as leave or a holiday are skipped.</em>
-              </span>
-            </label>
-
-            <div class="console-subhead full">Leave</div>
-            <div>
-              <label for="sLeaveDays">Annual Leave Days / Year</label>
+              <label for="sLeaveDays">Leave days a year</label>
               <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
             </div>
-            <p class="settings-hint full" style="margin:0;">The yearly entitlement used to calculate the Leave Balance card.</p>
           </div>
-          <!-- The retroactive warning was the fourth line of a grey paragraph
-               under the fields — the single most consequential fact on this
-               screen, in the least emphatic slot on it. It leads here, right
-               after the fields it applies to and before the sign-off below. -->
-          <p class="settings-warn">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
-            <span>Saving recalculates every day already logged, not just days from here on.</span>
-          </p>
-        </div>
-      </div>
 
-      <div class="console-section" data-section="punctuality" id="csec-punctuality" role="tabpanel" aria-labelledby="cnav-punctuality" tabindex="0">
-        <div class="console-section-head">
-          <h3>Log Highlighting</h3>
-          <p>Which clock times the Log paints red. This changes nothing about the hours themselves — only how they are marked.</p>
-        </div>
-        <div>
-          <p class="settings-hint" style="margin:0 0 12px;">
-            Only affects the Log tab, which marks a clock time red when it's outside your standard hours by more
-            than the grace period. The Shortfall tab ignores clock times entirely — it only cares whether the
-            hours got made up.
-          </p>
-          <label class="check-row" for="sLateOnlyShort" style="margin-top:0;">
+          <p class="console-subhead settings-group-gap">Late arrivals</p>
+          <div class="form-grid single">
+            <div>
+              <label for="sGrace">Grace period (minutes)</label>
+              <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
+            </div>
+          </div>
+          <label class="check-row pref" for="sLateOnlyShort">
             <input type="checkbox" id="sLateOnlyShort">
             <span>
-              <strong>Only mark a late arrival red if I didn't complete my target hours</strong>
-              <em>A late start you make up by staying later won't be highlighted in the Log. Turn this off to always mark late arrivals and early departures, regardless of hours worked.</em>
+              <strong>Don&rsquo;t mark me late if I make up the hours</strong>
             </span>
           </label>
-        </div>
-      </div>
 
-      <div class="console-section" data-section="seasonal" id="csec-seasonal" role="tabpanel" aria-labelledby="cnav-seasonal" tabindex="0">
-        <div class="console-section-head with-action">
-          <div>
-            <h3>Seasonal Hours</h3>
-            <p>Reduced hours for a date range. These override the standard hours for the dates they cover.</p>
-          </div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
-            <button type="button" class="btn ghost small" id="addPeriodBtn">+ Add Period</button>
-          </div>
-        </div>
-        <div>
+          <p class="console-subhead settings-group-gap">Ramadan &amp; shorter days</p>
           <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
-            <p class="settings-hint" style="margin:0 0 12px;">The Ramadan button fills in the expected dates and a 6-hour day — confirm them once the moon sighting is announced, since the start can shift by a day.</p>
             <div id="periodsList"></div>
+            <div class="settings-data-actions" style="margin-top:var(--space-2);">
+              <button type="button" class="btn ghost small" id="addRamadanBtn">+ Ramadan</button>
+              <button type="button" class="btn ghost small" id="addPeriodBtn">+ Other Dates</button>
+            </div>
           </div>
+
+          <!-- The most consequential fact on this screen, so it is a warning
+               above Save, not a grey footnote. -->
+          <p class="settings-warn" style="margin-top:var(--space-4);">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+            <span>Changes also apply to days already logged.</span>
+          </p>
         </div>
       </div>
 
-      <!-- Export/import/clear used to sit in the page footer, visible under
-           every tab whether or not there was anything to back up. They are
-           data management, same family as the rest of this panel, so they
-           moved here instead. Clear All always acts on your OWN account
-           regardless of who you're viewing (see the isOwnData guard in
-           app.js), so it stays out of "Apply to everyone" and out of the
-           schedule sections above. -->
-      <!-- Appearance is the one section here that is NOT part of the record.
-           Everything else on this screen is scoped to the person named in the
-           strip above and is stored on their account; this is scoped to the
-           browser you are standing in front of. The copy says so plainly
-           rather than leaving someone to discover it on their second device.
-
-           The palette tiles are written out rather than rendered from a list
-           in app.js so the picker is in the markup the CSP already covers and
-           is legible in View Source next to the palettes themselves. Six is a
-           closed set, not a feed. -->
       <div class="console-section" data-section="appearance" id="csec-appearance" role="tabpanel" aria-labelledby="cnav-appearance" tabindex="0">
         <div class="console-section-head">
           <h3>Appearance</h3>
-          <p>How the app looks, sounds and feels on this device. Saved in this browser, not to your account — so a phone can sit in dark while the desk stays light.</p>
+          <p>Just for this device.</p>
         </div>
 
         <div class="appearance-group">
@@ -8623,12 +8570,12 @@
              else in this section, and instant: no Save button. The segmented
              tray is the Mode control's, doing the same job. -->
         <div class="appearance-group" id="punchSoundGroup">
-          <label id="punchSoundLabel">Clock-in sound</label>
+          <label id="punchSoundLabel">Sound</label>
           <div class="appearance-seg" role="radiogroup" aria-labelledby="punchSoundLabel" id="punchSoundSeg">
             <button type="button" class="appearance-seg-btn" role="radio" data-sound="on" aria-checked="true">On</button>
             <button type="button" class="appearance-seg-btn" role="radio" data-sound="off" aria-checked="false">Off</button>
           </div>
-          <p class="settings-hint">A short chime when you clock in or out. A phone on silent stays silent.</p>
+          <p class="settings-hint">A chime when you clock in or out.</p>
         </div>
 
         <!-- Hidden where the device cannot vibrate for a web page, which is
@@ -8639,84 +8586,81 @@
             <button type="button" class="appearance-seg-btn" role="radio" data-haptics="on" aria-checked="true">On</button>
             <button type="button" class="appearance-seg-btn" role="radio" data-haptics="off" aria-checked="false">Off</button>
           </div>
-          <p class="settings-hint">A tap you can feel as you press the clock button, and two more when the punch is saved.</p>
+          <p class="settings-hint">A buzz when you press the clock button.</p>
         </div>
       </div>
 
-      <!-- ---------- Notifications (this device, this person) ---------- -->
+      <!-- Reminders: the switch for this device first, then which reminders
+           to send. The switch takes effect at once and is about whoever is
+           signed in on this browser (hidden while an admin views someone
+           else); the two reminder choices are part of the saved settings,
+           read by the check-clockout-reminders Edge Function. The section
+           keeps its old id, "notifications". -->
       <div class="console-section" data-section="notifications" id="csec-notifications" role="tabpanel" aria-labelledby="cnav-notifications" tabindex="0">
         <div class="console-section-head">
-          <h3>Notifications</h3>
-          <p>Whether this browser gets a real notification — even with the app closed — for your own forgotten-clock-out reminder and anything an admin sends.</p>
+          <h3>Reminders</h3>
+          <p>A nudge when you forget to clock in or out.</p>
         </div>
         <div>
-          <!-- Not a form: this takes effect the instant it's toggled, no
-               Save button, and it's about this device specifically — hidden
-               entirely while an admin is viewing someone else's settings,
-               since subscribing is inherently about whoever is actually
-               signed in on this browser, not whoever is being viewed. -->
           <div id="pushToggleRow" hidden>
-            <label class="check-row" for="sPushEnabled" style="margin-top:0;">
+            <label class="check-row pref" for="sPushEnabled" style="margin-top:0;">
               <input type="checkbox" id="sPushEnabled">
               <span>
-                <strong>Push notifications on this device</strong>
-                <em>Covers the &ldquo;remind after&rdquo; nudge (set under Working Hours &amp; Schedule) and anything an admin sends from the Admin console. Takes effect immediately; only affects this browser.</em>
+                <strong>Notifications on this device</strong>
+                <em>Turn them on separately on each device you use.</em>
               </span>
             </label>
             <p class="settings-hint" id="pushStatusHint" hidden></p>
           </div>
-          <!-- The toggle above is about THIS browser only, which is the single
-               most misleading thing about push: switch it on at a desk and the
-               phone in your pocket -- the device you actually want reminding
-               on -- still has nothing, and every screen in the app agrees you
-               have notifications on. This is the list that contradicts that. -->
+          <!-- The same rule, both ways: 30 minutes after the moment the day
+               says you should have acted (REMINDER_GRACE_MIN). -->
+          <label class="check-row pref" for="sRemindIn">
+            <input type="checkbox" id="sRemindIn">
+            <span>
+              <strong>Remind me to clock in</strong>
+              <em>If I haven&rsquo;t clocked in 30 minutes after my start time.</em>
+            </span>
+          </label>
+          <label class="check-row pref" for="sRemindOut">
+            <input type="checkbox" id="sRemindOut">
+            <span>
+              <strong>Remind me to clock out</strong>
+              <em>If I&rsquo;m still clocked in 30 minutes after my hours are done.</em>
+            </span>
+          </label>
+          <!-- About THIS browser vs. every device: switch it on at a desk and
+               the phone in your pocket still has nothing. This list says so. -->
           <div id="pushDevicesWrap" hidden>
-            <p class="settings-subhead" id="pushDevicesSubhead">Devices receiving your notifications</p>
+            <p class="settings-subhead" id="pushDevicesSubhead">Your devices</p>
             <div id="pushDevicesList"></div>
             <p class="settings-hint" id="pushDevicesHint"></p>
           </div>
         </div>
       </div>
-      <div class="console-section" data-section="passkeys" id="csec-passkeys" role="tabpanel" aria-labelledby="cnav-passkeys" tabindex="0">
-        <div class="console-section-head">
-          <h3>Passkeys</h3>
-          <p>Sign in with Face ID, Touch ID, a fingerprint or your device&rsquo;s PIN instead of typing your password. Your password keeps working too.</p>
-        </div>
-        <div>
-          <!-- Like push, about whoever is signed in on this browser: hidden
-               while an admin is viewing someone else's settings. -->
-          <div id="passkeyOwn">
-            <button type="button" class="btn" id="passkeyAddBtn">Add a Passkey</button>
-            <p class="settings-hint" id="passkeyHint" hidden></p>
-            <div id="passkeyListWrap" hidden>
-              <p class="settings-subhead">Saved in</p>
-              <div id="passkeyList"></div>
-              <p class="settings-hint">Set up on an iPhone or Mac, it is saved in iCloud Keychain; on Android, in Google Password Manager. Either way it usually works on your other devices signed in to the same account too.</p>
-            </div>
-          </div>
-          <p class="settings-hint" id="passkeyOthers" hidden>Passkeys belong to whoever is signed in on this device, so they can only be added or removed from that person&rsquo;s own account.</p>
-        </div>
-      </div>
       <div class="console-section" data-section="data" id="csec-data" role="tabpanel" aria-labelledby="cnav-data" tabindex="0">
         <div class="console-section-head">
           <h3>Backup &amp; Data</h3>
-          <p>Take a copy of your records, bring one in, or wipe your own account clean.</p>
+          <p>Your records are saved to your account. Keep a copy too.</p>
         </div>
         <div>
-          <p class="settings-hint" id="storageNote" style="margin:0 0 14px;" title="Saved to your account — accessible from any device you sign in on. Export a backup regularly. CSV import matches the exported column names. Type accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave.">Saved to your account. Export a backup regularly.</p>
+          <p class="console-subhead">Download a copy</p>
           <div class="settings-data-actions">
-            <button type="button" class="btn ghost small" id="exportJsonBtn">Export JSON</button>
             <button type="button" class="btn ghost small" id="exportCsvBtn">Export CSV</button>
-            <button type="button" class="btn ghost small" id="importBtn">Import JSON</button>
-            <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+            <button type="button" class="btn ghost small" id="exportJsonBtn">Export JSON</button>
+          </div>
+          <p class="settings-hint">CSV opens in Excel. JSON is a full backup you can import again.</p>
+          <p class="console-subhead settings-group-gap">Bring records in</p>
+          <div class="settings-data-actions">
             <button type="button" class="btn ghost small" id="importCsvBtn" title="Type column accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave">Import CSV</button>
             <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
-            <button type="button" class="btn ghost small" id="csvTemplateBtn">Download CSV Template</button>
+            <button type="button" class="btn ghost small" id="importBtn">Import JSON</button>
+            <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+            <button type="button" class="btn ghost small" id="csvTemplateBtn">CSV Template</button>
           </div>
           <div class="settings-danger-zone">
             <div>
               <p class="settings-danger-title">Clear All Entries</p>
-              <p class="settings-hint" style="margin:2px 0 0;">Permanently deletes every entry in your own account — not whoever you're currently viewing. This can't be undone.</p>
+              <p class="settings-hint" style="margin:2px 0 0;">Deletes all of your own entries. This can't be undone.</p>
             </div>
             <button type="button" class="btn danger-ghost small" id="clearAllBtn">Clear All</button>
           </div>
@@ -8737,12 +8681,12 @@
                "Apply to everyone" sits with Save rather than at the top of the
                pane: it does not change any field above it, it changes who Save
                writes to. -->
-          <div class="console-commit-group" data-for-sections="hours punctuality seasonal">
+          <div class="console-commit-group" data-for-sections="hours notifications">
             <label class="check-row console-scope" for="sApplyAll">
               <input type="checkbox" id="sApplyAll">
               <span>
                 <strong>Apply to everyone</strong>
-                <em>Saves these settings for every team member, not just this one.</em>
+                <em>Save these settings for the whole team.</em>
               </span>
             </label>
             <div class="form-actions">
@@ -8994,11 +8938,7 @@
           <input type="time" id="dOut">
         </div>
 
-        <div class="console-subhead full">Lateness &amp; Reminders</div>
-        <div>
-          <label for="dRemind">Remind After (hours)</label>
-          <input type="number" id="dRemind" min="1" max="24" step="0.5">
-        </div>
+        <div class="console-subhead full">Lateness</div>
         <div>
           <label for="dGrace">Grace Period (min)</label>
           <input type="number" id="dGrace" min="0" max="240" step="1" inputmode="numeric">
@@ -9503,6 +9443,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v54"></script>
+<script type="module" src="app.js?v=v57"></script>
 </body>
 </html>
