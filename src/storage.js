@@ -59,6 +59,8 @@ function normalizeSettings(raw){
   out.annualLeaveDays = (isFinite(lv) && lv >= 0 && lv <= 365) ? lv : DEFAULT_SETTINGS.annualLeaveDays;
 
   out.lateOnlyIfShort = out.lateOnlyIfShort !== false;
+  // On unless switched off: the clock-in reminder (check-clockout-reminders).
+  out.remindClockIn = out.remindClockIn !== false;
 
   // Seasonal periods: keep only entries with a valid, ordered date range.
   out.periods = (Array.isArray(out.periods) ? out.periods : [])

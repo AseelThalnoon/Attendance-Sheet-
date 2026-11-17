@@ -2804,6 +2804,12 @@
   }
   .hero-progress.is-met .hero-progress-fill{background:var(--positive);}
   .hero-progress-label{font-size:11px; color:var(--muted-2); white-space:nowrap; font-variant-numeric:tabular-nums;}
+  /* A month with no workday yet has no progress to draw, and its sentence is
+     too long for one line beside an empty bar: on an iPhone-width tile it was
+     cut off mid-word ("...logged ye"). The empty bar goes and the sentence
+     wraps instead. */
+  .hero-progress.is-empty .hero-progress-track{display:none;}
+  .hero-progress.is-empty .hero-progress-label{white-space:normal; line-height:1.4;}
   .stat-card{
     position:relative; background:var(--card); border:1px solid transparent;
     border-radius:var(--radius); padding:20px 20px 16px; box-shadow:var(--shadow-sm);
@@ -2968,6 +2974,23 @@
   .qc-note:empty{display:none;}
   .qc-note.success{color:var(--positive-on-dark);}
   .qc-note.pulse{animation:fadeIn .3s var(--ease-soft);}
+  /* Notifications off on this device: one row across the bottom of the panel,
+     in the panel's quiet text colour, with a text button. */
+  .qc-push{
+    flex-basis:100%; display:flex; align-items:center; gap:8px; position:relative;
+    margin:-4px 0 -6px; color:var(--muted-on-dark); font-size:12px;
+  }
+  .qc-push[hidden]{display:none;}
+  .qc-push > svg{flex-shrink:0;}
+  .qc-push-text{flex:1 1 auto; min-width:0;}
+  .qc-push-btn, .qc-push-hide{
+    flex-shrink:0; background:none; border:none; cursor:pointer; font:inherit; color:#fff;
+    min-height:44px; display:inline-flex; align-items:center; justify-content:center;
+    border-radius:var(--radius-xs);
+  }
+  .qc-push-btn{font-weight:700; text-decoration:underline; text-underline-offset:3px; padding:0 6px;}
+  .qc-push-hide{min-width:44px; color:var(--muted-on-dark);}
+  @media (min-width:1100px){ .qc-push-btn, .qc-push-hide{min-height:32px;} .qc-push-hide{min-width:32px;} }
 
   /* ---------- The punch, shown ----------
      Clocking in or out is the one thing most people open this app to do, and
@@ -3661,6 +3684,12 @@
     letter-spacing:-.01em; color:var(--ink);
   }
   .console-section .periods-empty{padding:6px 0;}
+  /* Admin > Storage's backup, above the table list it is about. */
+  .backup-block{margin:0 0 var(--space-5); padding-bottom:var(--space-4); border-bottom:1px solid var(--line-soft);}
+  .backup-block .settings-hint{margin:6px 0 10px;}
+  .backup-block .form-actions{margin:0;}
+  .backup-block #exportAllStatus:empty{display:none;}
+  .backup-block #exportAllStatus.is-due{color:var(--warn); font-weight:500;}
   /* A second group inside a section is still inside it — the shared
      .periods-section gap was sized for a standalone block. */
   .console-section .periods-section{margin-top:var(--space-4); padding-top:var(--space-3);}
@@ -3879,6 +3908,15 @@
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
     white-space:normal; overflow:hidden; overflow-wrap:anywhere;
   }
+  /* On the page since 2026-11-17, at the top of every tab, rather than in the
+     panel: a white card with the panel's negative chip, so the chip carries
+     the severity here exactly as it does there, and the title reads in ink. */
+  main > .load-fail-reminder{
+    background:var(--card); border-color:var(--line); align-items:center;
+    margin-bottom:var(--space-3); box-shadow:var(--shadow-sm);
+  }
+  main > .load-fail-reminder .notif-icon-chip svg{color:inherit; margin-top:0;}
+  main > .load-fail-reminder .reminder-title{color:var(--ink);}
 
   .punct-stats{margin-bottom:24px;}
   /* Two by two on a phone, the way Team's four tiles already are. Inside the
@@ -4284,7 +4322,8 @@
      Sat worked, Sun off) there is legitimately more than one. */
   .cal-cell.cal-weekstart{border-left:1px solid var(--line);}
   .cal-dow.cal-dow-weekstart{border-left:1px solid var(--line); margin-left:-1px;}
-  .cal-cell.cal-future .cal-daynum{color:var(--muted-2);}
+  .cal-cell.cal-future .cal-daynum,
+  .cal-cell.cal-before .cal-daynum{color:var(--muted-2);}
   .cal-cell:hover{background:var(--ink-50);}
   .cal-cell.cal-weekend:hover{background:var(--excused-bg);}
   /* Today is the one filled shape in the month, and it is on the date itself
@@ -4641,6 +4680,29 @@
     color:var(--line);
     transition:color var(--dur-fast) var(--ease-snap), background-color var(--dur-fast) var(--ease-snap);
   }
+  /* The Overview's day-one clock: the bottom bar's round button, at the same
+     size and in the same two fills -- gold to clock in, ink while the first
+     shift is open -- with its word underneath. */
+  .first-run-clock{
+    display:inline-flex; flex-direction:column; align-items:center; gap:8px;
+    background:none; border:none; padding:0; cursor:pointer; font:inherit;
+    border-radius:var(--radius-sm); -webkit-tap-highlight-color:transparent;
+  }
+  .first-run-clock-disc{
+    width:64px; height:64px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--gradient-gold); color:var(--ink-on-gold);
+    box-shadow:0 4px 16px rgba(var(--gold-rgb),.45);
+    transition:transform var(--dur-fast) var(--ease-snap);
+  }
+  .first-run-clock:active .first-run-clock-disc{transform:scale(.9);}
+  .first-run-clock.is-out .first-run-clock-disc{
+    background:var(--gradient-ink); color:#fff; box-shadow:0 4px 14px rgba(var(--ink-950-rgb),.35);
+  }
+  .first-run-clock-label{font-size:13px; font-weight:600; color:var(--ink);}
+  .first-run-clock:disabled{cursor:default; opacity:.45;}
+  .first-run-links{display:flex; flex-wrap:wrap; justify-content:center; gap:4px 18px;}
+  .overview-panel.is-first-run .quick-clock-actions{display:none;}
   .first-run-title{font-family:var(--font-display); font-size:16px; color:var(--ink); margin:2px 0 0;}
   .first-run-sub{font-size:12.5px; color:var(--muted); line-height:1.6; margin:0;}
   .first-run-sub strong{color:var(--ink-600);}
@@ -5213,6 +5275,10 @@
      surface, same mark, same single accent -- so the screen is recognisably
      this app's rather than any login. It is also the screen's ONE dark region,
      which is the rule DESIGN.md keeps everywhere else. */
+  /* A signed-in device opening the app: the form waits, unseen, until app.js
+     says which screen this is (theme-boot.js sets data-opening). Its space
+     stays, so nothing jumps if it turns out to be needed. */
+  html[data-opening] .auth-screen{visibility:hidden;}
   .auth-screen{
     /* Same dvh pairing as .shell: on iOS the sign-in card was being centred
        against a viewport taller than the screen, which pushed it up under the
@@ -6703,6 +6769,14 @@
     .bottom-nav{display:flex;}
     .tabs-wrap{display:none;}
     .sticky-clock{display:none !important;}
+    /* Messages above the bar, not on it. They sat 12px off the bottom of the
+       screen, which on a phone is the middle of the bottom bar: for four to
+       eight seconds after every save the clock button and the tabs were under
+       a message, and the eight-second one was the Undo after a delete -- the
+       moment someone is most likely to reach for the bar next. The bar is
+       about 64px plus the home-indicator inset, and the clock button rises
+       22px above it. */
+    body.signed-in .toast-stack{bottom:calc(98px + env(safe-area-inset-bottom));}
     /* Clearance for the fixed bottom nav: the bar itself is ~63px, but the
        raised clock button pokes another ~24px above that, plus real iOS
        devices add safe-area-inset-bottom on top. Pad generously so nothing
@@ -6734,6 +6808,7 @@
     .bn-clock-label{display:none;}
     #appShell{padding-bottom:70px;}
     html{scroll-padding-bottom:70px;}
+    body.signed-in .toast-stack{bottom:calc(62px + env(safe-area-inset-bottom));}
     header.ledger-head{padding:12px 14px 10px;}
     .seal{display:none;}
   }
@@ -7483,6 +7558,22 @@
     <span class="today-line-value" id="todayLineValue">—</span>
   </div>
 
+  <!-- The record failed to load, or the screen is showing the copy kept on
+       this device because the server could not be reached. Says so for as
+       long as it is true, at the top of every tab: it used to sit inside
+       Alerts, out of sight of the figures it was warning about, beside a
+       toast that expired. Rendered by renderLoadFailure() in app.js. -->
+  <div class="reminder load-fail-reminder" id="loadFailBanner" role="status">
+    <span class="notif-icon-chip notif-icon-chip--negative" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4M12 17.2h.01"/></svg></span>
+    <div class="reminder-body">
+      <p class="reminder-title" id="loadFailTitle"></p>
+      <p class="reminder-text" id="loadFailText"></p>
+      <div class="reminder-actions">
+        <button type="button" class="btn small" id="loadFailRetryBtn">Try Again</button>
+      </div>
+    </div>
+  </div>
+
   <!-- The notification centre. The five notices below used to stack at the top
        of every screen; they live in here now, alongside the messages an admin
        actually sent. They are still rendered by the same five functions
@@ -7538,21 +7629,6 @@
     </div>
   </div>
 
-  <!-- The record failed to load. Says so for as long as it is true, because
-       the alternative — the toast this replaces — expires after seven seconds
-       and leaves a screen reading "No attendance logged yet" to someone with
-       four hundred days of it. Rendered by renderLoadFailure() in app.js. -->
-  <div class="reminder load-fail-reminder" id="loadFailBanner">
-    <span class="notif-icon-chip notif-icon-chip--negative" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4M12 17.2h.01"/></svg></span>
-    <div class="reminder-body">
-      <p class="reminder-title" id="loadFailTitle"></p>
-      <p class="reminder-text" id="loadFailText"></p>
-      <div class="reminder-actions">
-        <button type="button" class="btn small" id="loadFailRetryBtn">Try Again</button>
-      </div>
-    </div>
-  </div>
-
   </div><!-- /#noticeStack -->
 
         <!-- Messages an admin sent, newest first. Read through
@@ -7593,24 +7669,27 @@
        exists to prevent. -->
   <section class="card first-run-card" id="overviewFirstRun" hidden>
     <div class="first-run-empty">
-      <!-- A dashed ring around a plus is the universal "add" affordance, and
-           this one was an aria-hidden decoration with no handler: it read as
-           the button on a screen whose whole job is to offer the first action,
-           and pressing it did nothing. It is the control it already looked
-           like now — hand-entry, the same openNewEntryForm() the Log's Add
-           Entry button opens, for the day you are recording after the fact
-           rather than clocking live. The clock below is still the primary
-           path and still the louder element. -->
-      <button type="button" class="first-run-add" id="firstRunAddBtn"
-              title="Log a day by hand" aria-label="Log a day by hand">
-        <svg width="52" height="52" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-          <circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="2.5" stroke-dasharray="3 5.5" stroke-linecap="round"/>
-          <path d="M24 16v16M16 24h16" stroke="var(--gold-deep)" stroke-width="2.6" stroke-linecap="round"/>
-        </svg>
+      <!-- The clock itself, as the card's one big control. This was a dashed
+           "+" that opened the hand-entry form, under a sentence telling the
+           reader to clock in: the largest thing on the first screen did
+           something other than what the screen asked for. It is a clock
+           control now, painted by renderClockControls() like the others --
+           Clock In, then Clock Out while the first day is open -- and the
+           panel's own clock button below steps aside while this card shows
+           (.overview-panel.is-first-run .quick-clock-actions). Hand entry is
+           still one tap away, as the second link. -->
+      <button type="button" class="first-run-clock" id="firstRunClockBtn" data-clock-action="in" aria-label="Clock in">
+        <span class="first-run-clock-disc">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" id="firstRunClockIcon" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+        </span>
+        <span class="first-run-clock-label" id="firstRunClockLabel">Clock In</span>
       </button>
-      <p class="first-run-title">Your first day starts here</p>
-      <p class="first-run-sub">Clock in when you start and out when you finish. Hours, punctuality and leave all build themselves from there.</p>
-      <button type="button" class="link-btn" id="firstRunSettingsBtn">Set your working week first</button>
+      <p class="first-run-title" id="firstRunTitle">Your first day starts here</p>
+      <p class="first-run-sub" id="firstRunSub">Clock in when you start and out when you finish. Hours, punctuality and leave all build themselves from there.</p>
+      <div class="first-run-links">
+        <button type="button" class="link-btn" id="firstRunSettingsBtn">Set your working week first</button>
+        <button type="button" class="link-btn" id="firstRunHandBtn">Add a past day by hand</button>
+      </div>
     </div>
   </section>
 
@@ -7734,6 +7813,18 @@
          also toasts whenever this node is off screen (another tab), which is
          where the announcement actually comes from on those surfaces. -->
     <p class="qc-note" id="qcStatusNote" role="status" aria-live="polite"></p>
+    <!-- Notifications are off on this device: said here, quietly, instead of
+         in a dialog on every open. The dialog comes once, after the first
+         clock-in on the device (askPushOnce); this line stays until they are
+         on, or for 30 days after its × (renderPushLine in app.js). -->
+    <div class="qc-push" id="pushLine" hidden>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 0 0-9.3-5M6 9c0 5-2 6.5-2 6.5h11"/><path d="M13.7 20a2 2 0 0 1-3.4 0M3 3l18 18"/></svg>
+      <span class="qc-push-text" id="pushLineText"></span>
+      <button type="button" class="qc-push-btn" id="pushLineBtn">Turn On</button>
+      <button type="button" class="qc-push-hide" id="pushLineHideBtn" aria-label="Hide this for 30 days" title="Hide for 30 days">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
   </section>
   </div><!-- /#tab-overview -->
 
@@ -8327,6 +8418,16 @@
               <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
             </div>
             <p class="settings-hint full" style="margin:0;">Grace period is how late you can arrive before a day counts as a late arrival. Remind after flags a day you&rsquo;ve clocked in but not out for this long — it&rsquo;s also what triggers the reminder notification.</p>
+            <!-- Read by the check-clockout-reminders Edge Function, which also
+                 sends the clock-in reminder: settings.remindClockIn, on unless
+                 switched off here. -->
+            <label class="check-row full" for="sRemindIn" style="margin-top:0;">
+              <input type="checkbox" id="sRemindIn">
+              <span>
+                <strong>Remind me to clock in</strong>
+                <em>A notification 30 minutes after your start time on a workday with nothing logged yet. Days you&rsquo;ve already logged as leave or a holiday are skipped.</em>
+              </span>
+            </label>
 
             <div class="console-subhead full">Leave</div>
             <div>
@@ -9196,7 +9297,19 @@
       <div class="console-section" data-section="admin-storage" id="csec-admin-storage" role="tabpanel" aria-labelledby="cnav-admin-storage" tabindex="0">
         <div class="console-section-head">
           <h3>Storage</h3>
-          <p>How much room each table takes, and how many rows it holds.</p>
+          <p>A copy of everything to keep, and how much room each table takes.</p>
+        </div>
+        <!-- The only copy of the team's records outside the database. The
+             project is on Supabase's free plan, which keeps no backups that
+             can be restored, and Settings > Backup & Data exports one
+             person's own record. Filled by exportEverything() in app.js. -->
+        <div class="backup-block">
+          <div class="console-subhead">Backup</div>
+          <p class="settings-hint">Every account, every logged day, everyone's schedule and the organisation settings, in one file. The database keeps no backups of its own, so download a copy at least once a month and keep it somewhere safe.</p>
+          <div class="form-actions">
+            <button type="button" class="btn small" id="exportAllBtn">Export Everything</button>
+          </div>
+          <p class="settings-hint" id="exportAllStatus" role="status" aria-live="polite"></p>
         </div>
         <div>
       <div class="table-wrap responsive-cards" style="margin-bottom:10px;">
@@ -9390,6 +9503,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v53"></script>
+<script type="module" src="app.js?v=v54"></script>
 </body>
 </html>

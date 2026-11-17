@@ -993,6 +993,18 @@ delegated handler rather than a listener each: `renderLog()` rebuilds its copy
 on every pass, and binding per element on a renderer that runs that often is
 how listeners accumulate.
 
+On the Overview the big control stopped being the ring on 2026-11-17: it opened
+the hand-entry form under a sentence telling the reader to clock in. It is the
+clock itself now — the bottom bar's round button at the same size and in the
+same fills, gold to clock in, ink while the first shift is open — painted with
+the other clock surfaces, and the clock panel's own button steps aside while
+the card shows it. Hand entry is the second link, "Add a past day by hand".
+The card also lasts through the first shift instead of ending at the first
+clock-in, which used to swap it for a row of zeros at the moment someone had
+just started; it says the day is underway until the first clock-out. The
+calendar starts at the first logged day, as Shortfall already did: a workday
+before it is drawn like an upcoming one, never "Not logged".
+
 **Trends and Shortfall take the same first-run state.** An account with nothing
 logged used to get the whole chart apparatus wrapped around no chart: sub-tabs
 switching between two empty views, a year and a month select when no month has
@@ -1292,6 +1304,17 @@ time. A tap sends it away, and nothing under it can be pressed while it is up.
 This is the one place motion is this large, because it is the one moment the app
 exists for. It is not built at all under reduced motion: the note and the toast
 remain the confirmation, and remain the only spoken one.
+
+A clock-out's message carries Undo (added 2026-11-17), the same text button a
+delete's does, and on a phone it waits for the flood to clear rather than spend
+two of its eight seconds under it. Messages rise above the phone's bottom bar
+and its raised clock button instead of sitting on them.
+
+Notifications off on this device are said by one line across the bottom of the
+Overview's clock panel, in the panel's quiet text colour with an underlined
+text button (Turn On, How, or How to Allow) and a × that hides it for thirty
+days. The dialog that used to open on every launch comes once per device, after
+the first clock-in there (owner's decision, 2026-11-17).
 
 The punch is also heard and felt (added 2026-11-17, on the owner's request).
 The press answers at once: the control goes down further than an ordinary

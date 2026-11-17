@@ -37,7 +37,8 @@ function typeLabel(t){ return TYPE_LABELS[t] || (t ? String(t) : "Regular"); }
 
 var CAL_STATUS_LABELS = {
   met:"met target", under:"under target", excused:"leave or excused",
-  open:"still clocked in", missing:"no entry", off:"day off", future:"upcoming"
+  open:"still clocked in", missing:"no entry", off:"day off", future:"upcoming",
+  before:"before your first logged day"
 };
 
 // "other" is a catch-all excused absence — real usage is things like
@@ -75,6 +76,7 @@ var DEFAULT_SETTINGS = {
   standardIn:"08:00",
   standardOut:"16:00",
   remindAfterHours:9,
+  remindClockIn:true,
   annualLeaveDays:21
 };
 
