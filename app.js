@@ -492,7 +492,7 @@ import {
   DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
   EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
   DISMISS_KEY,
-  DEFAULT_SETTINGS, VAPID_PUBLIC_KEY
+  DEFAULT_SETTINGS, VAPID_PUBLIC_KEY, REMINDER_GRACE_MIN
 } from "./src/constants.js";
 import {
   uid, pad2, timeToMinutes, formatTime12, minutesToHoursStr, minutesOnlyStr,
@@ -1724,7 +1724,10 @@ import { makeSchedule } from "./src/schedule.js";
   function buildDayPicker(){
     var wrap = document.getElementById("dayPicker");
     wrap.innerHTML = DAY_NAMES.map(function(name, i){
-      return '<input type="checkbox" id="wd'+i+'" value="'+i+'"><label for="wd'+i+'">'+DAY_FULL[i]+'</label>';
+      // "Sun" on screen so the week fits one row on a phone; the full name
+      // for screen readers and as the tooltip.
+      return '<input type="checkbox" id="wd'+i+'" value="'+i+'"><label for="wd'+i+'" title="'+DAY_FULL[i]+'">' +
+        '<span aria-hidden="true">'+name+'</span><span class="visually-hidden">'+DAY_FULL[i]+'</span></label>';
     }).join("");
   }
   // ---------- Push notifications ----------
@@ -1995,7 +1998,7 @@ import { makeSchedule } from "./src/schedule.js";
     // else's list.
     wrap.hidden = false;
     document.getElementById("pushDevicesSubhead").textContent =
-      "Devices receiving " + possessive + " notifications";
+      isOwnData ? "Your devices" : who + "'s devices";
 
     // Published for the Notifications nav row, which answers "where will these
     // actually arrive" without opening the section. Set here rather than
@@ -2114,11 +2117,9 @@ import { makeSchedule } from "./src/schedule.js";
     if(Notification.permission === "denied"){
       box.checked = false; box.disabled = true;
       hint.hidden = false;
-      hint.textContent = "Notifications are blocked for this site in your browser settings — enable them " +
-        "there to turn this on." + (isIOS() || isAndroid()
-          ? " On a phone, check the operating system's own notification settings for your browser as well."
-          : "");
-      setNavDesc("cnavDescNotificationsSelf", "Blocked in browser settings", true);
+      hint.textContent = "Blocked in your browser's settings. Allow notifications for this site there." +
+        (isIOS() || isAndroid() ? " On a phone, check the phone's own notification settings too." : "");
+      setNavDesc("cnavDescNotificationsSelf", "Notifications blocked", true);
       refreshPushDevices();
       return;
     }
@@ -2131,7 +2132,7 @@ import { makeSchedule } from "./src/schedule.js";
     await refreshPushDevices();
     setNavDesc("cnavDescNotificationsSelf", box.checked
       ? (myPushDeviceCount === 1 ? "On · 1 device" : "On · " + myPushDeviceCount + " devices")
-      : "Off on this browser");
+      : "Notifications off on this device");
   }
   onId("sPushEnabled", "change", async function(){
     var box = this;
@@ -2179,19 +2180,17 @@ import { makeSchedule } from "./src/schedule.js";
   // device's sensor. Run once at start-up; the markup holds the generic text.
   function nameBiometricSettings(){
     var bio = biometricKind();
-    var navTitle = document.querySelector("#cnav-passkeys .console-nav-title");
-    if(navTitle) navTitle.textContent = bio.setting;
-    var head = document.querySelector("#csec-passkeys .console-section-head h3");
+    // A group inside Profile now, not a section of its own.
+    var head = document.getElementById("passkeyTitle");
     if(head) head.textContent = bio.setting;
-    var intro = document.querySelector("#csec-passkeys .console-section-head p");
+    var intro = document.getElementById("passkeyIntro");
     if(intro) intro.textContent = (bio.icon === "key"
       ? "Sign in with your device's fingerprint, face or PIN"
-      : "Sign in with " + biometricPhrase()) + " instead of typing your password. Your password keeps working too.";
+      : "Sign in with " + biometricPhrase()) + " instead of typing your password.";
     var add = document.getElementById("passkeyAddBtn");
     if(add) add.textContent = passkeyAddLabel();
     var others = document.getElementById("passkeyOthers");
-    if(others) others.textContent = bio.signin + " belongs to whoever is signed in on this device, so it can " +
-      "only be set up or removed from that person\u2019s own account.";
+    if(others) others.textContent = "Only the person themselves can set up " + bio.signin + ".";
   }
   function passkeyAddLabel(){
     var bio = biometricKind();
@@ -2276,7 +2275,7 @@ import { makeSchedule } from "./src/schedule.js";
     }).join("");
     setNavDesc("cnavDescPasskeys", rows.length
       ? (rows.length === 1 ? "On" : "On \u00b7 saved in " + rows.length + " places")
-      : "Off \u00b7 sign in without typing your password");
+      : "Off");
   }
 
   onId("passkeyAddBtn", "click", async function(){
@@ -2731,7 +2730,8 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("sTargetM").value = settings.targetMin % 60;
     document.getElementById("sIn").value = settings.standardIn;
     document.getElementById("sOut").value = settings.standardOut;
-    document.getElementById("sRemind").value = settings.remindAfterHours;
+    var remindOut = document.getElementById("sRemindOut");
+    if(remindOut) remindOut.checked = settings.remindClockOut !== false;
     var remindIn = document.getElementById("sRemindIn");
     if(remindIn) remindIn.checked = settings.remindClockIn !== false;
     document.getElementById("sGrace").value = settings.graceMin;
@@ -2745,10 +2745,9 @@ import { makeSchedule } from "./src/schedule.js";
     // do; it now rides on the nav description instead of a heading.
     setNavDesc("cnavDescSeasonal", settings.periods.length
       ? settings.periods.length + (settings.periods.length === 1 ? " period set" : " periods set")
-      : "No seasonal periods set");
-    setNavDesc("cnavDescPunctuality", settings.lateOnlyIfShort
-      ? "Late only when the day is short"
-      : "Marking every late arrival, hours or not");
+      : "None set");
+    setNavDesc("cnavDescPunctuality", settings.graceMin + " min grace \u00b7 reminder " +
+      (settings.remindClockIn !== false ? "on" : "off"));
     setNavDesc("cnavDescHours",
       settings.workDays.length + " days · " + minutesToHoursStr(settings.targetMin) + " · from " + settings.standardIn);
     // Your name is what the rest of the team sees on the roster and in the
@@ -2781,12 +2780,15 @@ import { makeSchedule } from "./src/schedule.js";
     // loaded, what the form is holding is DEFAULT_SETTINGS — so it says that,
     // rather than presenting the defaults under "Editing your own schedule."
     // and letting them read as the saved answer.
-    document.getElementById("settingsForLabel").textContent = dataLoadFailed()
+    // Said only when it is news: whose settings an admin has open, or that
+    // the form is holding defaults. "Editing your own schedule" on every visit
+    // was a line of noise above everything else.
+    var forLabel = document.getElementById("settingsForLabel");
+    forLabel.textContent = dataLoadFailed()
       ? "This schedule didn't load. The values below are the app's defaults, not "
         + (isOwnData ? "yours" : who + "'s") + " — saving is blocked until it loads."
-      : (isOwnData
-          ? "Editing your own schedule."
-          : "Editing the schedule for " + who + ".");
+      : (isOwnData ? "" : "Editing the settings for " + who + ".");
+    forLabel.hidden = !forLabel.textContent;
     document.getElementById("settingsProfileName").textContent = isOwnData ? "Your profile" : who;
     // Own profile only. The RLS policy would let an admin rename anyone, but
     // renaming a teammate is a different feature from setting your own name and
@@ -3141,7 +3143,7 @@ import { makeSchedule } from "./src/schedule.js";
   function renderPeriodRows(list, containerId){
     var wrap = document.getElementById(containerId || "periodsList");
     if(!list.length){
-      wrap.innerHTML = '<p class="periods-empty">No seasonal hours set. Standard hours apply all year.</p>';
+      wrap.innerHTML = '<p class="periods-empty">None set. Your usual hours apply all year.</p>';
       return;
     }
     wrap.innerHTML = list.map(periodRowHtml).join("");
@@ -3390,8 +3392,6 @@ import { makeSchedule } from "./src/schedule.js";
     if(targetMin <= 0){ showToast("Set a daily target greater than zero.", "error"); return; }
     if(targetMin > 24*60){ showToast("A daily target can't exceed 24 hours.", "error"); return; }
 
-    var remind = parseFloat(document.getElementById("sRemind").value);
-    if(isNaN(remind) || remind <= 0 || remind > 24) remind = DEFAULT_SETTINGS.remindAfterHours;
 
     var grace = parseInt(document.getElementById("sGrace").value, 10);
     if(isNaN(grace) || grace < 0 || grace > 240) grace = DEFAULT_SETTINGS.graceMin;
@@ -3431,7 +3431,7 @@ import { makeSchedule } from "./src/schedule.js";
       targetMin: targetMin,
       standardIn: document.getElementById("sIn").value || DEFAULT_SETTINGS.standardIn,
       standardOut: document.getElementById("sOut").value || DEFAULT_SETTINGS.standardOut,
-      remindAfterHours: remind,
+      remindClockOut: !document.getElementById("sRemindOut") || document.getElementById("sRemindOut").checked,
       remindClockIn: !document.getElementById("sRemindIn") || document.getElementById("sRemindIn").checked,
       graceMin: grace,
       annualLeaveDays: leaveDays,
@@ -4518,13 +4518,19 @@ import { makeSchedule } from "./src/schedule.js";
   // once it has run past the reminder threshold. Without that second half,
   // the badge lit up the instant anyone clocked in — which isn't a forgotten
   // clock-out, just a normal shift in progress.
+  // Minutes after clock-in at which an open shift counts as a forgotten
+  // clock-out: the day's hours, plus the same 30 minutes the clock-in
+  // reminder waits after the start time. Same moment the server's push uses.
+  function clockOutDueAfterMin(date){
+    return scheduleFor(date).targetMin + REMINDER_GRACE_MIN;
+  }
   function openShiftCount(){
     var today = todayStr();
     var nowMin = new Date().getHours()*60 + new Date().getMinutes();
     return entries.filter(function(e){
       if(!e.clockIn || e.clockOut || EXCUSED_TYPES.indexOf(e.type) !== -1) return false;
       if(e.date < today) return true;
-      if(e.date === today) return (nowMin - timeToMinutes(e.clockIn)) >= settings.remindAfterHours*60;
+      if(e.date === today) return (nowMin - timeToMinutes(e.clockIn)) >= clockOutDueAfterMin(e.date);
       return false;
     }).length;
   }
@@ -4557,7 +4563,7 @@ import { makeSchedule } from "./src/schedule.js";
       if(e.date < today){ target = e; isPast = true; break; }
       if(e.date === today){
         var elapsed = nowMin - timeToMinutes(e.clockIn);
-        if(elapsed >= settings.remindAfterHours*60){ target = e; isPast = false; break; }
+        if(elapsed >= clockOutDueAfterMin(e.date)){ target = e; isPast = false; break; }
       }
     }
 
@@ -12368,7 +12374,6 @@ import { makeSchedule } from "./src/schedule.js";
     document.getElementById("dIn").value = d.standardIn;
     document.getElementById("dOut").value = d.standardOut;
     document.getElementById("dGrace").value = d.graceMin;
-    document.getElementById("dRemind").value = d.remindAfterHours;
     document.getElementById("dLeaveDays").value = d.annualLeaveDays;
     renderPeriodRows(d.periods, "defaultsPeriodsList");
 
@@ -12412,7 +12417,6 @@ import { makeSchedule } from "./src/schedule.js";
       standardIn: document.getElementById("dIn").value || DEFAULT_SETTINGS.standardIn,
       standardOut: document.getElementById("dOut").value || DEFAULT_SETTINGS.standardOut,
       graceMin: document.getElementById("dGrace").value,
-      remindAfterHours: document.getElementById("dRemind").value,
       annualLeaveDays: document.getElementById("dLeaveDays").value,
       periods: rawPeriods
     });

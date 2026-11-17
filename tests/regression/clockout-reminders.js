@@ -46,13 +46,15 @@ const sent = (entryDate, sentOn) => ({ user_id: "u1", entry_date: entryDate, sen
 const mine = (settings) => new Map([["u1", settings || {}]]);
 const titles = (res) => res.notifications.map(n => n.title);
 
-// 8 Nov 2026 is a Sunday. Defaults: Sun-Thu, 08:00-16:00, remind after 9h.
+// 8 Nov 2026 is a Sunday. Defaults: Sun-Thu, 08:00-16:00, 8 hours a day.
+// Since 2026-11-17 the clock-out reminder mirrors the clock-in one: 30
+// minutes after the day's hours are done, counted from clock-in.
 {
   const open = [shift("2026-11-09", "08:00")];
-  eq(titles(dueReminders(open, mine(), {}, [], at("2026-11-09", "16:30"))), [],
-    "same day: nothing before remindAfterHours have passed");
-  const r = dueReminders(open, mine(), {}, [], at("2026-11-09", "17:00"));
-  eq(titles(r), ["Still clocked in"], "same day: reminded once the 9 hours are up");
+  eq(titles(dueReminders(open, mine(), {}, [], at("2026-11-09", "16:29"))), [],
+    "same day: nothing before the hours plus 30 minutes");
+  const r = dueReminders(open, mine(), {}, [], at("2026-11-09", "16:30"));
+  eq(titles(r), ["Still clocked in"], "same day: reminded 30 minutes after the 8 hours are done");
   eq(r.guards, [sent("2026-11-09", "2026-11-09")], "same day: recorded against today");
   eq(r.notifications[0].action_payload, { date: "2026-11-09", standard_out: "16:00", label: "Clock Out at 4:00 PM" },
     "same day: the Clock Out action carries the day and its standard end");
@@ -116,7 +118,30 @@ const titles = (res) => res.notifications.map(n => n.title);
   // A night shift from yesterday evening isn't "never clocked out" at 2am:
   // the hours threshold applies whatever the shift's date.
   eq(titles(dueReminders([shift("2026-11-08", "22:00")], mine({ standardIn: "00:00" }), {}, [], at("2026-11-09", "02:00"))), [],
-    "a shift under remindAfterHours old is left alone");
+    "a shift younger than its hours plus 30 minutes is left alone");
+}
+
+{
+  // The same rule as the clock-in reminder, and the same kind of switch.
+  const open = [shift("2026-11-09", "08:00")];
+  eq(titles(dueReminders(open, mine({ remindClockOut: false }), {}, [], at("2026-11-09", "18:00"))), [],
+    "switched off: no same-day reminder");
+  eq(titles(dueReminders([shift("2026-11-08", "08:00")], mine({ remindClockOut: false }), {}, [], at("2026-11-09", "08:00"))), [],
+    "switched off: no next-morning reminder either");
+  // A late start is not nudged early: counted from the actual clock-in.
+  const late = [shift("2026-11-09", "10:00")];
+  eq(titles(dueReminders(late, mine(), {}, [], at("2026-11-09", "18:00"))), [],
+    "a late start: not reminded at the usual end time");
+  eq(titles(dueReminders(late, mine(), {}, [], at("2026-11-09", "18:30"))), ["Still clocked in"],
+    "a late start: reminded 30 minutes after its own 8 hours");
+  // The person's own day length, and a seasonal period's.
+  eq(titles(dueReminders(open, mine({ targetMin: 360 }), {}, [], at("2026-11-09", "14:30"))), ["Still clocked in"],
+    "a 6-hour day: reminded at 6 hours 30");
+  const ramadan = { periods: [{ start: "2026-11-01", end: "2026-11-30", targetMin: 300 }] };
+  eq(titles(dueReminders(open, mine(ramadan), {}, [], at("2026-11-09", "13:29"))), [],
+    "a 5-hour seasonal day: nothing at 5 hours 29");
+  eq(titles(dueReminders(open, mine(ramadan), {}, [], at("2026-11-09", "13:30"))), ["Still clocked in"],
+    "a 5-hour seasonal day: reminded at 5 hours 30");
 }
 
 // ---------- The clock-in reminder (2026-11-17) ----------

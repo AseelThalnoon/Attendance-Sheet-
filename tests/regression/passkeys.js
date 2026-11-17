@@ -118,7 +118,8 @@ async function start(opts){
 }
 const openPasskeys = async page => {
   await goTab(page, "settings");
-  await page.evaluate(() => document.getElementById("cnav-passkeys").click());
+  // Face ID / fingerprint sign-in is a group inside Profile.
+  await page.evaluate(() => document.getElementById("cnav-profile").click());
   await settle(page, 700);
 };
 const view = page => page.evaluate(() => {
@@ -347,13 +348,13 @@ const authView = page => page.evaluate(() => {
     const h = await start({ device: devices["iPhone 15 Pro"] });
     await openPasskeys(h.page);
     const s = await h.page.evaluate(() => ({
-      nav: document.querySelector("#cnav-passkeys .console-nav-title").textContent,
-      head: document.querySelector("#csec-passkeys h3").textContent,
-      intro: document.querySelector("#csec-passkeys .console-section-head p").textContent,
+      nav: document.querySelector("#cnav-profile .console-nav-title").textContent,
+      head: document.getElementById("passkeyTitle").textContent,
+      intro: document.getElementById("passkeyIntro").textContent,
       add: document.getElementById("passkeyAddBtn").textContent,
-      visible: document.getElementById("csec-passkeys").innerText
+      visible: document.getElementById("passkeyBlock").innerText
     }));
-    ok(s.nav === "Face ID" && s.head === "Face ID" && s.add === "Set Up Face ID" && /^Sign in with Face ID/.test(s.intro),
+    ok(s.head === "Face ID" && s.add === "Set Up Face ID" && /^Sign in with Face ID/.test(s.intro),
       "iPhone: Settings calls it Face ID, with a Set Up Face ID button", JSON.stringify(s));
     ok(!/passkey/i.test(s.visible) && !/passkey/i.test(s.nav), "and the word passkey appears nowhere in it", s.visible.slice(0, 200));
     await h.close();

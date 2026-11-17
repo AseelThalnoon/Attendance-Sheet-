@@ -61,6 +61,7 @@ function normalizeSettings(raw){
   out.lateOnlyIfShort = out.lateOnlyIfShort !== false;
   // On unless switched off: the clock-in reminder (check-clockout-reminders).
   out.remindClockIn = out.remindClockIn !== false;
+  out.remindClockOut = out.remindClockOut !== false;
 
   // Seasonal periods: keep only entries with a valid, ordered date range.
   out.periods = (Array.isArray(out.periods) ? out.periods : [])

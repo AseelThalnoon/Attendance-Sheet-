@@ -1,6 +1,7 @@
 // Cron only (every 15 minutes since 20261117090000_clockin_reminders; it was
-// hourly) -- never invoked directly. Finds every open shift that has passed
-// its owner's own remindAfterHours threshold and enqueues one
+// hourly) -- never invoked directly. Finds every open shift that has run
+// REMINDER_GRACE_MIN past the end of its owner's working day (clock-in plus
+// that day's target hours) and enqueues one
 // push_notifications row per reminder with a clock_out action. It never sends
 // anything itself: send-push's own cron tick (running every minute) picks the
 // new row up within a minute or two, so there is exactly one place in the
@@ -11,7 +12,12 @@
 // nothing logged for today 30 minutes after their start time.
 //
 // At most two reminders per shift:
-//   * "Still clocked in" -- the same day, once remindAfterHours have passed.
+//   * "Still clocked in" -- the same day, 30 minutes after the day's hours
+//     are done (the clock-in reminder's mirror: 30 minutes after the start).
+//     It used to be a separate number of hours (remindAfterHours, 9 by
+//     default) that had nothing to do with the schedule.
+// Both reminders have the same on/off switch shape: remindClockIn and
+// remindClockOut, on unless set to false.
 //   * "You never clocked out" -- once, for a shift still open from an earlier
 //     day, at the person's usual start time on their next working day. It
 //     used to go out on the first run after midnight (00:00 Riyadh) and again
@@ -59,8 +65,12 @@ const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000;
 const EXCUSED_TYPES = ["leave", "sick", "holiday", "other"];
 // Mirrors DEFAULT_SETTINGS in src/constants.js -- kept in sync by hand since
 // this function has no access to that file at build time.
+// Both reminders fire this long after the moment the day says you should
+// have acted: the start time for clocking in, the end of your hours for
+// clocking out. Mirrors REMINDER_GRACE_MIN in src/constants.js.
+const REMINDER_GRACE_MIN = 30;
 const DEFAULT_SETTINGS = {
-  remindAfterHours: 9,
+  targetMin: 480,
   standardIn: "08:00",
   standardOut: "16:00",
   workDays: [0, 1, 2, 3, 4],
@@ -84,6 +94,18 @@ function scheduleTimeFor(settings: Record<string, any>, date: string, field: "st
     }
   }
   return settings[field] || DEFAULT_SETTINGS[field];
+}
+// The day's target minutes, by the same rule (src/schedule.js scheduleFor).
+function targetMinFor(settings: Record<string, any>, date: string): number {
+  const periods = Array.isArray(settings.periods) ? settings.periods : [];
+  for (const p of periods) {
+    if (p?.start && p?.end && date >= p.start && date <= p.end && p.targetMin != null) {
+      const t = Number(p.targetMin);
+      if (isFinite(t) && t > 0) return t;
+    }
+  }
+  const t = Number(settings.targetMin);
+  return isFinite(t) && t > 0 ? t : DEFAULT_SETTINGS.targetMin;
 }
 // formatTime12 in app.js, restated here so the push's action label reads the
 // same way ("4:00 PM") as the in-app banner's, not a bare 24h "16:00".
@@ -142,7 +164,8 @@ function dueReminders(
     // colon-separated parts).
     const clockInMs = Date.parse(`${entry.date}T${entry.clock_in.slice(0, 5)}:00+03:00`);
     if (!isFinite(clockInMs)) continue;
-    if ((nowMs - clockInMs) / 3600000 < settings.remindAfterHours) continue;
+    if (settings.remindClockOut === false) continue;
+    if ((nowMs - clockInMs) / 60000 < targetMinFor(settings, entry.date) + REMINDER_GRACE_MIN) continue;
 
     const isToday = entry.date === today;
     if (isToday) {
@@ -192,7 +215,7 @@ function dueReminders(
 //   * and no shift still open from yesterday (a night shift is clocked in),
 //   * from CLOCKIN_GRACE_MIN after their start time until their end time:
 //     after the end of the day it is a record to fix, not a punch to make.
-const CLOCKIN_GRACE_MIN = 30;
+const CLOCKIN_GRACE_MIN = REMINDER_GRACE_MIN;
 
 function dueClockInReminders(
   userIds: string[],
