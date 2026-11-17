@@ -1,9 +1,14 @@
-// Hourly cron only -- never invoked directly. Finds every open shift that
-// has passed its owner's own remindAfterHours threshold and enqueues one
+// Cron only (every 15 minutes since 20261117090000_clockin_reminders; it was
+// hourly) -- never invoked directly. Finds every open shift that has passed
+// its owner's own remindAfterHours threshold and enqueues one
 // push_notifications row per reminder with a clock_out action. It never sends
 // anything itself: send-push's own cron tick (running every minute) picks the
 // new row up within a minute or two, so there is exactly one place in the
 // whole system that talks to a push service.
+//
+// It also sends the clock-in reminder (dueClockInReminders below): once a day,
+// to someone with notifications on a device, on one of their workdays, with
+// nothing logged for today 30 minutes after their start time.
 //
 // At most two reminders per shift:
 //   * "Still clocked in" -- the same day, once remindAfterHours have passed.
@@ -174,6 +179,73 @@ function dueReminders(
   return { notifications, guards };
 }
 
+// ---------- Clock-in reminder ----------
+// The clock-out reminder caught a forgotten punch at the end of a shift; there
+// was nothing for one at the start, and on 2026-11-16 eight of sixteen
+// accounts had never logged a day. One push, once a day, to:
+//   * someone with at least one device registered for notifications (a row in
+//     the bell for everybody else would be a daily nag they never asked for),
+//   * who has not switched it off (settings.remindClockIn === false),
+//   * on one of their own workdays,
+//   * with no entry at all for today -- leave, a holiday or a sick day logged
+//     ahead counts as logged, and so does a punch on another device,
+//   * and no shift still open from yesterday (a night shift is clocked in),
+//   * from CLOCKIN_GRACE_MIN after their start time until their end time:
+//     after the end of the day it is a record to fix, not a punch to make.
+const CLOCKIN_GRACE_MIN = 30;
+
+function dueClockInReminders(
+  userIds: string[],
+  settingsByUser: Map<string, any>,
+  orgDefault: Record<string, any>,
+  recentEntries: any[],        // every entry dated yesterday or today
+  sentTodayIds: Set<string>,   // clockin_reminders_sent rows for today
+  nowMs: number,
+) {
+  const local = new Date(nowMs + RIYADH_OFFSET_MS);
+  const today = dateStr(local);
+  const yesterday = dateStr(new Date(nowMs + RIYADH_OFFSET_MS - 86400000));
+  const nowMin = local.getUTCHours() * 60 + local.getUTCMinutes();
+  const notifications: any[] = [];
+  const guards: any[] = [];
+
+  for (const userId of userIds) {
+    if (sentTodayIds.has(userId)) continue;
+    const raw = settingsByUser.has(userId)
+      ? settingsByUser.get(userId)
+      : Object.keys(orgDefault).length ? orgDefault : {};
+    const settings = Object.assign({}, DEFAULT_SETTINGS, raw);
+    if (settings.remindClockIn === false) continue;
+
+    const workDays = (Array.isArray(settings.workDays) ? settings.workDays : DEFAULT_SETTINGS.workDays).map(Number);
+    if (!workDays.includes(local.getUTCDay())) continue;
+
+    const mine = recentEntries.filter((e) => e.user_id === userId);
+    if (mine.some((e) => e.date === today)) continue;
+    if (mine.some((e) => e.date === yesterday && e.clock_in && !e.clock_out && !EXCUSED_TYPES.includes(e.type))) continue;
+
+    const startIn = scheduleTimeFor(settings, today, "standardIn");
+    const endOut = scheduleTimeFor(settings, today, "standardOut");
+    const startMin = toMinutes(startIn), endMin = toMinutes(endOut);
+    if (!isFinite(startMin) || nowMin < startMin + CLOCKIN_GRACE_MIN) continue;
+    // A day that ends after midnight (end before start) has no "too late" here.
+    if (isFinite(endMin) && endMin > startMin && nowMin >= endMin) continue;
+
+    notifications.push({
+      created_by: null,
+      title: "You haven't clocked in",
+      body: `Your day started at ${formatTime12(startIn)}. Clock in now, or ignore this if you're off today.`,
+      target_type: "users",
+      target_user_ids: [userId],
+      action: "clock_in",
+      action_payload: { date: today, label: "Clock In Now" },
+      scheduled_for: new Date(nowMs).toISOString(),
+    });
+    guards.push({ user_id: userId, sent_on: today });
+  }
+  return { notifications, guards };
+}
+
 Deno.serve(async (req) => {
   if (!calledByScheduler(req)) {
     return new Response(JSON.stringify({ error: "forbidden" }), {
@@ -240,7 +312,37 @@ Deno.serve(async (req) => {
     });
   }
 
-  return new Response(JSON.stringify({ queued: notifications.length }), {
+  // ---- The clock-in reminder ----
+  // Any read failing skips it for this run rather than failing the whole job:
+  // the clock-out half above has already done its work, and the next run is
+  // fifteen minutes away. That includes clockin_reminders_sent not existing
+  // yet -- without its rows every run would look un-reminded, so no guard
+  // table means no clock-in reminders at all, never one every fifteen minutes.
+  let clockInQueued = 0;
+  const yesterday = dateStr(new Date(Date.now() + RIYADH_OFFSET_MS - 86400000));
+  const [{ data: subs, error: subsErr }, { data: recent, error: recentErr }, { data: sentRows, error: sentErr }] =
+    await Promise.all([
+      supabase.from("push_subscriptions").select("user_id"),
+      supabase.from("entries").select("user_id, date, clock_in, clock_out, type").gte("date", yesterday).lte("date", today),
+      supabase.from("clockin_reminders_sent").select("user_id").eq("sent_on", today),
+    ]);
+  if (!subsErr && !recentErr && !sentErr) {
+    const userIds = [...new Set((subs ?? []).map((s) => s.user_id))];
+    const sentTodayIds = new Set((sentRows ?? []).map((r) => r.user_id));
+    const due = dueClockInReminders(userIds, settingsByUser, orgDefault, recent ?? [], sentTodayIds, Date.now());
+    if (due.notifications.length) {
+      const { error: inErr } = await supabase.from("push_notifications").insert(due.notifications);
+      if (!inErr) {
+        await supabase.from("clockin_reminders_sent").upsert(due.guards, {
+          onConflict: "user_id,sent_on",
+          ignoreDuplicates: true,
+        });
+        clockInQueued = due.notifications.length;
+      }
+    }
+  }
+
+  return new Response(JSON.stringify({ queued: notifications.length, clockInQueued }), {
     headers: { "Content-Type": "application/json" },
   });
 });
