@@ -2247,7 +2247,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(!own) return;
     document.getElementById("passkeyOthers").hidden = isOwnData;
     own.hidden = !isOwnData;
-    if(!isOwnData){ setNavDesc("cnavDescPasskeys", "Only from their own account"); return; }
+    if(!isOwnData) return;
     var bio = biometricKind();
 
     var add = document.getElementById("passkeyAddBtn");
@@ -2273,9 +2273,6 @@ import { makeSchedule } from "./src/schedule.js";
         '<button type="button" class="btn ghost small" data-passkey-remove="' + escapeAttr(r.id) + '">Remove</button>' +
       '</div>';
     }).join("");
-    setNavDesc("cnavDescPasskeys", rows.length
-      ? (rows.length === 1 ? "On" : "On \u00b7 saved in " + rows.length + " places")
-      : "Off");
   }
 
   onId("passkeyAddBtn", "click", async function(){

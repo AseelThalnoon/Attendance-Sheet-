@@ -128,7 +128,6 @@ const view = page => page.evaluate(() => {
     add: vis("passkeyAddBtn"), list: vis("passkeyListWrap"), others: vis("passkeyOthers"),
     hint: vis("passkeyHint") ? document.getElementById("passkeyHint").textContent : "",
     rows: [...document.querySelectorAll("#passkeyList .push-device")].map(r => r.innerText.replace(/\s+/g, " ").trim()),
-    nav: document.getElementById("cnavDescPasskeys").textContent,
     toast: [...document.querySelectorAll(".toast")].map(t => t.textContent).join(" ")
   };
 });
@@ -146,7 +145,7 @@ const authView = page => page.evaluate(() => {
     const h = await start();
     await openPasskeys(h.page);
     let v = await view(h.page);
-    ok(v.add && !v.list && /^Off/.test(v.nav), "not set up yet: a Set Up button, nothing listed, and the menu says Off", JSON.stringify(v));
+    ok(v.add && !v.list, "not set up yet: a Set Up button, nothing listed", JSON.stringify(v));
 
     await h.page.click("#passkeyAddBtn");
     await settle(h.page, 1200);
@@ -155,7 +154,6 @@ const authView = page => page.evaluate(() => {
     ok(v.list && v.rows.length === 1 && /Chrome on Linux/.test(v.rows[0]) && /Not used yet/.test(v.rows[0]),
       "and it is listed by name", JSON.stringify(v.rows));
     ok(/is set up/.test(v.toast), "with a toast saying so", v.toast);
-    ok(v.nav === "On", "and the Settings menu says it is on", v.nav);
     const creds = (await h.cdp().send("WebAuthn.getCredentials", { authenticatorId: h.authId() })).credentials;
     ok(creds.length === 1 && creds[0].isResidentCredential && creds[0].rpId === "localhost",
       "the device holds it as a discoverable passkey, so sign-in needs no email", JSON.stringify(creds.map(c => [c.rpId, c.isResidentCredential])));
