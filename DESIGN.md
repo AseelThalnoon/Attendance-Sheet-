@@ -1109,18 +1109,43 @@ under most fields. Now:
 
 - **Five places, named the way people ask.** Profile holds name, photo, Face
   ID / fingerprint sign-in and Sign Out. Schedule holds everything a day is
-  measured against: the week, the day's length, leave, how lateness is counted
+  measured against: the week, the start and end time, leave, the grace period
   and Ramadan / shorter days. Reminders holds the notification switch for this
-  device and which reminders to send. Section ids `hours` and `notifications`
+  device and the two reminder switches. Section ids `hours` and `notifications`
   are unchanged, so links into them hold; `punctuality`, `seasonal` and
   `passkeys` no longer exist as sections.
 - **Short words.** A field label is a few words ("Start", "Leave days a
   year"); a section's sentence is one short line; a hint appears only where
-  the label can't carry it. A checkbox says its effect in the first person
-  ("Don't mark me late if I make up the hours").
-- **An everyday switch is not a warning.** A ticked `.check-row` turns amber
-  because Apply to everyone is armed when ticked; a preference
-  (`.check-row.pref`) keeps its plain box.
+  the label can't carry it, one line under the field. A switch's label leads
+  with its key word and names what "on" means ("Clock-in reminder"; NN/g's
+  test: read it aloud with "on" or "off" after it).
+- **A switch acts at once; Save is for a form** (2026-11-18, after the owner
+  asked for the settings to follow the best practice out there). An on/off
+  setting that takes effect immediately is a `.setting-row` with an
+  `input.switch` (a real checkbox with `role="switch"`), label left, switch
+  right, its rows sharing one rounded `.setting-list` with hairlines between
+  them, the inset-grouped list of iOS Settings and Android preferences. It
+  never waits for Save: NN/g's toggle guidance is that with a Save step
+  nobody can tell whether the switch they moved took effect, and that
+  instant and save-on-submit controls must not share a page. So the
+  Reminders switches save on the spot (`saveReminderChoice`, one field over
+  the last *saved* schedule, then a toast), Sound and Vibration are switches
+  too, and Save Settings belongs to Schedule alone. Off is a small knob in
+  an outline; on is a filled ink track with a larger card-coloured knob, so
+  the state never rests on colour alone and the pair inverts with dark mode.
+- **Save rides along once there is something to save.** A Save button at the
+  end of a long form is one that a person who edited the first field never
+  scrolls to. Any edit in Schedule marks the commit group `.is-dirty`: it
+  sticks to the bottom of the screen (on a phone, flush on the bottom bar,
+  with room for the raised clock button) and says "Unsaved changes" beside
+  Discard and Save. `fillSettingsForm()` clears it, so a save, a discard or
+  a fresh load all leave it clean.
+- **Apply to everyone carries the schedule, not people's choices.** It is a
+  row at the end of the Schedule form (admins only), so the Save bar stays
+  small enough to ride along. Applying reads everyone's current settings
+  first and keeps each person's own reminder switches; if that read fails,
+  nothing is written. A ticked `.check-row` turns amber because Apply to
+  everyone is armed when ticked.
 - **The week is one row on a phone**: "Sun" to "Sat", the full name for screen
   readers and as the tooltip. **Palettes are two to a row on a phone**, by
   picture and name; descriptions show from 760px up.
@@ -1136,6 +1161,27 @@ under most fields. Now:
   (`REMINDER_GRACE_MIN`, mirrored in check-clockout-reminders).
 - **On an iPhone the sign-in group says Face ID**, never "passkey"
   (`nameBiometricSettings()` names it after the device's sensor).
+- **No field that only repeats another** (2026-11-18: "look at the layout
+  field and unnecessary things"):
+  - **The day's hours are Start to End.** Worked time is clock-out minus
+    clock-in with no break taken off, so a separate "hours a day" field
+    could only disagree with the two times beside it. It is gone from the
+    Schedule, from each Ramadan / shorter-days card and from Admin ›
+    Organisation Defaults; a line under the times says what they add up to
+    ("8h a day"), and Save stores `targetMin` as End minus Start (an End
+    earlier than Start runs past midnight; equal is refused).
+  - **Late is judged on the hours, always.** A day that makes its hours is
+    never late or early, however it started; a short day is, outside the
+    grace period. This was a switch ("Don't mark me late if I make up the
+    hours"), on by default and on for every account when it was removed; a
+    saved `lateOnlyIfShort` is ignored and dropped on the next save. One
+    line under the grace field says the rule.
+  - **Profile**: the photo's buttons sit beside it. The "Your profile" label
+    that sat there under a heading saying Profile is gone (it still names
+    the person when an admin views someone else).
+  - **Reminders with no devices**: one line saying reminders reach nobody.
+    The how-to that followed repeated the line under the switch, or told a
+    person whose switch is blocked to turn it on.
 
 **Profile is a section, and the first one.** It was a permanent card pinned
 above the nav in the side column — the tallest thing on the screen, always
@@ -1145,11 +1191,10 @@ without holding the column open, and the pane gives it room the sidebar never
 had: the avatar is the full 56px rather than a 38px marker, and the buttons
 size to their labels instead of stretching to fill a narrow column.
 
-**Save belongs to three sections, not to the console.** The Save / Apply-to-
-everyone pair sits outside the sections, because Schedule and Reminders share
-one settings object and one write. It carries `data-for-sections` naming those
-two, and `initConsole` hides it everywhere
-else. Showing it under every section was survivable while Working Hours was the
+**Save belongs to Schedule, not to the console.** The Save bar sits outside
+the sections and carries `data-for-sections="hours"`; `initConsole` hides it
+everywhere else. (It named Reminders too until the reminders became switches
+that save themselves.) Showing it under every section was survivable while Working Hours was the
 landing view and merely wrong once you clicked Backup & Data; putting Profile
 first made it the first thing on screen — a "Save Settings" button directly
 under a profile that has its own Save, saving something else.

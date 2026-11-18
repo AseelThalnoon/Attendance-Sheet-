@@ -177,6 +177,11 @@ function ok(cond, label, detail){
   await h.page.evaluate(() => {
     const b = document.querySelector('#settingsConsole .console-nav-item[data-console-target="hours"]');
     if(b) b.click();
+    // Schedule's own fields are four now (Start, End, leave, grace); a
+    // shorter-days card adds the five fields that repeat per period, which
+    // are drawn smaller than the rest and so are the likeliest to slip.
+    const add = document.getElementById("addPeriodBtn");
+    if(add) add.click();
   });
   await settle(h.page, 350);
   const r = await h.page.evaluate(() => {

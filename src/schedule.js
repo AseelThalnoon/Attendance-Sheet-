@@ -103,21 +103,24 @@ export function makeSchedule(getSettings){
     // Punctuality is only meaningful on a scheduled day with fixed hours. That
     // rules out the excused types and also WFH, trips and training, which the
     // rest of the app treats as having no fixed hours (NO_TARGET_TYPES). This
-    // used to rule out the excused types only, so with "late only if short"
-    // off, a business-trip day clocked in at 11:30 was marked 3h 30m late
-    // against office hours it was never held to anywhere else.
+    // used to rule out the excused types only, so a business-trip day clocked
+    // in at 11:30 could be marked 3h 30m late against office hours it was
+    // never held to anywhere else.
     var lateMin = 0, earlyMin = 0;
     var grace = getSettings().graceMin || 0;
     var countable = scheduled && !noTarget;
 
-    // When "only if short" is on, making up the hours clears the flag. A day
-    // that's still open can't be judged yet, so it isn't flagged either way —
-    // but it must not be counted as *on time* either. `pending` marks that
-    // distinction so the On Time tab can exclude the day rather than silently
-    // score it clean and then flip it to late once the user clocks out.
+    // Lateness is judged on the hours: a day that makes them is never late or
+    // early, however it started. This was a setting, "late only if short", on
+    // by default and on for everyone; it is the rule now, and an old saved
+    // `lateOnlyIfShort: false` is ignored. A day that's still open can't be
+    // judged yet, so it isn't flagged either way — but it must not be counted
+    // as *on time* either. `pending` marks that distinction so the On Time tab
+    // can exclude the day rather than silently score it clean and then flip
+    // it to late once the user clocks out.
     var metTarget = workedMin !== null && workedMin >= targetMin;
-    var pending = getSettings().lateOnlyIfShort && workedMin === null && !!e.clockIn && countable;
-    var forgiven = getSettings().lateOnlyIfShort && (metTarget || workedMin === null);
+    var pending = workedMin === null && !!e.clockIn && countable;
+    var forgiven = metTarget || workedMin === null;
 
     if(countable && e.clockIn && !forgiven){
       var lm = timeToMinutes(e.clockIn) - timeToMinutes(sched.standardIn);

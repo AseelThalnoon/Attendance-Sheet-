@@ -58,7 +58,9 @@ function normalizeSettings(raw){
   var lv = Number(out.annualLeaveDays);
   out.annualLeaveDays = (isFinite(lv) && lv >= 0 && lv <= 365) ? lv : DEFAULT_SETTINGS.annualLeaveDays;
 
-  out.lateOnlyIfShort = out.lateOnlyIfShort !== false;
+  // No longer a setting (late is judged on the hours, always). Dropped so an
+  // old saved value doesn't ride along in every save.
+  delete out.lateOnlyIfShort;
   // On unless switched off: the clock-in reminder (check-clockout-reminders).
   out.remindClockIn = out.remindClockIn !== false;
   out.remindClockOut = out.remindClockOut !== false;

@@ -71,7 +71,6 @@ var DEFAULT_SETTINGS = {
   workDays:[0,1,2,3,4],
   targetMin:480,
   graceMin:10,
-  lateOnlyIfShort:true,
   periods:[],
   standardIn:"08:00",
   standardOut:"16:00",

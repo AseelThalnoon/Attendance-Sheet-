@@ -432,11 +432,10 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 
 // ---------------------------------------------------------------- late marks: no fixed hours, no late marks (2026-11-09)
 // WFH, trips and training have no fixed hours anywhere else in the app, but
-// the late/early check only skipped the excused types. With "late only if
-// short" off, a trip day clocked in at 11:30 was marked 3h 30m late.
+// the late/early check only skipped the excused types, so a trip day clocked
+// in at 11:30 could be marked 3h 30m late. Every case here is short of the
+// day's hours, so none of them is excused by having made them up.
 {
-  const savedLateOnly = settings.lateOnlyIfShort;
-  settings.lateOnlyIfShort = false;
   const marks = (o) => { const c = computeEntry(entry(o)); return [c.lateMin, c.earlyMin]; };
   eq(marks({date:"2026-08-10", clockIn:"11:30", clockOut:"18:00", type:"wfh"}), [0, 0],
     "late marks: a WFH day is never marked late or early");
@@ -448,7 +447,29 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
     "late marks: nor while a trip day is still open");
   eq(marks({date:"2026-08-10", clockIn:"11:30", clockOut:"14:00"}), [210, 120],
     "late marks: a Regular day with the same times is still marked late and early");
-  settings.lateOnlyIfShort = savedLateOnly;
+}
+
+// ---------------------------------------------------------------- late is judged on the hours (2026-11-18)
+// "Don't mark me late if I make up the hours" was a switch, on by default.
+// It is the rule now: a day that makes its hours is never late or early, a
+// day that falls short is, and an old saved `lateOnlyIfShort: false` changes
+// nothing.
+{
+  const marks = (o) => { const c = computeEntry(entry(o)); return [c.lateMin, c.earlyMin, c.pending]; };
+  const saved = settings.lateOnlyIfShort;
+  for(const stored of [undefined, true, false]){
+    settings.lateOnlyIfShort = stored;
+    const tag = " (saved setting: " + stored + ")";
+    eq(marks({date:"2026-08-10", clockIn:"09:00", clockOut:"17:00"}), [0, 0, false],
+      "late rule: an hour late, made up by staying an hour longer, is not late" + tag);
+    eq(marks({date:"2026-08-10", clockIn:"09:00", clockOut:"16:00"}), [60, 0, false],
+      "late rule: an hour late and an hour short is late" + tag);
+    eq(marks({date:"2026-08-10", clockIn:"08:05", clockOut:"15:00"}), [0, 60, false],
+      "late rule: inside the grace period it is not late, but leaving an hour early while short is" + tag);
+    eq(marks({date:"2026-08-10", clockIn:"09:00"}), [0, 0, true],
+      "late rule: a day still open is not judged yet, and is marked pending" + tag);
+  }
+  settings.lateOnlyIfShort = saved;
 }
 
 console.log(`  audit-logic  pass ${pass}   fail ${fail}`);

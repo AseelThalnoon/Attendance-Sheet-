@@ -384,8 +384,11 @@ async function start(opts){
 
     // Switched off in Settings: remembered on this device, and silent.
     await h.page.evaluate(() => {
-      document.querySelector('#punchSoundSeg [data-sound="off"]').click();
-      document.querySelector('#punchHapticsSeg [data-haptics="off"]').click();
+      // Two switches now (they were On/Off pairs); a click turns each off.
+      for(const id of ["punchSoundSwitch", "punchHapticsSwitch"]){
+        const sw = document.getElementById(id);
+        if(sw.checked) sw.click();
+      }
     });
     ok(await h.page.evaluate(() => localStorage.getItem("attendance.punchFeedback")) === '{"sound":false,"haptics":false}', "the two switches are saved in this browser");
     await h.close();

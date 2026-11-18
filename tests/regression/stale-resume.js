@@ -157,13 +157,13 @@ async function start(opts){
     await goTab(h.page, "settings");
     await h.page.click("#cnav-hours");
     await settle(h.page, 300);
-    await h.page.fill("#sTargetH", "6");
+    await h.page.fill("#sGrace", "25");
     await passMinutes(h.page, 6);
     let reads = entryReads(h);
     await comeBack(h.page);
     ok(entryReads(h) === reads, "Settings open: no background refresh");
-    const typed = await h.page.evaluate(() => document.getElementById("sTargetH").value);
-    ok(typed === "6", "so a half-edited schedule is not refilled from the saved one", "sTargetH=" + typed);
+    const typed = await h.page.evaluate(() => document.getElementById("sGrace").value);
+    ok(typed === "25", "so a half-edited schedule is not refilled from the saved one", "sGrace=" + typed);
 
     await goTab(h.page, "overview");
     reads = entryReads(h);
