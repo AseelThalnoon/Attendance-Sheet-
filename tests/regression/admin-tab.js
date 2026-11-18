@@ -646,7 +646,7 @@ async function boot(browser, server, query){
     ok(!s.targetField, "there is no separate daily-target field", JSON.stringify(s));
     ok(s.start === "09:00" && s.end === "17:00" && s.leave === "25",
       "stored start and end times and leave allowance load", JSON.stringify(s));
-    ok(/^Set/.test(s.state), "a configured default is reported as set", s.state);
+    ok(s.state === "Everyone's week and hours", "a set Team Schedule says what it is on its row", s.state);
   }
 
   // ------------------------------------------------------------ activity log

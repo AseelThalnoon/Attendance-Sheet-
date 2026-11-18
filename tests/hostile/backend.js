@@ -73,6 +73,12 @@ function createBackend(seed){
     client_errors: (seed && seed.client_errors) || [],
     // Stand in for a project running the pre-20260917140000 admin_push_reach.
     omitReachIds: !!(seed && seed.omitReachIds),
+    // Seed a password and a password sign-in is checked against it (and a
+    // password change updates it); leave it out and the auth endpoints
+    // answer as they always have. What the account asked of Auth is kept
+    // so a suite can see it.
+    password: (seed && seed.password) || null,
+    authCalls: [],
     // Faults, keyed by a substring of the request path ("entries", "rpc/admin_list_users").
     // Value: {status, message} | "hang" | {delayMs, ...}
     faults: new Map(),
@@ -133,12 +139,51 @@ function createBackend(seed){
       }
     }
 
-    if(path.startsWith("/auth/v1/")) return route.fulfill(json(authResponse(path, request)));
+    if(path.startsWith("/auth/v1/")){
+      const answered = authCall(path, url, request);
+      if(answered) return route.fulfill(answered);
+      return route.fulfill(json(authResponse(path, request)));
+    }
     if(path.startsWith("/storage/v1/")) return route.fulfill(json({ message: "Object not found" }, 404));
     if(path.startsWith("/rest/v1/rpc/")) return route.fulfill(rpc(path.split("/rpc/")[1], request));
     if(path.startsWith("/rest/v1/")) return route.fulfill(await table(path.split("/rest/v1/")[1], url, request));
 
     return route.fulfill(json({ message: "unhandled: " + path }, 500));
+  }
+
+  // The Auth calls Settings > Sign-in & Security makes, modelled only when
+  // the seed gave a password: sign in with it (right or wrong), set a new
+  // one, email a reset link, sign out the other devices.
+  function authCall(path, url, request){
+    if(!state.password) return null;
+    const method = request.method();
+    let body = {};
+    try{ body = JSON.parse(request.postData() || "{}"); }catch(e){}
+    const me = state.profiles.find(p => p.id === state.meId) || {};
+    if(method === "POST" && path.endsWith("/token") && url.searchParams.get("grant_type") === "password"){
+      state.authCalls.push({ call: "signIn", email: body.email, ok: body.password === state.password });
+      if(body.password !== state.password)
+        return json({ code: "invalid_credentials", error_code: "invalid_credentials", msg: "Invalid login credentials", message: "Invalid login credentials" }, 400);
+      return json({ access_token: "test-access-token-2", token_type: "bearer", expires_in: 3600,
+        expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: "test-refresh-token-2",
+        user: { id: me.id, aud: "authenticated", role: "authenticated", email: me.email,
+                app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" } });
+    }
+    if(method === "PUT" && path.endsWith("/user")){
+      state.authCalls.push({ call: "updateUser", password: body.password, current_password: body.current_password });
+      if(body.password) state.password = body.password;
+      return json({ id: me.id, aud: "authenticated", role: "authenticated", email: me.email,
+                    app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" });
+    }
+    if(method === "POST" && path.endsWith("/recover")){
+      state.authCalls.push({ call: "recover", email: body.email });
+      return json({});
+    }
+    if(method === "POST" && path.endsWith("/logout")){
+      state.authCalls.push({ call: "logout", scope: url.searchParams.get("scope") });
+      return { status: 204, headers: { "Access-Control-Allow-Origin": "*" }, body: "" };
+    }
+    return null;
   }
 
   function authResponse(path, request){
