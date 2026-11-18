@@ -4650,13 +4650,14 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   // ---------- The open shift, live ----------
-  // "Clocked in" answered one question and raised three: since when, how long
-  // so far, and how long to go. All three are already known -- the clock-in is
-  // on today's row and the target is the schedule's -- so the three surfaces
-  // that report today (the rail's status card, the phone's Today line and the
-  // sticky bar) say them while a shift is open. Minutes, not seconds: the
-  // record is kept to the minute, and a figure that changed every second would
-  // be the busiest thing on a screen whose live clock already ticks.
+  // While a shift is open, the three surfaces that report today (the rail's
+  // status card, the phone's Today line and the sticky bar) say when you can
+  // leave: your clock-in plus the day's target, the moment your hours are
+  // made. Not the schedule's End: lateness is judged on the hours, so someone
+  // who started at 09:00 on an 8-hour day leaves at 17:00 whatever the
+  // schedule's End says. This replaced hours-so-far and time-to-go (owner,
+  // 2026-11-18): one time to look at, rather than two figures to add up.
+  // Minutes, not seconds; the record is kept to the minute.
   var liveShiftKey = null;
   function liveShift(){
     var e = entries.find(function(x){ return x.date === todayStr(); });
@@ -4664,23 +4665,26 @@ import { makeSchedule } from "./src/schedule.js";
     var c;
     try{ c = computeEntry(e); }catch(err){ return null; }
     if(c.excused) return null;
+    var inMin = timeToMinutes(e.clockIn);
+    var target = c.targetMin || 0;
     var d = new Date();
     // A clock-in later than now (a hand-entered time, or a device clock that
-    // moved) is zero elapsed, never a negative shift.
-    var elapsed = Math.max(0, d.getHours()*60 + d.getMinutes() - timeToMinutes(e.clockIn));
-    return {since: formatTime12(e.clockIn), elapsed: elapsed, target: c.targetMin || 0};
-  }
-  function liveShiftRemainder(s){
-    if(!s.target) return "";
-    var left = s.target - s.elapsed;
-    if(left > 0) return minutesToHoursStr(left) + " to go";
-    return left === 0 ? "Target reached" : "Target reached · " + minutesOnlyStr(-left) + " over";
+    // moved) is nothing worked yet, never a negative shift.
+    var worked = Math.max(0, d.getHours()*60 + d.getMinutes() - inMin);
+    var leaveMin = (inMin + target) % (24*60);
+    return {
+      since: formatTime12(e.clockIn),
+      // No target (a WFH, trip or training day, or a day off): nothing to
+      // make, so no time to leave by.
+      leave: target ? formatTime12(pad2(Math.floor(leaveMin/60)) + ":" + pad2(leaveMin % 60)) : "",
+      done: !!target && worked >= target
+    };
   }
   // Called on every render and once a second by the live clock; repaints only
-  // when the minute, the clock-in or the target has actually changed.
+  // when the clock-in, the time to leave or whether it has passed changes.
   function paintLiveShift(){
     var s = liveShift();
-    var key = s ? s.since + "|" + s.elapsed + "|" + s.target : "";
+    var key = s ? s.since + "|" + s.leave + "|" + s.done : "";
     if(key === liveShiftKey) return;
     var wasLive = !!liveShiftKey;
     liveShiftKey = key;
@@ -4701,28 +4705,32 @@ import { makeSchedule } from "./src/schedule.js";
       if(wasLive) renderTodayStatusSoon();
       return;
     }
-    var elapsed = minutesToHoursStr(s.elapsed);
-    var rest = liveShiftRemainder(s);
-    var met = !!s.target && s.elapsed >= s.target;
+    // With a time to leave: "Leave at 4:10 PM", and under it when the shift
+    // began (and, once the time has come, that the hours are done).
+    // Without one: when the shift began is the whole story.
+    var label = s.leave ? "Leave at" : "In since";
+    var value = s.leave || s.since;
+    var sub = s.leave ? (s.done ? "Hours done · in since " : "In since ") + s.since : "";
 
     var seal = document.getElementById("todaySeal");
     var sealValue = document.getElementById("sealValue");
-    if(seal) seal.classList.toggle("status-over", met);
-    if(sealLabel) sealLabel.textContent = "Since " + s.since;
+    if(seal) seal.classList.toggle("status-over", s.done);
+    if(sealLabel) sealLabel.textContent = label;
     if(sealValue){
-      sealValue.textContent = elapsed;
-      sealValue.classList.toggle("long", elapsed.length > 6);
+      sealValue.textContent = value;
+      sealValue.classList.remove("long");
     }
-    if(sealSub){ sealSub.textContent = rest; sealSub.hidden = !rest; }
+    if(sealSub){ sealSub.textContent = sub; sealSub.hidden = !sub; }
 
     var line = document.getElementById("todayLine");
-    if(line) line.classList.toggle("status-over", met);
-    if(lineLabel) lineLabel.textContent = "In since " + s.since;
-    if(lineSub){ lineSub.textContent = rest; lineSub.hidden = !rest; }
+    if(line) line.classList.toggle("status-over", s.done);
+    if(lineLabel) lineLabel.textContent = label;
+    if(lineSub){ lineSub.textContent = sub; lineSub.hidden = !sub; }
     var lineValue = document.getElementById("todayLineValue");
-    if(lineValue) lineValue.textContent = elapsed;
+    if(lineValue) lineValue.textContent = value;
 
-    if(sticky) sticky.textContent = "In since " + s.since + " · " + elapsed + (rest ? " · " + rest : "");
+    if(sticky) sticky.textContent = "In since " + s.since +
+      (s.leave ? " · " + (s.done ? "Hours done at " : "Leave at ") + s.leave : "");
   }
   var todayStatusQueued = false;
   function renderTodayStatusSoon(){
