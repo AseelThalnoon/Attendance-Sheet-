@@ -35,6 +35,12 @@
      executing, instead of in parallel. Preloading doesn't change when or
      how it's imported, just when the browser starts fetching it. -->
 <link rel="modulepreload" href="vendor/supabase-js.min.js">
+<!-- The first thing an open asks the server for is a renewed sign-in, and
+     nothing else can load until it answers. Opening the connection while the
+     page and scripts load takes the handshake off that wait. crossorigin
+     because supabase-js sends no cookies: a connection opened without it
+     would not be the one its requests use. -->
+<link rel="preconnect" href="https://lxnfiszrlgddpcbwavfw.supabase.co" crossorigin>
 
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -9717,6 +9723,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v66"></script>
+<script type="module" src="app.js?v=v67"></script>
 </body>
 </html>
