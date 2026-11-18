@@ -320,6 +320,26 @@ function createBackend(seed){
       if(who) who.last_seen_at = new Date().toISOString();
       return json(null);
     }
+    // What an admin sees of someone else's devices in Settings > Reminders
+    // (20260909210000_admin_view_user_push_devices.sql).
+    if(name === "admin_list_user_push_devices"){
+      return json(state.push_subscriptions.filter(s => s.user_id === args.target_id)
+        .map(s => ({ endpoint: s.endpoint, user_agent: s.user_agent, created_at: s.created_at })));
+    }
+    // The one door an employee has into their own user_settings row
+    // (20261118090000_schedules_set_by_admins.sql): one reminder key, own row.
+    if(name === "set_my_reminder"){
+      if(!["remindClockIn", "remindClockOut"].includes(args.p_key) || typeof args.p_on !== "boolean")
+        return json({ code: "22023", message: "That is not one of your reminders." }, 400);
+      let row = state.user_settings.find(r => r.user_id === state.meId);
+      if(!row){
+        const d = (state.app_settings[0] || {}).default_settings || {};
+        row = { user_id: state.meId, settings: Object.assign({}, d) };
+        state.user_settings.push(row);
+      }
+      row.settings = Object.assign({}, row.settings, { [args.p_key]: args.p_on });
+      return json(null);
+    }
     return json({ message: "unknown rpc " + name }, 404);
   }
 
@@ -332,6 +352,16 @@ function createBackend(seed){
     const wantsObject = (request.headers()["accept"] || "").includes("pgrst.object");
     const prefer = request.headers()["prefer"] || "";
     const method = request.method();
+
+    // user_settings is written by admins only (the same migration). Modelled
+    // here so a suite fails if the app ever tries the write the live
+    // database would refuse, rather than passing against a backend that
+    // let it through.
+    if(name === "user_settings" && (method === "POST" || method === "PATCH")){
+      const me = state.profiles.find(p => p.id === state.meId);
+      if(!me || me.role !== "admin")
+        return json({ code: "42501", message: 'new row violates row-level security policy for table "user_settings"' }, 403);
+    }
 
     if(method === "GET" || method === "HEAD"){
       let out = rows.filter(r => matches(r, params));

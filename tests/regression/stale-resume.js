@@ -153,17 +153,25 @@ async function start(opts){
 
   // ---- It stands down for a form somebody is filling in ----------------------
   {
-    const h = await start({ viewport: DESKTOP, meId: me.id, seed: seed() });
+    // As an admin: schedules are set by admins, so for anyone else this form
+    // is read-only and there is nothing half-edited to protect.
+    const sd = seed();
+    sd.profiles = sd.profiles.map(p => p.id === me.id ? Object.assign({}, p, { role: "admin" }) : p);
+    const h = await start({ viewport: DESKTOP, meId: me.id, seed: sd });
+    // Own-record reads only: an admin's catch-up also reads everyone's day
+    // for the "In today" list, which is not the refresh this is about.
+    const entryReads = h => h.backend.state.log.filter(l => l.method === "GET" &&
+      l.path === "/rest/v1/entries" && l.search.includes("user_id=eq." + me.id)).length;
     await goTab(h.page, "settings");
     await h.page.click("#cnav-hours");
     await settle(h.page, 300);
-    await h.page.fill("#sGrace", "25");
+    await h.page.fill("#sLeaveDays", "25");
     await passMinutes(h.page, 6);
     let reads = entryReads(h);
     await comeBack(h.page);
     ok(entryReads(h) === reads, "Settings open: no background refresh");
-    const typed = await h.page.evaluate(() => document.getElementById("sGrace").value);
-    ok(typed === "25", "so a half-edited schedule is not refilled from the saved one", "sGrace=" + typed);
+    const typed = await h.page.evaluate(() => document.getElementById("sLeaveDays").value);
+    ok(typed === "25", "so a half-edited schedule is not refilled from the saved one", "sLeaveDays=" + typed);
 
     await goTab(h.page, "overview");
     reads = entryReads(h);

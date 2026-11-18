@@ -2,8 +2,7 @@
 //
 // This is the part of the old Helpers block that could not move on its own,
 // because every function here reads `settings` -- which working days count,
-// what the target is, how much grace a late arrival gets, which seasonal
-// period covers a date.
+// what the target is, which seasonal period covers a date.
 //
 // It takes a GETTER rather than a settings object, and that is the whole
 // design. app.js swaps settings out from under this code on purpose: the Team
@@ -107,15 +106,19 @@ export function makeSchedule(getSettings){
     // in at 11:30 could be marked 3h 30m late against office hours it was
     // never held to anywhere else.
     var lateMin = 0, earlyMin = 0;
-    var grace = getSettings().graceMin || 0;
     var countable = scheduled && !noTarget;
 
     // Lateness is judged on the hours: a day that makes them is never late or
     // early, however it started. This was a setting, "late only if short", on
     // by default and on for everyone; it is the rule now, and an old saved
-    // `lateOnlyIfShort: false` is ignored. A day that's still open can't be
-    // judged yet, so it isn't flagged either way — but it must not be counted
-    // as *on time* either. `pending` marks that distinction so the On Time tab
+    // `lateOnlyIfShort: false` is ignored. A short day marks any minute after
+    // Start or before End: there was a grace period, but once a day that
+    // makes its hours is never marked, all it decided was whether a day
+    // already shown as short also showed its late minutes, so it went
+    // (2026-11-18) and an old saved `graceMin` is ignored too.
+    //
+    // A day that's still open can't be judged yet, so it isn't flagged either
+    // way — but it must not be counted as *on time* either. `pending` marks that distinction so the On Time tab
     // can exclude the day rather than silently score it clean and then flip
     // it to late once the user clocks out.
     var metTarget = workedMin !== null && workedMin >= targetMin;
@@ -124,12 +127,12 @@ export function makeSchedule(getSettings){
 
     if(countable && e.clockIn && !forgiven){
       var lm = timeToMinutes(e.clockIn) - timeToMinutes(sched.standardIn);
-      if(lm > grace) lateMin = lm;
+      if(lm > 0) lateMin = lm;
     }
     // A half day is meant to end early, so leaving early isn't a departure flag.
     if(countable && !half && e.clockIn && e.clockOut && !forgiven){
       var em = timeToMinutes(sched.standardOut) - timeToMinutes(e.clockOut);
-      if(em > grace) earlyMin = em;
+      if(em > 0) earlyMin = em;
     }
 
     // An off-day (weekend, or any day outside the configured work days) is

@@ -52,15 +52,15 @@ function normalizeSettings(raw){
   var r = Number(out.remindAfterHours);
   out.remindAfterHours = (isFinite(r) && r > 0 && r <= 24) ? r : DEFAULT_SETTINGS.remindAfterHours;
 
-  var g = Math.round(Number(out.graceMin));
-  out.graceMin = (isFinite(g) && g >= 0 && g <= 240) ? g : DEFAULT_SETTINGS.graceMin;
 
   var lv = Number(out.annualLeaveDays);
   out.annualLeaveDays = (isFinite(lv) && lv >= 0 && lv <= 365) ? lv : DEFAULT_SETTINGS.annualLeaveDays;
 
-  // No longer a setting (late is judged on the hours, always). Dropped so an
-  // old saved value doesn't ride along in every save.
+  // No longer settings: late is judged on the hours, always, and a short day
+  // marks any minute late or early (no grace period). Dropped so old saved
+  // values don't ride along in every save.
   delete out.lateOnlyIfShort;
+  delete out.graceMin;
   // On unless switched off: the clock-in reminder (check-clockout-reminders).
   out.remindClockIn = out.remindClockIn !== false;
   out.remindClockOut = out.remindClockOut !== false;

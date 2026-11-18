@@ -340,7 +340,8 @@ async function run(){
   // schedule and on each Ramadan / shorter-days card, and lateness is judged
   // on them with no switch (an old saved `lateOnlyIfShort` is dropped).
   {
-    const me = D.profile(1);
+    // An admin: schedules are set by admins (see the next block for everyone else).
+    const me = D.profile(1, { role: "admin" });
     const h = await boot({ meId: me.id, seed: {
       profiles: [me], entries: [],
       user_settings: [{ user_id: me.id, settings: Object.assign({}, D.SETTINGS, { lateOnlyIfShort: false }) }]
@@ -348,8 +349,13 @@ async function run(){
     await goTab(h.page, "settings");
     await h.page.click("#cnav-hours");
     await settle(h.page, 300);
-    const noteNow = () => h.page.evaluate(() => document.getElementById("sHoursNote").textContent);
-    ok(await noteNow() === "8h a day", "Start 08:00 to End 16:00 reads as 8h a day", await noteNow());
+    const noteNow = () => h.page.evaluate(() => {
+      const c = document.getElementById("sTargetCard");
+      return c.querySelector("[data-target-value]").textContent + " | " + c.querySelector("[data-target-hint]").textContent +
+        (c.classList.contains("is-invalid") ? " | invalid" : "");
+    });
+    ok(await noteNow() === "8h | From your Start to your End time.",
+      "Start 08:00 to End 16:00 shows a daily target of 8h, and says where it comes from", await noteNow());
     ok(await h.page.evaluate(() => !document.getElementById("sLateOnlyShort")),
       "there is no \"don't mark me late\" switch: making the hours is the rule");
 
@@ -362,13 +368,13 @@ async function run(){
                note: c.querySelector("[data-p-hours]").textContent,
                target: c.querySelectorAll('[data-p="th"], [data-p="tm"]').length };
     });
-    ok(card.in === "08:00" && card.out === "14:00" && card.note === "6h a day" && card.target === 0,
-      "a new shorter-days card is 08:00 to 14:00, says 6h a day, and has no separate target", JSON.stringify(card));
+    ok(card.in === "08:00" && card.out === "14:00" && card.note === "6h" && card.target === 0,
+      "a new shorter-days card is 08:00 to 14:00, states a 6h daily target, and has no separate target field", JSON.stringify(card));
 
     // The note follows the times as they are typed.
     await h.page.fill("#sIn", "07:30");
     await h.page.fill("#sOut", "07:30");
-    ok(await noteNow() === "End has to be after Start.", "End equal to Start is called out", await noteNow());
+    ok(await noteNow() === "— | End has to be after Start. | invalid", "End equal to Start is called out on the target card", await noteNow());
     const writes = () => h.backend.state.log.filter(r => r.path.includes("user_settings") && r.method === "POST").length;
     let before = writes();
     await h.page.evaluate(() => document.getElementById("saveSettingsBtn").click());
@@ -376,7 +382,7 @@ async function run(){
     ok(writes() === before, "and Save refuses it rather than storing a zero-hour day");
 
     await h.page.fill("#sOut", "15:00");
-    ok(await noteNow() === "7h 30m a day", "07:30 to 15:00 reads as 7h 30m a day", await noteNow());
+    ok(await noteNow() === "7h 30m | From your Start to your End time.", "07:30 to 15:00 shows a 7h 30m target", await noteNow());
     before = writes();
     await h.page.evaluate(() => document.getElementById("saveSettingsBtn").click());
     await settle(h.page, 700);
@@ -385,9 +391,105 @@ async function run(){
       "Save stores the day's hours as End minus Start", JSON.stringify({ targetMin: saved.targetMin, in: saved.standardIn, out: saved.standardOut }));
     ok(saved.periods && saved.periods[0] && saved.periods[0].targetMin === 360,
       "and each shorter-days card's hours as its Clock Out minus Clock In", JSON.stringify(saved.periods));
-    ok(!("lateOnlyIfShort" in saved), "the old lateness switch is not written back", JSON.stringify(Object.keys(saved)));
+    ok(!("lateOnlyIfShort" in saved) && !("graceMin" in saved),
+      "neither the old lateness switch nor the old grace period is written back", JSON.stringify(Object.keys(saved)));
+    ok(await h.page.evaluate(() => !document.getElementById("sGrace")), "there is no grace period field");
     ok(await h.page.evaluate(() => !document.querySelector("#settingsConsole .console-commit-group").classList.contains("is-dirty")),
       "after a save the Save bar is no longer marked as holding unsaved changes");
+    await h.close();
+  }
+
+  // ---- Schedules are set by admins; an employee's is read-only -------------
+  // 20261118090000_schedules_set_by_admins: only an admin may write a
+  // user_settings row. The scripted backend refuses anyone else's write the
+  // way the database would, so this also fails if the app ever tries one.
+  // The reminder switches are the employee's own, through set_my_reminder().
+  {
+    const me = D.profile(1);
+    const h = await boot({ meId: me.id, seed: {
+      profiles: [me], entries: [],
+      user_settings: [{ user_id: me.id, settings: Object.assign({}, D.SETTINGS, { annualLeaveDays: 23 }) }]
+    }});
+    await goTab(h.page, "settings");
+    await h.page.click("#cnav-hours");
+    await settle(h.page, 300);
+    const view = await h.page.evaluate(() => {
+      const shown = el => !!(el && el.getClientRects().length);
+      return {
+        disabled: document.getElementById("scheduleForm").disabled,
+        note: shown(document.getElementById("scheduleLockNote")),
+        save: shown(document.getElementById("saveSettingsBtn")),
+        add: shown(document.getElementById("addRamadanBtn")),
+        apply: shown(document.getElementById("sApplyAll")),
+        leave: document.getElementById("sLeaveDays").value,
+        target: document.querySelector("#sTargetCard [data-target-value]").textContent
+      };
+    });
+    ok(view.disabled && view.note && !view.save && !view.add && !view.apply,
+      "an employee's Schedule is read-only: fields locked, a note saying who sets it, no Save, no add buttons",
+      JSON.stringify(view));
+    ok(view.leave === "23" && view.target === "8h", "and it still shows their schedule and daily target", JSON.stringify(view));
+    ok(await h.page.evaluate(() => document.getElementById("firstRunSettingsBtn").textContent) === "Check your working week",
+      "the first-run link offers to check the working week, not to set it");
+
+    const posts = () => h.backend.state.log.filter(r => r.path.includes("/rest/v1/user_settings") && r.method !== "GET" && r.method !== "OPTIONS").length;
+    const before = posts();
+    await h.page.click("#cnav-notifications");
+    await settle(h.page, 200);
+    await h.page.click('label[for="sRemindOut"]');
+    await settle(h.page, 600);
+    const row = (h.backend.state.user_settings.find(r => r.user_id === me.id) || {}).settings || {};
+    ok(row.remindClockOut === false && row.annualLeaveDays === 23 && posts() === before,
+      "an employee's reminder switch saves through set_my_reminder, changing only that switch",
+      JSON.stringify({ remindClockOut: row.remindClockOut, annualLeaveDays: row.annualLeaveDays, writes: posts() - before }));
+    ok(await h.page.evaluate(() => document.getElementById("sRemindOut").checked === false),
+      "and the switch stays where it was put");
+    ok(h.errors.length === 0, "read-only schedule: no script errors", h.errors.join(" | "));
+    await h.close();
+  }
+
+  // ---- An admin edits one person's schedule from People -------------------
+  // New accounts start on the organisation default; an admin changes one
+  // person's from Admin > People > Edit Schedule, which must land on THAT
+  // person's schedule (loaded first, not the previous person's values under
+  // their name) and save to their row alone.
+  {
+    const me = D.profile(1, { role: "admin" });
+    const other = D.profile(2);
+    const h = await boot({ meId: me.id, seed: {
+      profiles: [me, other], entries: [],
+      user_settings: [
+        { user_id: me.id, settings: D.SETTINGS },
+        { user_id: other.id, settings: Object.assign({}, D.SETTINGS, { standardIn: "09:30", standardOut: "15:30", targetMin: 360, annualLeaveDays: 30 }) }
+      ]
+    }});
+    await goTab(h.page, "admin");
+    await h.page.click("#cnav-admin-people");
+    await settle(h.page, 600);
+    await h.page.click(`[data-uid="${other.id}"] .row-menu-btn`);
+    await settle(h.page, 200);
+    await h.page.click('#adminRowMenu [data-edit-schedule]');
+    await settle(h.page, 900);
+    const landed = await h.page.evaluate(() => ({
+      tab: (document.querySelector(".tab-panel.active") || {}).id,
+      section: (document.querySelector("#settingsConsole .console-section.active") || {}).getAttribute?.("data-section"),
+      label: document.getElementById("settingsForLabel").textContent,
+      start: document.getElementById("sIn").value,
+      target: document.querySelector("#sTargetCard [data-target-value]").textContent,
+      locked: document.getElementById("scheduleForm").disabled
+    }));
+    ok(landed.tab === "tab-settings" && landed.section === "hours",
+      "People > Edit Schedule opens Settings on the Schedule", JSON.stringify(landed));
+    ok(/Person 2/.test(landed.label) && landed.start === "09:30" && landed.target === "6h" && !landed.locked,
+      "holding that person's own schedule, editable, and saying whose it is", JSON.stringify(landed));
+    await h.page.fill("#sLeaveDays", "28");
+    await h.page.click("#saveSettingsBtn");
+    await settle(h.page, 700);
+    const rowOf = id => (h.backend.state.user_settings.find(r => r.user_id === id) || {}).settings || {};
+    ok(rowOf(other.id).annualLeaveDays === 28 && rowOf(other.id).standardIn === "09:30" && rowOf(me.id).annualLeaveDays === D.SETTINGS.annualLeaveDays,
+      "Save writes their row and leaves the admin's own alone",
+      JSON.stringify({ theirs: rowOf(other.id).annualLeaveDays, mine: rowOf(me.id).annualLeaveDays }));
+    ok(h.errors.length === 0, "edit schedule from People: no script errors", h.errors.join(" | "));
     await h.close();
   }
 
@@ -416,7 +518,7 @@ async function run(){
     ok(JSON.stringify(await dirty()) === '{"bar":false,"discard":false}', "an untouched Schedule shows no unsaved-changes bar");
 
     // An edit left unsaved in Schedule...
-    await h.page.fill("#sGrace", "45");
+    await h.page.fill("#sLeaveDays", "45");
     await settle(h.page, 100);
     ok(JSON.stringify(await dirty()) === '{"bar":true,"discard":true}',
       "editing a Schedule field marks the Save bar as holding unsaved changes, with Discard");
@@ -428,32 +530,32 @@ async function run(){
     ok(savedBar, "Reminders has no Save button: its switches save themselves");
     await h.page.click('label[for="sRemindIn"]');
     await settle(h.page, 600);
-    ok(mine().remindClockIn === false && mine().graceMin === D.SETTINGS.graceMin,
-      "flipping the clock-in reminder saves that one choice at once, and not the unsaved grace period",
-      JSON.stringify({ remindClockIn: mine().remindClockIn, graceMin: mine().graceMin }));
+    ok(mine().remindClockIn === false && mine().annualLeaveDays === D.SETTINGS.annualLeaveDays,
+      "flipping the clock-in reminder saves that one choice at once, and not the unsaved leave days",
+      JSON.stringify({ remindClockIn: mine().remindClockIn, annualLeaveDays: mine().annualLeaveDays }));
     ok(await h.page.evaluate(() => document.getElementById("sRemindIn").getAttribute("role") === "switch"),
       "and it is announced as a switch");
     await h.page.click("#cnav-hours");
     await settle(h.page, 200);
-    ok(await h.page.evaluate(() => document.getElementById("sGrace").value) === "45",
-      "the unsaved grace period is still in the form afterwards");
+    ok(await h.page.evaluate(() => document.getElementById("sLeaveDays").value) === "45",
+      "the unsaved leave days are still in the form afterwards");
 
     // Discard puts the saved values back.
     await h.page.click("#discardSettingsBtn");
     await settle(h.page, 200);
-    ok(await h.page.evaluate(() => document.getElementById("sGrace").value) === String(D.SETTINGS.graceMin)
+    ok(await h.page.evaluate(() => document.getElementById("sLeaveDays").value) === String(D.SETTINGS.annualLeaveDays)
       && JSON.stringify(await dirty()) === '{"bar":false,"discard":false}',
       "Discard puts the saved schedule back and clears the bar");
 
     // Apply to everyone carries the schedule, not anyone's reminder choices.
-    await h.page.fill("#sGrace", "20");
+    await h.page.fill("#sLeaveDays", "20");
     await h.page.click('label[for="sApplyAll"]');
     await h.page.click("#saveSettingsBtn");
     await settle(h.page, 300);
     await h.page.click(".modal-overlay .modal-confirm");
     await settle(h.page, 900);
-    ok(theirs().graceMin === 20 && mine().graceMin === 20,
-      "Apply to everyone writes the schedule to each person", JSON.stringify({ mine: mine().graceMin, theirs: theirs().graceMin }));
+    ok(theirs().annualLeaveDays === 20 && mine().annualLeaveDays === 20,
+      "Apply to everyone writes the schedule to each person", JSON.stringify({ mine: mine().annualLeaveDays, theirs: theirs().annualLeaveDays }));
     ok(theirs().remindClockIn === false && theirs().remindClockOut === true && mine().remindClockIn === false,
       "and each person keeps their own reminder switches", JSON.stringify({
         theirs: [theirs().remindClockIn, theirs().remindClockOut], mine: mine().remindClockIn }));

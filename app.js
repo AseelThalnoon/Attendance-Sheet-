@@ -2154,9 +2154,13 @@ import { makeSchedule } from "./src/schedule.js";
   // The two reminder switches save the moment they move. They used to wait
   // for Save Settings beside a notifications switch that did not, which is
   // the mix NN/g's toggle guidance warns against: nobody can tell which
-  // switch has taken effect. Only this one field is written, over the
-  // schedule as last SAVED (`settings`), so half-typed Schedule edits are
-  // neither saved by this nor wiped by it.
+  // switch has taken effect. Only this one field is written, so half-typed
+  // Schedule edits are neither saved by this nor wiped by it.
+  //
+  // Your own goes through set_my_reminder(), the one write an employee has
+  // into their settings row now that schedules are set by admins: it changes
+  // exactly this key and nothing else. An admin looking at someone else
+  // writes their row directly, over the schedule as last saved.
   async function saveReminderChoice(box, key, name){
     var on = box.checked;
     function undo(msg){ box.checked = !on; showToast(msg, "error"); }
@@ -2166,9 +2170,15 @@ import { makeSchedule } from "./src/schedule.js";
     var patch = {}; patch[key] = on;
     var updated = normalizeSettings(Object.assign({}, settings, patch));
     var forUser = viewedUserId;
+    var own = isOwnData;
     box.disabled = true;
     try{
-      await sbSaveSettings(forUser, updated);
+      if(own){
+        var res = await supabase.rpc("set_my_reminder", {p_key: key, p_on: on});
+        if(res.error) throw res.error;
+      } else {
+        await sbSaveSettings(forUser, updated);
+      }
       // Still looking at the same person: keep the in-memory copy in step.
       if(viewedUserId === forUser) settings = updated;
       if(teamSettingsCache) teamSettingsCache[forUser] = updated;
@@ -2766,7 +2776,6 @@ import { makeSchedule } from "./src/schedule.js";
     if(remindOut) remindOut.checked = settings.remindClockOut !== false;
     var remindIn = document.getElementById("sRemindIn");
     if(remindIn) remindIn.checked = settings.remindClockIn !== false;
-    document.getElementById("sGrace").value = settings.graceMin;
     document.getElementById("sLeaveDays").value = settings.annualLeaveDays;
     renderPeriodRows(settings.periods);
     // The form now says exactly what is saved.
@@ -2834,6 +2843,17 @@ import { makeSchedule } from "./src/schedule.js";
     if(applyAllRow) applyAllRow.style.display = isAdmin ? "" : "none";
     document.getElementById("sApplyAll").checked = false;
     syncApplyAllScope();
+    // Schedules are set by admins. Anyone else sees theirs read-only: the
+    // form is one fieldset, so this one switch disables every field in it,
+    // the Ramadan cards drawn later included, and the console class hides
+    // the controls that only change things (see .schedule-locked).
+    var locked = !isAdmin;
+    var form = document.getElementById("scheduleForm");
+    if(form) form.disabled = locked;
+    var lockNote = document.getElementById("scheduleLockNote");
+    if(lockNote) lockNote.hidden = !locked;
+    var consoleEl = document.getElementById("settingsConsole");
+    if(consoleEl) consoleEl.classList.toggle("schedule-locked", locked);
     fillSettingsForm();
   }
 
@@ -3144,8 +3164,9 @@ import { makeSchedule } from "./src/schedule.js";
   // one is a date input and the other a time input, not before. Starts/Ends
   // vs Clock In/Clock Out don't share that ambiguity.
   //
-  // No "Daily Target" here either: like the main schedule, a period's hours
-  // are its Clock In to its Clock Out, and the line under them says the sum.
+  // No "Daily Target" field here either: like the main schedule, a period's
+  // hours are its Clock In to its Clock Out, and the target strip under them
+  // states the result (paintTarget).
   function periodRowHtml(p){
     return '<div class="season-card" data-period>' +
       '<div class="season-card-head">' +
@@ -3159,7 +3180,11 @@ import { makeSchedule } from "./src/schedule.js";
         '<div><label>Clock In</label><input type="time" data-p="in" value="'+escapeAttr(p.standardIn)+'"></div>' +
         '<div><label>Clock Out</label><input type="time" data-p="out" value="'+escapeAttr(p.standardOut)+'"></div>' +
       '</div>' +
-      '<p class="settings-hint" data-p-hours>'+escapeHtml(hoursNoteText(p.standardIn, p.standardOut))+'</p>' +
+      '<div class="target-card compact" data-target>' +
+        '<span class="target-card-text"><span class="target-card-label">Daily target</span>' +
+        '<span class="target-card-hint" data-target-hint></span></span>' +
+        '<strong class="target-card-value" data-target-value data-p-hours></strong>' +
+      '</div>' +
     '</div>';
   }
 
@@ -3172,18 +3197,41 @@ import { makeSchedule } from "./src/schedule.js";
     var d = timeToMinutes(endStr) - timeToMinutes(startStr);
     return d < 0 ? d + 24*60 : d;
   }
-  function hoursNoteText(startStr, endStr){
+  // Fills a target card ([data-target]): the hours in large type, or, when
+  // End doesn't come after Start, a dash and the reason in its hint. The
+  // hint's usual words are kept on first use so they come back once the
+  // times are right again.
+  function paintTarget(card, startStr, endStr){
+    if(!card) return;
     var m = spanMin(startStr, endStr);
-    return m > 0 ? minutesToHoursStr(m) + " a day" : "End has to be after Start.";
+    var value = card.querySelector("[data-target-value]");
+    var hint = card.querySelector("[data-target-hint]");
+    if(hint && !hint.hasAttribute("data-usual")) hint.setAttribute("data-usual", hint.textContent);
+    card.classList.toggle("is-invalid", m <= 0);
+    if(value) value.textContent = m > 0 ? minutesToHoursStr(m) : "—";
+    if(hint) hint.textContent = m > 0 ? hint.getAttribute("data-usual") : "End has to be after Start.";
   }
   function syncHoursNote(){
-    var note = document.getElementById("sHoursNote");
-    if(note) note.textContent = hoursNoteText(document.getElementById("sIn").value,
-                                              document.getElementById("sOut").value);
+    paintTarget(document.getElementById("sTargetCard"),
+                document.getElementById("sIn").value, document.getElementById("sOut").value);
+  }
+  // Admin > Organisation Defaults states its daily target the same way.
+  function paintDefaultsTarget(){
+    paintTarget(document.getElementById("dTargetCard"),
+                document.getElementById("dIn").value, document.getElementById("dOut").value);
+  }
+  function paintPeriodTargets(wrap){
+    if(!wrap) return;
+    wrap.querySelectorAll("[data-period]").forEach(function(card){
+      paintTarget(card.querySelector("[data-target]"),
+                  card.querySelector('[data-p="in"]').value, card.querySelector('[data-p="out"]').value);
+    });
   }
   ["input", "change"].forEach(function(type){
     onId("sIn", type, syncHoursNote);
     onId("sOut", type, syncHoursNote);
+    onId("dIn", type, paintDefaultsTarget);
+    onId("dOut", type, paintDefaultsTarget);
   });
 
   // Schedule is the one form in Settings that waits for Save. Once anything
@@ -3207,15 +3255,11 @@ import { makeSchedule } from "./src/schedule.js";
     fillSettingsForm();
     showToast("Changes discarded.", "info");
   });
-  // The same line on each seasonal card, for both editors (yours and the
+  // The same target on each seasonal card, for both editors (yours and the
   // organisation defaults).
   ["periodsList", "defaultsPeriodsList"].forEach(function(id){
-    onId(id, "input", function(ev){
-      var card = ev.target.closest("[data-period]");
-      var note = card && card.querySelector("[data-p-hours]");
-      if(!note) return;
-      note.textContent = hoursNoteText(card.querySelector('[data-p="in"]').value,
-                                       card.querySelector('[data-p="out"]').value);
+    ["input", "change"].forEach(function(type){
+      onId(id, type, function(){ paintPeriodTargets(document.getElementById(id)); });
     });
   });
 
@@ -3226,6 +3270,7 @@ import { makeSchedule } from "./src/schedule.js";
       return;
     }
     wrap.innerHTML = list.map(periodRowHtml).join("");
+    paintPeriodTargets(wrap);
   }
 
   function readPeriodRows(containerId){
@@ -3364,7 +3409,7 @@ import { makeSchedule } from "./src/schedule.js";
       return !current.some(function(p){ return p.start === r.start; });
     });
     if(!next){
-      showToast("Ramadan is already set up for the years available. Use \"+ Add Period\" to add another range manually.", "info");
+      showToast("Ramadan is already set up for the years available. Use \"+ Other Dates\" to add another range.", "info");
       return;
     }
     var base = currentDefaultsSchedule();
@@ -3445,11 +3490,11 @@ import { makeSchedule } from "./src/schedule.js";
     if(ev.target.closest(".first-run-add")) openNewEntryForm();
   });
   onId("saveSettingsBtn", "click", async function(){
-    // You may always edit your own schedule; editing someone else's requires
-    // admin. The database enforces the same rule, so this is a courtesy check
-    // that produces a clear message rather than a raw RLS rejection.
-    if(!isAdmin && !isOwnData){
-      showToast("You can only change your own schedule settings.", "error");
+    // Schedules are set by admins (20261118090000_schedules_set_by_admins).
+    // The database refuses anyone else's write; this says so in words, and
+    // for them the form is read-only and this button hidden anyway.
+    if(!isAdmin){
+      showToast("Only an admin can change a schedule.", "error");
       return;
     }
     var days = [];
@@ -3472,9 +3517,6 @@ import { makeSchedule } from "./src/schedule.js";
       markFieldInvalid("sOut");
       return;
     }
-
-    var grace = parseInt(document.getElementById("sGrace").value, 10);
-    if(isNaN(grace) || grace < 0 || grace > 240) grace = DEFAULT_SETTINGS.graceMin;
 
     var leaveDays = parseFloat(document.getElementById("sLeaveDays").value);
     if(isNaN(leaveDays) || leaveDays < 0 || leaveDays > 365){
@@ -3511,7 +3553,6 @@ import { makeSchedule } from "./src/schedule.js";
       targetMin: targetMin,
       standardIn: standardIn,
       standardOut: standardOut,
-      graceMin: grace,
       annualLeaveDays: leaveDays,
       periods: rawPeriods
     });
@@ -4257,6 +4298,10 @@ import { makeSchedule } from "./src/schedule.js";
     if(sub) sub.textContent = open
       ? "Clocked in at " + formatTime12(open.clockIn) + ". Clock out when you finish, and your hours, punctuality and leave start from there."
       : "Clock in when you start and out when you finish. Hours, punctuality and leave all build themselves from there.";
+    // An admin sets schedules, so only an admin is offered to set one; anyone
+    // else is offered to look at the one they were given.
+    var weekLink = document.getElementById("firstRunSettingsBtn");
+    if(weekLink) weekLink.textContent = isAdmin ? "Set your working week first" : "Check your working week";
     [["tab-overview", "overviewFirstRun"],
      ["tab-trends", "trendsFirstRun"],
      ["tab-punctuality", "punctFirstRun"]].forEach(function(pair){
@@ -4848,7 +4893,8 @@ import { makeSchedule } from "./src/schedule.js";
 
     rows.forEach(function(e){
       var c = computeEntry(e);
-      // Flag arrivals and departures that fall outside the grace period.
+      // Flag a late arrival or early departure on a day short of its hours
+      // (computeEntry marks nothing on a day that made them).
       var inCell = e.clockIn
         ? (c.lateMin > 0
             ? "<span class='late-cell' title='"+minutesToHoursStr(c.lateMin)+" late'>"+formatTime12(e.clockIn)+"</span>"
@@ -7075,15 +7121,19 @@ import { makeSchedule } from "./src/schedule.js";
     playPunchFlood(p);
   }
 
-  // The two switches in Settings > Appearance.
+  // The two switches in Settings > Sound & Haptics.
   function refreshPunchFeedbackPanel(){
     var sound = document.getElementById("punchSoundSwitch");
     if(sound) sound.checked = !!punchFeedback.sound;
     var haptics = document.getElementById("punchHapticsSwitch");
     if(haptics) haptics.checked = !!punchFeedback.haptics;
     // No switch for something this device cannot do.
+    var canBuzz = punchHapticsAvailable();
     var hapticsGroup = document.getElementById("punchHapticsGroup");
-    if(hapticsGroup) hapticsGroup.hidden = !punchHapticsAvailable();
+    if(hapticsGroup) hapticsGroup.hidden = !canBuzz;
+    // The nav row says what the section holds without opening it.
+    setNavDesc("cnavDescFeedback", "Sound " + (punchFeedback.sound ? "on" : "off") +
+      (canBuzz ? " · vibration " + (punchFeedback.haptics ? "on" : "off") : ""));
   }
   function setPunchFeedback(key, on){
     punchFeedback[key] = !!on;
@@ -9986,8 +10036,9 @@ import { makeSchedule } from "./src/schedule.js";
     // Every clock control's enabled state, label and icon come from one place
     // now, and viewing someone else is one of the states it knows about.
     renderClockControls();
-    // Everyone can reach their own schedule; an admin can additionally edit
-    // anyone else's. Hiding the entry point entirely from employees meant a new
+    // Everyone can reach their own schedule (to read it: only an admin edits
+    // one, see refreshSettingsPanel). Hiding the entry point entirely from
+    // employees meant a new
     // user silently inherited the Sun–Thu 08:00–16:00 defaults with no way to
     // change them and nothing in the UI even hinting the setting existed — so in
     // a Mon–Fri organisation every figure they saw was wrong, permanently.
@@ -10020,8 +10071,8 @@ import { makeSchedule } from "./src/schedule.js";
     sel.value = allProfiles.some(function(p){ return p.id === prev; }) ? prev : currentUser.id;
   }
 
-  onId("viewerSelect", "change", async function(){
-    var newId = this.value;
+  // Named so Admin > People > Edit Schedule can wait for it to finish.
+  async function switchViewer(newId){
     if(newId === viewedUserId) return;
     viewedUserId = newId;
     viewedProfile = allProfiles.find(function(p){ return p.id === newId; }) || null;
@@ -10031,7 +10082,8 @@ import { makeSchedule } from "./src/schedule.js";
     // (see refreshSettingsPanel) — including its "editing X's schedule"
     // label and admin-only row, in case it's the tab already on screen.
     await loadDataForViewedUser();
-  });
+  }
+  onId("viewerSelect", "change", function(){ return switchViewer(this.value); });
 
   // ---------- Roles: grant/revoke admin rights ----------
   // Named rather than inline because it is bound twice: once on the People
@@ -11754,6 +11806,9 @@ import { makeSchedule } from "./src/schedule.js";
     menu.innerHTML =
       '<p class="row-menu-name" dir="auto">'+escapeHtml(name)+'</p>'+
       '<button type="button" role="menuitem" class="row-menu-item" data-view-user="'+escapeAttr(u.id)+'">Open Record</button>'+
+      // Schedules are set by admins, one person at a time when someone's
+      // differs from the organisation default: this goes straight there.
+      '<button type="button" role="menuitem" class="row-menu-item" data-edit-schedule="'+escapeAttr(u.id)+'">Edit Schedule</button>'+
       '<button type="button" role="menuitem" class="row-menu-item" data-reset="'+escapeAttr(u.id)+'">Reset Password</button>'+
       '<button type="button" role="menuitem" class="row-menu-item" data-role="'+(u.role === "admin" ? "user" : "admin")+'">'+
         (u.role === "admin" ? "Remove Admin Rights" : "Make Admin")+'</button>'+
@@ -11812,10 +11867,26 @@ import { makeSchedule } from "./src/schedule.js";
     var toggleId = btn.getAttribute("data-toggle-active");
     var deleteId = btn.getAttribute("data-delete-user");
     var viewId = btn.getAttribute("data-view-user");
+    var scheduleId = btn.getAttribute("data-edit-schedule");
     var user = adminUsersCache.find(function(u){
-      return u.id === (resetId || toggleId || deleteId || viewId);
+      return u.id === (resetId || toggleId || deleteId || viewId || scheduleId);
     });
     if(!user) return;
+
+    // Straight to this person's Schedule. Awaited, unlike Open Record: the
+    // form must be holding THEIR schedule before it is on screen, or an admin
+    // quick enough could start editing the previous person's values under
+    // this person's name.
+    if(scheduleId){
+      var vs = document.getElementById("viewerSelect");
+      if(vs) vs.value = scheduleId;
+      await switchViewer(scheduleId);
+      document.querySelector('.tab-btn[data-tab="settings"]').click();
+      var hoursNav = document.getElementById("cnav-hours");
+      if(hoursNav) hoursNav.click();
+      document.getElementById("appShell").scrollIntoView({behavior:"smooth", block:"start"});
+      return;
+    }
 
     // Jump straight into someone's own view rather than making the admin hunt
     // for them in the header switcher. The viewing-other banner then explains
@@ -11991,8 +12062,9 @@ import { makeSchedule } from "./src/schedule.js";
   // every field reads as new-in-place-of-nothing rather than a real diff.
   function scheduleDiff(oldV, newV){
     var isNew = !oldV;
-    oldV = normalizeSettings(oldV || {});
-    newV = normalizeSettings(newV || {});
+    var rawOld = oldV || {}, rawNew = newV || {};
+    oldV = normalizeSettings(rawOld);
+    newV = normalizeSettings(rawNew);
     var bits = [];
     if(isNew || oldV.workDays.join(",") !== newV.workDays.join(",")){
       bits.push(isNew ? "Work days: " + workDaysLabel(newV.workDays)
@@ -12002,15 +12074,37 @@ import { makeSchedule } from "./src/schedule.js";
       ["Start", "standardIn", formatTime12],
       ["End", "standardOut", formatTime12],
       ["Target", "targetMin", minutesToHoursStr],
-      ["Grace", "graceMin", function(v){ return v + "m"; }],
-      ["Remind after", "remindAfterHours", function(v){ return v + "h"; }],
       ["Annual leave", "annualLeaveDays", function(v){ return v + "d"; }]
-      // "Late only if short" is not listed: it stopped being a setting, and
-      // normalizeSettings() drops it from old and new alike.
     ].forEach(function(f){
       var d = isNew ? f[0] + ": " + f[2](newV[f[1]]) : fieldDiff(f[0], oldV[f[1]], newV[f[1]], f[2]);
       if(d) bits.push(d);
     });
+    var onOff = function(v){ return v ? "on" : "off"; };
+    // Changes only: on a first save, "Clock-in reminder: on" is the default
+    // talking, not anything anyone chose.
+    if(!isNew){
+      [["Clock-in reminder", "remindClockIn"], ["Clock-out reminder", "remindClockOut"]].forEach(function(f){
+        var d = fieldDiff(f[0], onOff(oldV[f[1]] !== false), onOff(newV[f[1]] !== false));
+        if(d) bits.push(d);
+      });
+    }
+    // Settings that no longer exist, read from the row as it was stored, so a
+    // change made back when they did still reads in the log. Never on a first
+    // save, and only where both sides held a value: a first save used to
+    // print "Remind after: 9h" for a setting nothing had read since the
+    // reminders became one rule, and a save that simply drops an old key is
+    // not a change to it.
+    if(!isNew){
+      [
+        ["Grace", "graceMin", function(v){ return v + "m"; }],
+        ["Remind after", "remindAfterHours", function(v){ return v + "h"; }],
+        ["Late only if short", "lateOnlyIfShort", onOff]
+      ].forEach(function(f){
+        if(rawOld[f[1]] == null || rawNew[f[1]] == null) return;
+        var d = fieldDiff(f[0], rawOld[f[1]], rawNew[f[1]], f[2]);
+        if(d) bits.push(d);
+      });
+    }
     if(JSON.stringify(oldV.periods || []) !== JSON.stringify(newV.periods || [])){
       bits.push("Seasonal hours " + (isNew ? "set" : "updated"));
     }
@@ -12450,8 +12544,11 @@ import { makeSchedule } from "./src/schedule.js";
 
   function buildDefaultsDayPicker(){
     var wrap = document.getElementById("defaultsDayPicker");
+    // The same row as Settings > Schedule's: "Sun" on screen, the full name
+    // for screen readers and as the tooltip.
     wrap.innerHTML = DAY_NAMES.map(function(name, i){
-      return '<input type="checkbox" id="dwd'+i+'" value="'+i+'"><label for="dwd'+i+'">'+DAY_FULL[i]+'</label>';
+      return '<input type="checkbox" id="dwd'+i+'" value="'+i+'"><label for="dwd'+i+'" title="'+DAY_FULL[i]+'">' +
+        '<span aria-hidden="true">'+name+'</span><span class="visually-hidden">'+DAY_FULL[i]+'</span></label>';
     }).join("");
   }
 
@@ -12465,7 +12562,7 @@ import { makeSchedule } from "./src/schedule.js";
     });
     document.getElementById("dIn").value = d.standardIn;
     document.getElementById("dOut").value = d.standardOut;
-    document.getElementById("dGrace").value = d.graceMin;
+    paintDefaultsTarget();
     document.getElementById("dLeaveDays").value = d.annualLeaveDays;
     renderPeriodRows(d.periods, "defaultsPeriodsList");
 
@@ -12506,7 +12603,6 @@ import { makeSchedule } from "./src/schedule.js";
       targetMin: spanMin(sin, sout),
       standardIn: sin,
       standardOut: sout,
-      graceMin: document.getElementById("dGrace").value,
       annualLeaveDays: document.getElementById("dLeaveDays").value,
       periods: rawPeriods
     });

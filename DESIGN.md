@@ -1099,19 +1099,22 @@ Danger-solid uses its own fixed
 segmented controls and header actions.
 
 ### The Settings console
-Five sections, one list, no group headings: **Profile**, **Schedule**,
-**Reminders**, **Appearance**, **Backup & Data**.
+Six sections, one list, no group headings: **Profile**, **Schedule**,
+**Reminders**, **Appearance**, **Sound & Haptics**, **Backup & Data**.
 
 **Simple first** (2026-11-17: the owner called the tab "a mess" of long
 labels, then, after a first trim, "still looks complicated"). It had eight
 sections in three groups, a heading repeating the page title, and a paragraph
 under most fields. Now:
 
-- **Five places, named the way people ask.** Profile holds name, photo, Face
+- **Six places, named the way people ask.** Profile holds name, photo, Face
   ID / fingerprint sign-in and Sign Out. Schedule holds everything a day is
-  measured against: the week, the start and end time, leave, the grace period
-  and Ramadan / shorter days. Reminders holds the notification switch for this
-  device and the two reminder switches. Section ids `hours` and `notifications`
+  measured against: the week, the start and end time (and so the daily
+  target), leave days and Ramadan / shorter days. Reminders holds the notification switch for this
+  device and the two reminder switches. Appearance is how the app looks (mode
+  and palette); Sound & Haptics (`feedback`, 2026-11-18, owner's request) is
+  how clocking in and out sounds and feels, the Sound and Vibration switches,
+  with their state on its nav row. Section ids `hours` and `notifications`
   are unchanged, so links into them hold; `punctuality`, `seasonal` and
   `passkeys` no longer exist as sections.
 - **Short words.** A field label is a few words ("Start", "Leave days a
@@ -1140,6 +1143,24 @@ under most fields. Now:
   with room for the raised clock button) and says "Unsaved changes" beside
   Discard and Save. `fillSettingsForm()` clears it, so a save, a discard or
   a fresh load all leave it clean.
+- **Schedules are set by admins** (2026-11-18, owner's decision). Anyone
+  else sees their Schedule read-only: the form is one `fieldset#scheduleForm`
+  set `disabled`, so every field in it, the Ramadan cards included, locks at
+  once; `#settingsConsole.schedule-locked` hides the controls that only
+  change things (add, remove, the warning about saving, the Save bar), and a
+  line under the heading says who sets it. Values keep full ink on a quiet
+  wash rather than the browser's greyed text, so read-only still reads. The
+  database is the rule (`20261118090000_schedules_set_by_admins.sql`: only an
+  admin writes `user_settings`); the reminder switches, the one part of that
+  row that is a person's own, go through `set_my_reminder()`, which changes
+  one reminder key on the caller's own row and nothing else. The first-run
+  link reads "Check your working week" for anyone who can't set it. New
+  accounts start on Admin › Organisation Defaults (`handle_new_user()`
+  copies it), and an admin changes one person's from Admin › People › **Edit
+  Schedule**, which waits for that person's schedule to load
+  (`switchViewer`) before showing the form, so their name never sits over
+  the previous person's values. Nobody's existing schedule was changed by
+  any of this: the migration changes who may write, not what is written.
 - **Apply to everyone carries the schedule, not people's choices.** It is a
   row at the end of the Schedule form (admins only), so the Save bar stays
   small enough to ride along. Applying reads everyone's current settings
@@ -1167,15 +1188,37 @@ under most fields. Now:
     clock-in with no break taken off, so a separate "hours a day" field
     could only disagree with the two times beside it. It is gone from the
     Schedule, from each Ramadan / shorter-days card and from Admin ›
-    Organisation Defaults; a line under the times says what they add up to
-    ("8h a day"), and Save stores `targetMin` as End minus Start (an End
-    earlier than Start runs past midnight; equal is refused).
+    Organisation Defaults, and Save stores `targetMin` as End minus Start
+    (an End earlier than Start runs past midnight; equal is refused).
+  - **The target is stated where you can't miss it** (owner: "make sure they
+    are clear and noticeable for the users, so they can know this is their
+    target"). Under Start and End, a `.target-card` in the accent of the
+    selected Settings row: a target icon, "Your daily target", "From your
+    Start to your End time." and the hours in large type. Each Ramadan /
+    shorter-days card has a one-line `.target-card.compact` ("Daily target
+    6h"). Bad times turn the card to the negative colour, with the reason in
+    place of the hint (`paintTarget`).
   - **Late is judged on the hours, always.** A day that makes its hours is
-    never late or early, however it started; a short day is, outside the
-    grace period. This was a switch ("Don't mark me late if I make up the
-    hours"), on by default and on for every account when it was removed; a
-    saved `lateOnlyIfShort` is ignored and dropped on the next save. One
-    line under the grace field says the rule.
+    never late or early, however it started; a short day marks any minute
+    after Start or before End. This was a switch ("Don't mark me late if I
+    make up the hours"), on by default and on for every account when it was
+    removed. There was also a grace period: once a day that makes its hours
+    is never marked, all it decided was whether a day already shown as short
+    also showed its late minutes (red in the Log, a number in the CSV), so
+    it went too (owner's choice, 2026-11-18). Saved `lateOnlyIfShort` and
+    `graceMin` are ignored and dropped on the next save. One line under the
+    target card says the rule.
+  - **Organisation Defaults reads like Schedule**: Workdays as the same one
+    row, Start and End with the daily-target card, leave days, then Ramadan
+    & shorter days with "+ Ramadan" / "+ Other Dates". Its one-field
+    "Lateness" and "Leave" headings went with the grace period.
+  - **Backup & Data says what each button is for**: "Download for Excel",
+    "Download full backup", "Import from Excel", "Restore a backup", "Get
+    the template". The file formats appear once, in the hint about importing.
+  - **The activity log's schedule line** lists Start, End, Target and leave,
+    and reminder switches as on → off. Settings that no longer exist (grace,
+    remind-after, late-only-if-short) still read for a change made while
+    they did, never on a first save (`scheduleDiff`).
   - **Profile**: the photo's buttons sit beside it. The "Your profile" label
     that sat there under a heading saying Profile is gone (it still names
     the person when an admin views someone else).
