@@ -2196,7 +2196,7 @@ import { makeSchedule } from "./src/schedule.js";
   // Supabase Auth's own passkeys (WebAuthn, opted into at createClient): sign
   // in with Face ID, Touch ID, a fingerprint or the device PIN instead of a
   // password. The password keeps working; a passkey is an extra way in, added
-  // from Settings -> Passkeys once signed in. Sign-in needs no email first:
+  // from Settings -> Sign-in & Security once signed in. Sign-in needs no email first:
   // the device finds the account from the passkey it holds.
   var passkeysFor = null;       // user id the list below was loaded for
   var passkeyRows = null;       // the signed-in person's passkeys, once loaded
@@ -2226,7 +2226,7 @@ import { makeSchedule } from "./src/schedule.js";
   // device's sensor. Run once at start-up; the markup holds the generic text.
   function nameBiometricSettings(){
     var bio = biometricKind();
-    // A group inside Profile now, not a section of its own.
+    // A group inside Settings > Sign-in & Security.
     var head = document.getElementById("passkeyTitle");
     if(head) head.textContent = bio.setting;
     var intro = document.getElementById("passkeyIntro");
@@ -2259,7 +2259,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(code === "passkey_disabled") return bio.signin + " isn't switched on for this app yet.";
     if(code === "webauthn_credential_not_found")
       return "That " + bio.signin + " was removed from your account. Sign in with your password, " +
-        "then set it up again under Settings \u2192 " + bio.setting + ".";
+        "then set it up again under Settings \u2192 Sign-in & Security.";
     if(code === "webauthn_challenge_expired" || code === "webauthn_challenge_not_found")
       return "That took too long. Please try again.";
     if(code === "webauthn_credential_exists" || code === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED")
@@ -2309,6 +2309,11 @@ import { makeSchedule } from "./src/schedule.js";
 
     var rows = passkeyRows || [];
     wrap.hidden = !rows.length;
+    // The Sign-in & Security row says whether it is set up, in this
+    // device's own word for it (never "passkey" on an iPhone).
+    setNavDesc("cnavDescSecurity", blocked || passkeyLoadError
+      ? "Password"
+      : "Password \u00b7 " + bio.setting + (rows.length ? " on" : " off"));
     list.innerHTML = rows.map(function(r){
       var used = r.last_used_at ? "Last used " + fmtRelative(r.last_used_at) : "Not used yet";
       return '<div class="push-device">' +
@@ -2355,8 +2360,141 @@ import { makeSchedule } from "./src/schedule.js";
     }
   });
 
+  // ---------- Settings > Sign-in & Security ----------
+  // How you get into your account, in one place: the address you sign in
+  // with, your password, Face ID / fingerprint sign-in (above), and signing
+  // out the other devices. All of it belongs to the signed-in person; an
+  // admin looking at someone else is told who can change it and how to send
+  // them a reset link instead.
+  function refreshSecurityPanel(){
+    var own = isOwnData;
+    var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "This person";
+    var email = own ? (currentUser && currentUser.email) : (viewedProfile && viewedProfile.email);
+    var label = document.getElementById("securityEmailLabel");
+    if(label) label.textContent = own ? "You sign in as" : who + " signs in as";
+    var emailEl = document.getElementById("securityEmail");
+    if(emailEl) emailEl.textContent = email || "—";
+    var mine = document.getElementById("securityOwn");
+    if(mine) mine.hidden = !own;
+    var others = document.getElementById("securityOthers");
+    if(others){
+      others.hidden = own;
+      others.textContent = own ? "" : "Only " + who + " can change their password. To send them a reset link, use Admin › People › Reset Password.";
+    }
+    var sessions = document.getElementById("securitySessions");
+    if(sessions) sessions.hidden = !own;
+    var user = document.getElementById("changePasswordUser");
+    if(user) user.value = (currentUser && currentUser.email) || "";
+    if(!own) closeChangePassword();
+  }
+
+  function openChangePassword(){
+    var form = document.getElementById("changePasswordForm");
+    var open = document.getElementById("changePasswordOpenBtn");
+    if(!form) return;
+    form.hidden = false;
+    if(open){ open.hidden = true; open.setAttribute("aria-expanded", "true"); }
+    document.getElementById("currentPassword").focus();
+  }
+  function closeChangePassword(){
+    var form = document.getElementById("changePasswordForm");
+    var open = document.getElementById("changePasswordOpenBtn");
+    if(!form) return;
+    form.reset();
+    document.getElementById("changePasswordUser").value = (currentUser && currentUser.email) || "";
+    setAuthMsg("changePasswordError", "");
+    form.hidden = true;
+    if(open){ open.hidden = false; open.setAttribute("aria-expanded", "false"); }
+  }
+  onId("changePasswordOpenBtn", "click", openChangePassword);
+  onId("changePasswordCancelBtn", "click", closeChangePassword);
+
+  // A change needs the current password (OWASP ASVS 2.1.6), checked here by
+  // signing in with it: that works whatever the project's settings are, and
+  // leaves a freshly signed-in session, which is what Supabase's "secure
+  // password change" asks for. A SIGNED_IN for the person already signed in
+  // is ignored by the auth handler, so nothing reloads. current_password also
+  // rides along to updateUser, so a project that checks it server-side does.
+  onId("changePasswordForm", "submit", async function(ev){
+    ev.preventDefault();
+    setAuthMsg("changePasswordError", "");
+    if(!currentUser || !isOwnData) return;
+    var current = document.getElementById("currentPassword").value;
+    var pw = document.getElementById("changeNewPassword").value;
+    var pw2 = document.getElementById("changeNewPassword2").value;
+    if(!current){ setAuthMsg("changePasswordError", "Enter your current password."); return; }
+    if(pw.length < 10){ setAuthMsg("changePasswordError", "Your new password needs at least 10 characters."); return; }
+    if(pw !== pw2){ setAuthMsg("changePasswordError", "The two new passwords don't match."); return; }
+    if(pw === current){ setAuthMsg("changePasswordError", "That's the password you have now. Choose a new one."); return; }
+
+    var btn = document.getElementById("changePasswordBtn");
+    btn.disabled = true; btn.textContent = "Updating…";
+    try{
+      var check = await supabase.auth.signInWithPassword({email: currentUser.email, password: current});
+      if(check.error){
+        var code = check.error.code || "";
+        if(code === "invalid_credentials" || /invalid login credentials/i.test(check.error.message || "")){
+          setAuthMsg("changePasswordError", "That isn't your current password.");
+          return;
+        }
+        throw check.error;
+      }
+      var res = await supabase.auth.updateUser({password: pw, current_password: current});
+      if(res.error) throw res.error;
+      closeChangePassword();
+      showToast("Password changed. Use the new one next time you sign in.", "success");
+    }catch(err){
+      var c = (err && err.code) || "";
+      setAuthMsg("changePasswordError", c === "same_password"
+        ? "That's the password you have now. Choose a new one."
+        : c === "weak_password"
+          ? "That password is too easy to guess. Try a longer one, or add numbers and symbols."
+          : "Couldn't change your password: " + friendlyError(err));
+    }finally{
+      btn.disabled = false; btn.textContent = "Update Password";
+    }
+  });
+
+  // Forgot the current one: the same emailed link as the sign-in screen's
+  // "Forgot password?", to the address this account signs in with.
+  onId("securityResetLinkBtn", "click", async function(){
+    if(!currentUser || !currentUser.email) return;
+    var btn = this;
+    btn.disabled = true;
+    try{
+      var res = await supabase.auth.resetPasswordForEmail(currentUser.email, {redirectTo: resetRedirectTarget()});
+      if(res.error) throw res.error;
+      showToast("A reset link is on its way to " + currentUser.email + ".", "success");
+    }catch(err){
+      showToast("Couldn't send the reset link: " + friendlyError(err), "error");
+    }finally{
+      // A short pause before another can be asked for: two taps should not
+      // be two emails.
+      setTimeout(function(){ btn.disabled = false; }, 5000);
+    }
+  });
+
+  // Every session but this one. supabase-js keeps the local session for
+  // scope "others", so nothing here signs out.
+  onId("signOutOthersBtn", "click", async function(){
+    if(!currentUser || !isOwnData) return;
+    if(!(await showConfirm("Every other phone, tablet or computer signed in to your account will be signed out. " +
+        "This one stays signed in.", {title:"Sign out other devices?", confirmText:"Sign Out Others"}))) return;
+    var btn = this;
+    btn.disabled = true;
+    try{
+      var res = await supabase.auth.signOut({scope:"others"});
+      if(res && res.error) throw res.error;
+      showToast("Signed out everywhere else.", "success");
+    }catch(err){
+      showToast("Couldn't sign out the other devices: " + friendlyError(err), "error");
+    }finally{
+      btn.disabled = false;
+    }
+  });
+
   // ---------- Offering Face ID after a password sign-in ----------
-  // Settings -> Passkeys is where a passkey is added, but almost nobody goes
+  // Settings -> Sign-in & Security is where a passkey is added, but almost nobody goes
   // looking. So the moment someone has just typed their password is when the
   // app offers it, once per person per device: "Sign in faster with Face
   // ID?". Only where it can work and is new: the device has a built-in
@@ -2780,6 +2918,7 @@ import { makeSchedule } from "./src/schedule.js";
     renderPeriodRows(settings.periods);
     // The form now says exactly what is saved.
     setScheduleDirty(false);
+    paintScheduleSource();
 
     setNavDesc("cnavDescHours",
       settings.workDays.length + " days · " + minutesToHoursStr(settings.targetMin) + " · from " + settings.standardIn);
@@ -2808,6 +2947,8 @@ import { makeSchedule } from "./src/schedule.js";
   function refreshSettingsPanel(){
     refreshPushToggle().catch(function(){});
     loadPasskeys().catch(function(){});
+    loadTeamSchedule().catch(function(){});
+    refreshSecurityPanel();
     var who = viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "this user";
     // The line above the form says what the form is. When the schedule never
     // loaded, what the form is holding is DEFAULT_SETTINGS — so it says that,
@@ -2839,10 +2980,6 @@ import { makeSchedule } from "./src/schedule.js";
         nameInput.value = (currentProfile && currentProfile.full_name) || "";
       }
     }
-    var applyAllRow = document.getElementById("sApplyAll").closest(".check-row");
-    if(applyAllRow) applyAllRow.style.display = isAdmin ? "" : "none";
-    document.getElementById("sApplyAll").checked = false;
-    syncApplyAllScope();
     // Schedules are set by admins. Anyone else sees theirs read-only: the
     // form is one fieldset, so this one switch disables every field in it,
     // the Ramadan cards drawn later included, and the console class hides
@@ -2855,21 +2992,6 @@ import { makeSchedule } from "./src/schedule.js";
     var consoleEl = document.getElementById("settingsConsole");
     if(consoleEl) consoleEl.classList.toggle("schedule-locked", locked);
     fillSettingsForm();
-  }
-
-  // Scope belongs on the button that carries it out, not only on a checkbox
-  // above it. "Save Settings" reads the same whether it is about to write one
-  // row or thirty, so the button says which — and the confirm that follows is
-  // then a second reading of something already stated, rather than the first.
-  function syncApplyAllScope(){
-    var box = document.getElementById("sApplyAll");
-    var btn = document.getElementById("saveSettingsBtn");
-    if(!box || !btn || btn.disabled) return;
-    var n = allProfiles.length;
-    btn.textContent = (box.checked && n)
-      ? "Apply to " + n + " " + (n === 1 ? "person" : "people")
-      : "Save Settings";
-    btn.classList.toggle("danger", box.checked && !!n);
   }
 
   // Collapsible sections. The open/closed state was conveyed by a rotated
@@ -3215,7 +3337,82 @@ import { makeSchedule } from "./src/schedule.js";
     paintTarget(document.getElementById("sTargetCard"),
                 document.getElementById("sIn").value, document.getElementById("sOut").value);
   }
-  // Admin > Organisation Defaults states its daily target the same way.
+  // ---------- On the Team Schedule, or their own ----------
+  // A schedule is the week, the times (and so the target) and the Ramadan /
+  // shorter days. Leave days and the reminder switches are the person's own
+  // and are not part of it, so two people with different leave allowances
+  // can both be on the team schedule.
+  function scheduleOf(s){
+    s = normalizeSettings(s || {});
+    return {
+      workDays: s.workDays.slice(), standardIn: s.standardIn, standardOut: s.standardOut,
+      targetMin: s.targetMin, periods: (s.periods || []).map(function(p){ return Object.assign({}, p); })
+    };
+  }
+  // One comparable string per schedule. Period ids are left out: they are
+  // made up locally for a period that arrives without one, and would make
+  // two identical schedules look different.
+  function scheduleKey(s){
+    var o = scheduleOf(s);
+    return JSON.stringify([o.workDays, o.standardIn, o.standardOut, o.targetMin,
+      o.periods.map(function(p){ return [p.name, p.start, p.end, p.standardIn, p.standardOut, p.targetMin]; })]);
+  }
+
+  // The Team Schedule, readable by anyone signed in (app_settings). null
+  // when it has never been set.
+  var teamSchedule = null;
+  var teamScheduleLoaded = false;
+  async function loadTeamSchedule(){
+    if(teamScheduleLoaded || !supabaseConfigured || !currentUser) return paintScheduleSource();
+    try{
+      var res = await supabase.from("app_settings").select("default_settings").eq("id", 1).maybeSingle();
+      if(res.error) throw res.error;
+      var raw = res.data && res.data.default_settings;
+      teamSchedule = (raw && typeof raw === "object" && Object.keys(raw).length) ? normalizeSettings(raw) : null;
+      teamScheduleLoaded = true;
+    }catch(err){ /* no line rather than a wrong one */ }
+    paintScheduleSource();
+  }
+
+  // "Team schedule" or "Own schedule" at the top of Settings > Schedule.
+  function paintScheduleSource(){
+    var box = document.getElementById("scheduleSource");
+    if(!box) return;
+    var useBtn = document.getElementById("useTeamScheduleBtn");
+    if(!teamSchedule || dataLoadFailed()){
+      box.hidden = true;
+      if(useBtn) useBtn.hidden = true;
+      return;
+    }
+    var onTeam = scheduleKey(settings) === scheduleKey(teamSchedule);
+    var who = isOwnData ? "you" : (viewedProfile ? (viewedProfile.full_name || viewedProfile.email) : "them");
+    box.hidden = false;
+    box.classList.toggle("is-own", !onTeam);
+    document.getElementById("scheduleSourcePill").textContent = onTeam ? "Team schedule" : "Own schedule";
+    document.getElementById("scheduleSourceHint").textContent = onTeam
+      ? (isAdmin ? "Change it here to give " + who + " a schedule of " + (isOwnData ? "your" : "their") + " own."
+                 : "The same hours as the rest of the team.")
+      : (isAdmin ? "Different from the Team Schedule." : "Set just for you by your admin.");
+    if(useBtn) useBtn.hidden = !(isAdmin && !onTeam);
+  }
+
+  // Puts the Team Schedule into the form; Save makes it so. Leave days stay.
+  onId("useTeamScheduleBtn", "click", function(){
+    if(!teamSchedule || !isAdmin) return;
+    var t = scheduleOf(teamSchedule);
+    DAY_NAMES.forEach(function(_, i){
+      var box = document.getElementById("wd"+i);
+      if(box) box.checked = t.workDays.indexOf(i) !== -1;
+    });
+    document.getElementById("sIn").value = t.standardIn;
+    document.getElementById("sOut").value = t.standardOut;
+    syncHoursNote();
+    renderPeriodRows(t.periods);
+    setScheduleDirty(true);
+    showToast("The Team Schedule is filled in. Save to use it.", "info");
+  });
+
+  // Admin > Team Schedule states its daily target the same way.
   function paintDefaultsTarget(){
     paintTarget(document.getElementById("dTargetCard"),
                 document.getElementById("dIn").value, document.getElementById("dOut").value);
@@ -3248,7 +3445,7 @@ import { makeSchedule } from "./src/schedule.js";
   }
   ["input", "change"].forEach(function(type){
     onId("csec-hours", type, function(ev){
-      if(ev.target && ev.target.id !== "sApplyAll") setScheduleDirty(true);
+      if(ev.target) setScheduleDirty(true);
     });
   });
   onId("discardSettingsBtn", "click", function(){
@@ -3558,77 +3755,7 @@ import { makeSchedule } from "./src/schedule.js";
     });
     updated = normalizeSettings(updated);
 
-    var applyAll = document.getElementById("sApplyAll").checked;
     var btn = this;
-
-    if(applyAll){
-      if(!allProfiles.length){ showToast("No team members to apply this to yet.", "error"); return; }
-      var confirmed = await showConfirm(
-        "This will overwrite the schedule settings for all " + allProfiles.length +
-        " team member" + (allProfiles.length===1?"":"s") + " with what's currently in this form.",
-        {title:"Apply to everyone?", confirmText:"Apply to " + allProfiles.length}
-      );
-      if(!confirmed) return;
-
-      btn.disabled = true;
-      // The schedule is the team's; the reminder switches are each person's
-      // own (they are in Reminders now, not in this form). So each person
-      // keeps theirs, read fresh rather than from a cache that may predate
-      // someone switching one off. If that read fails nothing is written:
-      // guessing would switch people's reminders back on.
-      var ownReminders = {};
-      try{
-        var current = await supabase.from("user_settings").select("user_id,settings");
-        if(current.error) throw current.error;
-        (current.data || []).forEach(function(r){
-          var s = normalizeSettings(r.settings);
-          ownReminders[r.user_id] = { remindClockIn: s.remindClockIn, remindClockOut: s.remindClockOut };
-        });
-      }catch(err){
-        btn.disabled = false;
-        showToast("Couldn't read the team's current settings, so nothing was applied: " + friendlyError(err), "error");
-        return;
-      }
-      teamSettingsCache = null;
-      function forPerson(id){
-        return Object.assign({}, updated, ownReminders[id] || { remindClockIn: true, remindClockOut: true });
-      }
-      var done = 0, failed = 0, failedNames = [];
-      for(var k=0;k<allProfiles.length;k++){
-        try{
-          await sbSaveSettings(allProfiles[k].id, forPerson(allProfiles[k].id));
-          done++;
-        }catch(err){
-          failed++;
-          failedNames.push(allProfiles[k].full_name || allProfiles[k].email);
-        }
-        btn.textContent = "Applying " + (k+1) + " of " + allProfiles.length + "…";
-      }
-      btn.disabled = false;
-
-      // Disarm. The handler used to return with the box still ticked, so the
-      // next ordinary edit — one field, one Save — reopened "Apply to 30"
-      // unprompted. The confirm caught it every time, which is why this stayed
-      // invisible, but the default state after one broadcast was broadcast.
-      document.getElementById("sApplyAll").checked = false;
-      syncApplyAllScope();
-
-      if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = forPerson(viewedUserId);
-      renderAll();
-      // Naming who failed, because "2 failed" is a number you cannot act on:
-      // the whole point of the message is knowing whose schedule is now out of
-      // step with everyone else's.
-      showToast(
-        failed === 0
-          ? "Applied to all " + done + " team members."
-          : "Applied to " + done + " of " + allProfiles.length + ". Failed: " +
-            failedNames.slice(0, 3).join(", ") +
-            (failedNames.length > 3 ? " and " + (failedNames.length - 3) + " more" : "") +
-            ". Try those again.",
-        failed === 0 ? "success" : "error"
-      );
-      return;
-    }
 
     btn.disabled = true; btn.textContent = "Saving…";
     try{
@@ -9554,7 +9681,6 @@ import { makeSchedule } from "./src/schedule.js";
     syncNotificationBell();
   })();
 
-  onId("sApplyAll", "change", syncApplyAllScope);
 
   // Sign out used to fire straight off an unlabelled crimson circle sitting a
   // thumb's width from Settings, at the top of the phone screen someone opens
@@ -12535,11 +12661,15 @@ import { makeSchedule } from "./src/schedule.js";
     if(nav) nav.click();
   });
 
-  // ---------- Organisation defaults ----------
-  // app_settings.default_settings is what handle_new_user() copies into a new
-  // account's user_settings row. The column existed from the start but nothing
-  // ever wrote to it, so it stayed {} and every new employee silently started
-  // on DEFAULT_SETTINGS instead of the organisation's actual working week.
+  // ---------- Team Schedule (app_settings.default_settings) ----------
+  // The one schedule the team works to. handle_new_user() copies it into a
+  // new account's user_settings row; saving it here also moves everyone who
+  // is on it to the new one (see saveDefaultsBtn). It used to be
+  // "Organisation Defaults", a template copied once at sign-up and never
+  // again, beside "Apply to everyone" and "Give these to people with no
+  // schedule" in other places: three ways of saying what the team's hours
+  // were. The column itself started life as {} and nothing wrote to it, so
+  // every new employee silently started on DEFAULT_SETTINGS.
   var defaultsAreSet = false;
 
   function buildDefaultsDayPicker(){
@@ -12556,6 +12686,11 @@ import { makeSchedule } from "./src/schedule.js";
     defaultsAreSet = !!(raw && typeof raw === "object" && Object.keys(raw).length);
     updateRegistrationDefaultsHint();
     var d = normalizeSettings(raw || {});
+    // The Team Schedule as saved: what "on the team schedule" is measured
+    // against, here and on everyone's Schedule page.
+    teamSchedule = defaultsAreSet ? d : null;
+    teamScheduleLoaded = true;
+    paintScheduleSource();
     DAY_NAMES.forEach(function(_, i){
       var box = document.getElementById("dwd"+i);
       if(box) box.checked = d.workDays.indexOf(i) !== -1;
@@ -12567,7 +12702,7 @@ import { makeSchedule } from "./src/schedule.js";
     renderPeriodRows(d.periods, "defaultsPeriodsList");
 
     setNavDesc("adminDefaultsState",
-      defaultsAreSet ? "Set — new accounts start here"
+      defaultsAreSet ? "Everyone's week and hours"
                      : "Not set — using Sun–Thu, 8h",
       !defaultsAreSet);
   }
@@ -12608,75 +12743,92 @@ import { makeSchedule } from "./src/schedule.js";
     });
   }
 
+  // Saving the Team Schedule moves everyone on it to the new one: anyone
+  // whose week, times and Ramadan dates match the team schedule being
+  // replaced, and anyone with no schedule row at all (who would otherwise be
+  // measured against the built-in Sun–Thu fallback). Anyone an admin gave a
+  // schedule of their own keeps it. Leave days and reminder switches are each
+  // person's own and are never touched. Everyone's rows are read first; if
+  // that read fails nothing is saved, because guessing who is on the team
+  // schedule would move the wrong people.
   onId("saveDefaultsBtn", "click", async function(){
     var btn = this;
-    var defaults = readDefaultsForm();
-    if(!defaults) return;
+    var team = readDefaultsForm();
+    if(!team) return;
+    var before = teamSchedule;
+    var rows;
+    try{
+      var cur = await supabase.from("user_settings").select("user_id,settings");
+      if(cur.error) throw cur.error;
+      rows = cur.data || [];
+    }catch(err){
+      showToast("Couldn't read everyone's schedules, so nothing was saved: " + friendlyError(err), "error");
+      return;
+    }
+    var byId = {};
+    rows.forEach(function(r){ byId[r.user_id] = r.settings; });
+    var onTeam = [], ownCount = 0;
+    allProfiles.forEach(function(p){
+      var row = byId[p.id];
+      if(!row || (before && scheduleKey(row) === scheduleKey(before))) onTeam.push(p);
+      else ownCount++;
+    });
+    var moves = !before || scheduleKey(before) !== scheduleKey(team);
+    var toWrite = onTeam.filter(function(p){ return moves || !byId[p.id]; });
+
+    if(toWrite.length){
+      var ok = await showConfirm(
+        toWrite.length + " " + (toWrite.length === 1 ? "person is" : "people are") +
+        " on the team schedule and will work to this one." +
+        (ownCount ? " " + ownCount + " with a schedule of their own keep" + (ownCount === 1 ? "s it" : " theirs") + "." : "") +
+        " Leave days aren't changed.",
+        {title:"Save the Team Schedule?", confirmText:"Save for " + toWrite.length}
+      );
+      if(!ok) return;
+    }
+
     btn.disabled = true;
+    var failedNames = [];
     try{
       var res = await supabase.from("app_settings").update({
-        default_settings: defaults,
+        default_settings: team,
         updated_at: new Date().toISOString(),
         updated_by: currentUser.id
       }).eq("id", 1);
       if(res.error) throw res.error;
-      fillDefaultsForm(defaults);
-      showToast("Organisation defaults saved. New accounts will start with this schedule.", "success");
     }catch(err){
-      showToast("Couldn't save the defaults: " + friendlyError(err), "error");
-    }
-    btn.disabled = false;
-  });
-
-  // Backfills people who never got a settings row. Deliberately never touches
-  // anyone who already has one — an admin fixing onboarding must not silently
-  // overwrite a schedule someone is already being measured against.
-  onId("seedSettingsBtn", "click", async function(){
-    var btn = this;
-    var defaults = readDefaultsForm();
-    if(!defaults) return;
-
-    await loadAdminSettingsOwners();
-    if(!adminSettingsOwners){
-      showToast("Couldn't check who already has a schedule, so nothing was changed.", "error");
+      btn.disabled = false;
+      showToast("Couldn't save the Team Schedule: " + friendlyError(err), "error");
       return;
     }
-    var missing = adminUsersCache.filter(function(u){ return !adminSettingsOwners.has(u.id); });
-    if(!missing.length){
-      showToast("Everyone already has their own schedule. Nothing to do.", "info");
-      return;
-    }
-
-    var names = missing.slice(0, 4).map(function(u){ return u.full_name || u.email; });
-    var ok = await showConfirm(
-      missing.length + " " + (missing.length === 1 ? "person has" : "people have") +
-      " no schedule of their own (" + names.join(", ") +
-      (missing.length > 4 ? " and " + (missing.length - 4) + " more" : "") + ")." +
-      "\n\nThey'll be given the defaults above. Nobody who already has a schedule is touched.",
-      {title:"Give these people the default schedule?", confirmText:"Apply to " + missing.length}
-    );
-    if(!ok) return;
-
-    btn.disabled = true;
-    var done = 0, failed = 0;
-    for(var i = 0; i < missing.length; i++){
-      btn.textContent = "Applying " + (i+1) + " of " + missing.length + "…";
+    var mine = scheduleOf(team);
+    for(var i = 0; i < toWrite.length; i++){
+      var p = toWrite[i];
+      btn.textContent = "Saving " + (i + 1) + " of " + toWrite.length + "…";
+      // Their row with the team's schedule laid over it: their own leave days
+      // and reminder switches stay. No row yet: the whole team schedule,
+      // leave days included, as a new account would get.
+      var next = byId[p.id] ? Object.assign({}, normalizeSettings(byId[p.id]), mine) : Object.assign({}, team);
       try{
-        await sbSaveSettings(missing[i].id, defaults);
-        done++;
-      }catch(err){ failed++; }
+        await sbSaveSettings(p.id, normalizeSettings(next));
+        if(p.id === viewedUserId) settings = normalizeSettings(next);
+      }catch(err){
+        failedNames.push(p.full_name || p.email);
+      }
     }
     btn.disabled = false;
-    btn.textContent = "Give these to people with no schedule";
-
-    await loadAdminSettingsOwners();
-    renderAdminPeople();
-    await renderAdminHealth();
-    showToast(
-      "Applied to " + done + " " + (done === 1 ? "person" : "people") + "." +
-      (failed ? " " + failed + " failed." : ""),
-      failed ? "error" : "success"
-    );
+    btn.textContent = "Save Team Schedule";
+    teamSettingsCache = null;
+    fillDefaultsForm(team);
+    renderAll();
+    if(typeof loadAdminSettingsOwners === "function"){ await loadAdminSettingsOwners(); }
+    showToast(failedNames.length
+      ? "Team Schedule saved, but " + failedNames.length + " couldn't be moved to it: " +
+        failedNames.slice(0, 3).join(", ") + (failedNames.length > 3 ? " and " + (failedNames.length - 3) + " more" : "") + ". Save again to retry."
+      : toWrite.length
+        ? "Team Schedule saved. " + toWrite.length + " " + (toWrite.length === 1 ? "person is" : "people are") + " on it."
+        : "Team Schedule saved.",
+      failedNames.length ? "error" : "success");
   });
 
   // Announcement/sign-up and Theme live in separate Admin accordion sections
@@ -13068,7 +13220,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(!reach.subscribed){
       setNavDesc("cnavDescNotifications", "Nobody reachable yet");
       el.textContent = "Nobody has notifications switched on yet, so a message sent now would reach no one. " +
-        "Each person turns them on under Settings → Notifications, on each device they want them on.";
+        "Each person turns them on under Settings → Reminders, on each device they want them on.";
       return;
     }
     // The one fact that decides whether sending anything is worth doing.
@@ -13434,8 +13586,8 @@ import { makeSchedule } from "./src/schedule.js";
           title: noSchedule === 1 ? "1 person has no schedule of their own"
                                   : noSchedule + " people have no schedule of their own",
           note: "Their hours, lateness and leave are all measured against the fallback " +
-                "Sunday–Thursday 08:00–16:00 week. Set the organisation defaults below, then apply them.",
-          clear: "Everyone has their own schedule.",
+                "Sunday–Thursday 08:00–16:00 week. Saving the Team Schedule puts them on it.",
+          clear: "Everyone has a schedule.",
           rowsTotal: noSchedule,
           rows: noScheduleUsers.slice(0, HEALTH_ROW_LIMIT).map(function(u){
             return {userId: u.id, tab: "settings", label: u.full_name || u.email};
@@ -13917,6 +14069,7 @@ import { makeSchedule } from "./src/schedule.js";
     currentUser = null; currentProfile = null;
     viewedUserId = null; viewedProfile = null;
     allProfiles = []; isAdmin = false; isOwnData = true;
+    teamSchedule = null; teamScheduleLoaded = false;
     lastPushReminderKind = null; pushAwaySince = null;
     renderPushLine(null);
     clearTimeout(pushDialogWaitTimer); pushDialogWaitTimer = null;

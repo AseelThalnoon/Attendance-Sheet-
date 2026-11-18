@@ -482,6 +482,20 @@ async function run(){
       "People > Edit Schedule opens Settings on the Schedule", JSON.stringify(landed));
     ok(/Person 2/.test(landed.label) && landed.start === "09:30" && landed.target === "6h" && !landed.locked,
       "holding that person's own schedule, editable, and saying whose it is", JSON.stringify(landed));
+    // Their sign-in is theirs: shown, not changeable, and the way to help.
+    await h.page.click("#cnav-security");
+    await settle(h.page, 300);
+    const sec = await h.page.evaluate(() => ({
+      email: document.getElementById("securityEmail").textContent,
+      note: document.getElementById("securityOthers").textContent,
+      change: !!document.getElementById("changePasswordOpenBtn").getClientRects().length,
+      sessions: !!document.getElementById("signOutOthersBtn").getClientRects().length
+    }));
+    ok(/person2@/.test(sec.email) && /Only Person 2 can change their password/.test(sec.note) && /Reset Password/.test(sec.note) &&
+       !sec.change && !sec.sessions,
+      "an admin sees whose sign-in it is and how to send a reset link, with nothing to change", JSON.stringify(sec));
+    await h.page.click("#cnav-hours");
+    await settle(h.page, 200);
     await h.page.fill("#sLeaveDays", "28");
     await h.page.click("#saveSettingsBtn");
     await settle(h.page, 700);
@@ -490,6 +504,81 @@ async function run(){
       "Save writes their row and leaves the admin's own alone",
       JSON.stringify({ theirs: rowOf(other.id).annualLeaveDays, mine: rowOf(me.id).annualLeaveDays }));
     ok(h.errors.length === 0, "edit schedule from People: no script errors", h.errors.join(" | "));
+    await h.close();
+  }
+
+  // ---- Settings > Sign-in & Security ---------------------------------------
+  // The account's way in, in one section: the address, changing the password
+  // (which needs the current one), a reset link for a forgotten one, Face ID,
+  // and signing out the other devices. The backend is seeded with a password
+  // so a wrong one is refused the way Auth would.
+  {
+    const me = D.profile(1);
+    const h = await boot({ meId: me.id, seed: { password: "old-password-1",
+      profiles: [me], entries: [], user_settings: [{ user_id: me.id, settings: D.SETTINGS }] }});
+    await goTab(h.page, "settings");
+    await h.page.click("#cnav-security");
+    await settle(h.page, 500);
+    const first = await h.page.evaluate(() => ({
+      email: document.getElementById("securityEmail").textContent,
+      formHidden: document.getElementById("changePasswordForm").hidden,
+      faceId: !!document.getElementById("passkeyBlock").getClientRects().length,
+      inProfile: !!document.querySelector("#csec-profile #passkeyBlock"),
+      others: !!document.getElementById("signOutOthersBtn").getClientRects().length
+    }));
+    ok(first.email === me.email && first.formHidden && first.faceId && !first.inProfile && first.others,
+      "Sign-in & Security shows the sign-in address, a folded password form, Face ID sign-in and Sign Out Other Devices",
+      JSON.stringify(first));
+
+    const calls = () => h.backend.state.authCalls.map(c => c.call);
+    const errorNow = () => h.page.evaluate(() => document.getElementById("changePasswordError").textContent);
+    await h.page.click("#changePasswordOpenBtn");
+    await h.page.fill("#currentPassword", "not-it-at-all");
+    await h.page.fill("#changeNewPassword", "brand-new-pass-2");
+    await h.page.fill("#changeNewPassword2", "brand-new-pass-2");
+    await h.page.click("#changePasswordBtn");
+    await settle(h.page, 600);
+    ok(await errorNow() === "That isn't your current password." && !calls().includes("updateUser"),
+      "a wrong current password is refused and nothing is changed", JSON.stringify({ error: await errorNow(), calls: calls() }));
+
+    await h.page.fill("#currentPassword", "old-password-1");
+    await h.page.fill("#changeNewPassword2", "something-else-3");
+    const before = calls().length;
+    await h.page.click("#changePasswordBtn");
+    await settle(h.page, 300);
+    ok(await errorNow() === "The two new passwords don't match." && calls().length === before,
+      "two different new passwords are caught before anything is sent", await errorNow());
+
+    await h.page.fill("#changeNewPassword2", "brand-new-pass-2");
+    await h.page.click("#changePasswordBtn");
+    await settle(h.page, 900);
+    const update = h.backend.state.authCalls.find(c => c.call === "updateUser") || {};
+    const after = await h.page.evaluate(() => ({
+      formHidden: document.getElementById("changePasswordForm").hidden,
+      signedIn: document.getElementById("appShell").style.display !== "none",
+      toasts: [...document.querySelectorAll(".toast")].map(t => t.textContent.trim()).join(" | ")
+    }));
+    ok(update.password === "brand-new-pass-2" && update.current_password === "old-password-1",
+      "the right current password changes it, and the current one is sent along for Auth to check too", JSON.stringify(update));
+    ok(after.formHidden && after.signedIn && /Password changed/.test(after.toasts),
+      "the form folds away, the person stays signed in, and it says so", JSON.stringify(after));
+
+    await h.page.click("#securityResetLinkBtn");
+    await settle(h.page, 500);
+    const recover = h.backend.state.authCalls.find(c => c.call === "recover") || {};
+    ok(recover.email === me.email, "Forgot it? emails a reset link to the address the account signs in with", JSON.stringify(recover));
+
+    await h.page.click("#signOutOthersBtn");
+    await settle(h.page, 300);
+    await h.page.click(".modal-overlay .modal-confirm");
+    await settle(h.page, 700);
+    const out = h.backend.state.authCalls.find(c => c.call === "logout") || {};
+    ok(out.scope === "others" && await h.page.evaluate(() => document.getElementById("appShell").style.display !== "none"),
+      "Sign Out Other Devices signs out everywhere else and keeps this one signed in", JSON.stringify(out));
+    // The wrong current password above is answered 400, as Auth answers it;
+    // the browser logs that as a failed resource, which is not a script error.
+    const realErrors = h.errors.filter(e => !/status of 400/.test(e));
+    ok(realErrors.length === 0, "sign-in & security: no script errors", realErrors.join(" | "));
     await h.close();
   }
 
@@ -547,19 +636,87 @@ async function run(){
       && JSON.stringify(await dirty()) === '{"bar":false,"discard":false}',
       "Discard puts the saved schedule back and clears the bar");
 
-    // Apply to everyone carries the schedule, not anyone's reminder choices.
-    await h.page.fill("#sLeaveDays", "20");
-    await h.page.click('label[for="sApplyAll"]');
-    await h.page.click("#saveSettingsBtn");
-    await settle(h.page, 300);
-    await h.page.click(".modal-overlay .modal-confirm");
-    await settle(h.page, 900);
-    ok(theirs().annualLeaveDays === 20 && mine().annualLeaveDays === 20,
-      "Apply to everyone writes the schedule to each person", JSON.stringify({ mine: mine().annualLeaveDays, theirs: theirs().annualLeaveDays }));
-    ok(theirs().remindClockIn === false && theirs().remindClockOut === true && mine().remindClockIn === false,
-      "and each person keeps their own reminder switches", JSON.stringify({
-        theirs: [theirs().remindClockIn, theirs().remindClockOut], mine: mine().remindClockIn }));
+    ok(theirs().remindClockIn === false, "and someone else's reminder switch is still theirs", JSON.stringify(theirs()));
     ok(h.errors.length === 0, "switches and Save: no script errors", h.errors.join(" | "));
+    await h.close();
+  }
+
+  // ---- One Team Schedule; a person is on it or has their own ---------------
+  // Admin > Team Schedule replaced "Organisation Defaults" (a template copied
+  // once at sign-up), "Apply to everyone" and "Give these to people with no
+  // schedule". Saving it moves everyone on it -- same week, times and
+  // Ramadan dates as the one being replaced, or no schedule row at all -- and
+  // leaves anyone with their own alone. Leave days are each person's own.
+  {
+    const TEAM = Object.assign({}, D.SETTINGS, { annualLeaveDays: 21, periods: [
+      { id: "r1", name: "Ramadan 2027", start: "2027-02-08", end: "2027-03-08", targetMin: 360, standardIn: "10:00", standardOut: "16:00" }] });
+    const boss = D.profile(1, { role: "admin" });
+    const onTeam = D.profile(2, { full_name: "Tara Team" });
+    const ownOne = D.profile(3, { full_name: "Omar Own" });
+    const noRow = D.profile(4, { full_name: "Nadia New" });
+    const h = await boot({ meId: boss.id, seed: {
+      profiles: [boss, onTeam, ownOne, noRow], entries: [],
+      app_settings: [{ id: 1, default_settings: TEAM, allow_registration: true }],
+      user_settings: [
+        { user_id: boss.id, settings: TEAM },
+        { user_id: onTeam.id, settings: Object.assign({}, TEAM, { annualLeaveDays: 30, remindClockIn: false }) },
+        { user_id: ownOne.id, settings: Object.assign({}, TEAM, { standardIn: "07:00", standardOut: "15:00", targetMin: 480 }) }
+      ]
+    }});
+    const rowOf = id => (h.backend.state.user_settings.find(r => r.user_id === id) || {}).settings || null;
+    const source = () => h.page.evaluate(() => {
+      const b = document.getElementById("scheduleSource");
+      return b.hidden ? "hidden" : document.getElementById("scheduleSourcePill").textContent +
+        (document.getElementById("useTeamScheduleBtn").hidden ? "" : " +use");
+    });
+
+    // Admin > Team Schedule: End 16:00 -> 15:00.
+    await goTab(h.page, "admin");
+    await h.page.click("#cnav-admin-defaults");
+    await settle(h.page, 500);
+    ok(await h.page.evaluate(() => document.querySelector("#cnav-admin-defaults .console-nav-title").textContent) === "Team Schedule",
+      "the admin section is called Team Schedule");
+    await h.page.fill("#dOut", "15:00");
+    await h.page.click("#saveDefaultsBtn");
+    await settle(h.page, 300);
+    const ask = await h.page.evaluate(() => (document.querySelector(".modal-overlay .modal-msg") || {}).textContent || "");
+    ok(/3 people are on the team schedule/.test(ask) && /1 with a schedule of their own keeps it/.test(ask),
+      "saving asks first, saying who moves and who keeps their own", ask);
+    await h.page.click(".modal-overlay .modal-confirm");
+    await settle(h.page, 1200);
+    ok(rowOf(onTeam.id).standardOut === "15:00" && rowOf(onTeam.id).targetMin === 420 &&
+       rowOf(onTeam.id).annualLeaveDays === 30 && rowOf(onTeam.id).remindClockIn === false,
+      "someone on the team schedule moves to the new hours, keeping their own leave days and reminders", JSON.stringify(rowOf(onTeam.id)));
+    ok(rowOf(ownOne.id).standardIn === "07:00" && rowOf(ownOne.id).standardOut === "15:00" && rowOf(ownOne.id).targetMin === 480,
+      "someone with their own schedule keeps it", JSON.stringify(rowOf(ownOne.id)));
+    ok(rowOf(noRow.id) && rowOf(noRow.id).standardOut === "15:00" && rowOf(noRow.id).annualLeaveDays === 21,
+      "someone with no schedule at all is put on the team schedule, with its leave days", JSON.stringify(rowOf(noRow.id)));
+    ok((h.backend.state.app_settings[0].default_settings || {}).standardOut === "15:00", "and the Team Schedule itself is saved");
+
+    // A person's Schedule says which they're on; an admin can bring the
+    // odd one out back.
+    const editSchedule = async who => {
+      await goTab(h.page, "admin");
+      await h.page.click("#cnav-admin-people");
+      await settle(h.page, 500);
+      await h.page.click(`[data-uid="${who.id}"] .row-menu-btn`);
+      await settle(h.page, 200);
+      await h.page.click('#adminRowMenu [data-edit-schedule]');
+      await settle(h.page, 900);
+    };
+    await editSchedule(onTeam);
+    ok(await source() === "Team schedule", "Tara's Schedule says Team schedule", await source());
+    await editSchedule(ownOne);
+    ok(await source() === "Own schedule +use", "Omar's says Own schedule, with Use the Team Schedule", await source());
+    await h.page.click("#useTeamScheduleBtn");
+    await settle(h.page, 200);
+    ok(await h.page.evaluate(() => document.getElementById("sIn").value + "-" + document.getElementById("sOut").value) === "08:00-15:00",
+      "Use the Team Schedule fills in the team's hours");
+    await h.page.click("#saveSettingsBtn");
+    await settle(h.page, 800);
+    ok(rowOf(ownOne.id).standardIn === "08:00" && await source() === "Team schedule",
+      "and once saved, Omar is on the team schedule", JSON.stringify({ row: rowOf(ownOne.id).standardIn, source: await source() }));
+    ok(h.errors.length === 0, "team schedule: no script errors", h.errors.join(" | "));
     await h.close();
   }
 

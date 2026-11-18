@@ -118,8 +118,8 @@ async function start(opts){
 }
 const openPasskeys = async page => {
   await goTab(page, "settings");
-  // Face ID / fingerprint sign-in is a group inside Profile.
-  await page.evaluate(() => document.getElementById("cnav-profile").click());
+  // Face ID / fingerprint sign-in is a group inside Sign-in & Security.
+  await page.evaluate(() => document.getElementById("cnav-security").click());
   await settle(page, 700);
 };
 const view = page => page.evaluate(() => {
@@ -346,7 +346,8 @@ const authView = page => page.evaluate(() => {
     const h = await start({ device: devices["iPhone 15 Pro"] });
     await openPasskeys(h.page);
     const s = await h.page.evaluate(() => ({
-      nav: document.querySelector("#cnav-profile .console-nav-title").textContent,
+      nav: document.querySelector("#cnav-security .console-nav-title").textContent +
+        " " + document.getElementById("cnavDescSecurity").textContent,
       head: document.getElementById("passkeyTitle").textContent,
       intro: document.getElementById("passkeyIntro").textContent,
       add: document.getElementById("passkeyAddBtn").textContent,

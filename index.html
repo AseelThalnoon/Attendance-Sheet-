@@ -1622,6 +1622,24 @@
     margin-top:var(--space-5); padding-top:var(--space-4);
     border-top:1px solid var(--line-soft);
   }
+  /* Settings > Sign-in & Security. The address first, as a fact rather than
+     a field (it is not changed here); then the password, whose form stays
+     folded behind its button until wanted; then Face ID; then the other
+     devices. */
+  .security-account{
+    display:flex; flex-direction:column; gap:2px; max-width:600px;
+    padding:12px 16px; border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--ink-50);
+  }
+  .security-account-label{font-size:12px; color:var(--muted-2);}
+  .security-account-email{font-size:15px; font-weight:700; color:var(--ink); overflow-wrap:anywhere;}
+  #csec-security .btn[hidden]{display:none;}
+  .change-password-form{margin-top:var(--space-2); max-width:532px;}
+  .change-password-form[hidden]{display:none;}
+  .change-password-form .form-grid + .form-grid{margin-top:var(--space-3);}
+  .change-password-form .auth-error{margin-top:var(--space-2);}
+  @media (min-width:481px){
+    .change-password-form .form-grid.single-field{max-width:260px;}
+  }
 
   main{max-width:1280px; margin:0 auto; padding:24px 32px 0;}
 
@@ -3698,6 +3716,18 @@
     font-size:13px; font-weight:600; color:var(--ink);
   }
   .schedule-lock-note[hidden]{display:none;}
+  /* "Team schedule" or "Own schedule", as a pill, with what that means beside
+     it. The team one wears the accent of the daily-target card; an own one
+     is quieter, since it is the exception and not a warning. */
+  .schedule-source{display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; margin:var(--space-3) 0 0;}
+  .schedule-source[hidden]{display:none;}
+  .schedule-source-pill{
+    display:inline-flex; align-items:center; padding:3px 10px; border-radius:999px;
+    font-size:12px; font-weight:700; color:var(--ink-on-gold); background:var(--gold);
+  }
+  .schedule-source.is-own .schedule-source-pill{color:var(--ink); background:var(--ink-100);}
+  .schedule-source-hint{font-size:12.5px; color:var(--muted-2);}
+  .schedule-source .btn[hidden]{display:none;}
   .schedule-form:disabled input,
   .schedule-form:disabled select{
     opacity:1; color:var(--ink); -webkit-text-fill-color:var(--ink);
@@ -8421,7 +8451,15 @@
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></span>
             <span class="console-nav-text">
               <span class="console-nav-title">Profile</span>
-              <span class="console-nav-desc" id="cnavDescProfile">Name, photo and sign-in</span>
+              <span class="console-nav-desc" id="cnavDescProfile">Name and photo</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="security" id="cnav-security" aria-selected="false" aria-controls="csec-security">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.4 7.5 9.5 4.4-1.1 7.5-4.9 7.5-9.5V6z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10.2 11V9.6a1.8 1.8 0 0 1 3.6 0V11"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Sign-in &amp; Security</span>
+              <span class="console-nav-desc" id="cnavDescSecurity">Password and Face ID</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
@@ -8474,10 +8512,8 @@
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
             All settings
           </button>
-      <!-- Profile: who you are to the team, and how you sign in. Face ID /
-           fingerprint sign-in (passkeys) lives here rather than in a section
-           of its own; nameBiometricSettings() names it after this device's
-           sensor, and on an iPhone the word "passkey" never shows. -->
+      <!-- Profile: who you are to the team, your name and photo, and Sign
+           Out. How you sign in has its own section, Sign-in & Security. -->
       <div class="console-section" data-section="profile" id="csec-profile" role="tabpanel" aria-labelledby="cnav-profile" tabindex="0">
         <div class="console-section-head">
           <h3>Profile</h3>
@@ -8505,6 +8541,65 @@
             </div>
           </form>
         </div>
+        <div class="console-signout">
+          <button type="button" class="btn danger-ghost small" id="settingsLogoutBtn">Sign Out</button>
+        </div>
+      </div>
+
+      <!-- Sign-in & Security: everything about getting into the account and
+           keeping it yours, in one place. Which address you sign in with;
+           your password (change it knowing the current one, or have a reset
+           link emailed if you don't); Face ID / fingerprint sign-in
+           (passkeys), which nameBiometricSettings() names after this
+           device's sensor so an iPhone never shows the word "passkey"; and
+           signing out the other devices. All of it is the signed-in person's
+           own: an admin viewing someone else sees why it isn't offered. -->
+      <div class="console-section" data-section="security" id="csec-security" role="tabpanel" aria-labelledby="cnav-security" tabindex="0">
+        <div class="console-section-head">
+          <h3>Sign-in &amp; Security</h3>
+          <p>How you sign in, and keeping your account yours.</p>
+        </div>
+
+        <div class="security-account">
+          <span class="security-account-label" id="securityEmailLabel">You sign in as</span>
+          <strong class="security-account-email" id="securityEmail" dir="auto"></strong>
+        </div>
+
+        <p class="console-subhead settings-group-gap">Password</p>
+        <div id="securityOwn">
+          <button type="button" class="btn ghost small" id="changePasswordOpenBtn" aria-expanded="false" aria-controls="changePasswordForm">Change Password</button>
+          <!-- Current password first (OWASP: a change needs the old one), then
+               the new one twice. The hidden username field lets a password
+               manager know whose password this is and offer to update it. -->
+          <form class="change-password-form" id="changePasswordForm" novalidate hidden>
+            <input type="email" id="changePasswordUser" autocomplete="username" readonly hidden>
+            <div class="form-grid single-field">
+              <div>
+                <label for="currentPassword">Current password</label>
+                <input type="password" id="currentPassword" autocomplete="current-password" required>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div>
+                <label for="changeNewPassword">New password</label>
+                <input type="password" id="changeNewPassword" autocomplete="new-password" required minlength="10" aria-describedby="changeNewPasswordHint">
+              </div>
+              <div>
+                <label for="changeNewPassword2">New password again</label>
+                <input type="password" id="changeNewPassword2" autocomplete="new-password" required minlength="10">
+              </div>
+            </div>
+            <p class="settings-hint" id="changeNewPasswordHint">At least 10 characters.</p>
+            <p class="auth-error" id="changePasswordError" role="alert"></p>
+            <div class="form-actions">
+              <button type="submit" class="btn" id="changePasswordBtn">Update Password</button>
+              <button type="button" class="btn ghost" id="changePasswordCancelBtn">Cancel</button>
+            </div>
+          </form>
+          <div><button type="button" class="link-btn" id="securityResetLinkBtn">Forgot it? Email me a reset link</button></div>
+        </div>
+        <p class="settings-hint" id="securityOthers" hidden></p>
+
         <div class="profile-signin" id="passkeyBlock">
           <p class="console-subhead settings-group-gap" id="passkeyTitle">Passkeys</p>
           <p class="settings-hint" id="passkeyIntro" style="margin:0 0 var(--space-3);">Sign in without typing your password.</p>
@@ -8519,8 +8614,11 @@
           </div>
           <p class="settings-hint" id="passkeyOthers" hidden>Only the person themselves can set this up.</p>
         </div>
-        <div class="console-signout">
-          <button type="button" class="btn danger-ghost small" id="settingsLogoutBtn">Sign Out</button>
+
+        <div id="securitySessions">
+          <p class="console-subhead settings-group-gap">Other devices</p>
+          <p class="settings-hint" style="margin:0 0 var(--space-3);">Lost a phone, or signed in on a shared computer? Sign out everywhere except here.</p>
+          <button type="button" class="btn ghost small" id="signOutOthersBtn">Sign Out Other Devices</button>
         </div>
       </div>
 
@@ -8538,6 +8636,17 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
             <span>Set by your admin. Ask them if something needs changing.</span>
           </p>
+          <!-- Whose schedule this is: the Team Schedule (Admin > Team
+               Schedule) everyone works to, or one of their own an admin gave
+               them. paintScheduleSource() decides, by comparing the week,
+               times and Ramadan dates; leave days are always the person's
+               own and don't count. An admin looking at someone on their own
+               schedule can put them back on the team's. -->
+          <div class="schedule-source" id="scheduleSource" hidden>
+            <span class="schedule-source-pill" id="scheduleSourcePill"></span>
+            <span class="schedule-source-hint" id="scheduleSourceHint"></span>
+            <button type="button" class="btn ghost small" id="useTeamScheduleBtn" hidden>Use the Team Schedule</button>
+          </div>
         </div>
         <fieldset class="schedule-form" id="scheduleForm">
           <legend class="visually-hidden">Your schedule</legend>
@@ -8603,16 +8712,6 @@
             <span>Changes also apply to days already logged.</span>
           </p>
 
-          <!-- Admins only (refreshSettingsPanel). In the form rather than in
-               the Save bar, so the bar stays small enough to ride along at
-               the bottom of the screen. -->
-          <label class="check-row console-scope" for="sApplyAll">
-            <input type="checkbox" id="sApplyAll">
-            <span>
-              <strong>Apply to everyone</strong>
-              <em>Save this schedule for the whole team.</em>
-            </span>
-          </label>
         </fieldset>
       </div>
 
@@ -8945,7 +9044,7 @@
           <button type="button" class="console-nav-item" role="tab" data-console-target="admin-defaults" id="cnav-admin-defaults" aria-selected="false" aria-controls="csec-admin-defaults">
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg></span>
             <span class="console-nav-text">
-              <span class="console-nav-title">Organisation Defaults</span>
+              <span class="console-nav-title">Team Schedule</span>
               <span class="console-nav-desc"><span id="adminDefaultsState">The schedule a new account starts with</span></span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -9087,8 +9186,8 @@
       <!-- ---------- Organisation defaults ---------- -->
       <div class="console-section" data-section="admin-defaults" id="csec-admin-defaults" role="tabpanel" aria-labelledby="cnav-admin-defaults" tabindex="0">
         <div class="console-section-head">
-          <h3>Organisation Defaults</h3>
-          <p>The schedule new accounts start with. Saving doesn&rsquo;t change anyone&rsquo;s existing schedule; to change one person&rsquo;s, use People &rsaquo; Edit Schedule.</p>
+          <h3>Team Schedule</h3>
+          <p>Everyone works to this unless you give them their own (People &rsaquo; Edit Schedule). New accounts start on it.</p>
         </div>
         <!-- Laid out like Settings > Schedule, field for field, so an admin
              reads one form the same way in both places: Workdays, Start and
@@ -9123,7 +9222,7 @@
 
       <div class="form-grid single-field settings-group-gap">
         <div>
-          <label for="dLeaveDays">Leave days a year</label>
+          <label for="dLeaveDays">Leave days a year for new accounts</label>
           <input type="number" id="dLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
         </div>
       </div>
@@ -9138,8 +9237,7 @@
       </div>
 
       <div class="form-actions console-commit">
-        <button type="button" class="btn" id="saveDefaultsBtn">Save Defaults</button>
-        <button type="button" class="btn ghost" id="seedSettingsBtn">Give these to people with no schedule</button>
+        <button type="button" class="btn" id="saveDefaultsBtn">Save Team Schedule</button>
       </div>
 
         </div>
@@ -9201,7 +9299,7 @@
           </label>
           <p class="settings-warn" id="registrationDefaultsHint" hidden>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
-            <span>No organisation default schedule is set — anyone who signs up will start on the
+            <span>No team schedule is set — anyone who signs up will start on the
               fallback Sun–Thu, 8h week instead of your actual hours.
               <button type="button" class="link-btn" id="registrationDefaultsHintBtn">Set it now</button>
             </span>
@@ -9615,6 +9713,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v63"></script>
+<script type="module" src="app.js?v=v64"></script>
 </body>
 </html>

@@ -1099,16 +1099,25 @@ Danger-solid uses its own fixed
 segmented controls and header actions.
 
 ### The Settings console
-Six sections, one list, no group headings: **Profile**, **Schedule**,
-**Reminders**, **Appearance**, **Sound & Haptics**, **Backup & Data**.
+Seven sections, one list, no group headings: **Profile**, **Sign-in &
+Security**, **Schedule**, **Reminders**, **Appearance**, **Sound & Haptics**,
+**Backup & Data**.
 
 **Simple first** (2026-11-17: the owner called the tab "a mess" of long
 labels, then, after a first trim, "still looks complicated"). It had eight
 sections in three groups, a heading repeating the page title, and a paragraph
 under most fields. Now:
 
-- **Six places, named the way people ask.** Profile holds name, photo, Face
-  ID / fingerprint sign-in and Sign Out. Schedule holds everything a day is
+- **Seven places, named the way people ask.** Profile holds name, photo and
+  Sign Out. Sign-in & Security (`security`, 2026-11-18, owner's request)
+  holds how you get in: the address you sign in with, Change Password (folded
+  behind its button; it needs the current password, OWASP ASVS 2.1.6,
+  checked by signing in with it and also sent to Auth as
+  `current_password`), "Forgot it? Email me a reset link", Face ID /
+  fingerprint sign-in, and Sign Out Other Devices (`signOut({scope:
+  "others"})`, which keeps this device signed in). Its nav row says whether
+  Face ID is on. An admin viewing someone sees their address and how to send
+  them a reset link, nothing to change. Schedule holds everything a day is
   measured against: the week, the start and end time (and so the daily
   target), leave days and Ramadan / shorter days. Reminders holds the notification switch for this
   device and the two reminder switches. Appearance is how the app looks (mode
@@ -1154,19 +1163,30 @@ under most fields. Now:
   admin writes `user_settings`); the reminder switches, the one part of that
   row that is a person's own, go through `set_my_reminder()`, which changes
   one reminder key on the caller's own row and nothing else. The first-run
-  link reads "Check your working week" for anyone who can't set it. New
-  accounts start on Admin › Organisation Defaults (`handle_new_user()`
-  copies it), and an admin changes one person's from Admin › People › **Edit
-  Schedule**, which waits for that person's schedule to load
+  link reads "Check your working week" for anyone who can't set it. An admin
+  changes one person's from Admin › People › **Edit Schedule**, which waits for that person's schedule to load
   (`switchViewer`) before showing the form, so their name never sits over
   the previous person's values. Nobody's existing schedule was changed by
   any of this: the migration changes who may write, not what is written.
-- **Apply to everyone carries the schedule, not people's choices.** It is a
-  row at the end of the Schedule form (admins only), so the Save bar stays
-  small enough to ride along. Applying reads everyone's current settings
-  first and keeps each person's own reminder switches; if that read fails,
-  nothing is written. A ticked `.check-row` turns amber because Apply to
-  everyone is armed when ticked.
+- **One Team Schedule; a person is on it or has their own** (2026-11-18,
+  owner: Schedule and Organisation Defaults "both serve the same purpose").
+  There were three ways to say what the team's hours were: Organisation
+  Defaults (a template copied once at sign-up, never again), Apply to
+  everyone (the Schedule form written over every row) and Give these to
+  people with no schedule. Now there is Admin › **Team Schedule**
+  (`app_settings.default_settings`): saving it moves everyone **on** it to
+  the new one, meaning anyone whose week, times and Ramadan dates match the
+  team schedule being replaced (`scheduleKey`), plus anyone with no row,
+  and leaves anyone with their own alone. Leave days and reminder switches
+  are each person's own, never part of the comparison and never
+  overwritten. It asks first, naming how many move and how many keep their
+  own; if everyone's rows can't be read first, nothing is saved. New
+  accounts start on it (`handle_new_user()` copies it). Settings › Schedule
+  says which a person is on, as a pill ("Team schedule" in the accent, "Own
+  schedule" quieter); editing someone's gives them their own, and an admin
+  can bring them back with **Use the Team Schedule**, which fills the form
+  for Save. On 2026-11-18 all 16 accounts matched the team schedule, so all
+  of them are on it.
 - **The week is one row on a phone**: "Sun" to "Sat", the full name for screen
   readers and as the tooltip. **Palettes are two to a row on a phone**, by
   picture and name; descriptions show from 760px up.
@@ -1188,7 +1208,7 @@ under most fields. Now:
     clock-in with no break taken off, so a separate "hours a day" field
     could only disagree with the two times beside it. It is gone from the
     Schedule, from each Ramadan / shorter-days card and from Admin ›
-    Organisation Defaults, and Save stores `targetMin` as End minus Start
+    Team Schedule, and Save stores `targetMin` as End minus Start
     (an End earlier than Start runs past midnight; equal is refused).
   - **The target is stated where you can't miss it** (owner: "make sure they
     are clear and noticeable for the users, so they can know this is their
@@ -1208,7 +1228,7 @@ under most fields. Now:
     it went too (owner's choice, 2026-11-18). Saved `lateOnlyIfShort` and
     `graceMin` are ignored and dropped on the next save. One line under the
     target card says the rule.
-  - **Organisation Defaults reads like Schedule**: Workdays as the same one
+  - **Team Schedule reads like Schedule**: Workdays as the same one
     row, Start and End with the daily-target card, leave days, then Ramadan
     & shorter days with "+ Ramadan" / "+ Other Dates". Its one-field
     "Lateness" and "Leave" headings went with the grace period.
