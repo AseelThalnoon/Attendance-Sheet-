@@ -3217,27 +3217,6 @@
      fit into on another engine. */
   .form-grid > div, .form-grid > fieldset{min-width:0; display:flex; flex-direction:column;}
   .form-grid > div > input, .form-grid > div > select{flex:1 1 auto;}
-  /* Two inputs, one value. They used to be two separate cells labelled "Target
-     Hours" and "Target Minutes", which read as unrelated settings sitting next
-     to each other — and let someone change the hours and leave stale minutes
-     behind, because nothing said the second field was part of the first. A
-     fieldset is the element that actually says "these belong together", and it
-     keeps a real <label for> on each input rather than trading them for an
-     aria-labelledby that would be one rename away from lying. The legend takes
-     the same caption treatment every other label in the form has. */
-  .field-pair{border:0; padding:0; margin:0;}
-  .field-pair legend{
-    display:block; padding:0; font-size:11px; text-transform:uppercase;
-    letter-spacing:.08em; color:var(--muted); margin-bottom:6px;
-  }
-  .pair-row{display:flex; gap:var(--space-2); flex:1 1 auto; align-items:stretch;}
-  .pair-unit{display:flex; align-items:center; gap:6px; flex:1 1 0; min-width:0;}
-  /* basis 0, not auto: a number input's intrinsic width is ~150px, so two of
-     them plus their unit labels overflowed the 298px single-column track and
-     clipped the "min" label off the right edge. Zero basis makes the pair
-     share whatever is left after the labels have taken their width. */
-  .pair-unit input{min-width:0; flex:1 1 0; align-self:stretch;}
-  .pair-unit label{margin-bottom:0; flex-shrink:0;}
   .form-grid .full{grid-column:1 / -1;}
   /* The entry dialog's date row: Date alone, or From and To side by side. A
      track per 170px like .form-grid itself, auto-fill so a lone Date keeps
@@ -3283,9 +3262,8 @@
     input[type="date"], input[type="time"], input[type="text"], input[type="number"],
     input[type="email"], input[type="password"], input[type="search"],
     select, textarea{ font-size:16px; }
-    /* Specificity: the seasonal card sets 12.5px through two classes, which
-       outranks the element selectors above. */
-    .season-card .form-grid input{ font-size:16px; }
+    /* The seasonal card's own 16px is with its 12.5px rule further down:
+       same specificity, so it has to come after it to win. */
   }
 
   /* Each halo is its own border's colour at low alpha. They were Atrium's
@@ -3692,11 +3670,19 @@
   /* As a paragraph (Settings' Late & Reminders, Backup & Data) it heads the
      group below it; the gap above separates one group from the last. */
   p.console-subhead{margin:0 0 var(--space-2);}
-  /* One short number on its own: a field the width of the pane for "10"
-     read as a text box. */
-  .form-grid.single{grid-template-columns:minmax(0, 260px);}
   #csec-hours .settings-warn{margin-top:var(--space-3);}
-  p.console-subhead.settings-group-gap{margin-top:var(--space-5);}
+  #pushDevicesHint:empty{display:none;}
+  p.console-subhead.settings-group-gap,
+  .form-grid.settings-group-gap{margin-top:var(--space-5);}
+  /* Schedule: Start and End, then leave and grace, are pairs: two to a row
+     wherever two fit at the 170px floor every form grid keeps, each at most
+     260px rather than half the pane. The grid's own auto-fit does the
+     counting; this only caps how wide the pair can grow. Not on phones:
+     below 481px every .form-grid stacks, because native time controls
+     collide in two columns on a real iPhone. */
+  @media (min-width:481px){
+    #csec-hours > div > .form-grid{max-width:532px;}
+  }
   /* Settings' heading is for screen readers; with no line under it either,
      the empty row would leave a gap above the console. */
   #tab-settings .console-head:has(> #settingsForLabel[hidden]){margin:0;}
@@ -3765,6 +3751,7 @@
      were left with nothing to style, so both are gone rather than sitting in
      the sheet waiting to be reused by accident. */
   .console-profile-name{margin:0; font-size:15px; font-weight:700; color:var(--ink); line-height:1.2; min-width:0;}
+  .console-profile-name[hidden]{display:none;}
   /* The buttons used to stretch to fill the row, which is right for two of
      them splitting a 230px sidebar and wrong for one of them alone in a pane:
      "Choose photo" became a 460px bar. They size to their labels now. */
@@ -3799,13 +3786,94 @@
      like it — and it should be obvious at a glance on returning to the tab,
      because the box survives a save. */
   .check-row:has(input:checked){border-color:var(--warn); background:var(--warn-bg);}
-  /* An everyday preference (a reminder, how lateness is marked) is not armed
-     when it is on, so it keeps its plain box: the warning wash made "Remind
-     me to clock in" look like an alert. */
-  .check-row.pref:has(input:checked){border-color:var(--line-soft); background:var(--ink-50);}
   .check-row > span{flex:1; min-width:0;}
   .check-row strong{display:block; font-size:12.5px; font-weight:500; color:var(--ink); text-transform:none; letter-spacing:0;}
   .check-row em{display:block; font-style:normal; font-size:11.5px; color:var(--muted-2); margin-top:4px; text-transform:none; letter-spacing:0;}
+
+  /* ---------- Settings: switch rows ----------
+     An on/off setting that takes effect at once is a switch, label on the
+     left and switch on the right, and its rows share one rounded group with
+     a hairline between them (the inset-grouped list of iOS Settings and
+     Android's preference screens). A switch never waits for a Save button:
+     NN/g's toggle guidance, because with a Save step nobody can tell whether
+     the switch they just moved has taken effect. So everything in a list
+     like this saves itself, and a form that does need Save (Schedule) uses
+     fields, not switches. The checkbox underneath stays a real checkbox,
+     announced as a switch. */
+  /* Capped, so on a wide screen the switch stays within reach of the words
+     it answers to rather than at the far edge of the pane. */
+  .setting-list{
+    margin:0; max-width:600px; border:1px solid var(--line-soft); border-radius:var(--radius-md);
+    background:var(--card); overflow:hidden;
+  }
+  .setting-list + .setting-list, * + .setting-list{margin-top:var(--space-4);}
+  .setting-row{
+    display:flex; align-items:center; gap:var(--space-3);
+    margin:0; padding:12px 16px; min-height:60px; cursor:pointer;
+    text-transform:none; letter-spacing:0; font-size:inherit; color:inherit;
+  }
+  .setting-row[hidden]{display:none;}
+  /* A hairline between visible rows only: a hidden first row must not leave
+     the next one with a rule on top. */
+  .setting-row:not([hidden]) ~ .setting-row:not([hidden]){border-top:1px solid var(--line-soft);}
+  .setting-row-text{flex:1; min-width:0;}
+  .setting-row strong{display:block; font-size:14px; font-weight:600; color:var(--ink); line-height:1.3;}
+  .setting-row em{display:block; font-style:normal; font-size:12.5px; color:var(--muted-2); margin-top:2px; line-height:1.4;}
+  .setting-row:has(input:disabled){cursor:default;}
+  .setting-row:has(input:disabled) .setting-row-text{opacity:.6;}
+
+  input.switch{
+    -webkit-appearance:none; appearance:none; flex:0 0 auto;
+    position:relative; width:46px; height:28px; min-height:0; margin:0; padding:0;
+    border:2px solid var(--muted-2); border-radius:999px; background:var(--ink-50);
+    cursor:pointer; box-shadow:none; transition:background-color .15s, border-color .15s;
+  }
+  /* Off: a small knob in the outline colour. On: the track fills with ink
+     and a larger knob in the card colour moves across. Position, size and
+     fill all change, so the state never rests on colour alone, and the ink /
+     card pair inverts with dark mode on its own. */
+  input.switch::before{
+    content:""; position:absolute; top:50%; left:4px;
+    width:14px; height:14px; border-radius:50%; background:var(--muted-2);
+    transform:translateY(-50%); transition:transform .15s, width .15s, height .15s, left .15s;
+  }
+  input.switch:checked{background:var(--ink); border-color:var(--ink);}
+  input.switch:checked::before{left:2px; width:20px; height:20px; background:var(--card); transform:translate(18px, -50%);}
+  input.switch:focus{box-shadow:none;}
+  input.switch:focus-visible{outline:2px solid var(--ink-600); outline-offset:3px;}
+  input.switch:disabled{opacity:.45; cursor:default;}
+  @media (prefers-reduced-motion: reduce){
+    input.switch, input.switch::before{transition:none;}
+  }
+
+  /* Schedule's Save, once something has changed: it rides along at the
+     bottom of the screen, saying so, rather than waiting at the end of the
+     form where a person who edited the first field never scrolls. */
+  .console-commit-group.is-dirty{
+    position:sticky; bottom:0; z-index:5;
+    margin-left:calc(-1 * var(--space-4)); margin-right:calc(-1 * var(--space-4));
+    padding:var(--space-3) var(--space-4);
+    background:var(--card); border-top:1px solid var(--line-soft);
+    box-shadow:0 -8px 20px rgba(0,0,0,.06);
+  }
+  .console-dirty-note{display:none; margin:0; font-size:13px; font-weight:600; color:var(--ink);}
+  .console-dirty-actions{display:flex; gap:var(--space-2); flex-wrap:wrap;}
+  .console-dirty-actions .btn[hidden]{display:none;}
+  .console-commit-group.is-dirty .console-dirty-note{display:block;}
+  .console-commit-group.is-dirty .form-actions{align-items:center; justify-content:space-between; margin-top:0;}
+  @media (max-width:760px){
+    /* Flush on the fixed bottom bar (61-69px tall with its home-indicator
+       padding; it sits above this, so a few px tucked under it is fine), and
+       clear of the clock button, which rises about 22px above that bar: the
+       bottom padding is the room it rises into. */
+    .console-commit-group.is-dirty{
+      bottom:calc(60px + env(safe-area-inset-bottom));
+      padding-top:var(--space-2); padding-bottom:32px;
+    }
+    .console-commit-group.is-dirty .form-actions{flex-direction:column; align-items:stretch; gap:var(--space-2);}
+    .console-commit-group.is-dirty .console-dirty-actions{flex-wrap:nowrap;}
+    .console-commit-group.is-dirty .console-dirty-actions .btn{flex:1 1 0;}
+  }
 
   .periods-section{margin-top:var(--space-6); padding-top:var(--space-4); border-top:1px solid var(--line-soft);}
   .periods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:2px;}
@@ -3832,15 +3900,23 @@
      way a card heading is, because this input IS how the period is told
      apart from the one above and below it. */
   .season-name{font-size:14.5px; font-weight:700;}
-  /* Denser than the form above it, on purpose: this repeats per period, and
-     the 10px/12.5px pair-row footprint already proven on Daily Target there
-     is the ceiling a repeating list item should spend. */
+  /* Denser than the form above it, on purpose: this repeats per period, so
+     10px gaps and 12.5px text are the ceiling a repeating list item should
+     spend. */
   .season-card .form-grid{gap:10px;}
   .season-card .form-grid input{padding:8px 8px; font-size:12.5px; min-width:0;}
+  /* 16px on a touch device, or iOS zooms the page when one of these takes
+     focus (see the pointer:coarse rule above). It used to sit with that rule,
+     before this one in the sheet, and lost to it: every Ramadan date and time
+     zoomed an iPhone in. */
+  @media (pointer: coarse){
+    .season-card .form-grid input{ font-size:16px; }
+  }
   .period-del{
     background:none; border:1px solid var(--line); color:var(--negative);
     border-radius:var(--radius-xs); cursor:pointer; padding:8px 10px; font-size:12px; height:34px; white-space:nowrap; flex-shrink:0;
   }
+  .season-card .settings-hint{margin-top:var(--space-2);}
   .periods-empty{font-size:12px; color:var(--muted-2); padding:10px 2px;}
 
   /* ---------- Log search bar ---------- */
@@ -8347,9 +8423,17 @@
           <p>Your team sees your name and photo.</p>
         </div>
         <div class="console-profile" id="photoRow">
+          <!-- The photo and its buttons on one line. A "Your profile" label used
+               to sit beside the photo, under a heading that already says
+               Profile; it is shown now only for someone else's name. -->
           <div class="console-profile-id">
             <div class="avatar lg" id="settingsAvatar"></div>
-            <p class="console-profile-name" id="settingsProfileName">Your profile</p>
+            <p class="console-profile-name" id="settingsProfileName" hidden></p>
+            <div class="console-profile-actions">
+              <button type="button" class="btn ghost small" id="photoChooseBtn">Choose Photo</button>
+              <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
+              <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
+            </div>
           </div>
           <form class="console-profile-name-form" id="displayNameForm" novalidate>
             <label for="displayNameInput">Name</label>
@@ -8359,11 +8443,6 @@
               <button type="submit" class="btn secondary small" id="displayNameSave">Save</button>
             </div>
           </form>
-          <div class="console-profile-actions">
-            <button type="button" class="btn ghost small" id="photoChooseBtn">Choose Photo</button>
-            <button type="button" class="btn ghost small" id="photoRemoveBtn" style="display:none;">Remove</button>
-            <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
-          </div>
         </div>
         <div class="profile-signin" id="passkeyBlock">
           <p class="console-subhead settings-group-gap" id="passkeyTitle">Passkeys</p>
@@ -8397,41 +8476,38 @@
             <label id="dayPickerLabel">Workdays</label>
             <div class="daypicker" id="dayPicker" role="group" aria-labelledby="dayPickerLabel"></div>
           </div>
+          <!-- The day's hours are Start to End: worked time is clock-out minus
+               clock-in with no break taken off, so a separate "hours a day"
+               could only ever disagree with these two. #sHoursNote says what
+               they add up to, as you type. -->
           <div class="form-grid">
-            <fieldset class="field-pair">
-              <legend>Hours a day</legend>
-              <div class="pair-row">
-                <span class="pair-unit"><input type="number" id="sTargetH" min="0" max="24" step="1" inputmode="numeric"><label for="sTargetH">hrs</label></span>
-                <span class="pair-unit"><input type="number" id="sTargetM" min="0" max="59" step="1" inputmode="numeric"><label for="sTargetM">min</label></span>
-              </div>
-            </fieldset>
             <div>
               <label for="sIn">Start</label>
-              <input type="time" id="sIn">
+              <input type="time" id="sIn" aria-describedby="sHoursNote">
             </div>
             <div>
               <label for="sOut">End</label>
-              <input type="time" id="sOut">
+              <input type="time" id="sOut" aria-describedby="sHoursNote">
             </div>
+          </div>
+          <p class="settings-hint" id="sHoursNote" aria-live="polite"></p>
+
+          <!-- Lateness is judged on the hours: a day that makes them is never
+               late, however it started. That used to be a switch, on for
+               everyone; it is simply the rule now. -->
+          <!-- Grace second, so on a phone (one column) the line about lateness
+               sits directly under the field it explains. -->
+          <div class="form-grid settings-group-gap">
             <div>
               <label for="sLeaveDays">Leave days a year</label>
               <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
             </div>
-          </div>
-
-          <p class="console-subhead settings-group-gap">Late arrivals</p>
-          <div class="form-grid single">
             <div>
               <label for="sGrace">Grace period (minutes)</label>
-              <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric">
+              <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric" aria-describedby="sGraceNote">
             </div>
           </div>
-          <label class="check-row pref" for="sLateOnlyShort">
-            <input type="checkbox" id="sLateOnlyShort">
-            <span>
-              <strong>Don&rsquo;t mark me late if I make up the hours</strong>
-            </span>
-          </label>
+          <p class="settings-hint" id="sGraceNote">You&rsquo;re only marked late on days you don&rsquo;t make your hours.</p>
 
           <p class="console-subhead settings-group-gap">Ramadan &amp; shorter days</p>
           <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
@@ -8448,6 +8524,17 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
             <span>Changes also apply to days already logged.</span>
           </p>
+
+          <!-- Admins only (refreshSettingsPanel). In the form rather than in
+               the Save bar, so the bar stays small enough to ride along at
+               the bottom of the screen. -->
+          <label class="check-row console-scope" for="sApplyAll">
+            <input type="checkbox" id="sApplyAll">
+            <span>
+              <strong>Apply to everyone</strong>
+              <em>Save this schedule for the whole team.</em>
+            </span>
+          </label>
         </div>
       </div>
 
@@ -8567,26 +8654,25 @@
         </div>
 
         <!-- Clocking in and out, heard and felt. Per device, like everything
-             else in this section, and instant: no Save button. The segmented
-             tray is the Mode control's, doing the same job. -->
-        <div class="appearance-group" id="punchSoundGroup">
-          <label id="punchSoundLabel">Sound</label>
-          <div class="appearance-seg" role="radiogroup" aria-labelledby="punchSoundLabel" id="punchSoundSeg">
-            <button type="button" class="appearance-seg-btn" role="radio" data-sound="on" aria-checked="true">On</button>
-            <button type="button" class="appearance-seg-btn" role="radio" data-sound="off" aria-checked="false">Off</button>
-          </div>
-          <p class="settings-hint">A chime when you clock in or out.</p>
-        </div>
-
-        <!-- Hidden where the device cannot vibrate for a web page, which is
-             every iPhone: refreshPunchFeedbackPanel() decides. -->
-        <div class="appearance-group" id="punchHapticsGroup" hidden>
-          <label id="punchHapticsLabel">Vibration</label>
-          <div class="appearance-seg" role="radiogroup" aria-labelledby="punchHapticsLabel" id="punchHapticsSeg">
-            <button type="button" class="appearance-seg-btn" role="radio" data-haptics="on" aria-checked="true">On</button>
-            <button type="button" class="appearance-seg-btn" role="radio" data-haptics="off" aria-checked="false">Off</button>
-          </div>
-          <p class="settings-hint">A buzz when you press the clock button.</p>
+             else in this section, and instant: two switches in one group,
+             the same component as Reminders. Vibration is hidden where the
+             device cannot vibrate for a web page, which is every iPhone:
+             refreshPunchFeedbackPanel() decides. -->
+        <div class="setting-list">
+          <label class="setting-row" for="punchSoundSwitch" id="punchSoundGroup">
+            <span class="setting-row-text">
+              <strong>Sound</strong>
+              <em>A chime when you clock in or out.</em>
+            </span>
+            <input type="checkbox" class="switch" role="switch" id="punchSoundSwitch" checked>
+          </label>
+          <label class="setting-row" for="punchHapticsSwitch" id="punchHapticsGroup" hidden>
+            <span class="setting-row-text">
+              <strong>Vibration</strong>
+              <em>A buzz when you press the clock button.</em>
+            </span>
+            <input type="checkbox" class="switch" role="switch" id="punchHapticsSwitch" checked>
+          </label>
         </div>
       </div>
 
@@ -8602,32 +8688,35 @@
           <p>A nudge when you forget to clock in or out.</p>
         </div>
         <div>
-          <div id="pushToggleRow" hidden>
-            <label class="check-row pref" for="sPushEnabled" style="margin-top:0;">
-              <input type="checkbox" id="sPushEnabled">
-              <span>
-                <strong>Notifications on this device</strong>
-                <em>Turn them on separately on each device you use.</em>
+          <!-- Three switches, each taking effect the moment it moves: this
+               device's notifications at once, and the two reminders saved
+               on the spot (saveReminderChoice). Nothing here waits for Save.
+               The two reminders follow one rule: 30 minutes after the
+               moment the day says you should have acted (REMINDER_GRACE_MIN). -->
+          <div class="setting-list">
+            <label class="setting-row" for="sPushEnabled" id="pushToggleRow" hidden>
+              <span class="setting-row-text">
+                <strong>Notifications</strong>
+                <em>For this device. Turn them on on each device you use.</em>
               </span>
+              <input type="checkbox" class="switch" role="switch" id="sPushEnabled">
             </label>
-            <p class="settings-hint" id="pushStatusHint" hidden></p>
+            <label class="setting-row" for="sRemindIn">
+              <span class="setting-row-text">
+                <strong>Clock-in reminder</strong>
+                <em>If you haven&rsquo;t clocked in 30 minutes after your start time.</em>
+              </span>
+              <input type="checkbox" class="switch" role="switch" id="sRemindIn">
+            </label>
+            <label class="setting-row" for="sRemindOut">
+              <span class="setting-row-text">
+                <strong>Clock-out reminder</strong>
+                <em>If you&rsquo;re still clocked in 30 minutes after your hours are done.</em>
+              </span>
+              <input type="checkbox" class="switch" role="switch" id="sRemindOut">
+            </label>
           </div>
-          <!-- The same rule, both ways: 30 minutes after the moment the day
-               says you should have acted (REMINDER_GRACE_MIN). -->
-          <label class="check-row pref" for="sRemindIn">
-            <input type="checkbox" id="sRemindIn">
-            <span>
-              <strong>Remind me to clock in</strong>
-              <em>If I haven&rsquo;t clocked in 30 minutes after my start time.</em>
-            </span>
-          </label>
-          <label class="check-row pref" for="sRemindOut">
-            <input type="checkbox" id="sRemindOut">
-            <span>
-              <strong>Remind me to clock out</strong>
-              <em>If I&rsquo;m still clocked in 30 minutes after my hours are done.</em>
-            </span>
-          </label>
+          <p class="settings-hint" id="pushStatusHint" hidden></p>
           <!-- About THIS browser vs. every device: switch it on at a desk and
                the phone in your pocket still has nothing. This list says so. -->
           <div id="pushDevicesWrap" hidden>
@@ -8681,16 +8770,17 @@
                "Apply to everyone" sits with Save rather than at the top of the
                pane: it does not change any field above it, it changes who Save
                writes to. -->
-          <div class="console-commit-group" data-for-sections="hours notifications">
-            <label class="check-row console-scope" for="sApplyAll">
-              <input type="checkbox" id="sApplyAll">
-              <span>
-                <strong>Apply to everyone</strong>
-                <em>Save these settings for the whole team.</em>
-              </span>
-            </label>
+          <!-- Schedule only, since Reminders became switches that save
+               themselves. Once a field changes the group sticks to the
+               bottom of the screen and says so (setScheduleDirty), with a
+               way to put the saved values back. -->
+          <div class="console-commit-group" data-for-sections="hours">
             <div class="form-actions">
-              <button type="button" class="btn" id="saveSettingsBtn">Save Settings</button>
+              <p class="console-dirty-note" id="settingsDirtyNote" aria-live="polite">Unsaved changes</p>
+              <span class="console-dirty-actions">
+                <button type="button" class="btn ghost" id="discardSettingsBtn" hidden>Discard</button>
+                <button type="button" class="btn" id="saveSettingsBtn">Save Settings</button>
+              </span>
             </div>
           </div>
         </div><!-- /.console-pane -->
@@ -8921,14 +9011,9 @@
         <label id="defaultsDaysLabel">Working Days</label>
         <div class="daypicker" id="defaultsDayPicker" role="group" aria-labelledby="defaultsDaysLabel"></div>
       </div>
+      <!-- No Daily Target field: the day's hours are Standard Start to
+           Standard End, the same rule as everyone's own Schedule. -->
       <div class="form-grid" id="adminDefaultsGrid">
-          <fieldset class="field-pair">
-            <legend>Daily Target</legend>
-            <div class="pair-row">
-              <span class="pair-unit"><input type="number" id="dTargetH" min="0" max="24" step="1" inputmode="numeric"><label for="dTargetH">hrs</label></span>
-              <span class="pair-unit"><input type="number" id="dTargetM" min="0" max="59" step="1" inputmode="numeric"><label for="dTargetM">min</label></span>
-            </div>
-          </fieldset>
         <div>
           <label for="dIn">Standard Start</label>
           <input type="time" id="dIn">
@@ -9443,6 +9528,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v58"></script>
+<script type="module" src="app.js?v=v59"></script>
 </body>
 </html>

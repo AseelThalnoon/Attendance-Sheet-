@@ -633,16 +633,18 @@ async function boot(browser, server, query){
   {
     const s = await page.evaluate(() => ({
       days: [...document.querySelectorAll("#defaultsDayPicker input")].map(i => i.checked),
-      targetH: document.getElementById("dTargetH").value,
-      targetM: document.getElementById("dTargetM").value,
+      targetField: !!document.getElementById("dTargetH") || !!document.getElementById("dTargetM"),
       start: document.getElementById("dIn").value,
+      end: document.getElementById("dOut").value,
       leave: document.getElementById("dLeaveDays").value,
       state: document.getElementById("adminDefaultsState").textContent,
     }));
     ok(s.days.join(",") === "false,true,true,true,true,true,false",
       "the defaults form loads the stored working week", JSON.stringify(s.days));
-    ok(s.targetH === "7" && s.targetM === "30", "450 minutes renders as 7h 30m", JSON.stringify(s));
-    ok(s.start === "09:00" && s.leave === "25", "stored start time and leave allowance load", JSON.stringify(s));
+    // No Daily Target field: the day's hours are Standard Start to Standard End.
+    ok(!s.targetField, "there is no separate daily-target field", JSON.stringify(s));
+    ok(s.start === "09:00" && s.end === "17:00" && s.leave === "25",
+      "stored start and end times and leave allowance load", JSON.stringify(s));
     ok(/^Set/.test(s.state), "a configured default is reported as set", s.state);
   }
 

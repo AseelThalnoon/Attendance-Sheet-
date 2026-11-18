@@ -2007,7 +2007,10 @@ import { makeSchedule } from "./src/schedule.js";
     if(!rows.length){
       list.innerHTML = '<p class="settings-hint" style="margin:0;">No devices yet — notifications ' +
         'would not reach ' + escapeHtml(pronounObj) + ' anywhere.</p>';
-      hint.textContent = isOwnData ? enableInstructionsFor() : "";
+      // No how-to here. It repeated, word for word, what the line under the
+      // switch already says where that matters (an iPhone not yet on the Home
+      // Screen), and told a person whose switch is blocked to "turn this on".
+      hint.textContent = "";
       return;
     }
 
@@ -2092,10 +2095,12 @@ import { makeSchedule } from "./src/schedule.js";
     // an admin too, so it still has to run on this path rather than bailing
     // out with it.
     row.hidden = !isOwnData;
-    if(!isOwnData){ await refreshPushDevices(); return; }
+    var hint = document.getElementById("pushStatusHint");
+    // The status line sits under the switch list rather than inside the row,
+    // so it has to be hidden with the row.
+    if(!isOwnData){ hint.hidden = true; await refreshPushDevices(); return; }
 
     var box = document.getElementById("sPushEnabled");
-    var hint = document.getElementById("pushStatusHint");
     if(!pushSupported()){
       box.checked = false; box.disabled = true;
       hint.hidden = false;
@@ -2145,6 +2150,37 @@ import { makeSchedule } from "./src/schedule.js";
     }
     await refreshPushToggle();
   });
+
+  // The two reminder switches save the moment they move. They used to wait
+  // for Save Settings beside a notifications switch that did not, which is
+  // the mix NN/g's toggle guidance warns against: nobody can tell which
+  // switch has taken effect. Only this one field is written, over the
+  // schedule as last SAVED (`settings`), so half-typed Schedule edits are
+  // neither saved by this nor wiped by it.
+  async function saveReminderChoice(box, key, name){
+    var on = box.checked;
+    function undo(msg){ box.checked = !on; showToast(msg, "error"); }
+    if(!isAdmin && !isOwnData) return undo("You can only change your own reminders.");
+    if(dataLoadFailed()) return undo("These settings didn't load, so this can't be saved yet. Use Try Again at the top of the screen first.");
+    if(deviceCopyShowing && isOwnData) return undo("This is the copy saved on this device. Wait for the app to reconnect, then try again.");
+    var patch = {}; patch[key] = on;
+    var updated = normalizeSettings(Object.assign({}, settings, patch));
+    var forUser = viewedUserId;
+    box.disabled = true;
+    try{
+      await sbSaveSettings(forUser, updated);
+      // Still looking at the same person: keep the in-memory copy in step.
+      if(viewedUserId === forUser) settings = updated;
+      if(teamSettingsCache) teamSettingsCache[forUser] = updated;
+      showToast(name + (on ? " on." : " off."), "success");
+    }catch(err){
+      undo("Couldn't save the " + name.toLowerCase() + ": " + friendlyError(err));
+    }finally{
+      box.disabled = false;
+    }
+  }
+  onId("sRemindIn", "change", function(){ saveReminderChoice(this, "remindClockIn", "Clock-in reminder"); });
+  onId("sRemindOut", "change", function(){ saveReminderChoice(this, "remindClockOut", "Clock-out reminder"); });
 
   // ---------- Passkeys ----------
   // Supabase Auth's own passkeys (WebAuthn, opted into at createClient): sign
@@ -2723,28 +2759,19 @@ import { makeSchedule } from "./src/schedule.js";
       var box = document.getElementById("wd"+i);
       if(box) box.checked = settings.workDays.indexOf(i) !== -1;
     });
-    document.getElementById("sTargetH").value = Math.floor(settings.targetMin / 60);
-    document.getElementById("sTargetM").value = settings.targetMin % 60;
     document.getElementById("sIn").value = settings.standardIn;
     document.getElementById("sOut").value = settings.standardOut;
+    syncHoursNote();
     var remindOut = document.getElementById("sRemindOut");
     if(remindOut) remindOut.checked = settings.remindClockOut !== false;
     var remindIn = document.getElementById("sRemindIn");
     if(remindIn) remindIn.checked = settings.remindClockIn !== false;
     document.getElementById("sGrace").value = settings.graceMin;
     document.getElementById("sLeaveDays").value = settings.annualLeaveDays;
-    document.getElementById("sLateOnlyShort").checked = settings.lateOnlyIfShort;
     renderPeriodRows(settings.periods);
+    // The form now says exactly what is saved.
+    setScheduleDirty(false);
 
-    // A section the console isn't showing has to say on its nav row that it
-    // holds something, or a configured seasonal schedule is invisible until you
-    // happen to click it. This is what the collapsed accordion's count used to
-    // do; it now rides on the nav description instead of a heading.
-    setNavDesc("cnavDescSeasonal", settings.periods.length
-      ? settings.periods.length + (settings.periods.length === 1 ? " period set" : " periods set")
-      : "None set");
-    setNavDesc("cnavDescPunctuality", settings.graceMin + " min grace \u00b7 reminder " +
-      (settings.remindClockIn !== false ? "on" : "off"));
     setNavDesc("cnavDescHours",
       settings.workDays.length + " days · " + minutesToHoursStr(settings.targetMin) + " · from " + settings.standardIn);
     // Your name is what the rest of the team sees on the roster and in the
@@ -2786,7 +2813,9 @@ import { makeSchedule } from "./src/schedule.js";
         + (isOwnData ? "yours" : who + "'s") + " — saving is blocked until it loads."
       : (isOwnData ? "" : "Editing the settings for " + who + ".");
     forLabel.hidden = !forLabel.textContent;
-    document.getElementById("settingsProfileName").textContent = isOwnData ? "Your profile" : who;
+    var profileName = document.getElementById("settingsProfileName");
+    profileName.textContent = isOwnData ? "" : who;
+    profileName.hidden = isOwnData;
     // Own profile only. The RLS policy would let an admin rename anyone, but
     // renaming a teammate is a different feature from setting your own name and
     // this screen does not offer it.
@@ -3114,6 +3143,9 @@ import { makeSchedule } from "./src/schedule.js";
   // read as the same pair of words twice — easy to tell apart once you know
   // one is a date input and the other a time input, not before. Starts/Ends
   // vs Clock In/Clock Out don't share that ambiguity.
+  //
+  // No "Daily Target" here either: like the main schedule, a period's hours
+  // are its Clock In to its Clock Out, and the line under them says the sum.
   function periodRowHtml(p){
     return '<div class="season-card" data-period>' +
       '<div class="season-card-head">' +
@@ -3122,20 +3154,70 @@ import { makeSchedule } from "./src/schedule.js";
         '<button type="button" class="period-del" data-remove-period>Remove</button>' +
       '</div>' +
       '<div class="form-grid">' +
-        '<fieldset class="field-pair">' +
-          '<legend>Daily Target</legend>' +
-          '<div class="pair-row">' +
-            '<span class="pair-unit"><input type="number" data-p="th" min="0" max="24" step="1" value="'+Math.floor(p.targetMin/60)+'"><label>hrs</label></span>' +
-            '<span class="pair-unit"><input type="number" data-p="tm" min="0" max="59" step="1" value="'+(p.targetMin%60)+'"><label>min</label></span>' +
-          '</div>' +
-        '</fieldset>' +
         '<div><label>Starts</label><input type="date" data-p="start" value="'+escapeAttr(p.start)+'"></div>' +
         '<div><label>Ends</label><input type="date" data-p="end" value="'+escapeAttr(p.end)+'"></div>' +
         '<div><label>Clock In</label><input type="time" data-p="in" value="'+escapeAttr(p.standardIn)+'"></div>' +
         '<div><label>Clock Out</label><input type="time" data-p="out" value="'+escapeAttr(p.standardOut)+'"></div>' +
       '</div>' +
+      '<p class="settings-hint" data-p-hours>'+escapeHtml(hoursNoteText(p.standardIn, p.standardOut))+'</p>' +
     '</div>';
   }
+
+  // A day's hours are its Start to its End. Worked time is clock-out minus
+  // clock-in with nothing taken off for a break, so the target is measured
+  // the same way and can't disagree with the times it sits beside. An End
+  // earlier than the Start runs past midnight.
+  function spanMin(startStr, endStr){
+    if(!startStr || !endStr) return 0;
+    var d = timeToMinutes(endStr) - timeToMinutes(startStr);
+    return d < 0 ? d + 24*60 : d;
+  }
+  function hoursNoteText(startStr, endStr){
+    var m = spanMin(startStr, endStr);
+    return m > 0 ? minutesToHoursStr(m) + " a day" : "End has to be after Start.";
+  }
+  function syncHoursNote(){
+    var note = document.getElementById("sHoursNote");
+    if(note) note.textContent = hoursNoteText(document.getElementById("sIn").value,
+                                              document.getElementById("sOut").value);
+  }
+  ["input", "change"].forEach(function(type){
+    onId("sIn", type, syncHoursNote);
+    onId("sOut", type, syncHoursNote);
+  });
+
+  // Schedule is the one form in Settings that waits for Save. Once anything
+  // in it changes, the Save bar sticks to the bottom of the screen, says
+  // "Unsaved changes" and offers Discard: a Save button at the end of a long
+  // form is one that a person who edited the first field never scrolls to.
+  // fillSettingsForm() clears it, so a save, a discard or a fresh load all
+  // leave the form clean. "Apply to everyone" is not an edit to the form.
+  function setScheduleDirty(on){
+    var group = document.querySelector('#settingsConsole .console-commit-group');
+    if(group) group.classList.toggle("is-dirty", !!on);
+    var discard = document.getElementById("discardSettingsBtn");
+    if(discard) discard.hidden = !on;
+  }
+  ["input", "change"].forEach(function(type){
+    onId("csec-hours", type, function(ev){
+      if(ev.target && ev.target.id !== "sApplyAll") setScheduleDirty(true);
+    });
+  });
+  onId("discardSettingsBtn", "click", function(){
+    fillSettingsForm();
+    showToast("Changes discarded.", "info");
+  });
+  // The same line on each seasonal card, for both editors (yours and the
+  // organisation defaults).
+  ["periodsList", "defaultsPeriodsList"].forEach(function(id){
+    onId(id, "input", function(ev){
+      var card = ev.target.closest("[data-period]");
+      var note = card && card.querySelector("[data-p-hours]");
+      if(!note) return;
+      note.textContent = hoursNoteText(card.querySelector('[data-p="in"]').value,
+                                       card.querySelector('[data-p="out"]').value);
+    });
+  });
 
   function renderPeriodRows(list, containerId){
     var wrap = document.getElementById(containerId || "periodsList");
@@ -3153,13 +3235,11 @@ import { makeSchedule } from "./src/schedule.js";
         var el = row.querySelector('[data-p="'+k+'"]');
         return el ? el.value : "";
       }
-      var th = parseInt(val("th"), 10); if(isNaN(th)) th = 0;
-      var tm = parseInt(val("tm"), 10); if(isNaN(tm)) tm = 0;
       out.push({
         name: val("name"),
         start: val("start"),
         end: val("end"),
-        targetMin: th*60 + tm,
+        targetMin: spanMin(val("in"), val("out")),
         standardIn: val("in"),
         standardOut: val("out")
       });
@@ -3176,8 +3256,8 @@ import { makeSchedule } from "./src/schedule.js";
       var p = rawPeriods[i], where = "Seasonal period " + (i+1) + (p.name ? ' ("'+p.name+'")' : "");
       if(!p.start || !p.end) return where + " needs both a start and end date.";
       if(p.start > p.end) return where + " ends before it starts.";
-      if(p.targetMin <= 0) return where + " needs a daily target greater than zero.";
-      if(p.targetMin > 24*60) return where + " has a target over 24 hours.";
+      if(!p.standardIn || !p.standardOut) return where + " needs a clock-in and a clock-out time.";
+      if(p.targetMin <= 0) return where + " needs a clock-out time after its clock-in time.";
       for(var j=0;j<i;j++){
         var q = rawPeriods[j];
         if(p.start <= q.end && q.start <= p.end) return where + " overlaps another period. Date ranges can't overlap.";
@@ -3206,7 +3286,7 @@ import { makeSchedule } from "./src/schedule.js";
       return !current.some(function(p){ return p.start === r.start; });
     });
     if(!next){
-      showToast("Ramadan is already set up for the years available. Use \"+ Add Period\" to add another range manually.", "info");
+      showToast("Ramadan is already set up for the years available. Use \"+ Other Dates\" to add another range.", "info");
       return;
     }
 
@@ -3224,6 +3304,7 @@ import { makeSchedule } from "./src/schedule.js";
       standardOut: pad2(Math.floor(endMin/60)) + ":" + pad2(endMin%60)
     });
     renderPeriodRows(current);
+    setScheduleDirty(true);
 
     var rows = document.querySelectorAll("#periodsList [data-period]");
     if(rows.length) rows[rows.length-1].scrollIntoView({behavior:"smooth", block:"nearest"});
@@ -3233,12 +3314,9 @@ import { makeSchedule } from "./src/schedule.js";
     var wrap = document.getElementById("periodsList");
     var current = readPeriodRows();
     var year = new Date().getFullYear();
-    current.push({
-      name:"", start:year+"-01-01", end:year+"-01-31",
-      targetMin: Math.round(settings.targetMin * 0.75),
-      standardIn: settings.standardIn, standardOut: settings.standardOut
-    });
+    current.push(shorterPeriod(year, settings));
     renderPeriodRows(current);
+    setScheduleDirty(true);
     var rows = wrap.querySelectorAll("[data-period]");
     if(rows.length) rows[rows.length-1].querySelector('[data-p="name"]').focus();
   });
@@ -3252,6 +3330,7 @@ import { makeSchedule } from "./src/schedule.js";
     var current = readPeriodRows();
     if(idx !== -1) current.splice(idx, 1);
     renderPeriodRows(current);
+    setScheduleDirty(true);
   });
 
   // Admin > Organisation Defaults' own seasonal-periods editor — same
@@ -3259,12 +3338,21 @@ import { makeSchedule } from "./src/schedule.js";
   // instead of the viewer's personal `settings` (this edits what a brand new
   // account starts with, not anyone's live schedule).
   function currentDefaultsSchedule(){
-    var th = parseInt(document.getElementById("dTargetH").value, 10);
-    var tm = parseInt(document.getElementById("dTargetM").value, 10);
+    var sin = document.getElementById("dIn").value || DEFAULT_SETTINGS.standardIn;
+    var sout = document.getElementById("dOut").value || DEFAULT_SETTINGS.standardOut;
+    return { targetMin: spanMin(sin, sout) || DEFAULT_SETTINGS.targetMin, standardIn: sin, standardOut: sout };
+  }
+
+  // "+ Other Dates": a month of shorter days to edit, three quarters of the
+  // usual hours from the usual start. The hours are the times, so the
+  // shorter day is a shorter Clock Out rather than a separate number.
+  function shorterPeriod(year, base){
+    var mins = Math.round((spanMin(base.standardIn, base.standardOut) || base.targetMin) * 0.75);
+    var endMin = (timeToMinutes(base.standardIn) + mins) % (24*60);
     return {
-      targetMin: (isNaN(th)?8:th)*60 + (isNaN(tm)?0:tm),
-      standardIn: document.getElementById("dIn").value || DEFAULT_SETTINGS.standardIn,
-      standardOut: document.getElementById("dOut").value || DEFAULT_SETTINGS.standardOut
+      name:"", start:year+"-01-01", end:year+"-01-31", targetMin: mins,
+      standardIn: base.standardIn,
+      standardOut: pad2(Math.floor(endMin/60)) + ":" + pad2(endMin%60)
     };
   }
 
@@ -3299,13 +3387,8 @@ import { makeSchedule } from "./src/schedule.js";
   onId("addDefaultsPeriodBtn", "click", function(){
     var wrap = document.getElementById("defaultsPeriodsList");
     var current = readPeriodRows("defaultsPeriodsList");
-    var base = currentDefaultsSchedule();
     var year = new Date().getFullYear();
-    current.push({
-      name:"", start:year+"-01-01", end:year+"-01-31",
-      targetMin: Math.round(base.targetMin * 0.75),
-      standardIn: base.standardIn, standardOut: base.standardOut
-    });
+    current.push(shorterPeriod(year, currentDefaultsSchedule()));
     renderPeriodRows(current, "defaultsPeriodsList");
     var rows = wrap.querySelectorAll("[data-period]");
     if(rows.length) rows[rows.length-1].querySelector('[data-p="name"]').focus();
@@ -3376,19 +3459,19 @@ import { makeSchedule } from "./src/schedule.js";
     });
     if(!days.length){ showToast("Pick at least one working day.", "error"); return; }
 
-    var th = parseInt(document.getElementById("sTargetH").value, 10);
-    var tm = parseInt(document.getElementById("sTargetM").value, 10);
-    if(isNaN(th)) th = 0;
-    if(isNaN(tm)) tm = 0;
-    if(th < 0 || tm < 0 || tm > 59){
-      showToast("Minutes must be between 0 and 59.", "error");
-      markFieldInvalid(th < 0 ? "sTargetH" : "sTargetM");
+    var standardIn = document.getElementById("sIn").value;
+    var standardOut = document.getElementById("sOut").value;
+    if(!standardIn || !standardOut){
+      showToast("Set both a Start and an End time.", "error");
+      markFieldInvalid(!standardIn ? "sIn" : "sOut");
       return;
     }
-    var targetMin = th*60 + tm;
-    if(targetMin <= 0){ showToast("Set a daily target greater than zero.", "error"); return; }
-    if(targetMin > 24*60){ showToast("A daily target can't exceed 24 hours.", "error"); return; }
-
+    var targetMin = spanMin(standardIn, standardOut);
+    if(targetMin <= 0){
+      showToast("End has to be after Start.", "error");
+      markFieldInvalid("sOut");
+      return;
+    }
 
     var grace = parseInt(document.getElementById("sGrace").value, 10);
     if(isNaN(grace) || grace < 0 || grace > 240) grace = DEFAULT_SETTINGS.graceMin;
@@ -3426,13 +3509,10 @@ import { makeSchedule } from "./src/schedule.js";
     var updated = Object.assign({}, settings, {
       workDays: days,
       targetMin: targetMin,
-      standardIn: document.getElementById("sIn").value || DEFAULT_SETTINGS.standardIn,
-      standardOut: document.getElementById("sOut").value || DEFAULT_SETTINGS.standardOut,
-      remindClockOut: !document.getElementById("sRemindOut") || document.getElementById("sRemindOut").checked,
-      remindClockIn: !document.getElementById("sRemindIn") || document.getElementById("sRemindIn").checked,
+      standardIn: standardIn,
+      standardOut: standardOut,
       graceMin: grace,
       annualLeaveDays: leaveDays,
-      lateOnlyIfShort: document.getElementById("sLateOnlyShort").checked,
       periods: rawPeriods
     });
     updated = normalizeSettings(updated);
@@ -3450,10 +3530,32 @@ import { makeSchedule } from "./src/schedule.js";
       if(!confirmed) return;
 
       btn.disabled = true;
+      // The schedule is the team's; the reminder switches are each person's
+      // own (they are in Reminders now, not in this form). So each person
+      // keeps theirs, read fresh rather than from a cache that may predate
+      // someone switching one off. If that read fails nothing is written:
+      // guessing would switch people's reminders back on.
+      var ownReminders = {};
+      try{
+        var current = await supabase.from("user_settings").select("user_id,settings");
+        if(current.error) throw current.error;
+        (current.data || []).forEach(function(r){
+          var s = normalizeSettings(r.settings);
+          ownReminders[r.user_id] = { remindClockIn: s.remindClockIn, remindClockOut: s.remindClockOut };
+        });
+      }catch(err){
+        btn.disabled = false;
+        showToast("Couldn't read the team's current settings, so nothing was applied: " + friendlyError(err), "error");
+        return;
+      }
+      teamSettingsCache = null;
+      function forPerson(id){
+        return Object.assign({}, updated, ownReminders[id] || { remindClockIn: true, remindClockOut: true });
+      }
       var done = 0, failed = 0, failedNames = [];
       for(var k=0;k<allProfiles.length;k++){
         try{
-          await sbSaveSettings(allProfiles[k].id, updated);
+          await sbSaveSettings(allProfiles[k].id, forPerson(allProfiles[k].id));
           done++;
         }catch(err){
           failed++;
@@ -3470,7 +3572,7 @@ import { makeSchedule } from "./src/schedule.js";
       document.getElementById("sApplyAll").checked = false;
       syncApplyAllScope();
 
-      if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = updated;
+      if(allProfiles.some(function(p){ return p.id === viewedUserId; })) settings = forPerson(viewedUserId);
       renderAll();
       // Naming who failed, because "2 failed" is a number you cannot act on:
       // the whole point of the message is knowing whose schedule is now out of
@@ -6975,16 +7077,10 @@ import { makeSchedule } from "./src/schedule.js";
 
   // The two switches in Settings > Appearance.
   function refreshPunchFeedbackPanel(){
-    [["punchSoundSeg", "data-sound", punchFeedback.sound],
-     ["punchHapticsSeg", "data-haptics", punchFeedback.haptics]].forEach(function(row){
-      var seg = document.getElementById(row[0]);
-      if(!seg) return;
-      Array.prototype.forEach.call(seg.querySelectorAll("[" + row[1] + "]"), function(btn){
-        var on = (btn.getAttribute(row[1]) === "on") === row[2];
-        btn.setAttribute("aria-checked", on ? "true" : "false");
-        btn.tabIndex = on ? 0 : -1;
-      });
-    });
+    var sound = document.getElementById("punchSoundSwitch");
+    if(sound) sound.checked = !!punchFeedback.sound;
+    var haptics = document.getElementById("punchHapticsSwitch");
+    if(haptics) haptics.checked = !!punchFeedback.haptics;
     // No switch for something this device cannot do.
     var hapticsGroup = document.getElementById("punchHapticsGroup");
     if(hapticsGroup) hapticsGroup.hidden = !punchHapticsAvailable();
@@ -6998,16 +7094,16 @@ import { makeSchedule } from "./src/schedule.js";
   // Wired here rather than beside the palette's controls, which run a few
   // thousand lines earlier: everything these touch is declared in this
   // section, and a `var` is not yet a value above the line that assigns it.
-  // Choosing On plays what was chosen -- the choice is a press, so the browser
-  // allows it, and nobody should have to clock in to find out what they just
-  // switched on.
-  initRadioGroup(document.getElementById("punchSoundSeg"), "data-sound", function(value){
-    setPunchFeedback("sound", value === "on");
-    if(value === "on"){ primePunchSound(); playPunchSound("in"); }
+  // Switching on plays what was chosen -- the choice is a press, so the
+  // browser allows it, and nobody should have to clock in to find out what
+  // they just switched on. That is also the switch's feedback that it took.
+  onId("punchSoundSwitch", "change", function(){
+    setPunchFeedback("sound", this.checked);
+    if(this.checked){ primePunchSound(); playPunchSound("in"); }
   });
-  initRadioGroup(document.getElementById("punchHapticsSeg"), "data-haptics", function(value){
-    setPunchFeedback("haptics", value === "on");
-    if(value === "on") punchBuzz(PUNCH_BUZZ_SAVED);
+  onId("punchHapticsSwitch", "change", function(){
+    setPunchFeedback("haptics", this.checked);
+    if(this.checked) punchBuzz(PUNCH_BUZZ_SAVED);
   });
   refreshPunchFeedbackPanel();
 
@@ -11908,8 +12004,9 @@ import { makeSchedule } from "./src/schedule.js";
       ["Target", "targetMin", minutesToHoursStr],
       ["Grace", "graceMin", function(v){ return v + "m"; }],
       ["Remind after", "remindAfterHours", function(v){ return v + "h"; }],
-      ["Annual leave", "annualLeaveDays", function(v){ return v + "d"; }],
-      ["Late only if short", "lateOnlyIfShort", function(v){ return v ? "on" : "off"; }]
+      ["Annual leave", "annualLeaveDays", function(v){ return v + "d"; }]
+      // "Late only if short" is not listed: it stopped being a setting, and
+      // normalizeSettings() drops it from old and new alike.
     ].forEach(function(f){
       var d = isNew ? f[0] + ": " + f[2](newV[f[1]]) : fieldDiff(f[0], oldV[f[1]], newV[f[1]], f[2]);
       if(d) bits.push(d);
@@ -12366,8 +12463,6 @@ import { makeSchedule } from "./src/schedule.js";
       var box = document.getElementById("dwd"+i);
       if(box) box.checked = d.workDays.indexOf(i) !== -1;
     });
-    document.getElementById("dTargetH").value = Math.floor(d.targetMin / 60);
-    document.getElementById("dTargetM").value = d.targetMin % 60;
     document.getElementById("dIn").value = d.standardIn;
     document.getElementById("dOut").value = d.standardOut;
     document.getElementById("dGrace").value = d.graceMin;
@@ -12390,16 +12485,14 @@ import { makeSchedule } from "./src/schedule.js";
       showToast("Pick at least one working day.", "error");
       return null;
     }
-    var h = parseInt(document.getElementById("dTargetH").value, 10);
-    var m = parseInt(document.getElementById("dTargetM").value, 10);
-    if(isNaN(h)) h = 0;
-    if(isNaN(m)) m = 0;
-    if(h < 0 || m < 0 || m > 59){
-      showToast("Minutes must be between 0 and 59.", "error");
+    var sin = document.getElementById("dIn").value;
+    var sout = document.getElementById("dOut").value;
+    if(!sin || !sout){
+      showToast("Set both a Standard Start and a Standard End.", "error");
       return null;
     }
-    if(h === 0 && m === 0){
-      showToast("A target of zero would make every worked day look like overtime.", "error");
+    if(spanMin(sin, sout) <= 0){
+      showToast("Standard End has to be after Standard Start.", "error");
       return null;
     }
     var rawPeriods = readPeriodRows("defaultsPeriodsList");
@@ -12410,9 +12503,9 @@ import { makeSchedule } from "./src/schedule.js";
     // default by the back door.
     return normalizeSettings({
       workDays: days,
-      targetMin: h * 60 + m,
-      standardIn: document.getElementById("dIn").value || DEFAULT_SETTINGS.standardIn,
-      standardOut: document.getElementById("dOut").value || DEFAULT_SETTINGS.standardOut,
+      targetMin: spanMin(sin, sout),
+      standardIn: sin,
+      standardOut: sout,
       graceMin: document.getElementById("dGrace").value,
       annualLeaveDays: document.getElementById("dLeaveDays").value,
       periods: rawPeriods

@@ -480,21 +480,22 @@ function ok(cond, name, detail){
       `${opts.length} options; orphans ${JSON.stringify(orphans)}; mismatched ${JSON.stringify(mismatched)}`);
   }
   {
-    // The hours and minutes of the daily target are two inputs for one value.
-    // They were grouped into a fieldset so they stop reading as unrelated
-    // settings; the grouping must not have cost either input its own label,
-    // which is the usual casualty of that refactor.
-    const r = await page.evaluate(() => ["sTargetH","sTargetM","dTargetH","dTargetM"].map(id => {
-      const el = document.getElementById(id);
-      if(!el) return {id, ok:false, why:"missing"};
-      const lab = document.querySelector(`label[for="${id}"]`);
-      const group = el.closest("fieldset");
-      const legend = group && group.querySelector("legend");
-      return {id, ok: !!(lab && lab.textContent.trim() && legend && legend.textContent.trim()),
-              label: lab && lab.textContent.trim(), legend: legend && legend.textContent.trim()};
+    // The day's hours are its Start to its End. A separate hours/minutes
+    // target sat beside them and could only ever disagree with them (worked
+    // time is clock-out minus clock-in, nothing taken off), so it is gone from
+    // the Schedule, the seasonal cards and the organisation defaults, and the
+    // line under Start/End says what they add up to.
+    const r = await page.evaluate(() => ({
+      gone: ["sTargetH","sTargetM","dTargetH","dTargetM"].filter(id => document.getElementById(id)),
+      periodTargets: document.querySelectorAll('[data-p="th"], [data-p="tm"]').length,
+      note: (document.getElementById("sHoursNote") || {}).textContent,
+      labelled: ["sIn","sOut"].every(id => {
+        const lab = document.querySelector(`label[for="${id}"]`);
+        return !!(lab && lab.textContent.trim());
+      })
     }));
-    ok(r.every(x => x.ok),
-      "both halves of the daily target keep a real label inside one named group",
+    ok(r.gone.length === 0 && r.periodTargets === 0 && r.labelled && r.note === "8h a day",
+      "no separate daily-target field: Start and End are labelled and the note under them gives the hours",
       JSON.stringify(r));
   }
   {
