@@ -3674,15 +3674,40 @@
   #pushDevicesHint:empty{display:none;}
   p.console-subhead.settings-group-gap,
   .form-grid.settings-group-gap{margin-top:var(--space-5);}
-  /* Schedule: Start and End, then leave and grace, are pairs: two to a row
-     wherever two fit at the 170px floor every form grid keeps, each at most
-     260px rather than half the pane. The grid's own auto-fit does the
+  /* Schedule: Start and End are a pair: two to a row wherever two fit at
+     the 170px floor every form grid keeps, each at most 260px rather than
+     half the pane. The grid's own auto-fit does the
      counting; this only caps how wide the pair can grow. Not on phones:
      below 481px every .form-grid stacks, because native time controls
      collide in two columns on a real iPhone. */
   @media (min-width:481px){
-    #csec-hours > div > .form-grid{max-width:532px;}
+    #csec-hours .schedule-form > .form-grid{max-width:532px;}
+    /* One number on its own: half the pair's width, not all of it. */
+    #csec-hours .schedule-form > .form-grid.single-field{max-width:260px;}
+    .defaults-form > .form-grid{max-width:532px;}
+    .defaults-form > .form-grid.single-field{max-width:260px;}
   }
+  /* The Schedule form is one fieldset, so locking it for someone who isn't
+     an admin is one `disabled`, and it covers the Ramadan cards drawn later
+     too. Read-only should still read: the values keep full ink on a quiet
+     wash rather than the browser's greyed-out text, and the controls that
+     only change things (add, remove, save, the warning about saving) go. */
+  fieldset.schedule-form{border:0; margin:0; padding:0; min-width:0;}
+  .schedule-lock-note{
+    display:flex; align-items:center; gap:6px; margin:var(--space-2) 0 0;
+    font-size:13px; font-weight:600; color:var(--ink);
+  }
+  .schedule-lock-note[hidden]{display:none;}
+  .schedule-form:disabled input,
+  .schedule-form:disabled select{
+    opacity:1; color:var(--ink); -webkit-text-fill-color:var(--ink);
+    background:var(--ink-50); cursor:default;
+  }
+  .schedule-form:disabled .daypicker label{cursor:default;}
+  #settingsConsole.schedule-locked #csec-hours .settings-data-actions,
+  #settingsConsole.schedule-locked #csec-hours .period-del,
+  #settingsConsole.schedule-locked #csec-hours .settings-warn,
+  #settingsConsole.schedule-locked .console-commit-group{display:none !important;}
   /* Settings' heading is for screen readers; with no line under it either,
      the empty row would leave a gap above the console. */
   #tab-settings .console-head:has(> #settingsForLabel[hidden]){margin:0;}
@@ -3916,7 +3941,35 @@
     background:none; border:1px solid var(--line); color:var(--negative);
     border-radius:var(--radius-xs); cursor:pointer; padding:8px 10px; font-size:12px; height:34px; white-space:nowrap; flex-shrink:0;
   }
-  .season-card .settings-hint{margin-top:var(--space-2);}
+  /* The daily target under Start and End. It is what every day is measured
+     against and it is no longer a field anyone types, so it is stated as a
+     figure, in the accent the selected Settings row uses: a tinted card, a
+     target icon, and the hours large enough to read at a glance. Invalid
+     times turn it to the negative colour and the hint says why. */
+  .target-card{
+    display:flex; align-items:center; gap:var(--space-3);
+    max-width:532px; margin-top:var(--space-3); padding:12px 16px;
+    border:1px solid rgba(var(--gold-rgb), .75); border-radius:var(--radius-md);
+    background:rgba(var(--gold-rgb), .16);
+  }
+  .target-card-icon{
+    width:36px; height:36px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--gold); color:var(--ink-on-gold);
+  }
+  .target-card-text{flex:1; min-width:0;}
+  .target-card-label{display:block; font-size:14px; font-weight:700; color:var(--ink); line-height:1.3;}
+  .target-card-hint{display:block; font-size:12.5px; color:var(--muted-2); margin-top:2px; line-height:1.4;}
+  .target-card-value{flex-shrink:0; font-size:24px; font-weight:800; color:var(--ink); letter-spacing:-.01em; line-height:1; font-variant-numeric:tabular-nums;}
+  .target-card.is-invalid{border-color:var(--negative); background:transparent;}
+  .target-card.is-invalid .target-card-icon{background:var(--negative); color:#fff;}
+  .target-card.is-invalid .target-card-hint, .target-card.is-invalid .target-card-value{color:var(--negative);}
+  /* On a Ramadan / shorter-days card: the same statement, one line. */
+  .target-card.compact{margin-top:var(--space-3); padding:8px 12px; max-width:none; background:rgba(var(--gold-rgb), .22);}
+  .target-card.compact .target-card-label{display:inline; font-size:13px;}
+  .target-card.compact .target-card-hint{display:none;}
+  .target-card.compact.is-invalid .target-card-hint{display:block;}
+  .target-card.compact .target-card-value{font-size:18px;}
   .periods-empty{font-size:12px; color:var(--muted-2); padding:10px 2px;}
 
   /* ---------- Log search bar ---------- */
@@ -8392,7 +8445,15 @@
             <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></span>
             <span class="console-nav-text">
               <span class="console-nav-title">Appearance</span>
-              <span class="console-nav-desc" id="cnavDescAppearance">Colours, sound and vibration</span>
+              <span class="console-nav-desc" id="cnavDescAppearance">Mode and colours</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="feedback" id="cnav-feedback" aria-selected="false" aria-controls="csec-feedback">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Sound &amp; Haptics</span>
+              <span class="console-nav-desc" id="cnavDescFeedback">When you clock in or out</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
@@ -8469,9 +8530,17 @@
       <div class="console-section" data-section="hours" id="csec-hours" role="tabpanel" aria-labelledby="cnav-hours" tabindex="0">
         <div class="console-section-head">
           <h3>Schedule</h3>
-          <p>Your week, your hours and how lateness is counted.</p>
+          <p>Your week and your hours.</p>
+          <!-- Schedules are set by admins (20261118090000). For anyone else
+               the form is shown read-only and this says why; the database
+               refuses the write either way. refreshSettingsPanel() decides. -->
+          <p class="schedule-lock-note" id="scheduleLockNote" hidden>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
+            <span>Set by your admin. Ask them if something needs changing.</span>
+          </p>
         </div>
-        <div>
+        <fieldset class="schedule-form" id="scheduleForm">
+          <legend class="visually-hidden">Your schedule</legend>
           <div style="margin-bottom:var(--space-3);">
             <label id="dayPickerLabel">Workdays</label>
             <div class="daypicker" id="dayPicker" role="group" aria-labelledby="dayPickerLabel"></div>
@@ -8483,31 +8552,40 @@
           <div class="form-grid">
             <div>
               <label for="sIn">Start</label>
-              <input type="time" id="sIn" aria-describedby="sHoursNote">
+              <input type="time" id="sIn" aria-describedby="sTargetCard">
             </div>
             <div>
               <label for="sOut">End</label>
-              <input type="time" id="sOut" aria-describedby="sHoursNote">
+              <input type="time" id="sOut" aria-describedby="sTargetCard">
             </div>
           </div>
-          <p class="settings-hint" id="sHoursNote" aria-live="polite"></p>
+          <!-- The day's target, as a figure you can't miss: every day is
+               measured against it, and it is no longer a field of its own,
+               so this is the one place it is stated. paintTarget() fills it
+               as Start and End change. -->
+          <div class="target-card" id="sTargetCard" data-target aria-live="polite">
+            <span class="target-card-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>
+            </span>
+            <span class="target-card-text">
+              <span class="target-card-label">Your daily target</span>
+              <span class="target-card-hint" data-target-hint>From your Start to your End time.</span>
+            </span>
+            <strong class="target-card-value" id="sHoursNote" data-target-value></strong>
+          </div>
 
           <!-- Lateness is judged on the hours: a day that makes them is never
-               late, however it started. That used to be a switch, on for
-               everyone; it is simply the rule now. -->
-          <!-- Grace second, so on a phone (one column) the line about lateness
-               sits directly under the field it explains. -->
-          <div class="form-grid settings-group-gap">
+               late or early, however it started; a short day marks any minute
+               after Start or before End. There is no grace period and no
+               switch: both were removed on 2026-11-18. -->
+          <p class="settings-hint" id="sLateNote">Make your hours and you&rsquo;re never marked late or early.</p>
+
+          <div class="form-grid single-field settings-group-gap">
             <div>
               <label for="sLeaveDays">Leave days a year</label>
               <input type="number" id="sLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
             </div>
-            <div>
-              <label for="sGrace">Grace period (minutes)</label>
-              <input type="number" id="sGrace" min="0" max="240" step="1" inputmode="numeric" aria-describedby="sGraceNote">
-            </div>
           </div>
-          <p class="settings-hint" id="sGraceNote">You&rsquo;re only marked late on days you don&rsquo;t make your hours.</p>
 
           <p class="console-subhead settings-group-gap">Ramadan &amp; shorter days</p>
           <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
@@ -8535,7 +8613,7 @@
               <em>Save this schedule for the whole team.</em>
             </span>
           </label>
-        </div>
+        </fieldset>
       </div>
 
       <div class="console-section" data-section="appearance" id="csec-appearance" role="tabpanel" aria-labelledby="cnav-appearance" tabindex="0">
@@ -8652,12 +8730,19 @@
             </button>
           </div>
         </div>
+      </div>
 
-        <!-- Clocking in and out, heard and felt. Per device, like everything
-             else in this section, and instant: two switches in one group,
-             the same component as Reminders. Vibration is hidden where the
-             device cannot vibrate for a web page, which is every iPhone:
-             refreshPunchFeedbackPanel() decides. -->
+      <!-- Sound & Haptics: what clocking in and out sounds and feels like.
+           Its own section rather than the tail of Appearance, which is about
+           how the app looks. Per device and instant, like Appearance: two
+           switches in one group. Vibration is hidden where the device
+           cannot vibrate for a web page, which is every iPhone:
+           refreshPunchFeedbackPanel() decides. -->
+      <div class="console-section" data-section="feedback" id="csec-feedback" role="tabpanel" aria-labelledby="cnav-feedback" tabindex="0">
+        <div class="console-section-head">
+          <h3>Sound &amp; Haptics</h3>
+          <p>When you clock in or out. Just for this device.</p>
+        </div>
         <div class="setting-list">
           <label class="setting-row" for="punchSoundSwitch" id="punchSoundGroup">
             <span class="setting-row-text">
@@ -8732,20 +8817,23 @@
           <p>Your records are saved to your account. Keep a copy too.</p>
         </div>
         <div>
+          <!-- Named for what a person wants, not the file format: CSV is "for
+               Excel", JSON is "a full backup" that "Restore" brings back.
+               The formats are in the one hint where they matter, importing. -->
           <p class="console-subhead">Download a copy</p>
           <div class="settings-data-actions">
-            <button type="button" class="btn ghost small" id="exportCsvBtn">Export CSV</button>
-            <button type="button" class="btn ghost small" id="exportJsonBtn">Export JSON</button>
+            <button type="button" class="btn ghost small" id="exportCsvBtn">Download for Excel</button>
+            <button type="button" class="btn ghost small" id="exportJsonBtn">Download full backup</button>
           </div>
-          <p class="settings-hint">CSV opens in Excel. JSON is a full backup you can import again.</p>
           <p class="console-subhead settings-group-gap">Bring records in</p>
           <div class="settings-data-actions">
-            <button type="button" class="btn ghost small" id="importCsvBtn" title="Type column accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave">Import CSV</button>
+            <button type="button" class="btn ghost small" id="importCsvBtn" title="Type column accepts a full word or a short code: s = Sick Leave, h = Public Holiday, hd = Half Day Leave, l = Annual Leave">Import from Excel</button>
             <input type="file" id="importCsvFile" accept=".csv,text/csv,text/plain" style="display:none;">
-            <button type="button" class="btn ghost small" id="importBtn">Import JSON</button>
+            <button type="button" class="btn ghost small" id="importBtn">Restore a backup</button>
             <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
-            <button type="button" class="btn ghost small" id="csvTemplateBtn">CSV Template</button>
+            <button type="button" class="btn ghost small" id="csvTemplateBtn">Get the template</button>
           </div>
+          <p class="settings-hint">Excel files come in as CSV: fill in the template and save it as CSV.</p>
           <div class="settings-danger-zone">
             <div>
               <p class="settings-danger-title">Clear All Entries</p>
@@ -9000,54 +9088,53 @@
       <div class="console-section" data-section="admin-defaults" id="csec-admin-defaults" role="tabpanel" aria-labelledby="cnav-admin-defaults" tabindex="0">
         <div class="console-section-head">
           <h3>Organisation Defaults</h3>
-          <p>
-            The schedule a brand-new account starts with. Until it is set, new employees silently inherit
-            Sunday–Thursday 08:00–16:00, and every figure they see is measured against the wrong week. Saving
-            does not change anyone's existing schedule.
-          </p>
+          <p>The schedule new accounts start with. Saving doesn&rsquo;t change anyone&rsquo;s existing schedule; to change one person&rsquo;s, use People &rsaquo; Edit Schedule.</p>
         </div>
-        <div>
+        <!-- Laid out like Settings > Schedule, field for field, so an admin
+             reads one form the same way in both places: Workdays, Start and
+             End with the daily target under them, leave days, then Ramadan
+             & shorter days. No grace period and no daily-target field: the
+             hours are Start to End, and a short day marks any minute late. -->
+        <div class="defaults-form">
       <div style="margin-bottom:var(--space-3);">
-        <label id="defaultsDaysLabel">Working Days</label>
+        <label id="defaultsDaysLabel">Workdays</label>
         <div class="daypicker" id="defaultsDayPicker" role="group" aria-labelledby="defaultsDaysLabel"></div>
       </div>
-      <!-- No Daily Target field: the day's hours are Standard Start to
-           Standard End, the same rule as everyone's own Schedule. -->
       <div class="form-grid" id="adminDefaultsGrid">
         <div>
-          <label for="dIn">Standard Start</label>
-          <input type="time" id="dIn">
+          <label for="dIn">Start</label>
+          <input type="time" id="dIn" aria-describedby="dTargetCard">
         </div>
         <div>
-          <label for="dOut">Standard End</label>
-          <input type="time" id="dOut">
+          <label for="dOut">End</label>
+          <input type="time" id="dOut" aria-describedby="dTargetCard">
         </div>
+      </div>
+      <div class="target-card" id="dTargetCard" data-target aria-live="polite">
+        <span class="target-card-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>
+        </span>
+        <span class="target-card-text">
+          <span class="target-card-label">Daily target</span>
+          <span class="target-card-hint" data-target-hint>From Start to End.</span>
+        </span>
+        <strong class="target-card-value" data-target-value></strong>
+      </div>
 
-        <div class="console-subhead full">Lateness</div>
+      <div class="form-grid single-field settings-group-gap">
         <div>
-          <label for="dGrace">Grace Period (min)</label>
-          <input type="number" id="dGrace" min="0" max="240" step="1" inputmode="numeric">
-        </div>
-
-        <div class="console-subhead full">Leave</div>
-        <div>
-          <label for="dLeaveDays">Annual Leave (days)</label>
-          <input type="number" id="dLeaveDays" min="0" max="365" step="1" inputmode="numeric">
+          <label for="dLeaveDays">Leave days a year</label>
+          <input type="number" id="dLeaveDays" min="0" max="365" step="0.5" inputmode="decimal">
         </div>
       </div>
 
-      <div class="periods-section" style="margin-top:var(--space-4); padding-top:var(--space-4); border-top:1px solid var(--line-soft);">
-        <div class="periods-head">
-          <span class="console-subhead">Seasonal Hours</span>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button type="button" class="btn ghost small" id="addDefaultsRamadanBtn">+ Ramadan</button>
-            <button type="button" class="btn ghost small" id="addDefaultsPeriodBtn">+ Add Period</button>
-          </div>
-        </div>
-        <p class="settings-hint" style="margin:0 0 10px;">
-          Reduced hours every new account starts with. Anyone can still override them in their own Schedule Settings.
-        </p>
+      <p class="console-subhead settings-group-gap">Ramadan &amp; shorter days</p>
+      <div class="periods-section" style="margin-top:0; padding-top:0; border-top:none;">
         <div id="defaultsPeriodsList"></div>
+        <div class="settings-data-actions" style="margin-top:var(--space-2);">
+          <button type="button" class="btn ghost small" id="addDefaultsRamadanBtn">+ Ramadan</button>
+          <button type="button" class="btn ghost small" id="addDefaultsPeriodBtn">+ Other Dates</button>
+        </div>
       </div>
 
       <div class="form-actions console-commit">
@@ -9528,6 +9615,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v59"></script>
+<script type="module" src="app.js?v=v63"></script>
 </body>
 </html>

@@ -70,7 +70,6 @@ var DISMISS_KEY  = "attendance_ledger_dismissed_v1";
 var DEFAULT_SETTINGS = {
   workDays:[0,1,2,3,4],
   targetMin:480,
-  graceMin:10,
   periods:[],
   standardIn:"08:00",
   standardOut:"16:00",

@@ -515,6 +515,7 @@ async function boot(browser, server, query){
     ok(other.danger.length === 1 && /^Delete/.test(other.danger[0]),
       "Delete is the one item marked destructive", JSON.stringify(other.danger));
     ok(other.items.some(t => /Admin/.test(t)), "and role is changed from here", JSON.stringify(other.items));
+    ok(other.items.includes("Edit Schedule"), "and their schedule is one step away", JSON.stringify(other.items));
 
     const self = await menuFor("self");
     ok(!self.error, "your own row menu opens", self.error || "");

@@ -391,6 +391,14 @@ async function start(opts){
       }
     });
     ok(await h.page.evaluate(() => localStorage.getItem("attendance.punchFeedback")) === '{"sound":false,"haptics":false}', "the two switches are saved in this browser");
+    // They have a section of their own, Sound & Haptics, and its row in the
+    // Settings list says what they are set to without opening it.
+    const where = await h.page.evaluate(() => ({
+      sound: document.getElementById("punchSoundSwitch").closest(".console-section").getAttribute("data-section"),
+      haptics: document.getElementById("punchHapticsSwitch").closest(".console-section").getAttribute("data-section"),
+      desc: document.getElementById("cnavDescFeedback").textContent }));
+    ok(where.sound === "feedback" && where.haptics === "feedback" && where.desc === "Sound off · vibration off",
+      "the switches live in Settings > Sound & Haptics, whose row reads \"Sound off · vibration off\"", JSON.stringify(where));
     await h.close();
 
     const quiet = await start({ viewport: PHONE, meId: me.id, seed: seed(), beforeLoad: async ctx => {

@@ -132,12 +132,12 @@ async function start(opts){
     // Something open: the Settings form.
     await goTab(h.page, "settings");
     await h.page.click("#cnav-hours");
-    await h.page.fill("#sGrace", "25");
+    await h.page.fill("#sLeaveDays", "25");
     await awayFor(h.page, 6);
     await settle(h.page, 300);
     s = await sw(h.page);
     ok(s.posted === 0 && s.loads === 1, "back after six minutes with Settings open: still left alone", JSON.stringify(s));
-    ok(await h.page.evaluate(() => document.getElementById("sGrace").value) === "25", "and what was typed is still there");
+    ok(await h.page.evaluate(() => document.getElementById("sLeaveDays").value) === "25", "and what was typed is still there");
 
     // The Admin screen holds half-written messages; a reload would lose them.
     await goTab(h.page, "admin");

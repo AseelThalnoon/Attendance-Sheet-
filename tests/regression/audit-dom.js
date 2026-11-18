@@ -489,13 +489,14 @@ function ok(cond, name, detail){
       gone: ["sTargetH","sTargetM","dTargetH","dTargetM"].filter(id => document.getElementById(id)),
       periodTargets: document.querySelectorAll('[data-p="th"], [data-p="tm"]').length,
       note: (document.getElementById("sHoursNote") || {}).textContent,
+      label: ((document.querySelector("#sTargetCard .target-card-label") || {}).textContent || "").trim(),
       labelled: ["sIn","sOut"].every(id => {
         const lab = document.querySelector(`label[for="${id}"]`);
         return !!(lab && lab.textContent.trim());
       })
     }));
-    ok(r.gone.length === 0 && r.periodTargets === 0 && r.labelled && r.note === "8h a day",
-      "no separate daily-target field: Start and End are labelled and the note under them gives the hours",
+    ok(r.gone.length === 0 && r.periodTargets === 0 && r.labelled && r.note === "8h" && r.label === "Your daily target",
+      "no separate daily-target field: Start and End are labelled and the card under them states \"Your daily target 8h\"",
       JSON.stringify(r));
   }
   {

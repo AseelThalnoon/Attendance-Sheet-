@@ -457,6 +457,9 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 {
   const marks = (o) => { const c = computeEntry(entry(o)); return [c.lateMin, c.earlyMin, c.pending]; };
   const saved = settings.lateOnlyIfShort;
+  // An old saved grace period is ignored as well: 15 minutes here changes
+  // nothing about the five-minutes-late case below.
+  settings.graceMin = 15;
   for(const stored of [undefined, true, false]){
     settings.lateOnlyIfShort = stored;
     const tag = " (saved setting: " + stored + ")";
@@ -464,12 +467,44 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
       "late rule: an hour late, made up by staying an hour longer, is not late" + tag);
     eq(marks({date:"2026-08-10", clockIn:"09:00", clockOut:"16:00"}), [60, 0, false],
       "late rule: an hour late and an hour short is late" + tag);
-    eq(marks({date:"2026-08-10", clockIn:"08:05", clockOut:"15:00"}), [0, 60, false],
-      "late rule: inside the grace period it is not late, but leaving an hour early while short is" + tag);
+    eq(marks({date:"2026-08-10", clockIn:"08:05", clockOut:"15:00"}), [5, 60, false],
+      "late rule: on a short day any minute counts, five late and an hour early (no grace period)" + tag);
     eq(marks({date:"2026-08-10", clockIn:"09:00"}), [0, 0, true],
       "late rule: a day still open is not judged yet, and is marked pending" + tag);
   }
   settings.lateOnlyIfShort = saved;
+  delete settings.graceMin;
+}
+
+// ---------------------------------------------------------------- the activity log's schedule line (2026-11-18)
+// A first save printed "Remind after: 9h" for a setting nothing had read
+// since the reminders became one rule. Settings that no longer exist (grace,
+// remind-after, late-only-if-short) still read in the log for a change made
+// while they did, and never on a first save.
+{
+  const sb = { Math, JSON, String, Number, isFinite, isNaN, Array, Object, Date };
+  vm.createContext(sb);
+  vm.runInContext([
+    slice('var DAY_NAMES = ["Sun"', "var DEFAULT_SETTINGS = {"),
+    slice("var DEFAULT_SETTINGS = {", "// VAPID public keys"),
+    slice("function formatTime12(t)", "function minutesToHoursStr"),
+    slice("function minutesToHoursStr(mins)", "// For values that are naturally"),
+    slice("function normalizeSettings(raw)", "export { safeGet"),
+    slice("function workDaysLabel(days)", "function scheduleSummary()"),
+    slice("function fieldDiff(label, ov, nv, fmt)", "function entryDiff(oldV, newV)"),
+    slice("function scheduleDiff(oldV, newV)", "function auditDetail(row)"),
+  ].join("\n"), sb);
+  const base = { workDays:[0,1,2,3,4], targetMin:480, standardIn:"08:00", standardOut:"16:00",
+                 annualLeaveDays:21, remindAfterHours:9, periods:[] };
+  const first = sb.scheduleDiff(null, base);
+  ok(!/Remind after|Grace|Late only|reminder/.test(first) && /Start: 8:00/.test(first) && /Target: 8h/.test(first),
+    "a first save lists the schedule and nothing that is no longer a setting", first);
+  const graceWas = sb.scheduleDiff(Object.assign({}, base, { graceMin:10 }), Object.assign({}, base, { graceMin:15 }));
+  ok(/Grace: 10m → 15m/.test(graceWas), "a grace change made while it existed still reads in the log", graceWas);
+  const dropped = sb.scheduleDiff(Object.assign({}, base, { graceMin:15, lateOnlyIfShort:true }), base);
+  eq(dropped, "Schedule saved", "a save that only drops the old keys is not shown as changing them");
+  const flipped = sb.scheduleDiff(base, Object.assign({}, base, { remindClockIn:false }));
+  eq(flipped, "Clock-in reminder: on → off", "a reminder switch reads as on → off");
 }
 
 console.log(`  audit-logic  pass ${pass}   fail ${fail}`);
