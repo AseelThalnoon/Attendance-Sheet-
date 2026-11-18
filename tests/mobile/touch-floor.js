@@ -73,6 +73,12 @@ const MEASURE = (floor) => {
     // replaces for a finger: a 1px box no finger can land on is not a touch
     // target, and focused it shows at full size (see pull-refresh.js).
     if(cs.clipPath === "inset(50%)" || /rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)/.test(cs.clip)) continue;
+    // A link inside a sentence: SC 2.5.8's Inline exception. Growing it to
+    // the floor would break the line it sits in, and hostile.js holds it to
+    // display:inline for that reason. Admin > People's "Set it now", in the
+    // warning under the sign-up switch, is the one this stop reaches. A
+    // <button> set to display:inline computes as inline-block in Chromium.
+    if(el.matches(".link-btn") && /^inline(-block)?$/.test(cs.display) && el.closest("p")) continue;
     const lab = el.closest("label");
     const lr = lab ? lab.getBoundingClientRect() : null;
     const h = Math.max(r.height, lr ? lr.height : 0);

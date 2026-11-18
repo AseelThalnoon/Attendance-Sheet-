@@ -138,19 +138,28 @@ button in the header and visible only to admins. It is deliberately not a tab:
 the tab strip holds views of your own attendance, and this manages the
 organisation.
 
-- **Overview** — database size, accounts, entries, connections, plus data-health
-  checks that run as counted queries: open shifts from past days, blank working
-  days, implausible dates, and people with no schedule of their own. Checks that
-  pass are listed too, so an admin can see a check ran rather than guess.
-- **People** — search and filter every account; grant or revoke admin; open
-  someone's record; send a password reset; deactivate or delete. Accounts with no
-  `user_settings` row of their own are flagged, since every figure the app shows
-  them is otherwise measured against a fallback week.
-- **Organisation Defaults** — edits `app_settings.default_settings`, the schedule
-  `handle_new_user()` copies into each new account. It can also backfill people
-  who have no schedule; it never overwrites one that exists.
-- **Company-Wide Days**, **Announcement & Sign-Up**, **Activity Log** (filter by
-  activity, person and date, page through, export CSV), and **Storage**.
+Its sections run in three groups, most used first:
+
+- **People** — the **Open sign-up** switch (saves the moment it moves; it
+  warns when no Team Schedule is set), then every account: search and filter;
+  grant or revoke admin; open someone's record; edit their schedule; send a
+  password reset; deactivate or delete. Accounts on a schedule of their own are
+  marked *Own schedule*, and accounts with no `user_settings` row *No schedule*.
+- **Team Schedule** — `app_settings.default_settings`, the schedule everyone
+  works to unless given their own. `handle_new_user()` copies it into each new
+  account; saving it moves everyone on it and leaves people with their own.
+  Like Settings › Schedule, Save says *Unsaved changes* and offers Discard.
+- **Who's Away**, then **Company-Wide Days** (this year's public holidays are
+  listed; Mark as offers no Sick Leave), **Notifications** and
+  **Announcement** (posted and taken down, not ticked and saved).
+- **Data & Backup** (data checks that run as counted queries: open shifts from
+  past days, blank working days, implausible dates, people with no schedule,
+  with checks that pass listed too; the team backup; storage by table),
+  **Activity Log** (filter by activity, person and date, page through, download
+  for Excel) and **Crash Reports**. An empty list shows a sentence, not filters
+  and column headings.
+
+The header's refresh button, and pull-to-refresh on a phone, reload the console.
 
 The header button is hidden for employees, `renderAdmin()` refuses to paint for a
 non-admin, and every RPC and RLS policy behind the screen re-checks `is_admin()`
@@ -198,7 +207,7 @@ npm run test:regression   # just the audit regression suites
 | `regression/admin-tab` | Admin console: admin-only gating, people/roles, health checks, defaults, log |
 | `regression/stale-resume` | A page that outlives its copy of the record: a punch or a save refused because another device got there first reloads and says so; coming back to the app after five minutes re-reads quietly, and stands down for a form in progress |
 | `regression/punch-flood` | The animation a saved punch plays: it starts at the control that was pressed and covers its stage (the screen on a phone, the clock panel or sticky bar above that), says the minute that was saved, turns back to where that control has moved to, leaves by itself, never passes a tap through, and is not built at all under reduced motion. Also the chime and the vibration: the notes asked for, the press tick and the two beats, nothing for a refused punch, and the two Settings switches |
-| `regression/undo-and-replace` | What one tap could lose: Undo after a clock-out (saved, or waiting on the device) that never writes over a newer change; no blank Regular day from the entry form; Replace says what it replaces and offers Undo; messages above the phone's bottom bar; Admin's Export Everything holds every account, entry and schedule |
+| `regression/undo-and-replace` | What one tap could lose: Undo after a clock-out (saved, or waiting on the device) that never writes over a newer change; no blank Regular day from the entry form; Replace says what it replaces and offers Undo; messages above the phone's bottom bar; Admin's Download Team Backup holds every account, entry and schedule |
 | `regression/device-copy` | Opening on the record kept on the device: no sign-in form flash, the record before the server answers, the copy kept and labelled when the server is unreachable, a punch queued while the session is renewed, nobody else's copy, gone on sign-out; day one lasting through the first shift; the calendar starting at the first logged day |
 | `regression/sign-out-clean` | Nothing of one person is left for the next: the page starts over after a sign-out (or is emptied by hand where it cannot), and the device stops receiving the last person's notifications |
 | `regression/csv-export` | The exported file as a spreadsheet reads it: notes cannot run as formulas, figures stay figures, Arabic survives Excel, and the file imports back unchanged |

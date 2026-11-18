@@ -3252,8 +3252,12 @@
      and a search box left unstyled keeps the UA's own white field, which reads
      as a bright hole punched through the dark theme. */
   input[type="date"], input[type="time"], input[type="text"], input[type="number"],
-  input[type="email"], input[type="password"], input[type="search"], select{
-    /* min-height, never a fixed height: a native date/time control has its
+  input[type="email"], input[type="password"], input[type="search"],
+  input[type="datetime-local"], select, textarea{
+    /* textarea and datetime-local joined late: Admin > Notifications'
+       message and "Send at" were the browser's own boxes, the message in a
+       typewriter face, beside fields drawn by this rule.
+       min-height, never a fixed height: a native date/time control has its
        own intrinsic height that varies by engine, and pinning the box to
        44px leaves only 22px of content area — enough in Chromium, not on
        iOS, where the control then paints outside its box and collides with
@@ -3279,7 +3283,7 @@
   @media (pointer: coarse){
     input[type="date"], input[type="time"], input[type="text"], input[type="number"],
     input[type="email"], input[type="password"], input[type="search"],
-    select, textarea{ font-size:16px; }
+    input[type="datetime-local"], select, textarea{ font-size:16px; }
     /* The seasonal card's own 16px is with its 12.5px rule further down:
        same specificity, so it has to come after it to win. */
   }
@@ -3288,7 +3292,8 @@
      --ink-600 and --negative frozen as rgba() literals — and --ink-600 is the
      one ramp step that inverts for dark mode, so the focus halo pointed the
      opposite way from the border it sits under as soon as the theme flipped. */
-  input:focus, select:focus{border-color:var(--ink-600); box-shadow:0 0 0 3px rgba(var(--ink-600-rgb),.20);}
+  input:focus, select:focus, textarea:focus{border-color:var(--ink-600); box-shadow:0 0 0 3px rgba(var(--ink-600-rgb),.20);}
+  textarea{resize:vertical; line-height:1.45;}
   .field-invalid{border-color:var(--negative) !important; box-shadow:0 0 0 3px rgba(var(--negative-rgb),.18);}
 
   /* iOS Safari lays a native date/time control out from its own shadow DOM and
@@ -3402,6 +3407,10 @@
     font-size:12.5px; font-weight:500; color:var(--warn);
   }
   .settings-warn svg{flex-shrink:0; margin-top:1px;}
+  /* display:flex outranks the hidden attribute's display:none, so a hidden
+     warning showed anyway: every admin saw "No team schedule is set" under
+     the sign-up setting whether one was set or not. */
+  .settings-warn[hidden]{display:none;}
   /* The warning belongs to the toggle above it, but .check-row carries only a
      top margin and .settings-warn only a bottom one, so the two met at exactly
      0px -- and both are rounded, so the junction pinched the same way the admin
@@ -3741,13 +3750,39 @@
   /* Settings' heading is for screen readers; with no line under it either,
      the empty row would leave a gap above the console. */
   #tab-settings .console-head:has(> #settingsForLabel[hidden]){margin:0;}
+  #tab-admin .console-head{margin:0;}
+  /* Admin > People: the sign-up switch, then its warning, then the list. */
+  #signupList{margin-bottom:var(--space-4);}
+  #signupList + .settings-warn{margin-top:calc(-1 * var(--space-2));}
+  /* Admin > Announcement: whether the banner is up, said in words, with the
+     way to take it down beside it. */
+  .announce-state{
+    display:flex; align-items:center; gap:var(--space-3);
+    max-width:600px; margin:0 0 var(--space-4); padding:12px 16px; min-height:60px;
+    border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--card);
+  }
+  .announce-state-dot{flex:0 0 auto; width:10px; height:10px; border-radius:50%; background:var(--muted-2); opacity:.5;}
+  .announce-state.is-live .announce-state-dot{background:var(--positive); opacity:1;}
+  .announce-state-text{flex:1; min-width:0;}
+  .announce-state-text strong{display:block; font-size:14px; font-weight:600; color:var(--ink); line-height:1.3;}
+  .announce-state-text em{display:block; font-style:normal; font-size:12.5px; color:var(--muted-2); margin-top:2px;}
+  .announce-state .btn[hidden]{display:none;}
+  /* Stacked, not a two-column grid: the grid stretched the one-line message
+     to the height of the date and its hint beside it. */
+  .announce-fields{max-width:600px;}
+  .announce-fields > div + div{margin-top:var(--space-3);}
+  .announce-fields > div[hidden]{display:none;}
   .console-section .periods-empty{padding:6px 0;}
-  /* Admin > Storage's backup, above the table list it is about. */
+  /* Admin > Data & Backup: the backup, between the data checks and the
+     storage table. */
   .backup-block{margin:0 0 var(--space-5); padding-bottom:var(--space-4); border-bottom:1px solid var(--line-soft);}
   .backup-block .settings-hint{margin:6px 0 10px;}
   .backup-block .form-actions{margin:0;}
   .backup-block #exportAllStatus:empty{display:none;}
   .backup-block #exportAllStatus.is-due{color:var(--warn); font-weight:500;}
+  /* Clear of the table below: on a phone its cards pull up 10px to cancel
+     their own spacing, which laid the first one over this line. */
+  #adminStorageTotal{margin:4px 0 var(--space-3);}
   /* A second group inside a section is still inside it — the shared
      .periods-section gap was sized for a standalone block. */
   .console-section .periods-section{margin-top:var(--space-4); padding-top:var(--space-3);}
@@ -4805,7 +4840,8 @@
        room, and min-height stays a floor, so a native date/time control that
        needs more still takes it. Phones keep 44px untouched. */
     input[type="date"], input[type="time"], input[type="text"], input[type="number"],
-    input[type="email"], input[type="password"], input[type="search"], select{
+    input[type="email"], input[type="password"], input[type="search"],
+    input[type="datetime-local"], select, textarea{
       min-height:34px; padding:var(--space-1-5) var(--space-3); font-size:13px;
     }
     /* Re-asserted after the shorthand above, which has the same specificity and
@@ -5943,12 +5979,11 @@
      .notif-icon-chip in the notification panel, the one place it renders. */
 
   /* ---------- Admin panel ---------- */
-  /* A narrower floor than the general .stats-row: these four sit in a console
-     pane rather than the full page width, and at 160px they wrapped. */
-  .stats-row.admin-stats{
-    margin-bottom:var(--space-3);
-    grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
-  }
+  /* An empty list hides its filters and headings (renderAuditLog,
+     renderCrashLog, paintNotifyHistory); each of these sets a display that
+     outranks [hidden] on its own. */
+  #tab-admin .form-grid[hidden], #tab-admin .form-actions[hidden],
+  #tab-admin .table-wrap[hidden], #tab-admin .choice-toggle[hidden]{display:none;}
   /* A person is a row in a list, not a card with a toolbar attached.
      Twelve boxed, shadowed cards stacked down the section laid a second
      background colour behind the whole roster, and with six controls each —
@@ -6118,6 +6153,8 @@
      a small team, and nothing anyone did wrong. In the error colour it was the
      loudest thing on every Team card it appeared on. */
   .admin-badge.unconfigured{background:var(--ink-50); color:var(--muted);}
+  /* Not on the Team Schedule. Information, like "You", not a fault. */
+  .admin-badge.own-schedule{background:var(--info-bg); color:var(--info);}
 
   /* Data health. Findings are listed even when the count is zero — an admin
      needs to see that a check ran and passed, not just silence. */
@@ -6126,7 +6163,7 @@
      that framed itself, and it read as belonging to a different screen. */
   .admin-attention{
     border-radius:var(--radius); background:var(--ink-50);
-    padding:var(--space-3) var(--space-4); margin-bottom:6px;
+    padding:var(--space-3) var(--space-4); margin-bottom:var(--space-5);
   }
   .admin-attention h3{
     margin:0 0 4px; font-size:11px; font-weight:700;
@@ -8977,32 +9014,83 @@
     <!-- Admin is not a tab, so there is no tab button to label it by: the
          "tabbtn-admin" it pointed at never existed. Named directly. -->
     <div class="tab-panel" id="tab-admin" role="tabpanel" aria-label="Organisation admin" tabindex="0">
+      <!-- As in Settings: the page heading already says Admin (the phone
+           header, the desktop tab title), so this one is for screen readers.
+           It was a visible "Organisation Admin" with a sentence and a refresh
+           button of its own beside the header's: the header's refresh (and
+           pull-to-refresh on a phone) reloads this console too (refreshNow). -->
       <div class="console-head">
-        <h2>Organisation Admin</h2>
-        <p>Everything here lands on other people's data. Pick a section to work in.</p>
-        <button type="button" class="icon-btn small console-head-action" id="refreshStatsBtn"
-                aria-label="Refresh the admin figures and data checks" title="Refresh">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
-        </button>
+        <h2 class="visually-hidden">Organisation admin</h2>
       </div>
 
       <div class="console" id="adminConsole">
         <div class="console-side">
-        <!-- A card here held an icon, the word "Organisation", a one-line
-             health readout and a Refresh button. The heading above already
-             says which console this is, so the card was a title repeating a
-             title in order to carry one button. Refresh is an icon in that
-             heading now, and the health line moved onto the Overview nav row —
-             the same trick Seasonal Hours uses to show it holds something
-             without being open. -->
         <div class="console-nav" role="tablist" aria-orientation="vertical" aria-label="Admin sections">
+          <!-- Most used first: the people, their schedule and who is away;
+               then what goes out to everyone; the system records last.
+               People opens first on a wide screen. Overview and Backup &
+               Storage were two rows; they are Data & Backup now. -->
           <div class="console-nav-group" role="presentation">
-            <p class="console-nav-group-title" aria-hidden="true">Monitor</p>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-overview" id="cnav-admin-overview" aria-selected="false" aria-controls="csec-admin-overview">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V4.5M16 19v-7M22 19H2"/></svg></span>
+            <p class="console-nav-group-title" aria-hidden="true">People</p>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-people" id="cnav-admin-people" aria-selected="false" aria-controls="csec-admin-people">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-1.6a3.4 3.4 0 0 0-3.4-3.4H6.4A3.4 3.4 0 0 0 3 18.4V20"/><circle cx="9.5" cy="7.5" r="3.5"/><path d="M21 20v-1.6a3.4 3.4 0 0 0-2.6-3.3M15.5 4.2a3.4 3.4 0 0 1 0 6.6"/></svg></span>
             <span class="console-nav-text">
-              <span class="console-nav-title">Overview</span>
-              <span class="console-nav-desc" id="cnavDescOverview">System figures and data health</span>
+              <span class="console-nav-title">People</span>
+              <span class="console-nav-desc"><span id="adminUserCount">Roles, schedules and access</span></span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-defaults" id="cnav-admin-defaults" aria-selected="false" aria-controls="csec-admin-defaults">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Team Schedule</span>
+              <span class="console-nav-desc"><span id="adminDefaultsState">The schedule a new account starts with</span></span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-away" id="cnav-admin-away" aria-selected="false" aria-controls="csec-admin-away">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15.2" r="2"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Who&rsquo;s Away</span>
+              <span class="console-nav-desc" id="cnavDescAway">Leave, remote and travel, week by week</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          </div>
+          <div class="console-nav-group" role="presentation">
+            <p class="console-nav-group-title" aria-hidden="true">Everyone</p>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-bulk" id="cnav-admin-bulk" aria-selected="false" aria-controls="csec-admin-bulk">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Company-Wide Days</span>
+              <span class="console-nav-desc" id="cnavDescBulk">Mark a holiday for the whole team at once</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-notifications" id="cnav-admin-notifications" aria-selected="false" aria-controls="csec-admin-notifications">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Notifications</span>
+              <span class="console-nav-desc" id="cnavDescNotifications">Push a message to everyone or specific people</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-app" id="cnav-admin-app" aria-selected="false" aria-controls="csec-admin-app">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2.5L12 18.5v-13L6.5 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 9a4.5 4.5 0 0 1 0 6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Announcement</span>
+              <span class="console-nav-desc" id="cnavDescApp">A banner across the top of the app</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          </div>
+          <div class="console-nav-group" role="presentation">
+            <p class="console-nav-group-title" aria-hidden="true">System</p>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-data" id="cnav-admin-data" aria-selected="false" aria-controls="csec-admin-data">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Data &amp; Backup</span>
+              <span class="console-nav-desc" id="cnavDescAdminData">Records to fix, and a copy to keep</span>
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
@@ -9022,70 +9110,8 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-storage" id="cnav-admin-storage" aria-selected="false" aria-controls="csec-admin-storage">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Storage</span>
-              <span class="console-nav-desc" id="cnavDescStorage">Row counts and size, table by table</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
           </div>
-          <div class="console-nav-group" role="presentation">
-            <p class="console-nav-group-title" aria-hidden="true">People</p>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-people" id="cnav-admin-people" aria-selected="false" aria-controls="csec-admin-people">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-1.6a3.4 3.4 0 0 0-3.4-3.4H6.4A3.4 3.4 0 0 0 3 18.4V20"/><circle cx="9.5" cy="7.5" r="3.5"/><path d="M21 20v-1.6a3.4 3.4 0 0 0-2.6-3.3M15.5 4.2a3.4 3.4 0 0 1 0 6.6"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">People</span>
-              <span class="console-nav-desc"><span id="adminUserCount">Roles, access, and accounts</span></span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-defaults" id="cnav-admin-defaults" aria-selected="false" aria-controls="csec-admin-defaults">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Team Schedule</span>
-              <span class="console-nav-desc"><span id="adminDefaultsState">The schedule a new account starts with</span></span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          </div>
-          <div class="console-nav-group" role="presentation">
-            <p class="console-nav-group-title" aria-hidden="true">Everyone</p>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-away" id="cnav-admin-away" aria-selected="false" aria-controls="csec-admin-away">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15.2" r="2"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Who&rsquo;s Away</span>
-              <span class="console-nav-desc" id="cnavDescAway">Leave, remote and travel, week by week</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-bulk" id="cnav-admin-bulk" aria-selected="false" aria-controls="csec-admin-bulk">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Company-Wide Days</span>
-              <span class="console-nav-desc" id="cnavDescBulk">Mark a holiday for the whole team at once</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-app" id="cnav-admin-app" aria-selected="false" aria-controls="csec-admin-app">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h2.5L12 18.5v-13L6.5 10H4a1 1 0 0 0-1 1z"/><path d="M16.5 9a4.5 4.5 0 0 1 0 6"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Announcement &amp; Sign-Up</span>
-              <span class="console-nav-desc" id="cnavDescApp">The banner everyone sees, and who may register</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-notifications" id="cnav-admin-notifications" aria-selected="false" aria-controls="csec-admin-notifications">
-            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
-            <span class="console-nav-text">
-              <span class="console-nav-title">Notifications</span>
-              <span class="console-nav-desc" id="cnavDescNotifications">Push a message to everyone or specific people</span>
-            </span>
-            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-          </div>
-                </div>
+        </div>
         </div><!-- /.console-side -->
 
         <div class="console-pane">
@@ -9093,52 +9119,11 @@
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
             All sections
           </button>
-      <!-- ---------- Overview: system stats + data health ---------- -->
-      <div class="console-section" data-section="admin-overview" id="csec-admin-overview" role="tabpanel" aria-labelledby="cnav-admin-overview" tabindex="0">
-        <div class="console-section-head">
-          <h3>Overview</h3>
-          <p>What the database currently holds, and the records that need a human to look at them.</p>
-        </div>
-        <div>
-      <div class="stats-row admin-stats" id="adminStatsRow">
-        <div class="stat-card">
-          <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>Database Size</p>
-          <p class="stat-value" id="statDbSize">—</p>
-          <p class="stat-detail" id="statDbSizeDetail">Total across all tables</p>
-        </div>
-        <div class="stat-card">
-          <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/></svg>Users</p>
-          <p class="stat-value" id="statUsers">—</p>
-          <p class="stat-detail" id="statUsersDetail">—</p>
-        </div>
-        <div class="stat-card">
-          <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5h6a1 1 0 0 1 1 1V5h.5A1.5 1.5 0 0 1 18 6.5v13A1.5 1.5 0 0 1 16.5 21h-9A1.5 1.5 0 0 1 6 19.5v-13A1.5 1.5 0 0 1 7.5 5H8v-.5a1 1 0 0 1 1-1z"/><path d="M9 10h6M9 13.5h6"/></svg>Total Entries</p>
-          <p class="stat-value" id="statEntries">—</p>
-          <p class="stat-detail">Attendance records stored</p>
-        </div>
-        <div class="stat-card">
-          <p class="stat-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>Connections</p>
-          <p class="stat-value" id="statConnections">—</p>
-          <p class="stat-detail" id="statConnectionsDetail">Active database connections</p>
-        </div>
-      </div>
-
-      <!-- Data health. Every item here is a real query, not a guess, and each
-           one names the people or days involved so it can actually be acted on. -->
-      <div class="admin-attention" id="adminAttention">
-        <h3 id="adminAttentionHead">Data health</h3>
-        <div id="adminAttentionList" role="list" aria-labelledby="adminAttentionHead">
-          <p class="settings-hint" style="margin:0;">Checking…</p>
-        </div>
-      </div>
-
-        </div>
-      </div>
       <!-- ---------- People: roles, access, accounts ---------- -->
       <div class="console-section" data-section="admin-away" id="csec-admin-away" role="tabpanel" aria-labelledby="cnav-admin-away" tabindex="0">
         <div class="console-section-head">
           <h3>Who&rsquo;s Away</h3>
-          <p>Everyone not in the office on a working day: leave, sick days, public holidays, remote work, trips and training.</p>
+          <p>Who&rsquo;s out on each working day, and why.</p>
         </div>
         <div>
           <div class="away-nav">
@@ -9156,12 +9141,27 @@
       <div class="console-section" data-section="admin-people" id="csec-admin-people" role="tabpanel" aria-labelledby="cnav-admin-people" tabindex="0">
         <div class="console-section-head">
           <h3>People</h3>
-          <p>
-            Role changes take effect immediately. Deactivating blocks sign-in but keeps attendance history;
-            deleting removes the person and every entry they logged, and can't be undone.
-          </p>
+          <p>Everyone with an account. Each person&rsquo;s menu changes their role, schedule or access, at once.</p>
         </div>
         <div>
+      <!-- Who may join, above who is here. It was a checkbox in "Announcement
+           & Sign-Up" that waited for that section's Save; it is a switch now
+           and saves the moment it moves, like every switch in Settings. -->
+      <div class="setting-list" id="signupList">
+        <label class="setting-row" for="setAllowRegistration">
+          <span class="setting-row-text">
+            <strong>Open sign-up</strong>
+            <em>Anyone can create an account from the sign-in screen.</em>
+          </span>
+          <input type="checkbox" class="switch" role="switch" id="setAllowRegistration">
+        </label>
+      </div>
+      <p class="settings-warn" id="registrationDefaultsHint" hidden>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        <span>No team schedule is set: anyone who signs up starts on a Sun&ndash;Thu, 8h week.
+          <button type="button" class="link-btn" id="registrationDefaultsHintBtn">Set it now</button>
+        </span>
+      </p>
       <div class="form-grid" id="adminPeopleFilters">
         <div>
           <label for="adminUserSearch">Search</label>
@@ -9173,8 +9173,9 @@
             <option value="all">Everyone</option>
             <option value="admin">Admins only</option>
             <option value="user">Employees only</option>
+            <option value="own">Own schedule</option>
+            <option value="unconfigured">No schedule</option>
             <option value="deactivated">Deactivated</option>
-            <option value="unconfigured">No schedule set</option>
           </select>
         </div>
       </div>
@@ -9236,8 +9237,17 @@
         </div>
       </div>
 
-      <div class="form-actions console-commit">
-        <button type="button" class="btn" id="saveDefaultsBtn">Save Team Schedule</button>
+      <!-- As Settings > Schedule: once a field changes, Save rides along at
+           the bottom of the screen saying so, with Discard beside it
+           (setDefaultsDirty). -->
+      <div class="console-commit-group console-commit" id="defaultsCommit">
+        <div class="form-actions">
+          <p class="console-dirty-note" id="defaultsDirtyNote" aria-live="polite">Unsaved changes</p>
+          <span class="console-dirty-actions">
+            <button type="button" class="btn ghost" id="discardDefaultsBtn" hidden>Discard</button>
+            <button type="button" class="btn" id="saveDefaultsBtn">Save Team Schedule</button>
+          </span>
+        </div>
       </div>
 
         </div>
@@ -9246,13 +9256,12 @@
       <div class="console-section" data-section="admin-bulk" id="csec-admin-bulk" role="tabpanel" aria-labelledby="cnav-admin-bulk" tabindex="0">
         <div class="console-section-head">
           <h3>Company-Wide Days</h3>
-          <p>
-            Mark a public holiday or company-wide day off for the whole team in one action, instead of entering it
-            person by person. Days that already hold recorded hours are listed before anything is written, and skipped
-            unless you explicitly choose to overwrite them.
-          </p>
+          <p>A holiday or day off for everyone at once. Days that already have hours are skipped unless you say otherwise.</p>
         </div>
         <div>
+      <!-- Which days the menu row is counting (renderCompanyDaysCount). Sick
+           Leave left Mark as: a whole team is not off sick on one date. -->
+      <p class="settings-hint" id="companyDaysList" style="margin:0 0 var(--space-3);" hidden></p>
       <div class="form-grid" id="adminBulkGrid">
         <div>
           <label for="bulkApplyFromDate">From</label>
@@ -9263,11 +9272,10 @@
           <input type="date" id="bulkApplyToDate">
         </div>
         <div>
-          <label for="bulkApplyType">Day Type</label>
+          <label for="bulkApplyType">Mark as</label>
           <select id="bulkApplyType">
             <option value="holiday">Public Holiday</option>
             <option value="leave">Annual Leave</option>
-            <option value="sick">Sick Leave</option>
             <option value="training">Training</option>
             <option value="other">Other (Excused)</option>
           </select>
@@ -9278,52 +9286,45 @@
         </div>
       </div>
       <div class="form-actions console-commit">
-        <button type="button" class="btn" id="bulkApplyBtn">Apply to All Team Members</button>
+        <button type="button" class="btn" id="bulkApplyBtn">Mark for Everyone</button>
       </div>
 
         </div>
       </div>
-      <!-- ---------- Announcement &amp; sign-up ---------- -->
+      <!-- ---------- Announcement ---------- -->
+      <!-- Posted, not saved. It was a "Show announcement banner" checkbox, the
+           message and a Save App Settings button shared with the sign-up
+           checkbox: whether the banner was up depended on a box ticked above
+           a field. Now the state is said in words (announceLive), Post puts
+           the message up, Take Down takes it down. Sign-up moved to People. -->
       <div class="console-section" data-section="admin-app" id="csec-admin-app" role="tabpanel" aria-labelledby="cnav-admin-app" tabindex="0">
         <div class="console-section-head">
-          <h3>Announcement &amp; Sign-Up</h3>
-          <p>A message across the top of the app for everyone, and whether strangers can create their own account.</p>
+          <h3>Announcement</h3>
+          <p>A banner across the top of the app, for everyone.</p>
         </div>
         <div>
-          <label class="check-row" for="setAllowRegistration" style="margin-top:0;">
-            <input type="checkbox" id="setAllowRegistration">
-            <span>
-              <strong>Allow new registrations</strong>
-              <em>When off, "Create an account" is hidden on the sign-in screen and the database refuses the sign-up outright.</em>
+          <div class="announce-state" id="announceState" aria-live="polite">
+            <span class="announce-state-dot" aria-hidden="true"></span>
+            <span class="announce-state-text">
+              <strong id="announceStateTitle">Not showing</strong>
+              <em id="announceStateMeta">Nothing is up right now.</em>
             </span>
-          </label>
-          <p class="settings-warn" id="registrationDefaultsHint" hidden>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
-            <span>No team schedule is set — anyone who signs up will start on the
-              fallback Sun–Thu, 8h week instead of your actual hours.
-              <button type="button" class="link-btn" id="registrationDefaultsHintBtn">Set it now</button>
-            </span>
-          </p>
-
-          <label class="check-row" for="setAnnouncementActive" style="margin-top:12px;">
-            <input type="checkbox" id="setAnnouncementActive">
-            <span>
-              <strong>Show announcement banner</strong>
-              <em>Displays a message at the top of the app for everyone.</em>
-            </span>
-          </label>
-          <div style="margin-top:12px;">
-            <label for="setAnnouncement">Announcement message</label>
-            <input type="text" id="setAnnouncement" maxlength="300" dir="auto" placeholder="e.g. Office closed Thursday for maintenance">
+            <button type="button" class="btn ghost small" id="takeDownAnnouncementBtn" hidden>Take Down</button>
           </div>
-          <div style="margin-top:12px;" id="setAnnouncementUntilWrap" hidden>
-            <label for="setAnnouncementUntil">Show until (optional)</label>
-            <input type="date" id="setAnnouncementUntil" aria-describedby="setAnnouncementUntilHint">
-            <p class="settings-hint" id="setAnnouncementUntilHint">The banner disappears by itself after this day. Leave it empty to keep it up until you switch it off. Anyone can hide it for themselves with the &times; next to it; a new announcement shows again.</p>
+          <div class="announce-fields">
+            <div>
+              <label for="setAnnouncement">Message <span class="field-count" id="setAnnouncementCount">0/300</span></label>
+              <input type="text" id="setAnnouncement" maxlength="300" dir="auto" placeholder="e.g. Office closed Thursday for maintenance">
+            </div>
+            <div id="setAnnouncementUntilWrap" hidden>
+              <label for="setAnnouncementUntil">Show until (optional)</label>
+              <input type="date" id="setAnnouncementUntil" aria-describedby="setAnnouncementUntilHint">
+              <p class="settings-hint" id="setAnnouncementUntilHint">Leave it empty to keep it up until you take it down. Anyone can hide it for themselves; a new message shows again.</p>
+            </div>
           </div>
 
           <div class="form-actions console-commit">
-            <button type="button" class="btn" id="saveAppSettingsBtn">Save App Settings</button>
+            <button type="button" class="btn" id="postAnnouncementBtn">Post Announcement</button>
           </div>
         </div>
       </div>
@@ -9331,7 +9332,7 @@
       <div class="console-section" data-section="admin-notifications" id="csec-admin-notifications" role="tabpanel" aria-labelledby="cnav-admin-notifications" tabindex="0">
         <div class="console-section-head">
           <h3>Notifications</h3>
-          <p>A real push notification, even to a closed app — to everyone, or to specific people you pick below. Only reaches someone who has turned it on in their own Settings.</p>
+          <p>A push message to people&rsquo;s devices, even with the app closed.</p>
         </div>
         <!-- How many people that last sentence currently excludes. Without it,
              sending to everyone when nobody has switched notifications on
@@ -9365,7 +9366,7 @@
           </div>
 
           <div style="margin-top:var(--space-3);">
-            <label id="notifyWhenLabel">Send</label>
+            <label id="notifyWhenLabel">When</label>
             <div class="choice-toggle" role="group" aria-labelledby="notifyWhenLabel">
               <button type="button" class="choice-btn active" data-notify-when="now" aria-pressed="true">Now</button>
               <button type="button" class="choice-btn" data-notify-when="later" aria-pressed="false">Schedule for later</button>
@@ -9402,11 +9403,7 @@
       <div class="console-section" data-section="admin-audit" id="csec-admin-audit" role="tabpanel" aria-labelledby="cnav-admin-audit" tabindex="0">
         <div class="console-section-head">
           <h3>Activity Log</h3>
-          <p>
-            Every change to attendance data, work schedules, user roles, and organisation settings, with who made it
-            and — for edits — exactly what changed. Append-only: nothing in the app can edit or delete a line of it.
-            Recording started when this feature was installed.
-          </p>
+          <p>Every change, who made it and when. Nothing here can be edited or deleted.</p>
         </div>
         <div>
       <div class="form-grid" id="adminAuditFilters">
@@ -9423,7 +9420,7 @@
             <option value="user_deactivated">Deactivations</option>
             <option value="user_reactivated">Reactivations</option>
             <option value="user_deleted">User deletions</option>
-            <option value="app_settings_change">Org settings changed</option>
+            <option value="app_settings_change">Team settings changed</option>
             <option value="notification_sent">Notifications sent</option>
             <option value="push_device_removed">Devices removed</option>
           </select>
@@ -9447,9 +9444,8 @@
           <input type="search" id="auditFilterSearch" maxlength="100" dir="auto" placeholder="e.g. a name, a time, “theme”">
         </div>
       </div>
-      <div class="form-actions" style="margin-bottom:14px;">
-        <button type="button" class="btn ghost small" id="refreshAuditBtn">Refresh</button>
-        <button type="button" class="btn ghost small" id="auditExportBtn">Export CSV</button>
+      <div class="form-actions" id="auditTools" style="margin-bottom:14px;">
+        <button type="button" class="btn ghost small" id="auditExportBtn">Download for Excel</button>
       </div>
       <div class="table-wrap mobile-rows">
         <table>
@@ -9470,15 +9466,12 @@
       <div class="console-section" data-section="admin-crashes" id="csec-admin-crashes" role="tabpanel" aria-labelledby="cnav-admin-crashes" tabindex="0">
         <div class="console-section-head">
           <h3>Crash Reports</h3>
-          <p>
-            Exceptions the app could not handle, recorded from the browser they happened in. A crash used to stop the
-            render where it threw and tell nobody — this is that, written down. Missing files are listed separately
-            from faults in the code, because a missing file is usually a stale install or a bad deploy rather than a
-            bug. Kept for 90 days, then deleted automatically.
-          </p>
+          <!-- Missing files are a kind of their own: usually a stale install or
+               a bad deploy rather than a bug in the code. -->
+          <p>Errors the app couldn&rsquo;t handle, from the screen they happened on. Kept for 90 days.</p>
         </div>
         <div>
-          <div class="form-grid" id="adminCrashFilters">
+          <div class="form-grid" id="adminCrashFilters" style="margin-bottom:14px;">
             <div>
               <label for="crashFilterKind">Kind</label>
               <select id="crashFilterKind">
@@ -9488,9 +9481,6 @@
                 <option value="resource">Missing files</option>
               </select>
             </div>
-          </div>
-          <div class="form-actions" style="margin-bottom:14px;">
-            <button type="button" class="btn ghost small" id="refreshCrashBtn">Refresh</button>
           </div>
           <div class="table-wrap mobile-rows">
             <table>
@@ -9503,34 +9493,48 @@
           <div class="empty-state" id="crashEmpty" style="display:none;">Nothing has crashed. That is the result you want here.</div>
         </div>
       </div>
-      <!-- ---------- Storage ---------- -->
-      <div class="console-section" data-section="admin-storage" id="csec-admin-storage" role="tabpanel" aria-labelledby="cnav-admin-storage" tabindex="0">
+      <!-- ---------- Data & Backup ---------- -->
+      <!-- Was two sections. Overview's four tiles repeated other rows (Users
+           is People's count, Database Size is the total below) or were
+           database plumbing an admin can't act on (open connections, the
+           Postgres version), which left its data checks; they sit here with
+           the backup, the other thing that keeps the records safe. -->
+      <div class="console-section" data-section="admin-data" id="csec-admin-data" role="tabpanel" aria-labelledby="cnav-admin-data" tabindex="0">
         <div class="console-section-head">
-          <h3>Storage</h3>
-          <p>A copy of everything to keep, and how much room each table takes.</p>
-        </div>
-        <!-- The only copy of the team's records outside the database. The
-             project is on Supabase's free plan, which keeps no backups that
-             can be restored, and Settings > Backup & Data exports one
-             person's own record. Filled by exportEverything() in app.js. -->
-        <div class="backup-block">
-          <div class="console-subhead">Backup</div>
-          <p class="settings-hint">Every account, every logged day, everyone's schedule and the organisation settings, in one file. The database keeps no backups of its own, so download a copy at least once a month and keep it somewhere safe.</p>
-          <div class="form-actions">
-            <button type="button" class="btn small" id="exportAllBtn">Export Everything</button>
-          </div>
-          <p class="settings-hint" id="exportAllStatus" role="status" aria-live="polite"></p>
+          <h3>Data &amp; Backup</h3>
+          <p>Records that need fixing, and a copy of everything to keep.</p>
         </div>
         <div>
-      <div class="table-wrap responsive-cards" style="margin-bottom:10px;">
-        <table>
-          <thead>
-            <tr><th>Table</th><th class="num">Rows</th><th class="num">Size</th></tr>
-          </thead>
-          <tbody id="adminTablesBody"></tbody>
-        </table>
-      </div>
-      <p class="settings-hint" id="adminStatsFooter" style="margin-bottom:24px;"></p>
+          <!-- Every check is a real query, and each names the people or days
+               involved so it can be acted on. -->
+          <div class="admin-attention" id="adminAttention">
+            <h3 id="adminAttentionHead">Data checks</h3>
+            <div id="adminAttentionList" role="list" aria-labelledby="adminAttentionHead">
+              <p class="settings-hint" style="margin:0;">Checking…</p>
+            </div>
+          </div>
+          <!-- The only copy of the team's records outside the database. The
+               project is on Supabase's free plan, which keeps no backups that
+               can be restored, and Settings > Backup & Data exports one
+               person's own record. Filled by exportEverything() in app.js. -->
+          <div class="backup-block">
+            <div class="console-subhead">Backup</div>
+            <p class="settings-hint">Everyone&rsquo;s accounts, days and schedules, and the team settings, in one file. The database keeps no backups of its own: download one at least once a month and keep it safe.</p>
+            <div class="form-actions">
+              <button type="button" class="btn small" id="exportAllBtn">Download Team Backup</button>
+            </div>
+            <p class="settings-hint" id="exportAllStatus" role="status" aria-live="polite"></p>
+          </div>
+          <div class="console-subhead">Storage</div>
+          <p class="settings-hint" id="adminStorageTotal"></p>
+          <div class="table-wrap responsive-cards" style="margin-bottom:24px;">
+            <table>
+              <thead>
+                <tr><th>Table</th><th class="num">Rows</th><th class="num">Size</th></tr>
+              </thead>
+              <tbody id="adminTablesBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
         </div><!-- /.console-pane -->
@@ -9713,6 +9717,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v65"></script>
+<script type="module" src="app.js?v=v66"></script>
 </body>
 </html>

@@ -39,7 +39,7 @@
 // The suffix is also the release's build label: index.html loads
 // "app.js?v=<suffix>", crash reports carry it, and tests/regression/
 // crash-handler.js fails when the two differ.
-const CACHE_NAME = "attendance-ledger-shell-v65";
+const CACHE_NAME = "attendance-ledger-shell-v66";
 
 // A fingerprint of every file in SHELL_FILES, as it was when this release was
 // stamped. The worker does not read it. It is here so that this file's bytes
@@ -48,7 +48,7 @@ const CACHE_NAME = "attendance-ledger-shell-v65";
 // moves the label on and writes the new value. With the old network-first
 // worker a forgotten bump cost only the offline copy; now it would leave every
 // installed copy of the app on the previous release.
-const SHELL_FINGERPRINT = "914b53626e0f67ea";
+const SHELL_FINGERPRINT = "740b30df8a5b0e4c";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
