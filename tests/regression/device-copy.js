@@ -77,6 +77,17 @@ const view = page => page.evaluate(copyKey => ({
       ok(early.authSeen === false, "and the sign-in form never showed", "authSeen=" + early.authSeen);
       ok(await p.evaluate(() => !document.documentElement.hasAttribute("data-opening")), "the opening mark is cleared");
 
+      // The same days arriving from the server do not redraw the Day Types
+      // ring: it was emptied and swept in a second time on every open.
+      await p.evaluate(() => { document.getElementById("formatDial").firstElementChild.__fromCopy = true; });
+      await settle(p, 3200);
+      ok(await p.evaluate(() => document.getElementById("formatDial").firstElementChild.__fromCopy === true),
+        "the record arriving unchanged leaves the Day Types ring as it was drawn from the copy");
+      await goTab(p, "log");
+      await goTab(p, "overview");
+      ok(await p.evaluate(() => !document.getElementById("formatDial").firstElementChild.__fromCopy),
+        "coming back to Overview still draws it in");
+
       // No connection to the database at all: the copy stays, and says so.
       h.backend.fail("rest/v1/", { mode: "offline" });
       await p.reload({ waitUntil: "domcontentloaded" });
@@ -131,6 +142,18 @@ const view = page => page.evaluate(copyKey => ({
       await settle(p, 1200);
       const shown = await p.evaluate(() => document.getElementById("appShell").style.display === "block");
       ok(shown, "an expired session still opens on the copy while it is renewed");
+      // The phone's tab bar does not wait for the renewal either. It held only
+      // the clock button until the server had answered: 2.5s on the live
+      // logs' timings, 7s on the slowest renewal they show.
+      const bar = await p.evaluate(() => [...document.querySelectorAll("#bottomNav .bn-item")]
+        .filter(el => el.getClientRects().length).map(el => el.getAttribute("data-bn-tab")).join());
+      ok(bar === "overview,log,trends,calendar", "and its tab bar is there to move about in", bar);
+      await p.evaluate(() => document.querySelector('#bottomNav .bn-item[data-bn-tab="log"]').click());
+      await settle(p, 500);
+      ok(await p.evaluate(() => document.getElementById("tab-log").classList.contains("active")),
+        "a tab can be opened before the sign-in is renewed");
+      await p.evaluate(() => document.querySelector('#bottomNav .bn-item[data-bn-tab="overview"]').click());
+      await settle(p, 400);
       await p.evaluate(() => document.getElementById("bnClockBtn").click());
       await settle(p, 900);
       const st = await p.evaluate(() => ({

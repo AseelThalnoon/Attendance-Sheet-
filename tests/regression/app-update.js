@@ -190,6 +190,13 @@ async function start(opts){
       beforeLoad: fakeWorker({ controller: true, waiting: true }) });
     await h.page.waitForFunction(() => window.__sw && window.__sw.state().posted === 1, null, { timeout: 15000 });
     ok(true, "a release that was waiting at launch is taken straight away, before anyone has touched the page");
+    // Before anything else starts, not once the page has loaded: the live logs
+    // had an iPhone draw the app, renew its sign-in and send its first two
+    // dozen requests, and then reload and do all of it again.
+    const before = await h.page.evaluate(() => document.getElementById("appShell").style.display === "block");
+    ok(!before && h.backend.state.log.length === 0,
+      "and taken before the app draws or asks the server for anything",
+      JSON.stringify({ drawn: before, requests: h.backend.state.log.map(r => r.path) }));
     await h.page.evaluate(() => window.__sw.takeOver());
     await untilLoads(h.page, 2);
     await untilApp(h.page);
@@ -200,16 +207,16 @@ async function start(opts){
   }
 
   // ---- A worker that will not take over ----------------------------------------
-  // The page asks, nothing answers, and the fallback reloads it anyway. It
-  // must come back as a working app on the old release, not ask again.
+  // The page asks at launch and nothing answers. Reloading would only come
+  // back to the same release, so the app starts on the one it has -- and must
+  // not ask again, nor fall back to a reload, on the way.
   {
     const h = await start({ viewport: DESKTOP, meId: me.id, seed: seed(), waitForApp: false,
       beforeLoad: fakeWorker({ controller: true, waiting: true, stubborn: true }) });
-    await untilLoads(h.page, 2);
     await untilApp(h.page);
-    await settle(h.page, 5200);     // past the point a second fallback would have fired
+    await settle(h.page, 5200);     // past the point the old 4s fallback reload would have fired
     const s = await sw(h.page);
-    ok(s.loads === 2 && s.posted === 1, "a release that never takes over costs one reload, not a loop", JSON.stringify(s));
+    ok(s.loads === 1 && s.posted === 1, "a release that never takes over costs a moment's wait, not a reload or a loop", JSON.stringify(s));
     ok(await appShown(h.page), "and the app is usable on the release it has");
     await h.close();
   }

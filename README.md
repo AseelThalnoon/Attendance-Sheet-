@@ -78,7 +78,8 @@ changed. So:
   itself on every deploy, so this is about the source tree staying honest.
 - A new release is saved in the background beside the running one and never
   takes over underneath a page in use. The page moves onto it at launch if it
-  was already waiting, on coming back after five minutes with nothing open, on
+  was already waiting (before the app draws or sends a request, so the open is
+  not done twice), on coming back after five minutes with nothing open, on
   Refresh, or on sign-out; until then a toast says it is ready.
 - An install that fails, or whose page names a different release than its
   worker, is discarded whole. The release already running keeps its copy.
@@ -201,14 +202,14 @@ npm run test:regression   # just the audit regression suites
 | `regression/audit-logic` | Hours arithmetic, leave, streak, week start, long-shift guard |
 | `regression/audit-dom` | Boot failure, banner rendering, contrast, ARIA, CSP |
 | `regression/service-worker` | `sw.js` run as written: opening never waits on the network, a page and its files are always one release, a bad install is discarded whole, and `sw.js` cannot be left unstamped when the shell changes |
-| `regression/app-update` | When an open page moves onto a new release: never mid-task, never on a password-reset link, never twice, and otherwise at the first moment it costs nothing |
+| `regression/app-update` | When an open page moves onto a new release: never mid-task, never on a password-reset link, never twice, and otherwise at the first moment it costs nothing; at launch, before the app has drawn or sent anything |
 | `regression/build-output` | The published copy is the same app: complete and consistent, every element styled as in the source on every screen measured, all fourteen palette compositions equal, and it boots and works |
 | `regression/release-e2e` | One release replacing another, in a real browser with the real (built) service worker: installs, opens again without one request to the server, fetches the next release behind the open app, moves onto it on Refresh, and still opens with the server gone |
 | `regression/admin-tab` | Admin console: admin-only gating, people/roles, health checks, defaults, log |
 | `regression/stale-resume` | A page that outlives its copy of the record: a punch or a save refused because another device got there first reloads and says so; coming back to the app after five minutes re-reads quietly, and stands down for a form in progress |
 | `regression/punch-flood` | The animation a saved punch plays: it starts at the control that was pressed and covers its stage (the screen on a phone, the clock panel or sticky bar above that), says the minute that was saved, turns back to where that control has moved to, leaves by itself, never passes a tap through, and is not built at all under reduced motion. Also the chime and the vibration: the notes asked for, the press tick and the two beats, nothing for a refused punch, and the two Settings switches |
 | `regression/undo-and-replace` | What one tap could lose: Undo after a clock-out (saved, or waiting on the device) that never writes over a newer change; no blank Regular day from the entry form; Replace says what it replaces and offers Undo; messages above the phone's bottom bar; Admin's Download Team Backup holds every account, entry and schedule |
-| `regression/device-copy` | Opening on the record kept on the device: no sign-in form flash, the record before the server answers, the copy kept and labelled when the server is unreachable, a punch queued while the session is renewed, nobody else's copy, gone on sign-out; day one lasting through the first shift; the calendar starting at the first logged day |
+| `regression/device-copy` | Opening on the record kept on the device: no sign-in form flash, the record and the tab bar before the server answers, the Day Types ring not redrawn for the same days, the copy kept and labelled when the server is unreachable, a punch queued while the session is renewed, nobody else's copy, gone on sign-out; day one lasting through the first shift; the calendar starting at the first logged day |
 | `regression/sign-out-clean` | Nothing of one person is left for the next: the page starts over after a sign-out (or is emptied by hand where it cannot), and the device stops receiving the last person's notifications |
 | `regression/csv-export` | The exported file as a spreadsheet reads it: notes cannot run as formulas, figures stay figures, Arabic survives Excel, and the file imports back unchanged |
 | `regression/frame-guard` | The app refuses to run inside another page's frame, on another site or its own origin; the description, no-index and no-JavaScript notices |

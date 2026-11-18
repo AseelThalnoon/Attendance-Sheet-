@@ -48,6 +48,129 @@ var __arrivalHash = (window.location.hash || "").replace(/^#/, "");
 // see appUpdate.launchIsPlain below.
 var __arrivalSearch = window.location.search || "";
 
+// ---------- New releases ----------
+// The service worker opens the app from its saved copy and keeps a new release
+// waiting beside it until a page asks for it (see the head of sw.js). This is
+// the asking. A reload is how a page moves onto a new release, so the whole
+// question is WHEN: never underneath someone in the middle of something, and
+// otherwise as soon as it costs them nothing --
+//   * at launch, if the new release was already waiting and nothing has been
+//     touched yet;
+//   * on coming back to the app after a few minutes away, when nothing is
+//     open (the app's own code decides that -- see "appIsIdle");
+//   * when they press Refresh, or pull the page down, which is them asking;
+//   * on the way out of an account, where the page reloads regardless.
+// Until one of those happens the old release carries on working, and a toast
+// says a new one is ready.
+//
+// Declared up here, outside the app's one big function, because the wiring at
+// the foot of this file is too: registering a service worker has nothing to do
+// with who is signed in. The app reaches in through the two hooks. And above
+// the library's import, because the first of those moments is taken before
+// anything else starts (see takeWaitingReleaseAtLaunch below).
+var UPDATE_RELOAD_KEY = "attendance.updateReloadAt";
+var appUpdate = {
+  ready: false,          // a newer release is saved and waiting, or already in charge of this older page
+  applying: false,
+  registration: null,
+  touched: false,        // has anyone pressed or typed anything since this page loaded
+  lastCheck: 0,
+  onReady: null,         // the app's hook: say that an update is ready
+  beforeReload: null,    // the app's hook: note where the person was
+
+  // Ask the browser to look for a new sw.js. It does that by itself on every
+  // launch; this is for a page that has been open since before the last one.
+  check: function(){
+    var reg = this.registration;
+    if(!reg || typeof reg.update !== "function") return;
+    if(Date.now() - this.lastCheck < 30 * 60 * 1000) return;
+    this.lastCheck = Date.now();
+    try{ reg.update().then(null, function(){}); }catch(e){}
+  },
+
+  // Whether this page reloaded itself for an update moments ago. One reload
+  // has to be enough: a worker that will not take over must leave an app that
+  // still works on the old release, not one that reloads for ever.
+  reloadedJustNow: function(){
+    try{ return Date.now() - (+(sessionStorage.getItem(UPDATE_RELOAD_KEY) || 0)) < 60000; }
+    catch(e){ return true; }   // nowhere to keep the mark, so no automatic reloads at all
+  },
+
+  // Whether this launch is an ordinary one, safe to restart before anyone has
+  // touched it. Not when the address carried something to act on: supabase-js
+  // has already taken a reset or confirmation link's token out of the address
+  // by now, so a reload would come back as a plain signed-in session and skip
+  // the "choose a new password" step entirely; and a shortcut's punch may be
+  // on its way to the server at this very moment.
+  launchIsPlain: function(){
+    return __arrivalHash === "" && !/[?&]action=/.test(__arrivalSearch);
+  },
+
+  // Move this page onto the new release. Ends in a reload.
+  apply: function(){
+    if(this.applying) return;
+    this.applying = true;
+    try{ sessionStorage.setItem(UPDATE_RELOAD_KEY, String(Date.now())); }catch(e){}
+    if(this.beforeReload){ try{ this.beforeReload(); }catch(e){} }
+    var waiting = this.registration && this.registration.waiting;
+    if(!waiting){
+      // The new worker is already in charge (another tab asked first); the
+      // page only has to be loaded again to be served by it.
+      window.location.reload();
+      return;
+    }
+    // The reload happens on "controllerchange", once the new worker has
+    // actually taken over -- reloading before then would be answered by the
+    // old one, from the old copy. The timer is for a browser that never says.
+    try{ waiting.postMessage({type: "SKIP_WAITING"}); }catch(e){}
+    setTimeout(function(){ window.location.reload(); }, 4000);
+  }
+};
+function markUpdateReady(){
+  if(appUpdate.ready) return;
+  appUpdate.ready = true;
+  if(appUpdate.onReady){ try{ appUpdate.onReady(); }catch(e){} }
+}
+["pointerdown", "keydown"].forEach(function(type){
+  window.addEventListener(type, function(){ appUpdate.touched = true; }, {capture: true, once: true, passive: true});
+});
+
+// A release already waiting when the app is opened is taken HERE, before the
+// library loads, the session is restored or anything is drawn. It used to be
+// taken once the page had loaded: by then the app had drawn, renewed the
+// sign-in and sent its first two dozen requests, and then reloaded and did it
+// all again -- the live logs show an iPhone booting twice in under a second
+// (2026-11-18 19:33 UTC). Now that open costs a blank moment and one reload.
+//
+// Waits a moment for the new worker to take over, and reloads only once it
+// has: a reload before then is answered by the old worker, from the old copy.
+// A worker that does not take over in that moment is left to it, and the app
+// starts on the release it has; the mark set here stops the check at the foot
+// of this file from asking again, so the toast offers the new one instead.
+async function takeWaitingReleaseAtLaunch(){
+  try{
+    var sw = navigator.serviceWorker;
+    if(!sw || !sw.controller || !appUpdate.launchIsPlain() || appUpdate.reloadedJustNow()) return false;
+    var reg = await Promise.race([sw.getRegistration(),
+      new Promise(function(resolve){ setTimeout(resolve, 300); })]);
+    var waiting = reg && reg.waiting;
+    if(!waiting) return false;
+    sessionStorage.setItem(UPDATE_RELOAD_KEY, String(Date.now()));
+    var tookOver = new Promise(function(resolve){
+      sw.addEventListener("controllerchange", function(){ resolve(true); });
+      setTimeout(function(){ resolve(false); }, 1500);
+    });
+    waiting.postMessage({type: "SKIP_WAITING"});
+    if(!(await tookOver)) return false;
+    window.location.reload();
+    return true;
+  }catch(e){ return false; }
+}
+if(await takeWaitingReleaseAtLaunch()){
+  // Nothing more runs on this page: the reload replaces it.
+  await new Promise(function(){});
+}
+
 let createClient;
 try {
   ({ createClient } = await import("./vendor/supabase-js.min.js"));
@@ -338,91 +461,6 @@ function onId(id, type, handler, options){
   }
   return null;
 }
-
-// ---------- New releases ----------
-// The service worker opens the app from its saved copy and keeps a new release
-// waiting beside it until a page asks for it (see the head of sw.js). This is
-// the asking. A reload is how a page moves onto a new release, so the whole
-// question is WHEN: never underneath someone in the middle of something, and
-// otherwise as soon as it costs them nothing --
-//   * at launch, if the new release was already waiting and nothing has been
-//     touched yet;
-//   * on coming back to the app after a few minutes away, when nothing is
-//     open (the app's own code decides that -- see "appIsIdle");
-//   * when they press Refresh, or pull the page down, which is them asking;
-//   * on the way out of an account, where the page reloads regardless.
-// Until one of those happens the old release carries on working, and a toast
-// says a new one is ready.
-//
-// Declared up here, outside the app's one big function, because the wiring at
-// the foot of this file is too: registering a service worker has nothing to do
-// with who is signed in. The app reaches in through the two hooks.
-var UPDATE_RELOAD_KEY = "attendance.updateReloadAt";
-var appUpdate = {
-  ready: false,          // a newer release is saved and waiting, or already in charge of this older page
-  applying: false,
-  registration: null,
-  touched: false,        // has anyone pressed or typed anything since this page loaded
-  lastCheck: 0,
-  onReady: null,         // the app's hook: say that an update is ready
-  beforeReload: null,    // the app's hook: note where the person was
-
-  // Ask the browser to look for a new sw.js. It does that by itself on every
-  // launch; this is for a page that has been open since before the last one.
-  check: function(){
-    var reg = this.registration;
-    if(!reg || typeof reg.update !== "function") return;
-    if(Date.now() - this.lastCheck < 30 * 60 * 1000) return;
-    this.lastCheck = Date.now();
-    try{ reg.update().then(null, function(){}); }catch(e){}
-  },
-
-  // Whether this page reloaded itself for an update moments ago. One reload
-  // has to be enough: a worker that will not take over must leave an app that
-  // still works on the old release, not one that reloads for ever.
-  reloadedJustNow: function(){
-    try{ return Date.now() - (+(sessionStorage.getItem(UPDATE_RELOAD_KEY) || 0)) < 60000; }
-    catch(e){ return true; }   // nowhere to keep the mark, so no automatic reloads at all
-  },
-
-  // Whether this launch is an ordinary one, safe to restart before anyone has
-  // touched it. Not when the address carried something to act on: supabase-js
-  // has already taken a reset or confirmation link's token out of the address
-  // by now, so a reload would come back as a plain signed-in session and skip
-  // the "choose a new password" step entirely; and a shortcut's punch may be
-  // on its way to the server at this very moment.
-  launchIsPlain: function(){
-    return __arrivalHash === "" && !/[?&]action=/.test(__arrivalSearch);
-  },
-
-  // Move this page onto the new release. Ends in a reload.
-  apply: function(){
-    if(this.applying) return;
-    this.applying = true;
-    try{ sessionStorage.setItem(UPDATE_RELOAD_KEY, String(Date.now())); }catch(e){}
-    if(this.beforeReload){ try{ this.beforeReload(); }catch(e){} }
-    var waiting = this.registration && this.registration.waiting;
-    if(!waiting){
-      // The new worker is already in charge (another tab asked first); the
-      // page only has to be loaded again to be served by it.
-      window.location.reload();
-      return;
-    }
-    // The reload happens on "controllerchange", once the new worker has
-    // actually taken over -- reloading before then would be answered by the
-    // old one, from the old copy. The timer is for a browser that never says.
-    try{ waiting.postMessage({type: "SKIP_WAITING"}); }catch(e){}
-    setTimeout(function(){ window.location.reload(); }, 4000);
-  }
-};
-function markUpdateReady(){
-  if(appUpdate.ready) return;
-  appUpdate.ready = true;
-  if(appUpdate.onReady){ try{ appUpdate.onReady(); }catch(e){} }
-}
-["pointerdown", "keydown"].forEach(function(type){
-  window.addEventListener(type, function(){ appUpdate.touched = true; }, {capture: true, once: true, passive: true});
-});
 
 var __earlyRecoverySession = null;
 if(supabase){
@@ -1007,6 +1045,12 @@ import { makeSchedule } from "./src/schedule.js";
       deviceCopyLast = "";
       refreshAvatars();
       showApp();
+      // The phone's tab bar is the same four for everyone, so it is laid out
+      // now rather than by handleSignedIn: left to that, the bar held only the
+      // clock button until the server had answered -- 2.5s on the live logs'
+      // timings, 7s on a slow sign-in renewal -- with the record on screen and
+      // no way to move off it.
+      layoutBottomNav();
       positionRailIndicator();
       buildDayPicker();
       buildDefaultsDayPicker();
@@ -8105,7 +8149,7 @@ import { makeSchedule } from "./src/schedule.js";
       if(tab === "overview"){
         renderStats();
         renderPersonCard();
-        renderWorkingFormat();
+        renderWorkingFormat(true);
         renderTodayTeam().catch(function(){});
       }
       if(tab === "trends") renderSubtab(activeSubtab());
@@ -9917,7 +9961,9 @@ import { makeSchedule } from "./src/schedule.js";
     host.addEventListener("mouseleave", function(){ focusDayType(null); });
   });
 
-  function renderWorkingFormat(){
+  // replay: draw the ring in again even if nothing has changed -- for arriving
+  // on Overview, where the sweep is the chart's entrance.
+  function renderWorkingFormat(replay){
     var dial = document.getElementById("formatDial");
     var legend = document.getElementById("formatLegend");
     var period = document.getElementById("heroMonthLabel");
@@ -9941,6 +9987,14 @@ import { makeSchedule } from "./src/schedule.js";
     active.sort(function(a, b){ return b.count - a.count; });
     var total = active.reduce(function(sum, b){ return sum + b.count; }, 0);
     dial.closest(".format-card").classList.toggle("no-days", !total);
+
+    // The same days as last time: leave the ring alone. Every redraw sweeps
+    // it in from empty, and renderAll runs on every load and every punch, so
+    // opening the app drew it from the copy on the phone and then, a second
+    // later, emptied it and swept it in again for the same figures.
+    var drawn = mk + "|" + active.map(function(b){ return b.type + ":" + b.count; }).join(",");
+    if(!replay && dial.getAttribute("data-drawn") === drawn) return;
+    dial.setAttribute("data-drawn", drawn);
 
     if(!total){
       dial.innerHTML = '<p class="format-empty">No days logged this month yet.</p>';
@@ -14557,10 +14611,11 @@ if("serviceWorker" in navigator){
       reg.addEventListener("updatefound", function(){ watch(reg.installing); });
 
       if(reg.waiting && navigator.serviceWorker.controller){
-        // It was waiting before this page even loaded. The page is seconds
-        // old and nobody has touched it, so this is the cheapest moment there
-        // will ever be: one quick reload, and the launch is on the new release
-        // instead of a whole session behind it.
+        // It was waiting before this page even loaded. Normally that was
+        // taken at the top of this file, before anything started; this is
+        // for when it could not be (the worker had not answered in time).
+        // The page is seconds old, so if nobody has touched it a reload is
+        // still cheaper than a whole session on the old release.
         appUpdate.ready = true;
         if(!appUpdate.touched && appUpdate.launchIsPlain() && !appUpdate.reloadedJustNow()) appUpdate.apply();
         else if(appUpdate.onReady){ try{ appUpdate.onReady(); }catch(e){} }
