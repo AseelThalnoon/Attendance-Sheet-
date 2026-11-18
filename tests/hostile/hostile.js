@@ -720,6 +720,60 @@ async function run(){
     await h.close();
   }
 
+  // ---- An open shift says when you can leave --------------------------------
+  // The rail card, the phone's Today line and the sticky bar used to show
+  // hours so far and time to go. They show the time to leave now: clock-in
+  // plus the day's target (owner, 2026-11-18), and when the shift began.
+  {
+    const pad = n => String(n).padStart(2, "0");
+    const hhmm = m => pad(Math.floor(m / 60) % 24) + ":" + pad(m % 60);
+    const twelve = t => { const [h, m] = t.split(":").map(Number); return ((h % 12) || 12) + ":" + pad(m) + " " + (h >= 12 ? "PM" : "AM"); };
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const everyDay = Object.assign({}, D.SETTINGS, { workDays: [0,1,2,3,4,5,6] });
+    const read = page => page.evaluate(() => ({
+      label: document.getElementById("sealLabel").textContent,
+      value: document.getElementById("sealValue").textContent,
+      sub: document.getElementById("sealSub").hidden ? "" : document.getElementById("sealSub").textContent,
+      line: document.getElementById("todayLineLabel").textContent + " " + document.getElementById("todayLineValue").textContent,
+      sticky: document.getElementById("stickyClockShift").textContent
+    }));
+    const shiftFrom = async inMin => {
+      const me = D.profile(1);
+      const h = await boot({ meId: me.id, seed: {
+        profiles: [me], user_settings: [{ user_id: me.id, settings: everyDay }],
+        entries: [{ id: "open", user_id: me.id, date: today, clock_in: hhmm(inMin), clock_out: null, type: "regular", note: "" }]
+      }});
+      await settle(h.page, 400);
+      const v = await read(h.page);
+      v.errors = h.errors.slice();
+      await h.close();
+      return v;
+    };
+
+    // Two hours in (or since midnight, early in the day): eight hours to make.
+    const inMin = Math.max(0, nowMin - 120);
+    const early = await shiftFrom(inMin);
+    const leave = twelve(hhmm(inMin + 480)), since = twelve(hhmm(inMin));
+    ok(early.label === "Leave at" && early.value === leave && early.sub === "In since " + since,
+      "an open shift shows when you can leave (clock-in plus the day's hours), and when it began", JSON.stringify(early));
+    ok(early.line === "Leave at " + leave && early.sticky === "In since " + since + " · Leave at " + leave,
+      "the phone's Today line and the sticky bar say the same", JSON.stringify(early));
+    ok(!/to go|\dh \d+m$/.test(early.sub + early.value),
+      "and neither hours so far nor time to go is shown", JSON.stringify(early));
+    ok(early.errors.length === 0, "open shift readout: no script errors", early.errors.join(" | "));
+
+    // Nine hours in: the hours are done.
+    if(nowMin >= 540){
+      const late = await shiftFrom(nowMin - 540);
+      const at = twelve(hhmm(nowMin - 540 + 480));
+      ok(late.label === "Leave at" && late.value === at && /^Hours done · in since /.test(late.sub) &&
+         /Hours done at /.test(late.sticky),
+        "once the hours are made it says so", JSON.stringify(late));
+    }
+  }
+
   // ---- Double-submit: the entry-add form must also write exactly once ----
   {
     const me = D.profile(1);

@@ -915,11 +915,18 @@ It replaces the old wax-seal badge, keeping the job (one glanceable number for
 today) and dropping the skeuomorphism. Over/under status shows as a coloured
 left edge, never a tinted panel.
 
-While a shift is open the card says the shift instead of "Clocked in": the label
-becomes "Since 8:02 AM", the figure is the time elapsed, and a third line says
-what is left of the day's target ("4h 46m to go", then "Target reached"). It is
-repainted when the minute changes, not every second. The sticky clock bar
-carries the same three facts as one line beside the time.
+While a shift is open the card says when you can leave instead of "Clocked
+in": the label is "Leave at", the figure is the clock-in plus the day's target
+("4:02 PM"), and a third line says when the shift began ("In since 8:02 AM",
+then "Hours done · in since 8:02 AM" with the over edge once the time has come).
+It is the clock-in plus the target, not the schedule's End, because lateness is
+judged on the hours: start at 9:00 on an 8-hour day and you leave at 17:00. On
+a day with no target (WFH, a trip, training, a day off) there is nothing to
+leave by, so it says "In since" and the clock-in time. This replaced the time
+elapsed and the time to go (owner, 2026-11-18: one time to look at rather than
+two figures to add up). It is repainted when the minute changes, not every
+second. The sticky clock bar says the same as one line ("In since 8:02 AM ·
+Leave at 4:02 PM").
 
 ### The notice stack
 The reminder banners live in one `.notice-stack` wrapper rather than loose in
@@ -945,8 +952,8 @@ exists because the top of a phone screen was a greeting and two notices — the
 one figure the person opened the app for was below the fold on every tab, at
 `firstContentTop: 438` on an 852px screen.
 
-An open shift is said here the same way as in the rail: "In since 8:02 AM" with
-the remainder under it, and the elapsed time as the figure.
+An open shift is said here the same way as in the rail: "Leave at" with the
+time as the figure, and "In since 8:02 AM" under it.
 
 ### The Overview grid
 Four figures across the top; the portrait, the month's shape and who is in today
