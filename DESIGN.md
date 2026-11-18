@@ -1269,14 +1269,46 @@ landing view and merely wrong once you clicked Backup & Data; putting Profile
 first made it the first thing on screen — a "Save Settings" button directly
 under a profile that has its own Save, saving something else.
 
-**The admin console has no identity card.** Its side column held the same shape
-of block — an icon, the word "Organisation", a health readout and a Refresh
-button — under a heading that already said *Organisation Admin*. A title
-repeating a title in order to carry one button. Refresh is an icon button in
-that heading now, and the health readout moved onto the Overview nav row, the
-same way Seasonal Hours and Working Hours already say on their rows what they
-hold. Below 640px the heading's sentence takes its own line so the button stays
-up beside the title rather than stranded on a row of its own.
+**The admin console is laid out the way Settings is** (2026-11-18). No
+visible heading of its own: the page title already says Admin, so its
+*Organisation admin* heading is for screen readers, and its refresh button is
+gone because the header's refresh (and pull-to-refresh) reloads the console.
+The health readout rides on the Data & Backup nav row, the way every row says
+what its section holds.
+
+- **Most used first.** *People* (People, Team Schedule, Who's Away), then
+  *Everyone* (Company-Wide Days, Notifications, Announcement), then *System*
+  (Data & Backup, Activity Log, Crash Reports). People opens first on a wide
+  screen.
+- **One line under each title.** The section intros were paragraphs about how
+  the feature came to be; they say what the section is for now.
+- **Switches act at once; forms say when they are unsaved.** Sign-up is a
+  switch at the top of People that saves itself (it was a checkbox waiting for
+  a Save in another section). Team Schedule's Save sticks to the bottom with
+  *Unsaved changes* and Discard once a field moves, as Settings › Schedule's
+  does, and a refresh does not write over an unsaved edit.
+- **The banner is posted, not saved.** A status row says whether it is
+  showing and until when, with Take Down beside it; the button below reads
+  Post Announcement, or Update Announcement while one is up.
+- **Plain labels.** Download for Excel, Download Team Backup, Mark for
+  Everyone, Mark as. The Activity Log and Crash Reports lost their own Refresh
+  buttons to the header's.
+- **Own schedule** is a mark on the People rows it applies to, like Admin, and
+  a Show filter; most people are on the Team Schedule and it is not repeated
+  on every row.
+- **Nothing said twice, nothing an admin can't act on.** Overview's four
+  tiles went: Users is People's count, Database Size is the storage total,
+  and open connections and the Postgres version are the database's business.
+  Its data checks joined the backup as *Data & Backup*, one row saying both
+  ("3 to fix · Backed up 4d ago"). The admin console has no *Overview* to
+  confuse with the app's own.
+- **An empty list is a sentence.** The Activity Log, Crash Reports and the
+  notification history hide their filters, download and column headings
+  until there is something to filter; filtered down to nothing, the filters
+  stay and the sentence says it is them.
+- **A count you can check.** Company-Wide Days' row counts this year's public
+  holidays, and the section lists them. Sick Leave is not on its Mark as list:
+  a whole team is not off sick on one date.
 
 **Both name and photo are shared with the team**, so one line covers both. They
 used to carry a caption each, back when they had opposite answers to "who sees

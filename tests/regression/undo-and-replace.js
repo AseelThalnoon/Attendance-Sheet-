@@ -10,7 +10,7 @@
 //     Undo.
 //   * Messages sat on the phone's bottom bar for four to eight seconds.
 //   * Nothing held a copy of the team's records outside the live database;
-//     Admin > Storage now has Export Everything.
+//     Admin > Backup & Storage has Download Team Backup.
 //
 // Each case drives the real page against the scripted backend.
 const fs = require("fs");
@@ -174,7 +174,7 @@ const todayRow = h => h.backend.state.entries.find(e => e.user_id === me.id && e
     } finally { await h.close(); }
   }
 
-  // ---- Export everything (Admin > Storage) ----------------------------------
+  // ---- Export everything (Admin > Data & Backup) ----------------------------------
   {
     const admin = Object.assign({}, people[0]);
     const all = people.flatMap((pp, i) => D.entriesFor(pp.id, 5 + i).map((e, k) => Object.assign(e, { id: i * 1000 + k + 1 })));
@@ -185,16 +185,16 @@ const todayRow = h => h.backend.state.entries.find(e => e.user_id === me.id && e
     const p = h.page;
     try {
       await goTab(p, "admin");
-      await p.evaluate(() => document.getElementById("cnav-admin-storage").click());
+      await p.evaluate(() => document.getElementById("cnav-admin-data").click());
       await settle(p, 600);
       const before = await p.evaluate(() => ({
-        nav: document.getElementById("cnavDescStorage").textContent,
-        attention: document.getElementById("cnav-admin-storage").classList.contains("needs-attention"),
+        nav: document.getElementById("cnavDescAdminData").textContent,
+        attention: document.getElementById("cnav-admin-data").classList.contains("needs-attention"),
         shown: !!document.getElementById("exportAllBtn").getClientRects().length
       }));
-      ok(before.shown, "Admin > Storage has Export Everything");
-      ok(/No backup on this device yet/.test(before.nav) && before.attention,
-        "with no backup yet, the Storage row says so and asks for attention", JSON.stringify(before));
+      ok(before.shown, "Admin > Data & Backup has Download Team Backup");
+      ok(/No backup yet/.test(before.nav) && before.attention,
+        "with no backup yet, the Data & Backup row says so and asks for attention", JSON.stringify(before));
       const [download] = await Promise.all([
         p.waitForEvent("download", { timeout: 15000 }),
         p.evaluate(() => document.getElementById("exportAllBtn").click())
@@ -210,21 +210,26 @@ const todayRow = h => h.backend.state.entries.find(e => e.user_id === me.id && e
       ok(new Set(file.entries.map(e => e.user_id)).size === people.length, "everyone's entries, not only the admin's");
       await settle(p, 400);
       const after = await p.evaluate(() => ({
-        nav: document.getElementById("cnavDescStorage").textContent,
-        attention: document.getElementById("cnav-admin-storage").classList.contains("needs-attention"),
+        nav: document.getElementById("cnavDescAdminData").textContent,
+        attention: document.getElementById("cnav-admin-data").classList.contains("needs-attention"),
         status: document.getElementById("exportAllStatus").textContent
       }));
-      ok(/Backed up today/.test(after.nav) && !after.attention && /Last downloaded on this device/.test(after.status),
+      // The row shares its dot with the data checks, so once the backup is
+      // done the dot is theirs alone: on when there are records to fix.
+      ok(/Backed up today/.test(after.nav) && after.attention === /to fix/.test(after.nav) &&
+         /Last downloaded on this device/.test(after.status),
         "afterwards the row says it was done today", JSON.stringify(after));
       // A month on, the row asks again.
       await p.evaluate(() => localStorage.setItem("attendance.orgBackupAt", String(Date.now() - 31 * 864e5)));
-      await p.evaluate(() => document.getElementById("refreshStatsBtn").click());
+      // The header's refresh reloads the Admin console too: it no longer has
+      // a refresh button of its own.
+      await p.evaluate(() => document.getElementById("refreshBtn").click());
       await settle(p, 800);
       const stale = await p.evaluate(() => ({
-        nav: document.getElementById("cnavDescStorage").textContent,
-        attention: document.getElementById("cnav-admin-storage").classList.contains("needs-attention")
+        nav: document.getElementById("cnavDescAdminData").textContent,
+        attention: document.getElementById("cnav-admin-data").classList.contains("needs-attention")
       }));
-      ok(/31 days ago/.test(stale.nav) && stale.attention, "a month later it asks for a fresh copy", JSON.stringify(stale));
+      ok(/Backed up 31d ago/.test(stale.nav) && stale.attention, "a month later it asks for a fresh copy", JSON.stringify(stale));
       ok(h.errors.length === 0, "export: no script errors", h.errors.join(" | "));
     } finally { await h.close(); }
   }

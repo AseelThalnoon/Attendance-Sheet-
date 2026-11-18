@@ -720,6 +720,203 @@ async function run(){
     await h.close();
   }
 
+  // ---- Admin, laid out the way Settings is ----------------------------------
+  // The People, Everyone, System order; no heading or refresh button of its
+  // own; the sign-up setting as a switch that saves itself; the banner
+  // posted and taken down rather than ticked and saved; who has their own
+  // schedule marked on the list; Team Schedule's Save saying it has unsaved
+  // changes, with Discard.
+  {
+    const boss = D.profile(1, { role: "admin", full_name: "Boss Admin" });
+    const onTeam = D.profile(2, { full_name: "Tara Team" });
+    const ownOne = D.profile(3, { full_name: "Omar Own" });
+    const h = await boot({ meId: boss.id, seed: {
+      profiles: [boss, onTeam, ownOne], entries: [],
+      app_settings: [{ id: 1, default_settings: D.SETTINGS, allow_registration: true,
+        announcement_active: false, announcement: null, announcement_until: null, announcement_posted_at: null }],
+      user_settings: [
+        { user_id: boss.id, settings: D.SETTINGS },
+        { user_id: onTeam.id, settings: Object.assign({}, D.SETTINGS, { annualLeaveDays: 30 }) },
+        { user_id: ownOne.id, settings: Object.assign({}, D.SETTINGS, { standardIn: "07:00", standardOut: "15:00" }) }
+      ]
+    }});
+    const app = () => h.backend.state.app_settings[0];
+    const shown = sel => h.page.evaluate(s => { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0; }, sel);
+    await goTab(h.page, "admin");
+    await settle(h.page, 600);
+
+    const layout = await h.page.evaluate(() => ({
+      groups: [...document.querySelectorAll("#adminConsole .console-nav-group-title")].map(e => e.textContent.trim()),
+      first: document.querySelector("#adminConsole .console-nav-item").id,
+      selected: (document.querySelector('#adminConsole .console-nav-item[aria-selected="true"]') || {}).id,
+      headShown: [...document.querySelectorAll("#tab-admin .console-head > *")].some(e => e.getClientRects().length && getComputedStyle(e).position !== "absolute"),
+      ownRefresh: !!document.getElementById("refreshStatsBtn")
+    }));
+    ok(layout.groups.join(",") === "People,Everyone,System", "Admin's sections run People, Everyone, System", JSON.stringify(layout.groups));
+    ok(layout.first === "cnav-admin-people" && layout.selected === "cnav-admin-people",
+      "People is first, and open on a wide screen", JSON.stringify(layout));
+    ok(!layout.headShown && !layout.ownRefresh, "no second heading and no refresh button of Admin's own", JSON.stringify(layout));
+
+    // The header's refresh reloads the console.
+    const stats = () => h.backend.state.log.filter(r => /admin_db_stats/.test(r.path)).length;
+    const before = stats();
+    await h.page.evaluate(() => document.getElementById("refreshBtn").click());
+    await settle(h.page, 900);
+    ok(stats() > before, "the header's refresh reloads the Admin figures", `${before} -> ${stats()}`);
+
+    // The warning about sign-ups with no team schedule stays hidden when
+    // one is set. A display:flex rule used to show it to every admin.
+    ok(!(await shown("#registrationDefaultsHint")), "with a team schedule set, there is no warning about one");
+
+    // Sign-up: a switch that saves the moment it moves.
+    ok(await shown("#csec-admin-people #setAllowRegistration"), "the sign-up switch is in People");
+    await h.page.click('label[for="setAllowRegistration"]');
+    await settle(h.page, 700);
+    ok(app().allow_registration === false, "switching sign-up off saves at once, with no Save", JSON.stringify(app()));
+    await h.page.click('label[for="setAllowRegistration"]');
+    await settle(h.page, 700);
+    ok(app().allow_registration === true, "and switching it back on saves at once too");
+
+    // People marks the one on a schedule of their own, and can show only them.
+    const marks = await h.page.evaluate(() => [...document.querySelectorAll("#adminUsersList .admin-user-row")]
+      .map(r => r.querySelector(".admin-user-name").textContent.replace(/\s+/g, " ").trim()));
+    ok(marks.filter(m => /Own schedule/.test(m)).length === 1 && marks.some(m => /Omar Own.*Own schedule/.test(m)),
+      "only the person with their own schedule is marked", JSON.stringify(marks));
+    await h.page.selectOption("#adminUserFilter", "own");
+    await settle(h.page, 200);
+    ok(await h.page.evaluate(() => document.querySelectorAll("#adminUsersList .admin-user-row").length) === 1,
+      "Show: Own schedule lists just them");
+    await h.page.selectOption("#adminUserFilter", "all");
+
+    // Announcement: posted, then taken down.
+    await h.page.click("#cnav-admin-app");
+    await settle(h.page, 300);
+    const state = () => h.page.evaluate(() => ({
+      title: document.getElementById("announceStateTitle").textContent,
+      takeDown: !document.getElementById("takeDownAnnouncementBtn").hidden,
+      post: document.getElementById("postAnnouncementBtn").textContent,
+      nav: document.getElementById("cnavDescApp").textContent
+    }));
+    let st = await state();
+    ok(st.title === "Not showing" && !st.takeDown && st.post === "Post Announcement",
+      "with no banner up, it says so and offers Post", JSON.stringify(st));
+    await h.page.click("#postAnnouncementBtn");
+    await settle(h.page, 400);
+    ok(!app().announcement_active, "Post with no message is refused");
+    await h.page.fill("#setAnnouncement", "Office closed Thursday");
+    await h.page.click("#postAnnouncementBtn");
+    await settle(h.page, 800);
+    st = await state();
+    ok(app().announcement_active && app().announcement === "Office closed Thursday" && !!app().announcement_posted_at,
+      "Post puts the banner up", JSON.stringify(app()));
+    ok(st.title === "Showing to everyone" && st.takeDown && st.post === "Update Announcement" && st.nav === "Banner on",
+      "and the section says it is showing, with Take Down", JSON.stringify(st));
+    await h.page.click("#takeDownAnnouncementBtn");
+    await settle(h.page, 800);
+    st = await state();
+    ok(!app().announcement_active && app().announcement === "Office closed Thursday",
+      "Take Down takes it down and keeps the message", JSON.stringify(app()));
+    ok(st.title === "Not showing" && st.nav === "Banner off", "and the section says so", JSON.stringify(st));
+    ok(!(await h.page.evaluate(() => document.getElementById("announcementBanner").classList.contains("show"))),
+      "the banner is gone from the admin's own screen");
+
+    // Team Schedule: Unsaved changes, and Discard puts the saved one back.
+    await h.page.click("#cnav-admin-defaults");
+    await settle(h.page, 300);
+    ok(!(await shown("#discardDefaultsBtn")), "an untouched Team Schedule offers no Discard");
+    await h.page.fill("#dOut", "15:30");
+    await settle(h.page, 200);
+    const dirty = await h.page.evaluate(() => ({
+      dirty: document.getElementById("defaultsCommit").classList.contains("is-dirty"),
+      note: getComputedStyle(document.getElementById("defaultsDirtyNote")).display !== "none"
+    }));
+    ok(dirty.dirty && dirty.note && await shown("#discardDefaultsBtn"),
+      "an edit says Unsaved changes and offers Discard", JSON.stringify(dirty));
+    // A refresh while editing leaves the edit where it is.
+    await h.page.evaluate(() => document.getElementById("refreshBtn").click());
+    await settle(h.page, 900);
+    ok(await h.page.inputValue("#dOut") === "15:30", "a refresh does not write over an unsaved edit");
+    await h.page.click("#discardDefaultsBtn");
+    await settle(h.page, 300);
+    ok(await h.page.inputValue("#dOut") === D.SETTINGS.standardOut && !(await shown("#discardDefaultsBtn")),
+      "Discard puts the saved Team Schedule back", await h.page.inputValue("#dOut"));
+
+    // The composer's message is drawn like every other field.
+    await h.page.click("#cnav-admin-notifications");
+    await settle(h.page, 300);
+    const fonts = await h.page.evaluate(() => ({
+      body: getComputedStyle(document.getElementById("notifyBody")).fontFamily,
+      title: getComputedStyle(document.getElementById("notifyTitle")).fontFamily,
+      when: getComputedStyle(document.getElementById("notifySchedule")).borderRadius,
+      field: getComputedStyle(document.getElementById("notifyTitle")).borderRadius
+    }));
+    ok(fonts.body === fonts.title && fonts.when === fonts.field,
+      "the message box and Send at are styled like the other fields", JSON.stringify(fonts));
+
+    // System: the data checks and the backup are one section. Overview's
+    // tiles repeated other rows (Users, Database Size) or were database
+    // plumbing (connections, the Postgres version); they are gone.
+    const sys = await h.page.evaluate(() => {
+      const system = [...document.querySelectorAll("#adminConsole .console-nav-group")]
+        .find(g => /System/.test(g.querySelector(".console-nav-group-title").textContent));
+      return {
+        items: [...system.querySelectorAll(".console-nav-title")].map(e => e.textContent.trim()),
+        tiles: !!document.querySelector("#tab-admin .stat-card"),
+        plumbing: /Postgres|connection limit/i.test(document.getElementById("tab-admin").textContent),
+        nav: document.getElementById("cnavDescAdminData").textContent
+      };
+    });
+    ok(sys.items.join(",") === "Data & Backup,Activity Log,Crash Reports",
+      "System holds Data & Backup, Activity Log and Crash Reports", JSON.stringify(sys.items));
+    ok(!sys.tiles && !sys.plumbing, "no figures that repeat other rows, and no database plumbing", JSON.stringify(sys));
+    ok(sys.nav === "All clear · No backup yet", "its row says both halves: the checks, then the backup", sys.nav);
+
+    // An empty list is a sentence: no filters, download or headings over it.
+    await h.page.click("#cnav-admin-audit");
+    await settle(h.page, 300);
+    const empties = await h.page.evaluate(() => ({
+      auditFilters: document.getElementById("adminAuditFilters").getClientRects().length,
+      auditTools: document.getElementById("auditTools").getClientRects().length,
+      auditTable: document.querySelector("#csec-admin-audit .table-wrap").getClientRects().length,
+      auditSays: document.getElementById("auditEmpty").getClientRects().length ? document.getElementById("auditEmpty").textContent : "",
+      crash: document.getElementById("adminCrashFilters").hidden && document.querySelector("#csec-admin-crashes .table-wrap").hidden,
+      notify: document.querySelector("#csec-admin-notifications .notify-filter").hidden
+    }));
+    ok(!empties.auditFilters && !empties.auditTools && !empties.auditTable && empties.auditSays === "No activity recorded yet.",
+      "an empty Activity Log is one sentence", JSON.stringify(empties));
+    ok(empties.crash && empties.notify,
+      "Crash Reports and the notification history hide their filters when there is nothing to filter", JSON.stringify(empties));
+
+    // Company-Wide Days: no Sick Leave for a whole team, and the holidays the
+    // menu row counts are named in the section.
+    await h.page.click("#cnav-admin-bulk");
+    await settle(h.page, 300);
+    const kinds = await h.page.evaluate(() => [...document.querySelectorAll("#bulkApplyType option")].map(o => o.value));
+    ok(!kinds.includes("sick"), "Mark as offers no Sick Leave for the whole team", JSON.stringify(kinds));
+    ok(!(await shown("#companyDaysList")), "with no holidays marked, no list of them");
+    await h.page.click("#bulkApplyBtn");
+    await settle(h.page, 400);
+    const ask = await h.page.evaluate(() => ({
+      title: document.querySelector(".modal-overlay .modal-title").textContent,
+      yes: document.querySelector(".modal-overlay .modal-confirm").textContent
+    }));
+    ok(ask.title === "Mark for everyone?" && ask.yes === "Mark for Everyone", "the dialog uses the button's words", JSON.stringify(ask));
+    await h.page.click(".modal-overlay .modal-confirm");
+    await settle(h.page, 900);
+    const y = String(new Date().getFullYear());
+    const marked = await h.page.evaluate(() => ({
+      list: document.getElementById("companyDaysList").hidden ? "" : document.getElementById("companyDaysList").textContent,
+      nav: document.getElementById("cnavDescBulk").textContent,
+      away: document.getElementById("cnavDescAway").textContent
+    }));
+    ok(h.backend.state.entries.filter(e => e.type === "holiday").length === 3, "everyone gets the day", h.backend.state.entries.length);
+    ok(marked.list.startsWith("Public holidays in " + y + ": ") && marked.nav === "1 public holiday in " + y,
+      "the section names the day and the menu row counts it at once", JSON.stringify(marked));
+    ok(marked.away === "Everyone away 1 day this week", "Who's Away's row says it without calling it a day off", marked.away);
+    ok(h.errors.length === 0, "admin layout: no script errors", h.errors.join(" | "));
+    await h.close();
+  }
+
   // ---- An open shift says when you can leave --------------------------------
   // The rail card, the phone's Today line and the sticky bar used to show
   // hours so far and time to go. They show the time to leave now: clock-in
@@ -1579,10 +1776,9 @@ async function run(){
         announcement_until: null, announcement_posted_at: null }] } });
     await settle(a.page, 900);
     const save = (text, until) => a.page.evaluate(([t, u]) => {
-      document.getElementById("setAnnouncementActive").checked = true;
       document.getElementById("setAnnouncement").value = t;
       document.getElementById("setAnnouncementUntil").value = u;
-      document.getElementById("saveAppSettingsBtn").click();
+      document.getElementById("postAnnouncementBtn").click();
     }, [text, until]);
     await save("Old news", yesterday);
     await settle(a.page, 700);

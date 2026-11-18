@@ -3452,6 +3452,25 @@ import { makeSchedule } from "./src/schedule.js";
     fillSettingsForm();
     showToast("Changes discarded.", "info");
   });
+  // Admin > Team Schedule, the same way. While it is dirty a refresh of the
+  // console does not write over what is being typed (fillDefaultsForm).
+  var defaultsDirty = false;
+  function setDefaultsDirty(on){
+    defaultsDirty = !!on;
+    var group = document.getElementById("defaultsCommit");
+    if(group) group.classList.toggle("is-dirty", defaultsDirty);
+    var discard = document.getElementById("discardDefaultsBtn");
+    if(discard) discard.hidden = !defaultsDirty;
+  }
+  ["input", "change"].forEach(function(type){
+    onId("csec-admin-defaults", type, function(ev){
+      if(ev.target) setDefaultsDirty(true);
+    });
+  });
+  onId("discardDefaultsBtn", "click", function(){
+    fillDefaultsForm(defaultsRaw, true);
+    showToast("Changes discarded.", "info");
+  });
   // The same target on each seasonal card, for both editors (yours and the
   // organisation defaults).
   ["periodsList", "defaultsPeriodsList"].forEach(function(id){
@@ -3622,6 +3641,7 @@ import { makeSchedule } from "./src/schedule.js";
       standardOut: pad2(Math.floor(endMin/60)) + ":" + pad2(endMin%60)
     });
     renderPeriodRows(current, "defaultsPeriodsList");
+    setDefaultsDirty(true);
     var rows = document.querySelectorAll("#defaultsPeriodsList [data-period]");
     if(rows.length) rows[rows.length-1].scrollIntoView({behavior:"smooth", block:"nearest"});
   });
@@ -3632,6 +3652,7 @@ import { makeSchedule } from "./src/schedule.js";
     var year = new Date().getFullYear();
     current.push(shorterPeriod(year, currentDefaultsSchedule()));
     renderPeriodRows(current, "defaultsPeriodsList");
+    setDefaultsDirty(true);
     var rows = wrap.querySelectorAll("[data-period]");
     if(rows.length) rows[rows.length-1].querySelector('[data-p="name"]').focus();
   });
@@ -3645,6 +3666,7 @@ import { makeSchedule } from "./src/schedule.js";
     var current = readPeriodRows("defaultsPeriodsList");
     if(idx !== -1) current.splice(idx, 1);
     renderPeriodRows(current, "defaultsPeriodsList");
+    setDefaultsDirty(true);
   });
   // Mobile fallback only — the rail's own Settings item reaches the tab
   // directly. Same pattern as the header Admin button: click the real tab
@@ -9575,7 +9597,11 @@ import { makeSchedule } from "./src/schedule.js";
     btn.classList.add("is-busy");
     try{
       await flushOutbox();
-      await Promise.all([loadDataForViewedUser(), loadPushNotifications()]);
+      // Admin's figures, lists and checks come along when Admin is the open
+      // page: it had a refresh button of its own beside this one.
+      var adminOpen = isAdmin && document.getElementById("tab-admin").classList.contains("active");
+      await Promise.all([loadDataForViewedUser(), loadPushNotifications(),
+        adminOpen ? renderAdmin() : null]);
       // loadDataForViewedUser() already toasts its own failure.
       if(!dataLoadFailed()) showToast("Up to date.", "success");
     }catch(err){
@@ -10368,12 +10394,15 @@ import { makeSchedule } from "./src/schedule.js";
       return;
     }
 
+    // Said in the button's words: it is "Mark for Everyone" on screen, and
+    // the dialog used to ask to "Apply 14 entries".
     var confirmed = await showConfirm(
-      "This will set " + typeLabel(type).toLowerCase() + " for all " + allProfiles.length +
-      " team member" + (allProfiles.length===1?"":"s") + " across " + dates.length +
-      " day" + (dates.length===1?"":"s") + " (" + dateRangeLabel + ")." +
+      typeLabel(type) + " for all " + allProfiles.length +
+      (allProfiles.length === 1 ? " person, " : " people, ") +
+      (dates.length === 1 ? "on " : "from ") + dateRangeLabel +
+      (dates.length === 1 ? "." : " (" + dates.length + " days).") +
       (occupied.length && skipOccupied ? "\n\n" + occupied.length + " day(s) with recorded hours will be left untouched." : ""),
-      {title:"Apply to everyone?", confirmText:"Apply " + willWrite + " entries"}
+      {title:"Mark for everyone?", confirmText:"Mark for Everyone"}
     );
     if(!confirmed) return;
 
@@ -10397,16 +10426,19 @@ import { makeSchedule } from "./src/schedule.js";
 
     endBulkOperation();
     btn.disabled = false;
-    btn.textContent = "Apply to All Team Members";
+    btn.textContent = "Mark for Everyone";
     document.getElementById("bulkApplyNote").value = "";
 
     await loadDataForViewedUser();
     if(document.querySelector('.tab-btn[data-tab="team"].active')) renderTeam();
+    // The menu's holiday count and Who's Away are about these days too.
+    renderCompanyDaysCount();
+    loadWhosAway();
     if(bulkErr){
-      showToast("Couldn't apply that: " + friendlyError(bulkErr), "error");
+      showToast("Couldn't mark those days: " + friendlyError(bulkErr), "error");
     } else {
       showToast(
-        "Applied " + applied + " entries." +
+        "Marked " + applied + " entries." +
         (occupied.length && skipOccupied ? " " + occupied.length + " day(s) with recorded hours were left untouched." : ""),
         "success");
     }
@@ -11638,11 +11670,25 @@ import { makeSchedule } from "./src/schedule.js";
   // alone would outweigh the rest.
   //
   // When it was last done is kept on this device, which is where the reminder
-  // reads it: the Storage row in the Admin menu says how long ago, and turns
-  // to a warning once it has been a month.
+  // reads it: the Data & Backup row in the Admin menu says how long ago, and
+  // turns to a warning once it has been a month.
   var BACKUP_AT_KEY = "attendance.orgBackupAt";
   var BACKUP_DUE_DAYS = 30;
-  var storageSummary = "";
+
+  // The Data & Backup row says both halves of its section in one line: how
+  // many records need fixing, then the backup. It asks for attention when
+  // either does. Each half is painted when its own query answers.
+  var healthToFix;              // undefined until the checks run; null if they couldn't
+  var backupState = null;       // {said, due}
+  function paintDataNav(){
+    var parts = [];
+    if(healthToFix === null) parts.push("Checks couldn't run");
+    else if(healthToFix > 0) parts.push(healthToFix + " to fix");
+    else if(healthToFix === 0) parts.push("All clear");
+    if(backupState) parts.push(backupState.said);
+    setNavDesc("cnavDescAdminData", parts.join(" · ") || "Records to fix, and a copy to keep",
+      healthToFix > 0 || !!(backupState && backupState.due));
+  }
   async function fetchAllRows(table, order){
     var all = [], from = 0;
     for(;;){
@@ -11659,10 +11705,12 @@ import { makeSchedule } from "./src/schedule.js";
     var at = +(safeGet(BACKUP_AT_KEY) || 0);
     var days = at ? Math.floor((Date.now() - at) / 86400000) : null;
     var due = days === null || days >= BACKUP_DUE_DAYS;
-    var said = days === null ? "No backup on this device yet"
+    // Short: it shares the nav row with the data checks' count.
+    var said = days === null ? "No backup yet"
              : days === 0 ? "Backed up today"
-             : "Backed up " + days + (days === 1 ? " day" : " days") + " ago";
-    setNavDesc("cnavDescStorage", (storageSummary ? storageSummary + " · " : "") + said, due);
+             : "Backed up " + days + "d ago";
+    backupState = {said: said, due: due};
+    paintDataNav();
     var status = document.getElementById("exportAllStatus");
     if(status && !status.classList.contains("is-working")){
       status.textContent = days === null
@@ -11716,6 +11764,7 @@ import { makeSchedule } from "./src/schedule.js";
   }
   onId("exportAllBtn", "click", exportEverything);
 
+  // Storage: the whole database, then table by table.
   async function renderAdminStats(){
     var res;
     refreshBackupStatus();   // said even when the figures below fail to load
@@ -11723,23 +11772,11 @@ import { makeSchedule } from "./src/schedule.js";
       res = await supabase.rpc("admin_db_stats");
       if(res.error) throw res.error;
     }catch(err){
-      showToast("Couldn't load system stats: " + friendlyError(err), "error");
+      showToast("Couldn't load the storage figures: " + friendlyError(err), "error");
       return;
     }
     var s = res.data || {};
-
-    document.getElementById("statDbSize").textContent = fmtBytes(s.db_size_bytes);
-    document.getElementById("statUsers").textContent = (s.counts && s.counts.profiles) || 0;
-    document.getElementById("statUsersDetail").textContent =
-      ((s.counts && s.counts.admins) || 0) + " admin" + (((s.counts && s.counts.admins) || 0) === 1 ? "" : "s");
-    document.getElementById("statEntries").textContent =
-      ((s.counts && s.counts.entries) || 0).toLocaleString();
-    document.getElementById("statConnections").textContent =
-      (s.active_connections || 0) + " / " + (s.max_connections || "?");
-
-    var pct = s.max_connections ? Math.round((s.active_connections / s.max_connections) * 100) : 0;
-    document.getElementById("statConnectionsDetail").textContent = pct + "% of the connection limit in use";
-
+    document.getElementById("adminStorageTotal").textContent = fmtBytes(s.db_size_bytes) + " in all.";
     var body = document.getElementById("adminTablesBody");
     body.innerHTML = "";
     (s.tables || []).forEach(function(t){
@@ -11750,13 +11787,6 @@ import { makeSchedule } from "./src/schedule.js";
         "<td class='num' data-label='Size'><span class=\"cell-label\">Size</span>"+fmtBytes(t.total_bytes)+"</td>";
       body.appendChild(tr);
     });
-
-    storageSummary = fmtBytes(s.db_size_bytes);
-    refreshBackupStatus();
-    document.getElementById("adminStatsFooter").textContent =
-      "Postgres " + (s.postgres_version || "?") +
-      " · Updated " + new Date(s.generated_at || Date.now()).toLocaleTimeString() +
-      " · CPU and bandwidth aren't available from the browser; see your Supabase dashboard for those.";
   }
 
   // Which users hold a user_settings row of their own. Anyone missing from this
@@ -11764,19 +11794,32 @@ import { makeSchedule } from "./src/schedule.js";
   // which means every figure the app shows them is measured against a week they
   // may not work. It is invisible from their side, so it is surfaced here.
   var adminSettingsOwners = null;   // null = not loaded yet, Set once fetched
+  var adminScheduleKeys = {};       // user id -> scheduleKey of their own row
 
   async function loadAdminSettingsOwners(){
     try{
-      var res = await supabase.from("user_settings").select("user_id");
+      var res = await supabase.from("user_settings").select("user_id,settings");
       if(res.error) throw res.error;
       adminSettingsOwners = new Set((res.data || []).map(function(r){ return r.user_id; }));
+      adminScheduleKeys = {};
+      (res.data || []).forEach(function(r){
+        try{ adminScheduleKeys[r.user_id] = scheduleKey(r.settings); }catch(e){ /* unreadable: no mark */ }
+      });
     }catch(err){
       adminSettingsOwners = null;   // unknown, not "nobody" — don't flag everyone
+      adminScheduleKeys = {};
     }
   }
 
   function isUnconfigured(u){
     return adminSettingsOwners ? !adminSettingsOwners.has(u.id) : false;
+  }
+
+  // Not on the Team Schedule: the same comparison Settings > Schedule makes
+  // for its "Own schedule" pill. Unknown until both sides have loaded.
+  function hasOwnSchedule(u){
+    var key = adminScheduleKeys[u.id];
+    return !!(teamSchedule && key && key !== scheduleKey(teamSchedule));
   }
 
   async function loadAdminPeople(){
@@ -11810,6 +11853,7 @@ import { makeSchedule } from "./src/schedule.js";
       if(filter === "user") return u.role !== "admin";
       if(filter === "deactivated") return !!u.deactivated;
       if(filter === "unconfigured") return isUnconfigured(u);
+      if(filter === "own") return hasOwnSchedule(u);
       return true;
     });
 
@@ -11842,6 +11886,9 @@ import { makeSchedule } from "./src/schedule.js";
             (u.role === "admin" ? ' <span class="admin-badge role-admin">Admin</span>' : '')+
             (u.deactivated ? ' <span class="admin-badge deactivated">Deactivated</span>' : '')+
             (unconfigured ? ' <span class="admin-badge unconfigured">No schedule</span>' : '')+
+            // A mark on the few, like Admin: most people work to the Team
+            // Schedule, and saying so on every row would be noise.
+            (hasOwnSchedule(u) ? ' <span class="admin-badge own-schedule">Own schedule</span>' : '')+
           '</div>'+
           '<div class="admin-user-meta" dir="auto"'+
             // Both facts in the tooltip, because they genuinely differ and the
@@ -12128,7 +12175,7 @@ import { makeSchedule } from "./src/schedule.js";
     insert:"Added", update:"Edited", delete:"Deleted",
     role_change:"Role changed", user_created:"User created",
     user_deactivated:"Deactivated", user_reactivated:"Reactivated", user_deleted:"User deleted",
-    app_settings_change:"Org settings changed", notification_sent:"Notification sent",
+    app_settings_change:"Team settings changed", notification_sent:"Notification sent",
     schedule_change:"Schedule changed", push_device_removed:"Device removed"
   };
   function auditActionClass(action){
@@ -12333,7 +12380,16 @@ import { makeSchedule } from "./src/schedule.js";
 
     var body = document.getElementById("auditBody");
     body.innerHTML = "";
-    document.getElementById("auditEmpty").style.display = rows.length ? "none" : "block";
+    // An empty log gets a sentence, not five filters, a download and column
+    // headings over nothing. Filtered to nothing, the filters stay so they
+    // can be undone, and the sentence says it is the filters.
+    var filtered = !!(action || who || since || until || search);
+    document.getElementById("adminAuditFilters").hidden = !fetched.length && !filtered;
+    document.getElementById("auditTools").hidden = !rows.length;
+    body.closest(".table-wrap").hidden = !rows.length;
+    var empty = document.getElementById("auditEmpty");
+    empty.textContent = filtered ? "Nothing matches these filters." : "No activity recorded yet.";
+    empty.style.display = rows.length ? "none" : "block";
     document.getElementById("auditCount").textContent =
       rows.length + (fetched.length >= auditLimit ? "+" : "") +
       " entr" + (rows.length === 1 ? "y" : "ies");
@@ -12466,6 +12522,7 @@ import { makeSchedule } from "./src/schedule.js";
           "supabase/migrations/20260915120000_client_errors_admin_view_and_prune.sql");
       }
       body.innerHTML = "";
+      body.closest(".table-wrap").hidden = true;
       empty.style.display = "block";
       empty.textContent = missing
         ? "Crashes are being recorded, but this view is not finished setting up yet."
@@ -12476,7 +12533,11 @@ import { makeSchedule } from "./src/schedule.js";
 
     var rows = res.data || [];
     body.innerHTML = "";
-    empty.textContent = "Nothing has crashed. That is the result you want here.";
+    // Nothing ever recorded: no Kind filter over an empty list and no column
+    // headings over no rows, just the sentence.
+    document.getElementById("adminCrashFilters").hidden = !rows.length && !kind;
+    body.closest(".table-wrap").hidden = !rows.length;
+    empty.textContent = kind ? "None of that kind." : "Nothing has crashed. That is the result you want here.";
     empty.style.display = rows.length ? "none" : "block";
     count.textContent = rows.length
       ? rows.length + (rows.length >= 200 ? "+" : "") + " report" + (rows.length === 1 ? "" : "s")
@@ -12504,7 +12565,6 @@ import { makeSchedule } from "./src/schedule.js";
     });
   }
 
-  onId("refreshCrashBtn", "click", renderCrashLog);
   onId("crashFilterKind", "change", renderCrashLog);
 
   // Quoted always: notes and names carry commas, quotes and newlines, and a
@@ -12530,17 +12590,10 @@ import { makeSchedule } from "./src/schedule.js";
       if(res.error) throw res.error;
       var s = res.data || {};
       document.getElementById("setAllowRegistration").checked = s.allow_registration !== false;
-      document.getElementById("setAnnouncementActive").checked = !!s.announcement_active;
-      document.getElementById("setAnnouncement").value = s.announcement || "";
-      document.getElementById("setAnnouncementUntil").value = s.announcement_until || "";
       announcementExtras = Object.prototype.hasOwnProperty.call(s, "announcement_posted_at");
       document.getElementById("setAnnouncementUntilWrap").hidden = !announcementExtras;
       document.getElementById("announcementHideBtn").hidden = !announcementExtras;
-      // Both switches this section owns, on the row itself. Sign-ups being
-      // open is the half worth seeing without opening anything: it is the one
-      // setting here that lets a stranger create an account.
-      setNavDesc("cnavDescApp", announcementNavDesc(s) + " · " +
-        (s.allow_registration === false ? "sign-ups closed" : "sign-ups open"));
+      fillAnnouncementForm(s);
       fillDefaultsForm(s.default_settings);
       await loadAnnouncementHide();
       applyAppSettings(s);
@@ -12663,7 +12716,6 @@ import { makeSchedule } from "./src/schedule.js";
     if(!hint) return;
     hint.hidden = !(document.getElementById("setAllowRegistration").checked && !defaultsAreSet);
   }
-  onId("setAllowRegistration", "change", updateRegistrationDefaultsHint);
   onId("registrationDefaultsHintBtn", "click", function(){
     var nav = document.getElementById("cnav-admin-defaults");
     if(nav) nav.click();
@@ -12679,6 +12731,7 @@ import { makeSchedule } from "./src/schedule.js";
   // were. The column itself started life as {} and nothing wrote to it, so
   // every new employee silently started on DEFAULT_SETTINGS.
   var defaultsAreSet = false;
+  var defaultsRaw = null;   // the Team Schedule as last loaded, for Discard
 
   function buildDefaultsDayPicker(){
     var wrap = document.getElementById("defaultsDayPicker");
@@ -12690,7 +12743,8 @@ import { makeSchedule } from "./src/schedule.js";
     }).join("");
   }
 
-  function fillDefaultsForm(raw){
+  function fillDefaultsForm(raw, force){
+    defaultsRaw = raw || null;
     defaultsAreSet = !!(raw && typeof raw === "object" && Object.keys(raw).length);
     updateRegistrationDefaultsHint();
     var d = normalizeSettings(raw || {});
@@ -12699,6 +12753,13 @@ import { makeSchedule } from "./src/schedule.js";
     teamSchedule = defaultsAreSet ? d : null;
     teamScheduleLoaded = true;
     paintScheduleSource();
+    // People marks who is on a schedule of their own, against this one.
+    if(adminUsersCache && adminUsersCache.length) renderAdminPeople();
+    setNavDesc("adminDefaultsState",
+      defaultsAreSet ? "Everyone's week and hours"
+                     : "Not set — using Sun–Thu, 8h",
+      !defaultsAreSet);
+    if(defaultsDirty && !force) return;
     DAY_NAMES.forEach(function(_, i){
       var box = document.getElementById("dwd"+i);
       if(box) box.checked = d.workDays.indexOf(i) !== -1;
@@ -12708,11 +12769,7 @@ import { makeSchedule } from "./src/schedule.js";
     paintDefaultsTarget();
     document.getElementById("dLeaveDays").value = d.annualLeaveDays;
     renderPeriodRows(d.periods, "defaultsPeriodsList");
-
-    setNavDesc("adminDefaultsState",
-      defaultsAreSet ? "Everyone's week and hours"
-                     : "Not set — using Sun–Thu, 8h",
-      !defaultsAreSet);
+    setDefaultsDirty(false);
   }
 
   function readDefaultsForm(){
@@ -12827,9 +12884,10 @@ import { makeSchedule } from "./src/schedule.js";
     btn.disabled = false;
     btn.textContent = "Save Team Schedule";
     teamSettingsCache = null;
-    fillDefaultsForm(team);
+    fillDefaultsForm(team, true);
     renderAll();
-    if(typeof loadAdminSettingsOwners === "function"){ await loadAdminSettingsOwners(); }
+    await loadAdminSettingsOwners();
+    renderAdminPeople();
     showToast(failedNames.length
       ? "Team Schedule saved, but " + failedNames.length + " couldn't be moved to it: " +
         failedNames.slice(0, 3).join(", ") + (failedNames.length > 3 ? " and " + (failedNames.length - 3) + " more" : "") + ". Save again to retry."
@@ -12839,61 +12897,123 @@ import { makeSchedule } from "./src/schedule.js";
       failedNames.length ? "error" : "success");
   });
 
-  // Announcement/sign-up and Theme live in separate Admin accordion sections
-  // now, each with its own Save button, but they're one row of app_settings —
-  // saving from either section commits the whole row, so a value changed in
-  // one section and left unsaved is still picked up when the other is saved.
-  async function saveAppSettings(btn, successMsg){
-    var payload = {
-      allow_registration: document.getElementById("setAllowRegistration").checked,
-      announcement_active: document.getElementById("setAnnouncementActive").checked,
-      announcement: document.getElementById("setAnnouncement").value.trim(),
-      updated_at: new Date().toISOString(),
-      updated_by: currentUser.id
-    };
-    if(announcementExtras){
-      payload.announcement_until = document.getElementById("setAnnouncementUntil").value || null;
+  // ---------- Sign-up and the announcement: one row, saved in pieces ----------
+  // Both live in app_settings. They shared a "Save App Settings" button, so
+  // the sign-up checkbox waited for a Save in the announcement's section.
+  // Each now writes only its own columns: the sign-up switch the moment it
+  // moves (People), the banner when it is posted or taken down
+  // (Announcement). Read back, because the database stamps
+  // announcement_posted_at and a hide is measured against that.
+  async function saveAppSettingsPatch(payload, btn){
+    payload.updated_at = new Date().toISOString();
+    payload.updated_by = currentUser.id;
+    if(btn) btn.disabled = true;
+    try{
+      var res = await supabase.from("app_settings").update(payload).eq("id", 1).select();
+      if(res.error) throw res.error;
+      var saved = Array.isArray(res.data) && res.data[0] ? res.data[0]
+        : Object.assign({}, appSettingsRow || {}, payload);
+      applyAppSettings(saved);
+      return saved;
+    }catch(err){
+      showToast("Couldn't save: " + friendlyError(err), "error");
+      return null;
+    }finally{
+      if(btn) btn.disabled = false;
     }
-    if(payload.announcement_active && !payload.announcement){
-      showToast("Add an announcement message before turning the banner on.", "error");
+  }
+
+  onId("setAllowRegistration", "change", async function(){
+    var box = this;
+    var on = box.checked;
+    // The warning under the switch says this passively; turning sign-up on
+    // is the moment it takes effect, so it is confirmed here.
+    if(on && !defaultsAreSet){
+      var proceed = await showConfirm(
+        "No team schedule is set. Anyone who signs up now starts on a Sun–Thu, 8h week " +
+        "instead of your hours, until you change it.",
+        {title:"Open sign-up with no team schedule?", confirmText:"Open Anyway"}
+      );
+      if(!proceed){ box.checked = false; updateRegistrationDefaultsHint(); return; }
+    }
+    box.disabled = true;
+    var saved = await saveAppSettingsPatch({allow_registration: on});
+    box.disabled = false;
+    if(!saved) box.checked = !on;
+    else showToast(on ? "Sign-up is open." : "Sign-up is closed.", "success");
+    updateRegistrationDefaultsHint();
+  });
+
+  // The message being typed survives a refresh of the console; posting, or
+  // nothing having been typed, lets the saved one fill the field.
+  var announceDirty = false;
+  function fillAnnouncementForm(s, force){
+    s = s || {};
+    if(force || !announceDirty){
+      document.getElementById("setAnnouncement").value = s.announcement || "";
+      document.getElementById("setAnnouncementUntil").value = s.announcement_until || "";
+      announceDirty = false;
+    }
+    paintAnnouncementState(s);
+  }
+  function paintAnnouncementState(s){
+    s = s || {};
+    var live = announcementLive(s);
+    var ended = !live && !!(s.announcement_active && s.announcement);
+    var box = document.getElementById("announceState");
+    if(box){
+      box.classList.toggle("is-live", live);
+      document.getElementById("announceStateTitle").textContent =
+        live ? "Showing to everyone" : ended ? "Ended" : "Not showing";
+      document.getElementById("announceStateMeta").textContent =
+        live ? (s.announcement_until ? "Until " + fmtDateNoYear(s.announcement_until) + "." : "Until you take it down.")
+        : ended ? "Its end date has passed." : "Nothing is up right now.";
+      document.getElementById("takeDownAnnouncementBtn").hidden = !live;
+      document.getElementById("postAnnouncementBtn").textContent = live ? "Update Announcement" : "Post Announcement";
+    }
+    updateAnnouncementCount();
+    setNavDesc("cnavDescApp", announcementNavDesc(s));
+  }
+  function updateAnnouncementCount(){
+    var field = document.getElementById("setAnnouncement");
+    var out = document.getElementById("setAnnouncementCount");
+    if(!field || !out) return;
+    var max = field.getAttribute("maxlength");
+    out.textContent = field.value.length + "/" + max;
+    out.classList.toggle("is-full", field.value.length >= +max);
+  }
+  ["setAnnouncement", "setAnnouncementUntil"].forEach(function(id){
+    onId(id, "input", function(){ announceDirty = true; updateAnnouncementCount(); });
+  });
+
+  onId("postAnnouncementBtn", "click", async function(){
+    var text = document.getElementById("setAnnouncement").value.trim();
+    var until = document.getElementById("setAnnouncementUntil").value || null;
+    if(!text){
+      showToast("Write the message first.", "error");
+      document.getElementById("setAnnouncement").focus();
       return;
     }
-    // Saving a banner that has already ended would look like it saved and
-    // then show nothing, to anyone.
-    if(payload.announcement_active && payload.announcement_until && payload.announcement_until < todayStr()){
+    // A banner that has already ended would look posted and show nothing.
+    if(announcementExtras && until && until < todayStr()){
       showToast("That end date has already passed. Pick today or later, or leave it empty.", "error");
       return;
     }
-    // The inline warning above the checkbox says this passively; saving is the
-    // moment it actually takes effect, so it's confirmed here rather than left
-    // to be noticed (or not) on the way past.
-    if(payload.allow_registration && !defaultsAreSet){
-      var proceed = await showConfirm(
-        "No organisation default schedule is set. Anyone who signs up right now will start on " +
-        "the fallback Sun–Thu, 8h week instead of your actual hours until you fix it by hand.",
-        {title:"Allow sign-ups with no default schedule?", confirmText:"Allow Anyway"}
-      );
-      if(!proceed) return;
-    }
-    btn.disabled = true;
-    try{
-      // Read back what was saved: the database stamps announcement_posted_at,
-      // and a hide is measured against that, not against anything sent here.
-      var res = await supabase.from("app_settings").update(payload).eq("id", 1).select();
-      if(res.error) throw res.error;
-      var saved = Array.isArray(res.data) && res.data[0] ? res.data[0] : payload;
-      applyAppSettings(saved);
-      setNavDesc("cnavDescApp", announcementNavDesc(saved) + " · " +
-        (saved.allow_registration === false ? "sign-ups closed" : "sign-ups open"));
-      showToast(successMsg, "success");
-    }catch(err){
-      showToast("Couldn't save app settings: " + friendlyError(err), "error");
-    }
-    btn.disabled = false;
-  }
+    var wasLive = announcementLive(appSettingsRow);
+    var payload = {announcement_active: true, announcement: text};
+    if(announcementExtras) payload.announcement_until = until;
+    var saved = await saveAppSettingsPatch(payload, this);
+    if(!saved) return;
+    fillAnnouncementForm(saved, true);
+    showToast(wasLive ? "Announcement updated." : "Announcement posted. Everyone sees it now.", "success");
+  });
 
-  onId("saveAppSettingsBtn", "click", function(){
-    saveAppSettings(this, "App settings saved.");
+  // Down, not deleted: the message stays in the field to post again.
+  onId("takeDownAnnouncementBtn", "click", async function(){
+    var saved = await saveAppSettingsPatch({announcement_active: false}, this);
+    if(!saved) return;
+    fillAnnouncementForm(saved, true);
+    showToast("Announcement taken down.", "success");
   });
 
   // ---------- Notifications (admin composer) ----------
@@ -13227,8 +13347,8 @@ import { makeSchedule } from "./src/schedule.js";
     el.classList.toggle("is-empty", !reach.subscribed);
     if(!reach.subscribed){
       setNavDesc("cnavDescNotifications", "Nobody reachable yet");
-      el.textContent = "Nobody has notifications switched on yet, so a message sent now would reach no one. " +
-        "Each person turns them on under Settings → Reminders, on each device they want them on.";
+      el.textContent = "Nobody has notifications on yet, so this would reach no one. " +
+        "Each person turns them on in Settings › Reminders.";
       return;
     }
     // The one fact that decides whether sending anything is worth doing.
@@ -13236,7 +13356,7 @@ import { makeSchedule } from "./src/schedule.js";
       reach.subscribed + " of " + reach.people + " reachable");
     el.textContent = reach.subscribed + " of " + reach.people +
       (reach.people === 1 ? " person has" : " people have") + " notifications on, across " +
-      reach.devices + (reach.devices === 1 ? " device" : " devices") + ".";
+      reach.devices + (reach.devices === 1 ? " device" : " devices") + ". Only they get it.";
   }
 
   async function renderNotifyHistory(){
@@ -13265,6 +13385,12 @@ import { makeSchedule } from "./src/schedule.js";
       admin: all.filter(function(n){ return !isAutomaticNotification(n); }).length,
       auto: all.filter(isAutomaticNotification).length
     };
+    // Only when there is something to tell apart: with nothing sent, or
+    // every row of one kind, each button would show the same list.
+    var filterBar = document.querySelector("#csec-admin-notifications .notify-filter");
+    var splits = counts.admin > 0 && counts.auto > 0;
+    if(filterBar) filterBar.hidden = !splits;
+    if(!splits) notifyHistoryFilter = "all";
     Array.prototype.forEach.call(document.querySelectorAll("[data-notify-filter]"), function(btn){
       var k = btn.getAttribute("data-notify-filter");
       var on = k === notifyHistoryFilter;
@@ -13478,7 +13604,7 @@ import { makeSchedule } from "./src/schedule.js";
     var q = supabase.from("entries").select("id,user_id,date", {count:"exact"});
     var res = await build(q).order("date").limit(limit);
     if(res.error) throw res.error;
-    return {rows: res.data || [], count: res.count || 0};
+    return {rows: (res.data || []).slice(0, limit), count: res.count || 0};
   }
   function nameFor(userId){
     var u = adminUsersCache.find(function(x){ return x.id === userId; });
@@ -13495,7 +13621,8 @@ import { makeSchedule } from "./src/schedule.js";
           (r.date ? ' data-goto-date="'+escapeAttr(r.date)+'"' : '')+
           ' data-goto-tab="'+escapeAttr(r.tab || "log")+'">'+escapeHtml(r.label)+'</button></li>';
       }).join("") +
-      (extra > 0 ? '<li class="attention-more">+ ' + extra + ' more — narrow the dates below to see the rest.</li>' : '') +
+      // There were once dates to narrow here; the rest show as these are fixed.
+      (extra > 0 ? '<li class="attention-more">+ ' + extra + ' more. They show here as these are fixed.</li>' : '') +
     '</ul>';
   }
   // Same jump the People list's "Open Record" makes (switch the viewer, land
@@ -13534,30 +13661,13 @@ import { makeSchedule } from "./src/schedule.js";
     });
   });
 
-  // null means the checks could not be run at all — say so rather than
-  // reporting "all clear", which is the one wrong answer here.
-  //
-  // This used to have a line of its own in a card above the nav. That card was
-  // a heading repeating the heading above it in order to carry one button, so
-  // it went; the readout rides on the Overview nav row instead, which is the
-  // row you would click to see the checks themselves. Same move Seasonal Hours
-  // and Working Hours already make — a section the console is not showing says
-  // on its nav row what it holds.
-  function setHealthSummary(needing){
-    var el = document.getElementById("cnavDescOverview");
-    if(!el) return;
-    if(needing === null){
-      el.textContent = "Data checks couldn't run";
-      var failed = el.closest(".console-nav-item");
-      if(failed) failed.classList.remove("needs-attention");
-      return;
-    }
-    el.textContent = needing === 0
-      ? "All data checks clear"
-      : needing === 1 ? "1 check needs attention"
-                      : needing + " checks need attention";
-    var item = el.closest(".console-nav-item");
-    if(item) item.classList.toggle("needs-attention", needing > 0);
+  // How many records need fixing, or null when the checks could not run at
+  // all — said as such rather than as "all clear", the one wrong answer here.
+  // It rides on the Data & Backup nav row, the row you would open to see the
+  // checks themselves, as every row says what its section holds.
+  function setHealthSummary(toFix){
+    healthToFix = toFix;
+    paintDataNav();
   }
 
   async function renderAdminHealth(){
@@ -13591,8 +13701,10 @@ import { makeSchedule } from "./src/schedule.js";
       if(noSchedule !== null){
         findings.push({
           count: noSchedule,
-          title: noSchedule === 1 ? "1 person has no schedule of their own"
-                                  : noSchedule + " people have no schedule of their own",
+          // Not "of their own": an Own schedule is one that differs from
+          // the Team Schedule, which these people do not have either.
+          title: noSchedule === 1 ? "1 person has no schedule"
+                                  : noSchedule + " people have no schedule",
           note: "Their hours, lateness and leave are all measured against the fallback " +
                 "Sunday–Thursday 08:00–16:00 week. Saving the Team Schedule puts them on it.",
           clear: "Everyone has a schedule.",
@@ -13642,9 +13754,9 @@ import { makeSchedule } from "./src/schedule.js";
     // Worst first, but clean checks are still listed — an admin needs to see
     // that a check ran and passed, not be left guessing whether it ran at all.
     findings.sort(function(a, b){ return b.count - a.count; });
-    // The side card says the same thing in one line, so the state of the data
-    // is readable from every section rather than only from Overview.
-    setHealthSummary(findings.filter(function(f){ return f.count; }).length);
+    // The nav row says the same thing in one line, so the state of the data
+    // is readable from every section rather than only from this one.
+    setHealthSummary(findings.reduce(function(n, f){ return n + f.count; }, 0));
     wrap.innerHTML = findings.map(function(f){
       return '<div class="attention-item" role="listitem">'+
         '<span class="attention-count'+(f.count ? '' : ' is-clear')+'">'+(f.count ? f.count : '✓')+'</span>'+
@@ -13657,20 +13769,21 @@ import { makeSchedule } from "./src/schedule.js";
     }).join("");
   }
 
-  onId("refreshStatsBtn", "click", function(){ renderAdmin(); });
-  onId("refreshAuditBtn", "click", resetAuditPaging);
   onId("auditFilterAction", "change", resetAuditPaging);
   onId("auditFilterUser", "change", resetAuditPaging);
   onId("auditFilterSince", "change", resetAuditPaging);
   onId("auditFilterUntil", "change", resetAuditPaging);
   onId("auditFilterSearch", "input", resetAuditPaging);
 
-  // How many days this year have been marked for the whole team. Counted as
-  // distinct DATES, not rows: one company holiday writes one entry per person,
-  // so a row count would report nine people off on one day as nine days off.
-  // Bounded, because the honest answer for a small team is a handful and a
-  // runaway query here would be paid on every admin open.
+  // The public holidays marked this year, counted as distinct DATES, not
+  // rows: one company holiday writes one entry per person, so a row count
+  // would report nine people off on one day as nine days off. Said on the
+  // menu row as a count and in the section as the dates themselves, so the
+  // row's number can be checked before another one is marked. Bounded,
+  // because the honest answer for a small team is a handful and a runaway
+  // query here would be paid on every admin open.
   async function renderCompanyDaysCount(){
+    var list = document.getElementById("companyDaysList");
     try{
       var y = String(new Date().getFullYear());
       var res = await supabase.from("entries").select("date")
@@ -13679,13 +13792,19 @@ import { makeSchedule } from "./src/schedule.js";
       if(res.error) throw res.error;
       var days = {};
       (res.data || []).forEach(function(r){ days[r.date] = 1; });
-      var n = Object.keys(days).length;
+      var dates = Object.keys(days).sort();
+      var n = dates.length;
       setNavDesc("cnavDescBulk", n
-        ? n + (n === 1 ? " day marked in " : " days marked in ") + y
-        : "None marked in " + y);
+        ? n + (n === 1 ? " public holiday in " : " public holidays in ") + y
+        : "No public holidays in " + y + " yet");
+      if(list){
+        list.hidden = !n;
+        list.textContent = n ? "Public holidays in " + y + ": " + dates.map(fmtDateNoYear).join(", ") + "." : "";
+      }
     }catch(err){
       // A figure that could not be read must not read as zero.
       setNavDesc("cnavDescBulk", "Mark a holiday for the whole team at once");
+      if(list) list.hidden = true;
     }
   }
 
@@ -13811,8 +13930,12 @@ import { makeSchedule } from "./src/schedule.js";
 
     if(awayWeekOffset === 0){
       var n = groups.filter(function(g){ return !g.everyone; }).length;
+      // Not "a day off": the day everyone shares can be remote or training.
+      var teamDays = {};
+      everyone.forEach(function(e){ teamDays[e.date] = 1; });
+      var td = Object.keys(teamDays).length;
       setNavDesc("cnavDescAway", n ? (n === 1 ? "1 person away this week" : n + " people away this week")
-        : everyone.length ? "A day off for everyone this week" : "Everyone’s in this week");
+        : td ? "Everyone away " + (td === 1 ? "1 day" : td + " days") + " this week" : "Everyone’s in this week");
     }
   }
   onId("awayPrevBtn", "click", function(){ awayWeekOffset--; loadWhosAway(); });
