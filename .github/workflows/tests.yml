@@ -39,9 +39,31 @@ jobs:
       # every Chromium suite in this repository -- WebKit found it on its first
       # run. --with-deps because WebKit on Linux needs five system packages it
       # will not tell you about until it fails to launch.
+      #
+      # Bounded and retried. It normally takes about 30 seconds, but on
+      # 2026-11-18 apt-get trickled the system packages in from a slow Ubuntu
+      # mirror for 27 minutes (run 44258974103), leaving three of the job's
+      # thirty for the suites: the job was cancelled, the deploy that waits on
+      # it skipped, and a passing release sat unpublished. Each attempt now
+      # gets five minutes; a stalled one is killed (with everything it
+      # started: timeout signals the whole process group), any half-done
+      # package install is finished off, and it tries again, three times at
+      # most. The step's own limit keeps the suites their time either way.
       - name: Install browsers
         working-directory: tests
-        run: npx playwright install --with-deps chromium webkit
+        timeout-minutes: 18
+        run: |
+          echo 'Acquire::Retries "3"; Acquire::http::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-ci-retries >/dev/null
+          for attempt in 1 2 3; do
+            if timeout -k 30 300 npx playwright install --with-deps chromium webkit; then
+              exit 0
+            fi
+            echo "::warning::Installing the test browsers took over 5 minutes or failed (attempt $attempt of 3). Trying again."
+            sudo dpkg --configure -a || true
+            sleep 10
+          done
+          echo "::error::Couldn't install the test browsers in three tries. Re-run the job."
+          exit 1
 
       - name: Run every suite
         working-directory: tests
