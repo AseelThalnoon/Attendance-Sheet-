@@ -192,6 +192,45 @@ export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
   updateUser:async()=>({data:{user:{id:UID,email:"open@example.com"}},error:null}),
   getSession:async()=>({data:{session:null},error:null})}};}`;
 
+// Working days with no clock times, on a clock pinned to Thursday 20 August
+// 2026 (Sun-Thu, 08:00-16:00):
+//   Sun 16  regular 08:00-16:00
+//   Mon 17  remote, no times
+//   Tue 18  regular 08:00-16:00
+//   Wed 19  business trip, no times
+//   Thu 20  remote, no times  (today)
+const STUB_UNTIMED = `
+const UID="99999999-9999-9999-9999-999999999999";
+const ENTRIES=[
+  {id:"u1",user_id:UID,date:"2026-08-16",clock_in:"08:00",clock_out:"16:00",type:"regular",note:""},
+  {id:"u2",user_id:UID,date:"2026-08-17",clock_in:null,clock_out:null,type:"wfh",note:""},
+  {id:"u3",user_id:UID,date:"2026-08-18",clock_in:"08:00",clock_out:"16:00",type:"regular",note:""},
+  {id:"u4",user_id:UID,date:"2026-08-19",clock_in:null,clock_out:null,type:"trip",note:""},
+  {id:"u5",user_id:UID,date:"2026-08-20",clock_in:null,clock_out:null,type:"wfh",note:""}];
+const PROFILE={id:UID,email:"untimed@example.com",full_name:"Untimed Week",role:"admin"};
+const SETTINGS={workDays:[0,1,2,3,4],standardIn:"08:00",standardOut:"16:00",targetMin:480};
+function result(t,k){
+  if(t==="entries") return {data:ENTRIES,error:null};
+  if(t==="profiles") return k==="single"?{data:PROFILE,error:null}:{data:[PROFILE],error:null};
+  if(t==="user_settings") return k==="single"?{data:{settings:SETTINGS},error:null}:{data:[{user_id:UID,settings:SETTINGS}],error:null};
+  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:false,announcement:""},error:null};
+  return {data:[],error:null};}
+function builder(t){let k="list";
+  const proxy=new Proxy(function(){},{get(_,p){
+    if(p==="then") return (r,j)=>Promise.resolve(result(t,k)).then(r,j);
+    if(p==="catch") return f=>Promise.resolve(result(t,k)).catch(f);
+    if(p==="finally") return f=>Promise.resolve(result(t,k)).finally(f);
+    if(p==="single"||p==="maybeSingle") return ()=>{k="single";return proxy;};
+    return ()=>proxy;}});
+  return proxy;}
+export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
+  auth:{onAuthStateChange:(cb)=>{setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"untimed@example.com"}}),0);
+    return{data:{subscription:{unsubscribe(){}}}};},
+  signInWithPassword:async()=>({data:{},error:null}),signUp:async()=>({data:{},error:null}),
+  signOut:async()=>({error:null}),resetPasswordForEmail:async()=>({data:{},error:null}),
+  updateUser:async()=>({data:{user:{id:UID,email:"untimed@example.com"}},error:null}),
+  getSession:async()=>({data:{session:null},error:null})}};}`;
+
 // Two entries in the same year, one inside a 5h seasonal period (January),
 // one at the base 8h target (June) — so the Yearly chart's dashed target
 // reference has to actually change height across the year, not draw one
@@ -589,6 +628,50 @@ function ok(cond, name, detail){
       "half day left open yesterday: one tap clocks out when its 4 hours were done, not at 4 PM", JSON.stringify(past));
     ok(before.errors.length + after.errors.length + past.errors.length === 0, "half-day reminder: no script errors",
       before.errors.concat(after.errors, past.errors).join(" | "));
+  }
+
+  // ---------------------------------------------------------------- working days with no clock times
+  // A remote, trip or training day is a working day whether or not clock
+  // times were kept. Logged without them it computes as 0h worked, and that
+  // reset the streak, read "0h" as today's figure and "Not logged today" on
+  // Team (owner, 2026-11-19).
+  {
+    const ctx = await browser.newContext({viewport: {width: 1440, height: 900}});
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", e => errors.push(e.message));
+    await page.clock.setFixedTime(new Date(2026, 7, 20, 10, 0, 0));
+    await page.route("**/vendor/supabase-js.min.js",
+      r => r.fulfill({status: 200, contentType: "text/javascript", body: STUB_UNTIMED}));
+    await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+    await page.waitForTimeout(1200);
+
+    const ov = await page.evaluate(() => ({
+      streak: document.getElementById("streak").textContent,
+      dots: Array.from(document.querySelectorAll("#streakMeterSegs i")).map(i => i.classList.contains("is-on") ? 1 : 0).join(""),
+      today: document.getElementById("sealValue").textContent,
+      todayLine: (document.getElementById("todayLineValue") || {}).textContent || null,
+      person: (document.getElementById("personStatus") || {}).textContent || null
+    }));
+    ok(ov.streak === "5d" && ov.dots === "0000011111",
+      "untimed: remote and trip days keep the streak going (5 days, five dots)", JSON.stringify(ov));
+    ok(ov.today === "Remotely" && ov.todayLine === "Remotely" && ov.person === "Remotely",
+      "untimed: today's figure and the person card name the remote day, not 0h or Not logged today", JSON.stringify(ov));
+
+    const team = await page.evaluate(async () => {
+      document.querySelector('.tab-btn[data-tab="team"]').click();
+      await new Promise(r => setTimeout(r, 800));
+      const card = document.querySelector("#teamList .team-card");
+      const inNow = Array.from(document.querySelectorAll("#teamSummary .stat-card"))
+        .find(c => /Clocked In Now/.test(c.textContent));
+      return {status: card ? card.querySelector(".team-status").textContent : null,
+        statusCls: card ? card.querySelector(".team-status").className : null,
+        inNow: inNow ? inNow.querySelector(".stat-value").textContent : null};
+    });
+    ok(team.status === "Remotely" && /\baway\b/.test(team.statusCls) && team.inNow === "0",
+      "untimed: Team shows the remote day, not Not logged today, and nobody as clocked in", JSON.stringify(team));
+    ok(errors.length === 0, "untimed: no script errors", errors.join(" | "));
+    await ctx.close();
   }
 
   // ---------------------------------------------------------------- chart target steps

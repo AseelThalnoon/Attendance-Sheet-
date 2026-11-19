@@ -48,7 +48,7 @@ const CACHE_NAME = "attendance-ledger-shell-v71";
 // moves the label on and writes the new value. With the old network-first
 // worker a forgotten bump cost only the offline copy; now it would leave every
 // installed copy of the app on the previous release.
-const SHELL_FINGERPRINT = "46e5d37390961c7e";
+const SHELL_FINGERPRINT = "953fcd2271a30454";
 
 // Every file needed to boot. Both "./" and "./index.html" are listed: the app is
 // served from a directory root on GitHub Pages, so a navigation request arrives
