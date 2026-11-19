@@ -383,10 +383,10 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
   eq(s.diffSum, 0, "every day exactly met its own (mixed) target, so the bank is untouched");
 
   // This is the formula renderStats()/renderWeekly()/renderTrendChart() use
-  // for their per-bucket target (targetSum averaged over logged days) —
+  // for their per-bucket target (targetSum averaged over the days' weights) —
   // it must land on 100%, not the ~75% a flat 8h constant would have produced
   // against a 6h true average target ((300+300+480)/3).
-  const weightedTargetPerDay = s.targetSum / s.loggedDays;
+  const weightedTargetPerDay = s.targetSum / s.dayWeight;
   eq(weightedTargetPerDay, 360, "the weighted average target reflects the 5h/5h/8h mix, not a flat 8h");
   const accomplishedPct = Math.round((s.avgMin / weightedTargetPerDay) * 100);
   eq(accomplishedPct, 100, "three days each meeting their own target reads as 100% accomplished");
@@ -397,6 +397,94 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
 
   settings.periods = savedPeriods;
   settings.targetMin = savedTarget;
+}
+
+// ---------------------------------------------------------------- half days in the average
+// A half-day leave is half a day in the average, because its target is half a
+// day's. Divided by whole days, a month with one half day read 7h 49m against
+// an 8h target while the bank beside it said +1h 52m (owner, 2026-11-19).
+{
+  const savedTarget = settings.targetMin;
+  settings.targetMin = 480;
+  const met = summarize([
+    entry({date:"2026-08-10", clockIn:"08:00", clockOut:"16:00"}),                   // 8h of 8h
+    entry({date:"2026-08-11", clockIn:"08:00", clockOut:"12:00", type:"halfleave"}), // 4h of 4h
+  ]);
+  eq(met.diffSum, 0, "an 8h day and a 4h half day, both met: the bank is +0h");
+  eq(met.loggedDays, 2, "both are still days logged");
+  eq(met.dayWeight, 1.5, "the half day weighs half a day");
+  eq(met.avgMin, 480, "the average is 8h, not the 6h that dividing by whole days gave");
+  eq(met.targetSum / met.dayWeight, 480, "and the target per day stays 8h");
+
+  // Whatever the mix, the average and the bank tell one story:
+  // (average - target per day) x days counted is the bank, to the minute.
+  const mixed = summarize([
+    entry({date:"2026-08-09", clockIn:"07:35", clockOut:"16:10"}),                   // +35m
+    entry({date:"2026-08-10", clockIn:"08:13", clockOut:"16:06"}),                   // -7m
+    entry({date:"2026-08-11", clockIn:"07:44", clockOut:"10:35", type:"halfleave"}), // -1h 9m
+    entry({date:"2026-08-12", clockIn:"07:35", clockOut:"16:35"}),                   // +1h
+    entry({date:"2026-08-13", clockIn:"08:00", clockOut:"16:00", type:"wfh"}),       // not counted
+  ]);
+  const perDay = mixed.targetSum / mixed.dayWeight;
+  eq(perDay, 480, "a month with a half day still has an 8h target per day");
+  eq(Math.round((mixed.avgMin - perDay) * mixed.dayWeight), mixed.diffSum,
+    "(average - target) x days counted equals the bank");
+  ok(mixed.diffSum > 0 && mixed.avgMin > perDay,
+    "a positive bank is never shown beside an average under target",
+    `avg=${mixed.avgMin} target=${perDay} bank=${mixed.diffSum}`);
+  settings.targetMin = savedTarget;
+}
+
+// ---------------------------------------------------------------- the average and the bank, any month
+// 2,000 generated months, seeded so a failure reproduces: full days, half
+// days, remote days, leave and sick days, weekend rows, rows never clocked
+// out and blank rows, against odd targets and a seasonal period that can
+// split a half day's target unevenly. In every one the average sits on the
+// same side of its target as the bank, the bar's "met" says what the bank
+// says, and a month with no half day averages exactly as it did before half
+// days were weighted (hours over whole days).
+{
+  const saved = {t: settings.targetMin, p: settings.periods, w: settings.workDays};
+  let seed = 20261119;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = a => a[Math.floor(rnd() * a.length)];
+  const hhmm = m => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  const bad = [];
+  let months = 0, withHalf = 0;
+  for(let n = 0; n < 2000; n++){
+    settings.targetMin = pick([480, 465, 450, 420, 361]);
+    settings.workDays = [0,1,2,3,4];
+    settings.periods = rnd() < 0.3
+      ? [{start:"2026-08-05", end:"2026-08-12", targetMin:pick([300, 361, 359]), name:"Seasonal"}] : [];
+    const list = [];
+    for(let d = 1; d <= 31; d++){
+      if(rnd() < 0.25) continue;
+      const start = 360 + Math.floor(rnd() * 240), r = rnd();
+      list.push(entry({date:"2026-08-" + String(d).padStart(2, "0"),
+        type:pick(["regular", "regular", "regular", "halfleave", "wfh", "leave", "sick"]),
+        clockIn: r < 0.05 ? "" : hhmm(start),
+        clockOut: r < 0.1 ? "" : hhmm(Math.min(start + Math.floor(rnd() * 660), 1439))}));
+    }
+    const s = summarize(list);
+    if(!s.loggedDays) continue;
+    months++;
+    const hasHalf = list.some(e => e.type === "halfleave");
+    if(hasHalf) withHalf++;
+    const perDay = s.targetSum / s.dayWeight;
+    const why = [];
+    if(Math.abs((s.avgMin - perDay) * s.dayWeight - s.diffSum) > 1e-6) why.push("average and bank do not reconcile");
+    if((s.avgMin >= perDay) !== (s.diffSum >= 0)) why.push("average and bank on opposite sides of the target");
+    if((Math.floor((s.avgMin / perDay) * 100) >= 100) !== (s.diffSum >= 0)) why.push("the bar's met disagrees with the bank");
+    if(s.dayWeight > s.loggedDays || s.dayWeight < s.loggedDays / 2) why.push("day weight out of range");
+    if(!hasHalf && (s.dayWeight !== s.loggedDays || s.avgMin !== s.workedSum / s.loggedDays))
+      why.push("a month with no half day changed its average");
+    if(why.length) bad.push("month " + n + ": " + why.join(", ") + " " + JSON.stringify(s));
+  }
+  ok(bad.length === 0, "2,000 generated months: the average, its target, the bar and the bank always agree",
+    bad.slice(0, 3).join("\n      "));
+  ok(months > 1500 && withHalf > 1000, "and the generated months really exercise half days",
+    `months=${months} withHalf=${withHalf}`);
+  settings.targetMin = saved.t; settings.periods = saved.p; settings.workDays = saved.w;
 }
 
 // ---------------------------------------------------------------- off-days (weekends) are neutral

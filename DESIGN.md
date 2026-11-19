@@ -964,12 +964,14 @@ the same sections stack in source order.
 **The four figures share one shape** (2026-11-19, owner: "it doesn't look
 clean"): label, figure, one short line, and a 6px meter pinned to the card's
 bottom edge so the four meters sit on one line. Avg / Day: the average against
-its target (lime, green once met). Overtime Bank: one pill per day that moved
-it this month, green at or over target, red under. Current Streak: the last ten
-workdays, filled for each one worked. Leave Balance: the year's leave used,
-amber when two days or fewer are left, red when over. Streak and leave fill in
-`--muted`, not `--ink`; ten black pills outweighed the figures. The month-on-month
-comparison lines are gone from these cards; Trends carries that comparison.
+its target (lime, green once met); a half-day leave counts as half a day, so the
+target stays the day's own and the average agrees with the bank beside it.
+Overtime Bank: one pill per day that moved it this month, green at or over
+target, red under. Current Streak: the last ten workdays, filled for each one
+worked. Leave Balance: the year's leave used, amber when two days or fewer are
+left, red when over. Streak and leave fill in `--muted`, not `--ink`; ten black
+pills outweighed the figures. The month-on-month comparison lines are gone from
+these cards; Trends carries that comparison.
 
 **The person card stays on your own record.** Photos are device-local, so on
 your own Overview it is your photograph — the one image in the app, and the

@@ -1614,7 +1614,7 @@ import { makeSchedule } from "./src/schedule.js";
 
   // Rolls a list of entries into one summary object.
   function summarize(list){
-    var workedSum=0, loggedDays=0, targetSum=0, diffSum=0, openDays=0;
+    var workedSum=0, loggedDays=0, dayWeight=0, targetSum=0, diffSum=0, openDays=0;
     var incompleteDays=0, pendingDays=0;
     var shortDays=0, shortSum=0, metDays=0, missedDays=0, ratedDays=0;
     var unclosedDays=0, ratedWorkedSum=0, ratedTargetSum=0;
@@ -1643,6 +1643,14 @@ import { makeSchedule } from "./src/schedule.js";
         if(c.workedMin !== null){
           workedSum += c.workedMin;
           loggedDays++;
+          // What the average divides by: a half-day leave is half a day,
+          // because its target is half a day's. Divided by whole days, a
+          // month with one half day read 7h 49m against an 8h target while
+          // the bank beside it said +1h 52m -- both true, and contradictory
+          // to anyone reading them (owner, 2026-11-19). Over these weights
+          // the target per day stays the day's own (8h), and
+          // (avgMin - target) x dayWeight is exactly diffSum.
+          dayWeight += c.half ? 0.5 : 1;
           targetSum += c.targetMin;
           diffSum   += (c.diffMin !== null ? c.diffMin : 0);
         } else if(!runningToday){
@@ -1678,9 +1686,9 @@ import { makeSchedule } from "./src/schedule.js";
       }
     });
     return {
-      workedSum:workedSum, loggedDays:loggedDays, targetSum:targetSum,
+      workedSum:workedSum, loggedDays:loggedDays, dayWeight:dayWeight, targetSum:targetSum,
       diffSum:diffSum, openDays:openDays, incompleteDays:incompleteDays,
-      avgMin: loggedDays ? workedSum/loggedDays : 0,
+      avgMin: dayWeight ? workedSum/dayWeight : 0,
       shortDays:shortDays, shortSum:shortSum, metDays:metDays, missedDays:missedDays,
       ratedDays:ratedDays, pendingDays:pendingDays, unclosedDays:unclosedDays,
       ratedWorkedSum:ratedWorkedSum, ratedTargetSum:ratedTargetSum,
@@ -4512,7 +4520,7 @@ import { makeSchedule } from "./src/schedule.js";
     // Ramadan's 5h days with regular 8h ones — averaging the logged days'
     // own targets (ms.targetSum) keeps this in step with the Diff/bank figure,
     // which is summed the same way.
-    var targetPerDay = ms.loggedDays ? (ms.targetSum / ms.loggedDays) : (targetMinPerDay() || 1);
+    var targetPerDay = ms.dayWeight ? (ms.targetSum / ms.dayWeight) : (targetMinPerDay() || 1);
     // Floored, not rounded — see the note by pMetRate: 99.6% rounding up to
     // "100%" would claim the target was fully met when it's still short.
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.floor((ms.avgMin / targetPerDay) * 100))) : 0;
@@ -5315,7 +5323,7 @@ import { makeSchedule } from "./src/schedule.js";
       // "under" or "over" against the wrong number.
       return {
         label:"Wk of "+wk.range.split(" – ")[0], value:wk.s.avgMin, hasEntry:wk.s.loggedDays > 0,
-        targetMin: wk.s.loggedDays ? (wk.s.targetSum / wk.s.loggedDays) : null
+        targetMin: wk.s.dayWeight ? (wk.s.targetSum / wk.s.dayWeight) : null
       };
     }), {name:"Average hours per day, by week"});
 
@@ -5375,7 +5383,7 @@ import { makeSchedule } from "./src/schedule.js";
     renderTrendChart(document.getElementById("monthlyChart"), stats.map(function(m){
       return {
         label:m.shortLabel, value:m.avgMin, hasEntry:m.loggedDays > 0,
-        targetMin: m.loggedDays ? (m.targetSum / m.loggedDays) : null
+        targetMin: m.dayWeight ? (m.targetSum / m.dayWeight) : null
       };
     }), {name:"Average hours per day, by month"});
 
@@ -11451,9 +11459,12 @@ import { makeSchedule } from "./src/schedule.js";
       a.worked += t.summary.workedSum;
       a.target += t.summary.targetSum;
       a.days   += t.summary.loggedDays;
+      // The average below divides by this, a half day counting half, the same
+      // as each person's own average (see dayWeight in summarize()).
+      a.weight += t.summary.dayWeight;
       if(t.status.cls === "in") a.inNow++;
       return a;
-    }, {worked:0, target:0, days:0, inNow:0});
+    }, {worked:0, target:0, days:0, weight:0, inNow:0});
 
     // Same figures the flat summary bar showed, but as the stat-card Overview
     // itself leads with — icon + label, a tabular-nums headline, one detail
@@ -11494,9 +11505,9 @@ import { makeSchedule } from "./src/schedule.js";
       {
         icon:'<circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/>',
         label:"Avg Hours / Day",
-        value: totals.days ? minutesToHoursStr(Math.round(totals.worked / totals.days)) : "—",
-        detail: totals.days
-          ? "Of " + minutesToHoursStr(Math.round(totals.target / totals.days)) + " target"
+        value: totals.weight ? minutesToHoursStr(Math.round(totals.worked / totals.weight)) : "—",
+        detail: totals.weight
+          ? "Of " + minutesToHoursStr(Math.round(totals.target / totals.weight)) + " target"
           : "Nobody logged time yet"
       },
       // Same accomplishment reading as the Shortfall tab's Target Hours Met:

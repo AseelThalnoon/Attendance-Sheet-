@@ -114,7 +114,14 @@ const view = page => page.evaluate(copyKey => ({
       await p.evaluate(() => document.getElementById("logoutBtn").click());
       await settle(p, 400);
       await p.evaluate(() => document.querySelector(".modal-overlay .modal-confirm").click());
-      await p.waitForFunction(() => getComputedStyle(document.getElementById("authScreen")).display !== "none", null, { timeout: 15000 });
+      // Signing out reloads the page (startCleanAfterSignOut). Polled while
+      // the new document is still being parsed, #authScreen is not there
+      // yet, and getComputedStyle(null) threw out of the wait instead of
+      // waiting: this step failed about one full run in two under load.
+      await p.waitForFunction(() => {
+        const el = document.getElementById("authScreen");
+        return !!el && getComputedStyle(el).display !== "none";
+      }, null, { timeout: 15000 });
       await settle(p, 600);
       ok(await p.evaluate(k => localStorage.getItem(k) === null, COPY), "signing out removes the copy from the device");
       ok(h.errors.filter(e => !/Failed to load resource|Failed to fetch/.test(e)).length === 0,
