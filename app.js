@@ -12004,6 +12004,11 @@ import { makeSchedule } from "./src/schedule.js";
     fillAuditUserFilter();
     renderAdminPeople();
     renderNotifyPeopleList();
+    // The notification history loads alongside this (renderAdmin) and takes
+    // its names from this list. When it lands first -- a slow line -- every
+    // recipient was drawn as "Unknown user" and stayed that way. Redraw it
+    // from what it already fetched; no second request.
+    if(notifyHistoryRows.length) paintNotifyHistory();
   }
 
   // Renders from the cache, so typing in the search box never re-queries.
