@@ -4400,35 +4400,22 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   // ---------- Stats ----------
-  // Renders a neutral up/down/flat trend indicator into a stat card.
-  // current/previous are in minutes; pass null when there's no prior period to compare.
-  function renderTrend(elId, current, previous, label, isSigned, neutral){
-    var el = document.getElementById(elId);
+  // The stat tiles' signed figure: "+34m", not "+0h 34m". Zero stays "+0h",
+  // the same zero the tiles show when nothing is logged.
+  function signedShort(mins){
+    if(mins === null || isNaN(mins) || Math.round(mins) === 0) return signed(mins);
+    return (mins > 0 ? "+" : "") + minutesOnlyStr(mins);
+  }
+
+  // A .stat-segs run under one of the four figures: one pill per state
+  // ("on", "over", "under", or "" for an empty one). Nothing to show is one
+  // empty track, so the card keeps its bar rather than losing its bottom edge.
+  function paintSegs(id, states){
+    var el = document.getElementById(id);
     if(!el) return;
-    if(current === null || previous === null){
-      el.innerHTML = "";
-      el.className = "stat-trend";
-      return;
-    }
-    var diff = Math.round(current - previous);
-    if(Math.abs(diff) < 1){
-      el.className = "stat-trend trend-flat";
-      el.innerHTML = "Same as " + label;
-      return;
-    }
-    var up = diff > 0;
-    // Raw hours-worked trends (e.g. Avg/Day) carry no good/bad judgement —
-    // more hours isn't inherently positive, and the mix of half days, WFH,
-    // etc. across the two periods can shift the average with no change in
-    // performance. Only a target-relative figure (like the overtime bank)
-    // earns the green/red treatment; this one stays neutral regardless of
-    // direction.
-    el.className = "stat-trend " + (neutral ? "trend-flat" : (up ? "trend-up" : "trend-down"));
-    var arrowPath = up ? "M12 19V5M5 12l7-7 7 7" : "M12 5v14M5 12l7 7 7-7";
-    var amount = isSigned ? signed(diff) : minutesToHoursStr(Math.abs(diff));
-    el.innerHTML =
-      '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="'+arrowPath+'"/></svg>' +
-      amount + ' vs. ' + label;
+    el.innerHTML = (states.length ? states : [""]).map(function(st){
+      return st ? '<i class="is-' + st + '"></i>' : '<i></i>';
+    }).join("");
   }
 
   // Which streak count has already played its milestone-clause landing
@@ -4515,12 +4502,10 @@ import { makeSchedule } from "./src/schedule.js";
     var today = todayStr();
     var mk = monthKey(today);
 
-    var ms = summarize(entries.filter(function(e){ return monthKey(e.date) === mk; }));
+    var monthEntries = entries.filter(function(e){ return monthKey(e.date) === mk; });
+    var ms = summarize(monthEntries);
 
     document.getElementById("monthAvg").textContent = ms.loggedDays ? minutesToHoursStr(ms.avgMin) : "0h";
-    document.getElementById("monthAvgDetail").textContent =
-      ms.loggedDays + " workday" + (ms.loggedDays===1?"":"s") + " logged this month" +
-      (ms.incompleteDays ? " · " + ms.incompleteDays + " incomplete" : "");
 
     document.getElementById("heroMonthLabel").textContent = new Date().toLocaleDateString(undefined, {month:"long", year:"numeric"});
     // A flat single-day target would misrepresent a month that mixes, say,
@@ -4531,50 +4516,48 @@ import { makeSchedule } from "./src/schedule.js";
     // Floored, not rounded — see the note by pMetRate: 99.6% rounding up to
     // "100%" would claim the target was fully met when it's still short.
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.floor((ms.avgMin / targetPerDay) * 100))) : 0;
+    // The target leads the line because it is what the bar under it is
+    // measured against; the day count says how much the average rests on.
+    document.getElementById("monthAvgDetail").textContent = (ms.loggedDays
+      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + ms.loggedDays + " day" + (ms.loggedDays===1?"":"s")
+      : "No workdays logged yet this month") +
+      (ms.incompleteDays ? " · " + ms.incompleteDays + " incomplete" : "");
     var progressFill = document.getElementById("heroProgressFill");
     progressFill.style.transform = "scaleX(" + (progressPct / 100) + ")";
+    var avgMeter = progressFill.closest(".stat-meter");
     // Green once the month is actually at target, lime while it is still
     // climbing — the same reading the Team bar and the Calendar dots give.
-    progressFill.closest(".hero-progress")
-      .classList.toggle("is-met", ms.loggedDays > 0 && progressPct >= 100);
-    progressFill.closest(".hero-progress").classList.toggle("is-empty", !ms.loggedDays);
-    // Unclamped ratio for the Velocity cluster's tachometer, published here
-    // so the gauge reads the figure this function already computed rather
-    // than deriving its own. The bar above stays clamped to 100%; the gauge
-    // deliberately wants the overshoot, because its redline band is exactly
-    // the over-target zone.
-    progressFill.setAttribute("data-ratio",
-      ms.loggedDays ? (ms.avgMin / targetPerDay).toFixed(4) : "0");
-    // Published for the Velocity cluster's target readout to mirror, so it
-    // can't drift onto its own flat-constant computation of the same figure.
-    progressFill.setAttribute("data-target-min", targetPerDay);
-    document.getElementById("heroProgressLabel").textContent = ms.loggedDays
-      ? progressPct + "% of " + minutesToHoursStr(targetPerDay) + " target"
-      : "No workdays logged yet this month";
+    avgMeter.classList.toggle("is-met", ms.loggedDays > 0 && progressPct >= 100);
+    // The share the bar draws, said for a screen reader; floored as above.
+    avgMeter.setAttribute("aria-label", ms.loggedDays
+      ? progressPct + "% of the " + minutesToHoursStr(targetPerDay) + " daily target"
+      : "No workdays logged yet this month");
 
     var otEl = document.getElementById("otBank");
-    otEl.textContent = signed(ms.diffSum);
+    otEl.textContent = signedShort(ms.diffSum);
     otEl.className = "stat-value " + (ms.diffSum > 0 ? "positive" : (ms.diffSum < 0 ? "negative" : ""));
     document.getElementById("otBankDetail").textContent =
       new Date().toLocaleDateString(undefined, {month:"long"}) + " vs. target";
-
-    // Trend vs. the previous month — purely informational, no "good/bad"
-    // judgement attached, since more hours isn't inherently positive.
-    var thisMonthDate = dateFromStr(today);
-    var prevMonthDate = new Date(thisMonthDate.getFullYear(), thisMonthDate.getMonth()-1, 1);
-    var prevKey = monthKey(dateToStr(prevMonthDate));
-    var pms = summarize(entries.filter(function(e){ return monthKey(e.date) === prevKey; }));
-    renderTrend("monthTrend", ms.loggedDays ? ms.avgMin : null, pms.loggedDays ? pms.avgMin : null, "last month", false, true);
-    // The overtime figure is a running total, so it is compared with last
-    // month up to the same day: on the 3rd, three days against three days.
-    // Against the whole of last month the arrow mostly reported the date.
-    // (The average above is a rate, and compares fairly as it is.)
-    var dayOfMonth = thisMonthDate.getDate();
-    var pmsToDate = summarize(entries.filter(function(e){
-      return monthKey(e.date) === prevKey && +e.date.slice(8, 10) <= dayOfMonth;
-    }));
-    renderTrend("otBankTrend", ms.loggedDays ? ms.diffSum : null,
-      pmsToDate.loggedDays ? pmsToDate.diffSum : null, "this point last month", true);
+    // Where the figure came from: one pill per day that moved it, in date
+    // order, green for a day at or over its target and red for one under.
+    // The same days summarize() adds into diffSum — a day with no target
+    // (remote, trip, training), an off-day or one still open moves nothing,
+    // so it draws nothing.
+    var overDays = 0, underDays = 0;
+    var otDays = monthEntries.slice().sort(function(a, b){
+      return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
+    }).map(function(e){
+      if(!countsAsWorked(e.type) || !isScheduled(e.date)) return "";
+      var c = computeEntry(e);
+      if(c.workedMin === null || !c.targetMin) return "";
+      if(c.diffMin >= 0){ overDays++; return "over"; }
+      underDays++;
+      return "under";
+    }).filter(Boolean);
+    paintSegs("otMeterSegs", otDays);
+    document.getElementById("otMeter").setAttribute("aria-label", otDays.length
+      ? overDays + " day" + (overDays===1?"":"s") + " at or over target this month, " + underDays + " under"
+      : "No days counted against the target yet this month");
 
     // Streak: consecutive scheduled workdays with worked time logged.
     //
@@ -4609,6 +4592,25 @@ import { makeSchedule } from "./src/schedule.js";
     // Days is also the same unit the Leave Balance beside it uses, so the row
     // now reads consistently across all four.
     document.getElementById("streak").textContent = streak + "d";
+    // The last ten workdays under the figure, oldest first, filled for each
+    // one worked: the run the streak counts and what came before it. Same
+    // starting day, same workdays and the same test as the scan above.
+    var recent = [], workedRecent = 0, day = new Date();
+    if(!todayComplete) day.setDate(day.getDate()-1);
+    for(var back = 0; recent.length < 10 && back < 70; back++){
+      if(settings.workDays.indexOf(day.getDay()) !== -1){
+        var dayStr = dateToStr(day);
+        var dayRec = entries.find(function(e){ return e.date === dayStr; });
+        var dayWorked = !!dayRec && computeEntry(dayRec).workedMin > 0;
+        if(dayWorked) workedRecent++;
+        recent.unshift(dayWorked ? "on" : "");
+      }
+      day.setDate(day.getDate()-1);
+    }
+    paintSegs("streakMeterSegs", recent);
+    document.getElementById("streakMeter").setAttribute("aria-label", recent.length
+      ? "Worked " + workedRecent + " of your last " + recent.length + " workdays"
+      : "No workdays in your schedule");
     // Marks a genuine milestone the day the streak reaches it — never
     // permanent, since tomorrow it's just one more day and the exact match
     // stops firing on its own. Kept to the ledger's own quiet register: no
@@ -4620,9 +4622,7 @@ import { makeSchedule } from "./src/schedule.js";
       200: "two hundred days unbroken", 365: "a full year unbroken"
     };
     var streakDetailEl = document.querySelector("#streak + .stat-detail");
-    var streakBase = todayComplete || !isScheduled(todayStr())
-      ? "Consecutive workdays logged"
-      : "Consecutive workdays · clock out today to extend it";
+    var streakBase = "Workdays in a row";
     var milestone = STREAK_MILESTONES[streak];
     if(milestone){
       // Landing only fires the first time THIS streak count renders as a
@@ -4695,16 +4695,16 @@ import { makeSchedule } from "./src/schedule.js";
     });
     var streakDetail = document.querySelector("#streak + .stat-detail");
     if(streakDetail){ streakDetail.textContent = "Not loaded"; streakDetail.classList.remove("milestone"); }
-    ["monthTrend", "otBankTrend"].forEach(function(id){
+    ["heroProgressFill", "leaveMeterFill"].forEach(function(id){
       var el = document.getElementById(id);
-      if(el){ el.textContent = ""; el.className = "stat-trend"; }
+      if(el) el.style.transform = "scaleX(0)";
     });
-    var progress = document.getElementById("heroProgressFill");
-    if(progress){
-      progress.style.transform = "scaleX(0)";
-      progress.closest(".hero-progress").classList.add("is-empty");
-      document.getElementById("heroProgressLabel").textContent = "";
-    }
+    paintSegs("otMeterSegs", []);
+    paintSegs("streakMeterSegs", []);
+    ["avgMeter", "otMeter", "streakMeter", "leaveMeter"].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el){ el.classList.remove("is-met", "is-warn", "is-over"); el.setAttribute("aria-label", "Not loaded"); }
+    });
     var sealValue = document.getElementById("sealValue");
     if(sealValue){ sealValue.textContent = "—"; sealValue.classList.remove("long"); }
     var seal = document.getElementById("todaySeal");
@@ -4842,7 +4842,16 @@ import { makeSchedule } from "./src/schedule.js";
       el.className = "stat-value" + (remaining <= 2 ? " warn" : "");
     }
     document.getElementById("leaveBalanceDetail").textContent =
-      fmtDays(used) + " of " + fmtDays(entitlement) + " days used in " + year + " · working days only";
+      fmtDays(used) + " of " + fmtDays(entitlement) + " used this year";
+    // The bar fills with what is used, the way a storage bar does, and takes
+    // the figure's colour when the balance is low or gone.
+    var share = entitlement > 0 ? Math.min(1, Math.max(0, used / entitlement)) : (used > 0 ? 1 : 0);
+    document.getElementById("leaveMeterFill").style.transform = "scaleX(" + share + ")";
+    var leaveMeter = document.getElementById("leaveMeter");
+    leaveMeter.classList.toggle("is-over", remaining < 0);
+    leaveMeter.classList.toggle("is-warn", remaining >= 0 && remaining <= 2);
+    leaveMeter.setAttribute("aria-label",
+      fmtDays(used) + " of " + fmtDays(entitlement) + " days of leave used this year");
   }
 
   // ---------- Reminder ----------
