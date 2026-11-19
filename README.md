@@ -189,7 +189,7 @@ they sign in again.
 
 ```bash
 cd tests
-npm install      # first time only (Playwright)
+npm install      # first time only (Playwright, pinned to the CI image's release)
 npm test         # everything
 npm run test:regression   # just the audit regression suites
 ```
@@ -207,6 +207,7 @@ npm run test:regression   # just the audit regression suites
 | `regression/release-e2e` | One release replacing another, in a real browser with the real (built) service worker: installs, opens again without one request to the server, fetches the next release behind the open app, moves onto it on Refresh, and still opens with the server gone |
 | `regression/admin-tab` | Admin console: admin-only gating, people/roles, health checks, defaults, log |
 | `regression/stale-resume` | A page that outlives its copy of the record: a punch or a save refused because another device got there first reloads and says so; coming back to the app after five minutes re-reads quietly, and stands down for a form in progress |
+| `regression/request-rounds` | Round trips to the database, with 300ms added to every request: Admin sends everything in one round, an admin's open and a returning open ask for In today once, the bell's history goes with the first round, the Team Schedule shares the app settings request -- and In today, the People list, the data checks and Who's Away still draw what they did |
 | `regression/punch-flood` | The animation a saved punch plays: it starts at the control that was pressed and covers its stage (the screen on a phone, the clock panel or sticky bar above that), says the minute that was saved, turns back to where that control has moved to, leaves by itself, never passes a tap through, and is not built at all under reduced motion. Also the chime and the vibration: the notes asked for, the press tick and the two beats, nothing for a refused punch, and the two Settings switches |
 | `regression/undo-and-replace` | What one tap could lose: Undo after a clock-out (saved, or waiting on the device) that never writes over a newer change; no blank Regular day from the entry form; Replace says what it replaces and offers Undo; messages above the phone's bottom bar; Admin's Download Team Backup holds every account, entry and schedule |
 | `regression/device-copy` | Opening on the record kept on the device: no sign-in form flash, the record and the tab bar before the server answers, the Day Types ring not redrawn for the same days, the copy kept and labelled when the server is unreachable, a punch queued while the session is renewed, nobody else's copy, gone on sign-out; day one lasting through the first shift; the calendar starting at the first logged day |

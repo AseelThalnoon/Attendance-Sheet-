@@ -16,6 +16,25 @@ jobs:
     # rather than idling for six hours.
     timeout-minutes: 30
 
+    # Playwright's own image: Chromium and WebKit, and every system package
+    # they need, already installed. They used to be installed on each run with
+    # `playwright install --with-deps`, which fetches about a hundred packages
+    # from Ubuntu's mirrors -- and a slow mirror failed the job before a suite
+    # ran: 27 minutes of trickling on 2026-11-18 (run 44258974103), and three
+    # five-minute attempts all stalled on 2026-11-19 (run 44506032960) while
+    # the same commit passed on two other machines. The image comes from
+    # Microsoft's registry, not the mirrors, and installs nothing at run time.
+    #
+    # The image's version MUST be the one tests/package.json pins Playwright
+    # to ("1.62.1"): its browsers are built for that release and no other.
+    # Change the two together -- the "Check the browsers" step below fails at
+    # once, saying so, if they ever disagree. --user 1001 is how Playwright's
+    # own GitHub Actions example runs it (the runner's user, which owns the
+    # checked-out workspace).
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      options: --user 1001
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,9 +46,9 @@ jobs:
       # on purpose (.gitignore:15 and :40), so there is nothing for either to
       # resolve -- which is exactly how this workflow failed on its first run,
       # eight seconds in, with "Some specified paths were not resolved".
-      # The cost is that playwright floats within ^1.49.0 rather than pinning,
-      # so a CI run can use a newer build than a local one. That is the
-      # project's existing choice about lockfiles, not this workflow's to make.
+      # Playwright itself is pinned exactly in tests/package.json, to match the
+      # image above; playwright pins its own playwright-core, so nothing on the
+      # browser side floats.
       - name: Install test dependencies
         working-directory: tests
         run: npm install --no-audit --no-fund
@@ -37,53 +56,30 @@ jobs:
       # chromium AND webkit. Chromium is not Safari, and the iPad
       # ReferenceError that hid the Add to Home Screen prompt was invisible in
       # every Chromium suite in this repository -- WebKit found it on its first
-      # run. --with-deps because WebKit on Linux needs five system packages it
-      # will not tell you about until it fails to launch.
-      #
-      # Bounded and retried. It normally takes about 30 seconds, but on
-      # 2026-11-18 apt-get trickled the system packages in from a slow Ubuntu
-      # mirror for 27 minutes (run 44258974103), leaving three of the job's
-      # thirty for the suites: the job was cancelled, the deploy that waits on
-      # it skipped, and a passing release sat unpublished. Each attempt now
-      # gets five minutes; a stalled one is killed, any half-done package
-      # install is finished off, and it tries again, three times at most. The
-      # step's own limit keeps the suites their time either way.
-      #
-      # "Killed" has to include the apt-get that playwright starts through
-      # sudo. timeout signals its own process group, and sudo runs the command
-      # on a pty in a session of its own, so the apt-get outlived it: on
-      # 2026-11-19 (run 44472861838) attempt 1 stalled on the mirror, its
-      # apt-get kept the dpkg lock, and attempts 2 and 3 failed within seconds
-      # on "Could not get lock" -- three tries that were one. stop_apt stops
-      # it and waits for the lock before the next try. The [s] in the methods
-      # pattern keeps pkill -f from matching the sudo that runs it.
-      - name: Install browsers
+      # run. Both are started once here, so an image that does not match the
+      # pinned Playwright fails in seconds with a sentence instead of forty
+      # suites each failing on a missing executable.
+      - name: Check the browsers
         working-directory: tests
-        timeout-minutes: 18
+        timeout-minutes: 2
+        shell: bash
         run: |
-          echo 'Acquire::Retries "3"; Acquire::http::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-ci-retries >/dev/null
-          stop_apt(){
-            sudo pkill -TERM -x apt-get || true
-            for i in $(seq 1 20); do
-              pgrep -x 'apt-get|dpkg' >/dev/null || return 0
-              sleep 1
-            done
-            sudo pkill -KILL -x apt-get || true
-            sudo pkill -KILL -f '/usr/lib/apt/method[s]/' || true
-            sleep 2
-          }
-          for attempt in 1 2 3; do
-            if timeout -k 30 300 npx playwright install --with-deps chromium webkit; then
-              exit 0
-            fi
-            [ "$attempt" = 3 ] && break
-            echo "::warning::Installing the test browsers took over 5 minutes or failed (attempt $attempt of 3). Trying again."
-            stop_apt
-            sudo dpkg --configure -a || true
-            sleep 10
-          done
-          echo "::error::Couldn't install the test browsers in three tries. Re-run the job."
-          exit 1
+          node <<'JS'
+          const pw = require("playwright");
+          const version = require("playwright/package.json").version;
+          (async () => {
+            for (const name of ["chromium", "webkit"]) {
+              const browser = await pw[name].launch();
+              await browser.close();
+            }
+            console.log(`Playwright ${version}: chromium and webkit start in this image.`);
+          })().catch(err => {
+            console.log(`::error::The container image does not carry the browsers for Playwright ${version}. ` +
+              "Set the image tag in .github/workflows/tests.yml and the version in tests/package.json to the same release.");
+            console.log(String(err && err.message || err).split("\n").slice(0, 6).join("\n"));
+            process.exit(1);
+          });
+          JS
 
       - name: Run every suite
         working-directory: tests
