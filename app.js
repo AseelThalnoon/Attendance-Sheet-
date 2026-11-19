@@ -3417,7 +3417,11 @@ import { makeSchedule } from "./src/schedule.js";
   async function loadTeamSchedule(){
     if(teamScheduleLoaded || !supabaseConfigured || !currentUser) return paintScheduleSource();
     try{
-      var res = await supabase.from("app_settings").select("default_settings").eq("id", 1).maybeSingle();
+      // The whole app_settings row is already on its way with the sign-in's
+      // first round (default_settings is one of its columns): share it, and
+      // leave it for loadAppSettings to take. Otherwise ask for the column.
+      var pre = signInPrefetch && signInPrefetch.userId === currentUser.id ? signInPrefetch.appSettings : null;
+      var res = await (pre || supabase.from("app_settings").select("default_settings").eq("id", 1).maybeSingle());
       if(res.error) throw res.error;
       var raw = res.data && res.data.default_settings;
       teamSchedule = (raw && typeof raw === "object" && Object.keys(raw).length) ? normalizeSettings(raw) : null;
@@ -10225,13 +10229,32 @@ import { makeSchedule } from "./src/schedule.js";
   // type — for today only, without widening what entries/profiles themselves
   // allow a non-admin to read.
   //
-  // Admins keep the direct-table path rather than switching everyone onto the
-  // RPC: it's already the query this panel was built and tested against, and
-  // routing every admin visit through the same narrow function they don't
-  // need would be a change with no upside. Deliberately its own one-day query
-  // rather than reusing the Team tab's cache: that cache is built by
-  // renderTeam(), which pulls a whole month for every user, and this panel is
-  // on the default screen where that would be the heaviest thing on the page.
+  // Admins use it too (2026-11-19). They had a direct-table path of their
+  // own -- today's entries, everyone's schedules, the people list -- which
+  // could only be asked once the profile said "admin", so every admin open
+  // threw away the RPC answer the sign-in had already fetched and spent
+  // another round trip to Singapore building the same list. The result is
+  // the same: this list shows only people who clocked in ("in" and "done"),
+  // which the RPC returns exactly, and neither status needs a schedule.
+  // Deliberately its own one-day query rather than reusing the Team tab's
+  // cache: that cache is built by renderTeam(), which pulls a whole month for
+  // every user, and this panel is on the default screen.
+  //
+  // presenceInFlight: the request a redraw last sent, while it is in the air.
+  // The open from the device copy draws -- and asks -- before the sign-in's
+  // prefetch exists, and the prefetch used to ask again: two identical
+  // requests in the first round of every returning open. The prefetch takes
+  // this one instead (handleSignedIn). A later redraw still asks afresh, so a
+  // punch is never answered with a list from before it.
+  var presenceInFlight = null;
+  function sendPresenceRequest(day){
+    var promise = Promise.resolve(supabase.rpc("list_today_presence", {p_date: day}));
+    var mine = {day: day, promise: promise};
+    presenceInFlight = mine;
+    var done = function(){ if(presenceInFlight === mine) presenceInFlight = null; };
+    promise.then(done, done);
+    return promise;
+  }
   async function renderTodayTeam(){
     var card = document.getElementById("todayTeamCard");
     var panel = document.getElementById("tab-overview");
@@ -10243,43 +10266,24 @@ import { makeSchedule } from "./src/schedule.js";
     var countEl = document.getElementById("todayTeamCount");
     var today = todayStr();
     var rows;
-    // The request handleSignedIn() already sent, if it was for this day and
-    // this role; any later redraw (a punch, a save) asks afresh.
-    var pre = signInPrefetch && signInPrefetch.presenceDay === today &&
-      signInPrefetch.presenceAdmin === isAdmin ? takePrefetch("presence", currentUser.id) : null;
+    // The request handleSignedIn() already sent, if it was for this day; any
+    // later redraw (a punch, a save) asks afresh.
+    var pre = signInPrefetch && signInPrefetch.presenceDay === today
+      ? takePrefetch("presence", currentUser.id) : null;
     try{
-      if(isAdmin){
-        var byUser = {};
-        var res = await (pre || supabase.from("entries")
-          .select("user_id,date,clock_in,clock_out,type")
-          .eq("date", today));
-        if(res.error) throw res.error;
-        (res.data || []).forEach(function(row){
-          (byUser[row.user_id] = byUser[row.user_id] || []).push(rowToEntry(row));
-        });
-        var settingsByUser = await loadTeamSettings();
-        rows = allProfiles.map(function(p){
-          var own = settingsByUser[p.id] || normalizeSettings({});
-          var mine = byUser[p.id] || [];
-          var todays = mine.find(function(e){ return e.date === today; });
-          return {p: p, st: teamStatus(mine, own), clockIn: todays ? todays.clockIn : "",
-            clockOut: todays ? todays.clockOut : ""};
-        });
-      } else {
-        var rpcRes = await (pre || supabase.rpc("list_today_presence", {p_date: today}));
-        if(rpcRes.error) throw rpcRes.error;
-        // scheduledFor()/the "off" branch of teamStatus() never applies here
-        // (see below), so there's no need for that person's own working-hours
-        // settings — the RPC doesn't expose them, and this doesn't ask for them.
-        rows = (rpcRes.data || []).map(function(row){
-          var p = {id: row.user_id, full_name: row.full_name, email: row.email,
-            avatar_updated_at: row.avatar_updated_at};
-          var entry = rowToEntry({user_id: row.user_id, date: today,
-            clock_in: row.clock_in, clock_out: row.clock_out, type: row.type});
-          return {p: p, st: teamStatus([entry], normalizeSettings({})), clockIn: entry.clockIn,
-            clockOut: entry.clockOut};
-        });
-      }
+      var rpcRes = await (pre || sendPresenceRequest(today));
+      if(rpcRes.error) throw rpcRes.error;
+      // scheduledFor()/the "off" branch of teamStatus() never applies here
+      // (see below), so there's no need for that person's own working-hours
+      // settings — the RPC doesn't expose them, and this doesn't ask for them.
+      rows = (rpcRes.data || []).map(function(row){
+        var p = {id: row.user_id, full_name: row.full_name, email: row.email,
+          avatar_updated_at: row.avatar_updated_at};
+        var entry = rowToEntry({user_id: row.user_id, date: today,
+          clock_in: row.clock_in, clock_out: row.clock_out, type: row.type});
+        return {p: p, st: teamStatus([entry], normalizeSettings({})), clockIn: entry.clockIn,
+          clockOut: entry.clockOut};
+      });
     }catch(err){
       // Names the problem and the way back, in the same shape as the empty
       // state, so a failure does not read as "nobody is in today".
@@ -10295,11 +10299,8 @@ import { makeSchedule } from "./src/schedule.js";
     // Only people who actually punched in today — not the whole roster with
     // its day-offs and not-yet-arriveds cluttering the list. In the order they
     // arrived: earliest clock-in first, whether they are still in or have
-    // already left; the pill and check beside each name say which. (Both the
-    // admin and non-admin paths above only ever produce "in"/"done"/"excused"/
-    // "off"/"missing" via the same teamStatus(), so this filter behaves
-    // identically either way — "excused" is deliberately left out here too,
-    // same as it always was.)
+    // already left; the pill and check beside each name say which.
+    // ("excused" is deliberately left out here too, same as it always was.)
     rows = rows.filter(function(r){ return r.st.cls === "in" || r.st.cls === "done"; });
     rows.sort(function(a,b){
       var ta = timeToMinutes(a.clockIn), tb = timeToMinutes(b.clockIn);
@@ -11319,8 +11320,7 @@ import { makeSchedule } from "./src/schedule.js";
     if(teamSettingsCache) return teamSettingsCache;
     var map = {};
     try{
-      var res = await (takePrefetch("teamSettings", currentUser && currentUser.id) ||
-        supabase.from("user_settings").select("user_id,settings"));
+      var res = await supabase.from("user_settings").select("user_id,settings");
       if(res.error) throw res.error;
       (res.data || []).forEach(function(r){ map[r.user_id] = normalizeSettings(r.settings); });
     }catch(err){
@@ -11991,7 +11991,10 @@ import { makeSchedule } from "./src/schedule.js";
     return !!(teamSchedule && key && key !== scheduleKey(teamSchedule));
   }
 
-  async function loadAdminPeople(){
+  // drawAfter: a promise to wait for before drawing -- renderAdmin passes the
+  // schedules' load, sent alongside this one, since the list marks who has no
+  // schedule. Anyone else calls it bare and it draws as soon as it has the list.
+  async function loadAdminPeople(drawAfter){
     var res;
     try{
       res = await supabase.rpc("admin_list_users");
@@ -12000,10 +12003,16 @@ import { makeSchedule } from "./src/schedule.js";
       showToast("Couldn't load users: " + friendlyError(err), "error");
       return;
     }
+    if(drawAfter) await drawAfter;
     adminUsersCache = res.data || [];
     fillAuditUserFilter();
     renderAdminPeople();
     renderNotifyPeopleList();
+    // The notification history loads alongside this (renderAdmin) and takes
+    // its names from this list. When it lands first -- a slow line -- every
+    // recipient was drawn as "Unknown user" and stayed that way. Redraw it
+    // from what it already fetched; no second request.
+    if(notifyHistoryRows.length) paintNotifyHistory();
   }
 
   // Renders from the cache, so typing in the search box never re-queries.
@@ -13839,19 +13848,17 @@ import { makeSchedule } from "./src/schedule.js";
     paintDataNav();
   }
 
-  async function renderAdminHealth(){
+  // drawAfter: renderAdmin's schedules and people-list loads, sent alongside
+  // this. The three checks ask now; who has no schedule is worked out from
+  // those two, so that waits for them.
+  async function renderAdminHealth(drawAfter){
     var wrap = document.getElementById("adminAttentionList");
     var today = todayStr();
     var horizon = dateToStr(new Date(Date.now() + 400*24*60*60*1000));
     var findings = [];
 
     try{
-      var noScheduleUsers = adminSettingsOwners
-        ? adminUsersCache.filter(function(u){ return !adminSettingsOwners.has(u.id); })
-        : null;
-      var noSchedule = noScheduleUsers ? noScheduleUsers.length : null;
-
-      var results = await Promise.all([
+      var checks = Promise.all([
         // Clocked in, never clocked out, on a day that has already ended. These
         // are the days that quietly count as a full shortfall in the aggregates.
         findEntries(function(q){
@@ -13866,6 +13873,18 @@ import { makeSchedule } from "./src/schedule.js";
         // year-9999 case now, but older rows predate it.
         findEntries(function(q){ return q.gt("date", horizon); }, HEALTH_ROW_LIMIT)
       ]);
+      // Handled where it is awaited, below; this only keeps a failure that
+      // lands while drawAfter is still pending from counting as unhandled.
+      checks.catch(function(){});
+      if(drawAfter){
+        try{ await drawAfter; }catch(e){ /* worked out from what loaded */ }
+      }
+      var noScheduleUsers = adminSettingsOwners
+        ? adminUsersCache.filter(function(u){ return !adminSettingsOwners.has(u.id); })
+        : null;
+      var noSchedule = noScheduleUsers ? noScheduleUsers.length : null;
+
+      var results = await checks;
 
       if(noSchedule !== null){
         findings.push({
@@ -14030,7 +14049,9 @@ import { makeSchedule } from "./src/schedule.js";
     '</div>';
   }
 
-  async function loadWhosAway(){
+  // drawAfter: renderAdmin's people-list load, sent alongside this; the list
+  // is what says who is deactivated, so this waits for it before drawing.
+  async function loadWhosAway(drawAfter){
     if(!isAdmin) return;
     var seq = ++awayLoadSeq;
     var startD = awayWeekStart(awayWeekOffset);
@@ -14054,6 +14075,10 @@ import { makeSchedule } from "./src/schedule.js";
       return;
     }
     if(seq !== awayLoadSeq) return;
+    if(drawAfter){
+      try{ await drawAfter; }catch(e){ /* the fallback below still draws */ }
+      if(seq !== awayLoadSeq) return;
+    }
 
     // The admin people list knows who is deactivated; the switcher's list
     // does not, so it is only the fallback.
@@ -14122,9 +14147,17 @@ import { makeSchedule } from "./src/schedule.js";
       return;
     }
 
-    // Owners first: both the People list and the health panel need to know who
-    // has a schedule, and neither should render a half-answer.
-    await loadAdminSettingsOwners();
+    // Every request this screen makes leaves at once. They used to go in four
+    // rounds, each waiting for the one before: the schedules, then eight
+    // together, then Who's Away (behind the people list), then the data
+    // checks (behind everything) -- four round trips to Singapore, ~1.3s at
+    // 300ms each, before the screen was whole (2026-11-19). The schedules and
+    // the people list are what other sections need to DRAW, not to ask: the
+    // People list and the data checks mark who has no schedule, and Who's
+    // Away needs to know who is deactivated. So each section sends its own
+    // request now and waits for those two only before it draws.
+    var ownersReady = loadAdminSettingsOwners();
+    var peopleReady = loadAdminPeople(ownersReady);
 
     var bulkFrom = document.getElementById("bulkApplyFromDate");
     var bulkTo = document.getElementById("bulkApplyToDate");
@@ -14132,17 +14165,17 @@ import { makeSchedule } from "./src/schedule.js";
     if(!bulkTo.value) bulkTo.value = bulkFrom.value;
 
     await Promise.all([
+      peopleReady,
       renderAdminStats(),
-      // Who's Away after the people list: it is what says who is deactivated.
-      loadAdminPeople().then(function(){ return loadWhosAway(); }).catch(function(){}),
+      loadWhosAway(peopleReady).catch(function(){}),
       resetAuditPaging(),
       renderCrashLog(),
       loadAppSettings(),
       renderNotifyHistory(),
       renderNotifyReach(),
-      renderCompanyDaysCount()
+      renderCompanyDaysCount(),
+      renderAdminHealth(Promise.all([ownersReady, peopleReady]))
     ]);
-    await renderAdminHealth();
   }
 
   onId("outboxRetryBtn", "click", function(){
@@ -14226,13 +14259,21 @@ import { makeSchedule } from "./src/schedule.js";
       announcementHide: Promise.resolve(supabase.from("announcement_hides").select("hidden_at")
         .eq("user_id", user.id).limit(1)),
       presenceDay: presenceDay,
-      presenceAdmin: false,
-      presence: Promise.resolve(supabase.rpc("list_today_presence", {p_date: presenceDay}))
+      // The one the device copy's draw already sent, when it is still in the
+      // air (see presenceInFlight); otherwise a fresh one.
+      presence: presenceInFlight && presenceInFlight.day === presenceDay
+        ? presenceInFlight.promise
+        : Promise.resolve(supabase.rpc("list_today_presence", {p_date: presenceDay}))
     };
     signInPrefetch.data.catch(function(){});
     signInPrefetch.appSettings.catch(function(){});
     signInPrefetch.announcementHide.catch(function(){});
     signInPrefetch.presence.catch(function(){});
+    // The bell's history, with the first round rather than two rounds later
+    // behind the record and the app settings: it needs only who this is, and
+    // it paints the bell itself when it lands. Fire-and-forget -- it is
+    // chrome, and must not hold sign-in behind a network call.
+    loadPushNotifications().catch(function(){});
 
     try{
       var res = await supabase.from("profiles").select("*").eq("id", user.id).single();
@@ -14267,17 +14308,6 @@ import { makeSchedule } from "./src/schedule.js";
     if(!currentProfile) currentProfile = {id:user.id, email:user.email, full_name:null, role:"user"};
 
     isAdmin = currentProfile.role === "admin";
-    // An admin's "In today" list is built from today's entries and everyone's
-    // schedules rather than the employee RPC requested above, so those go now.
-    // (They leave in time: an admin's sign-in waits on the people list next.)
-    if(isAdmin && signInPrefetch && signInPrefetch.userId === user.id){
-      signInPrefetch.presenceAdmin = true;
-      signInPrefetch.presence = Promise.resolve(supabase.from("entries")
-        .select("user_id,date,clock_in,clock_out,type").eq("date", signInPrefetch.presenceDay));
-      signInPrefetch.presence.catch(function(){});
-      signInPrefetch.teamSettings = Promise.resolve(supabase.from("user_settings").select("user_id,settings"));
-      signInPrefetch.teamSettings.catch(function(){});
-    }
     viewedUserId = currentUser.id;
     viewedProfile = currentProfile;
     refreshAvatars();
@@ -14340,9 +14370,6 @@ import { makeSchedule } from "./src/schedule.js";
     // Org-wide settings (announcement banner, registration toggle) apply to
     // everyone, so this runs regardless of admin status.
     await loadAppSettings();
-    // The bell's history. Fire-and-forget, like renderTodayTeam(): it is
-    // chrome, and it must not hold sign-in behind a network call.
-    loadPushNotifications().catch(function(){});
     setTimeout(updateTabsScrollHint, 0);
     // Fire-and-forget: the clock panel's line about notifications on this
     // device. No dialog at sign-in any more -- see askPushOnce.

@@ -1184,6 +1184,26 @@ async function run(){
       "the \"automatic\" filter shows only what the reminder job sent");
     await h.close();
 
+    // The history and the people it names load side by side when Admin opens
+    // (renderAdmin's Promise.all), and the names come from the people list.
+    // On a slow line the history landed first and every name read "Unknown
+    // user", with nothing to redraw it: a slow CI run caught exactly that on
+    // 2026-11-19, failing "names them instead of counting them" above. Here
+    // the people list is held back on purpose; once it lands, the history
+    // must name them.
+    const h3 = await boot({ meId: me.id, seed: {
+      profiles: people, entries: [],
+      user_settings: people.map(p => ({ user_id: p.id, settings: D.SETTINGS })),
+      push_notifications: notifications
+    }});
+    h3.backend.fail("rpc/admin_list_users", { delayMs: 1500 }, 1);
+    await openNotifications(h3.page);
+    await settle(h3.page, 2200);
+    const late = await h3.page.evaluate(() => document.getElementById("notifyHistoryList").innerText);
+    ok(late.includes(people[1].full_name) && late.includes(people[2].full_name) && !/Unknown user/.test(late),
+      "a people list slower than the history still ends with the history naming them", late.slice(0, 200));
+    await h3.close();
+
     // Nobody subscribed is the state that made a send to everyone look
     // identical to a send to no one -- it must say so before the send.
     const h2 = await boot({ meId: me.id, seed: {
