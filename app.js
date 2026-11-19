@@ -4408,6 +4408,17 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   // ---------- Stats ----------
+  // A count of days with a half-day leave as half a day: "11.5", "3". The
+  // same weights every average divides by (dayWeight in summarize()), so
+  // wherever a count stands beside a total and an average, Days x Avg / Day
+  // is the Total. Counted whole, a month read 12 days, 93h 52m, 8h 10m a
+  // day -- and 93h 52m over 12 is 7h 49m.
+  function fmtDayCount(n){ return n % 1 === 0 ? String(n) : n.toFixed(1); }
+  function dayCountLabel(n, noun){
+    noun = noun || "day";
+    return fmtDayCount(n) + " " + noun + (n === 1 ? "" : "s");
+  }
+
   // The stat tiles' signed figure: "+34m", not "+0h 34m". Zero stays "+0h",
   // the same zero the tiles show when nothing is logged.
   function signedShort(mins){
@@ -4527,7 +4538,7 @@ import { makeSchedule } from "./src/schedule.js";
     // The target leads the line because it is what the bar under it is
     // measured against; the day count says how much the average rests on.
     document.getElementById("monthAvgDetail").textContent = (ms.loggedDays
-      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + ms.loggedDays + " day" + (ms.loggedDays===1?"":"s")
+      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + dayCountLabel(ms.dayWeight)
       : "No workdays logged yet this month") +
       (ms.incompleteDays ? " · " + ms.incompleteDays + " incomplete" : "");
     var progressFill = document.getElementById("heroProgressFill");
@@ -5338,7 +5349,7 @@ import { makeSchedule } from "./src/schedule.js";
         "<td class='c-primary' data-label='Week'><span class=\"cell-label\">Week</span>"+
           "<span class='cell-date-full'>Week of "+wk.range+"</span>"+
           "<span class='cell-date-compact'>"+wk.range.replace(/,\s*\d{4}\s*$/, "")+"</span></td>"+
-        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+s.loggedDays+
+        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+fmtDayCount(s.dayWeight)+
           (s.incompleteDays ? " <span class='muted-inline'>("+s.incompleteDays+" incomplete)</span>" : "")+"</td>"+
         "<td class='num c-figure' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(s.workedSum)+"</td>"+
         "<td class='num c-meta' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+"</td>"+
@@ -5393,7 +5404,7 @@ import { makeSchedule } from "./src/schedule.js";
       var tr = document.createElement("tr");
       tr.innerHTML =
         "<td class='c-primary' data-label='Month'><span class=\"cell-label\">Month</span>"+m.label+"</td>"+
-        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+m.loggedDays+"</td>"+
+        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+fmtDayCount(m.dayWeight)+"</td>"+
         "<td class='num c-figure' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(m.workedSum)+"</td>"+
         "<td class='num c-meta' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(m.loggedDays?minutesToHoursStr(m.avgMin):"—")+"</td>"+
         // Same two figures as the weekly table beside it, in the same two
@@ -5616,7 +5627,7 @@ import { makeSchedule } from "./src/schedule.js";
       filled++;
     }
     document.getElementById("calendarGrid").innerHTML = html;
-    renderCalendarSummary(monthSummary.loggedDays, monthSummary.workedSum, monthSummary.diffSum, monthEntries.length > 0);
+    renderCalendarSummary(monthSummary.dayWeight, monthSummary.workedSum, monthSummary.diffSum, monthEntries.length > 0);
   }
 
   function renderCalendarSummary(days, workedMin, diffMin, anyEntries){
@@ -5635,7 +5646,7 @@ import { makeSchedule } from "./src/schedule.js";
           (diffMin > 0 ? "over target" : "under target") +
         '</span>';
     host.innerHTML =
-      '<span><b>'+days+'</b> '+(days === 1 ? "workday" : "workdays")+' logged</span>' +
+      '<span><b>'+fmtDayCount(days)+'</b> '+(days === 1 ? "workday" : "workdays")+' logged</span>' +
       '<span><b>'+escapeHtml(minutesToHoursStr(workedMin))+'</b> worked</span>' +
       diff;
   }
@@ -6210,7 +6221,7 @@ import { makeSchedule } from "./src/schedule.js";
       '<hr class="p-rule">' +
       '<h2>Summary</h2>' +
       '<div class="p-summary">' +
-        '<div><span class="k">Days Logged</span><span class="v">'+s.loggedDays+'</span></div>' +
+        '<div><span class="k">Days Logged</span><span class="v">'+fmtDayCount(s.dayWeight)+'</span></div>' +
         '<div><span class="k">Total Hours</span><span class="v">'+minutesToHoursStr(s.workedSum)+'</span></div>' +
         '<div><span class="k">Average / Day</span><span class="v">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</span></div>' +
         '<div><span class="k">Target Hours</span><span class="v">'+minutesToHoursStr(s.targetSum)+'</span></div>' +
@@ -11458,13 +11469,13 @@ import { makeSchedule } from "./src/schedule.js";
     var totals = teamRowsCache.reduce(function(a, t){
       a.worked += t.summary.workedSum;
       a.target += t.summary.targetSum;
-      a.days   += t.summary.loggedDays;
-      // The average below divides by this, a half day counting half, the same
-      // as each person's own average (see dayWeight in summarize()).
+      // Days a half-day leave counts half in, the same as each person's own
+      // average (see dayWeight in summarize()): both the Days Logged tile and
+      // the average beside it read this.
       a.weight += t.summary.dayWeight;
       if(t.status.cls === "in") a.inNow++;
       return a;
-    }, {worked:0, target:0, days:0, weight:0, inNow:0});
+    }, {worked:0, target:0, weight:0, inNow:0});
 
     // Same figures the flat summary bar showed, but as the stat-card Overview
     // itself leads with — icon + label, a tabular-nums headline, one detail
@@ -11487,7 +11498,7 @@ import { makeSchedule } from "./src/schedule.js";
       },
       {
         icon:'<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/>',
-        label:"Days Logged", value:String(totals.days), detail:"Across the team"
+        label:"Days Logged", value:fmtDayCount(totals.weight), detail:"Across the team"
       },
       // Hours per logged day across the team, not the month's running total.
       // Same reasoning as the per-person figure on each row, and deliberately
@@ -11553,8 +11564,8 @@ import { makeSchedule } from "./src/schedule.js";
         // with no entry today but twelve days this month is not the same as
         // someone who has never logged anything, and the second belongs at
         // the very bottom.
-        if(a.summary.loggedDays !== b.summary.loggedDays){
-          return b.summary.loggedDays - a.summary.loggedDays;
+        if(a.summary.dayWeight !== b.summary.dayWeight){
+          return b.summary.dayWeight - a.summary.dayWeight;
         }
         return (a.profile.full_name || a.profile.email || "")
           .localeCompare(b.profile.full_name || b.profile.email || "");
@@ -11624,7 +11635,7 @@ import { makeSchedule } from "./src/schedule.js";
           // on a phone, where the Days figure below is dropped; on a pointer
           // it is already in .team-card-figures and would be the same count
           // twice on one card.
-          '<span class="team-daycount">'+s.loggedDays+(s.loggedDays === 1 ? " day" : " days")+'</span>'+
+          '<span class="team-daycount">'+dayCountLabel(s.dayWeight)+'</span>'+
         '</div>'+
         '<div class="team-card-numbers">'+
           '<div class="team-bar'+barCls+'"><span style="width:'+pct+'%"></span></div>'+
@@ -11652,7 +11663,7 @@ import { makeSchedule } from "./src/schedule.js";
         // drops three, and picking them by nth-child would silently pick the
         // wrong ones the day a figure is added.
         '<div class="team-card-figures">'+
-          '<div class="f-days"><div class="label">Days</div><div class="value">'+s.loggedDays+'</div></div>'+
+          '<div class="f-days"><div class="label">Days</div><div class="value">'+fmtDayCount(s.dayWeight)+'</div></div>'+
           '<div class="f-avg"><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div class="f-diff"><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
           '<div class="f-pct"><div class="label">Target Hours Met</div><div class="value">'+
