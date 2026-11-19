@@ -4408,6 +4408,17 @@ import { makeSchedule } from "./src/schedule.js";
   }
 
   // ---------- Stats ----------
+  // A count of days with a half-day leave as half a day: "11.5", "3". The
+  // same weights every average divides by (dayWeight in summarize()), so
+  // wherever a count stands beside a total and an average, Days x Avg / Day
+  // is the Total. Counted whole, a month read 12 days, 93h 52m, 8h 10m a
+  // day -- and 93h 52m over 12 is 7h 49m.
+  function fmtDayCount(n){ return n % 1 === 0 ? String(n) : n.toFixed(1); }
+  function dayCountLabel(n, noun){
+    noun = noun || "day";
+    return fmtDayCount(n) + " " + noun + (n === 1 ? "" : "s");
+  }
+
   // The stat tiles' signed figure: "+34m", not "+0h 34m". Zero stays "+0h",
   // the same zero the tiles show when nothing is logged.
   function signedShort(mins){
@@ -4524,11 +4535,20 @@ import { makeSchedule } from "./src/schedule.js";
     // Floored, not rounded — see the note by pMetRate: 99.6% rounding up to
     // "100%" would claim the target was fully met when it's still short.
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.floor((ms.avgMin / targetPerDay) * 100))) : 0;
+    // Workdays this month with no entry at all, through yesterday and not
+    // before the first day ever logged: the days Shortfall counts as a full
+    // day short and the Calendar marks "Not logged". The average and the
+    // bank count logged days only (a decision, see unloggedWorkdays), so the
+    // line says how many there are instead of letting them vanish -- with 12
+    // of them, Overview read on target while Shortfall read ~96h short
+    // (owner, 2026-11-19).
+    var notLogged = unloggedWorkdays(mk + "-01", "").length;
     // The target leads the line because it is what the bar under it is
     // measured against; the day count says how much the average rests on.
     document.getElementById("monthAvgDetail").textContent = (ms.loggedDays
-      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + ms.loggedDays + " day" + (ms.loggedDays===1?"":"s")
+      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + dayCountLabel(ms.dayWeight)
       : "No workdays logged yet this month") +
+      (notLogged ? " · " + notLogged + " not logged" : "") +
       (ms.incompleteDays ? " · " + ms.incompleteDays + " incomplete" : "");
     var progressFill = document.getElementById("heroProgressFill");
     progressFill.style.transform = "scaleX(" + (progressPct / 100) + ")";
@@ -4883,8 +4903,25 @@ import { makeSchedule } from "./src/schedule.js";
   // Minutes after clock-in at which an open shift counts as a forgotten
   // clock-out: the day's hours, plus the same 30 minutes the clock-in
   // reminder waits after the start time. Same moment the server's push uses.
-  function clockOutDueAfterMin(date){
-    return scheduleFor(date).targetMin + REMINDER_GRACE_MIN;
+  // The day's own hours: half of them on a half-day leave, the way
+  // computeEntry() and Overview's "Leave at" count them. This used the full
+  // day's, so a half day's reminder and badge came at 8h 30m after clock-in,
+  // four hours after "Leave at" (2026-11-19). check-clockout-reminders does
+  // the same for the push.
+  function clockOutDueAfterMin(e){
+    var t = scheduleFor(e.date).targetMin;
+    return (HALF_TYPES.indexOf(e.type) !== -1 ? Math.round(t / 2) : t) + REMINDER_GRACE_MIN;
+  }
+  // What a one-tap Clock Out writes, and the time its button names: the
+  // day's standard end -- or on a half-day leave the moment its half day's
+  // hours were done (clock-in + half the target, Overview's "Leave at"). The
+  // standard end on a half day recorded a full day: about four hours of
+  // overtime that never happened. Mirrored in check-clockout-reminders.
+  function quickClockOutTime(e){
+    var sched = scheduleFor(e.date);
+    if(HALF_TYPES.indexOf(e.type) === -1 || !e.clockIn) return sched.standardOut;
+    var m = (timeToMinutes(e.clockIn) + Math.round(sched.targetMin / 2)) % (24*60);
+    return pad2(Math.floor(m / 60)) + ":" + pad2(m % 60);
   }
   function openShiftCount(){
     var today = todayStr();
@@ -4892,7 +4929,7 @@ import { makeSchedule } from "./src/schedule.js";
     return entries.filter(function(e){
       if(!e.clockIn || e.clockOut || EXCUSED_TYPES.indexOf(e.type) !== -1) return false;
       if(e.date < today) return true;
-      if(e.date === today) return (nowMin - timeToMinutes(e.clockIn)) >= clockOutDueAfterMin(e.date);
+      if(e.date === today) return (nowMin - timeToMinutes(e.clockIn)) >= clockOutDueAfterMin(e);
       return false;
     }).length;
   }
@@ -4925,7 +4962,7 @@ import { makeSchedule } from "./src/schedule.js";
       if(e.date < today){ target = e; isPast = true; break; }
       if(e.date === today){
         var elapsed = nowMin - timeToMinutes(e.clockIn);
-        if(elapsed >= clockOutDueAfterMin(e.date)){ target = e; isPast = false; break; }
+        if(elapsed >= clockOutDueAfterMin(e)){ target = e; isPast = false; break; }
       }
     }
 
@@ -4964,7 +5001,7 @@ import { makeSchedule } from "./src/schedule.js";
       // the days the standard time is wrong.
       var quickOutBtn = document.createElement("button");
       quickOutBtn.className = "btn small";
-      quickOutBtn.textContent = "Clock Out at " + formatTime12(scheduleFor(target.date).standardOut);
+      quickOutBtn.textContent = "Clock Out at " + formatTime12(quickClockOutTime(target));
       quickOutBtn.addEventListener("click", function(){ quickClockOut(target, quickOutBtn); });
       actions.appendChild(quickOutBtn);
     }
@@ -5002,7 +5039,7 @@ import { makeSchedule } from "./src/schedule.js";
       var payload = {
         date: entry.date,
         clockIn: entry.clockIn,
-        clockOut: scheduleFor(entry.date).standardOut,
+        clockOut: quickClockOutTime(entry),
         type: entry.type || "regular",
         note: entry.note || ""
       };
@@ -5031,6 +5068,11 @@ import { makeSchedule } from "./src/schedule.js";
     if(c.open) return '<span class="pill open">Open</span>';
     if(c.excused) return '<span class="pill excused">Excused</span>';
     if(c.diffMin === null) return "—";
+    // Hours on a remote, trip or training day, or on a day off: they owe
+    // nothing and count toward nothing, so "On target" (0 over a 0 target)
+    // said the opposite of what happens to them. Same quiet weight as On
+    // target; the Calendar marks the same days the same way.
+    if(!c.targetMin) return '<span class="on-target not-counted">Not counted</span>';
     if(Math.abs(c.diffMin) < 1) return '<span class="on-target" title="On target">On target</span>';
     return c.diffMin > 0
       ? '<span class="pill over">'+signed(c.diffMin)+'</span>'
@@ -5338,7 +5380,7 @@ import { makeSchedule } from "./src/schedule.js";
         "<td class='c-primary' data-label='Week'><span class=\"cell-label\">Week</span>"+
           "<span class='cell-date-full'>Week of "+wk.range+"</span>"+
           "<span class='cell-date-compact'>"+wk.range.replace(/,\s*\d{4}\s*$/, "")+"</span></td>"+
-        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+s.loggedDays+
+        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+fmtDayCount(s.dayWeight)+
           (s.incompleteDays ? " <span class='muted-inline'>("+s.incompleteDays+" incomplete)</span>" : "")+"</td>"+
         "<td class='num c-figure' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(s.workedSum)+"</td>"+
         "<td class='num c-meta' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+"</td>"+
@@ -5393,7 +5435,7 @@ import { makeSchedule } from "./src/schedule.js";
       var tr = document.createElement("tr");
       tr.innerHTML =
         "<td class='c-primary' data-label='Month'><span class=\"cell-label\">Month</span>"+m.label+"</td>"+
-        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+m.loggedDays+"</td>"+
+        "<td class='num c-meta' data-label='Days'><span class=\"cell-label\">Days</span>"+fmtDayCount(m.dayWeight)+"</td>"+
         "<td class='num c-figure' data-label='Total'><span class=\"cell-label\">Total</span>"+minutesToHoursStr(m.workedSum)+"</td>"+
         "<td class='num c-meta' data-label='Avg / Day'><span class=\"cell-label\">Avg / Day</span>"+(m.loggedDays?minutesToHoursStr(m.avgMin):"—")+"</td>"+
         // Same two figures as the weekly table beside it, in the same two
@@ -5437,6 +5479,13 @@ import { makeSchedule } from "./src/schedule.js";
     if(c.open) return "open";
     if(c.excused) return "excused";
     if(c.workedMin === null) return scheduled && dateStr <= todayStr() ? "missing" : "off";
+    // Hours on a day that owes nothing: a remote, trip or training day with
+    // clock times, or work on a day off. computeEntry scores them 0 over a
+    // 0 target, so they read as "met" -- hours in ink, like any counted day
+    // -- beside a month line whose "worked" leaves them out. Neither the
+    // averages nor the bank count them (WORKED_TYPES, isScheduled), and the
+    // grid says so now (2026-11-19).
+    if(entry.clockIn && !(countsAsWorked(entry.type) && scheduled)) return "uncounted";
     if(c.diffMin !== null && c.diffMin >= 0) return "met";
     return "under";
   }
@@ -5520,6 +5569,9 @@ import { makeSchedule } from "./src/schedule.js";
     // day's own hours. Unlogged workdays are the Shortfall tab's question.
     var monthEntries = entries.filter(function(e){ return monthKey(e.date) === y + "-" + pad2(m+1); });
     var monthSummary = summarize(monthEntries);
+    // Hours on the grid that the month line's "worked" leaves out, and what
+    // kind of days they were on, so the line can say so.
+    var uncountedMin = 0, uncountedKinds = {};
 
     for(var day=1; day<=daysInMonth; day++){
       var dStr = y+"-"+pad2(m+1)+"-"+pad2(day);
@@ -5560,6 +5612,13 @@ import { makeSchedule } from "./src/schedule.js";
             '<b class="cal-val-full">'+escapeHtml(minutesToHoursStr(worked))+'</b>' +
             '<b class="cal-val-short">'+escapeHtml(hoursCompact(worked))+'</b>' +
           '</span>';
+      } else if(status === "uncounted"){
+        // The hours, muted, over what the day was: "8h / Remote", "3h / Day
+        // off". Muted because they are not part of anything the month adds up.
+        value = '<span class="cal-val is-uncounted" aria-hidden="true">' +
+            '<b class="cal-val-full">'+escapeHtml(minutesToHoursStr(worked))+'</b>' +
+            '<b class="cal-val-short">'+escapeHtml(hoursCompact(worked))+'</b>' +
+          '</span>';
       } else if(status === "open" && entry.clockIn){
         value = '<span class="cal-val is-time" aria-hidden="true">' +
             '<b class="cal-val-full">'+escapeHtml(formatTime12(entry.clockIn))+'</b>' +
@@ -5589,6 +5648,11 @@ import { makeSchedule } from "./src/schedule.js";
           '</span>';
       } else if(status === "missing"){
         short = '<span class="cal-short" aria-hidden="true">Not logged</span>';
+      } else if(status === "uncounted"){
+        var kind = countsAsWorked(entry.type) ? "Day off" : calTypeShort(entry.type);
+        short = '<span class="cal-short is-note" aria-hidden="true">'+escapeHtml(kind)+'</span>';
+        uncountedMin += worked;
+        uncountedKinds[countsAsWorked(entry.type) ? "off" : entry.type] = true;
       }
 
       var dow = (startDow + day - 1) % 7;
@@ -5616,16 +5680,29 @@ import { makeSchedule } from "./src/schedule.js";
       filled++;
     }
     document.getElementById("calendarGrid").innerHTML = html;
-    renderCalendarSummary(monthSummary.loggedDays, monthSummary.workedSum, monthSummary.diffSum, monthEntries.length > 0);
+    renderCalendarSummary(monthSummary.dayWeight, monthSummary.workedSum, monthSummary.diffSum, monthEntries.length > 0,
+      uncountedMin, uncountedKinds);
   }
 
-  function renderCalendarSummary(days, workedMin, diffMin, anyEntries){
+  // "16h on remote days not counted": the hours the grid shows that "worked"
+  // leaves out, named by the kinds of day they were on.
+  var UNCOUNTED_KIND_WORDS = { wfh:"remote days", trip:"trips", training:"training days", off:"days off" };
+  function uncountedNote(min, kinds){
+    if(!min) return "";
+    var words = ["wfh", "trip", "training", "off"].filter(function(k){ return kinds && kinds[k]; })
+      .map(function(k){ return UNCOUNTED_KIND_WORDS[k]; });
+    var list = words.length > 1 ? words.slice(0, -1).join(", ") + " and " + words[words.length - 1] : words[0];
+    return '<span class="cal-sum-note"><b>'+escapeHtml(minutesToHoursStr(min))+'</b> on '+escapeHtml(list)+' not counted</span>';
+  }
+
+  function renderCalendarSummary(days, workedMin, diffMin, anyEntries, uncountedMin, uncountedKinds){
     var host = document.getElementById("calSummary");
     if(!host) return;
+    var note = uncountedNote(uncountedMin, uncountedKinds);
     if(!days){
       host.innerHTML = '<span class="cal-sum-empty">' +
         (anyEntries ? "No regular workdays logged this month." : "Nothing logged this month yet.") +
-        '</span>';
+        '</span>' + note;
       return;
     }
     var diff = diffMin === 0
@@ -5635,9 +5712,9 @@ import { makeSchedule } from "./src/schedule.js";
           (diffMin > 0 ? "over target" : "under target") +
         '</span>';
     host.innerHTML =
-      '<span><b>'+days+'</b> '+(days === 1 ? "workday" : "workdays")+' logged</span>' +
+      '<span><b>'+fmtDayCount(days)+'</b> '+(days === 1 ? "workday" : "workdays")+' logged</span>' +
       '<span><b>'+escapeHtml(minutesToHoursStr(workedMin))+'</b> worked</span>' +
-      diff;
+      diff + note;
   }
 
   // "10:00 AM" is 52px of an axis column that is 44px wide on a phone, and the
@@ -6210,7 +6287,7 @@ import { makeSchedule } from "./src/schedule.js";
       '<hr class="p-rule">' +
       '<h2>Summary</h2>' +
       '<div class="p-summary">' +
-        '<div><span class="k">Days Logged</span><span class="v">'+s.loggedDays+'</span></div>' +
+        '<div><span class="k">Days Logged</span><span class="v">'+fmtDayCount(s.dayWeight)+'</span></div>' +
         '<div><span class="k">Total Hours</span><span class="v">'+minutesToHoursStr(s.workedSum)+'</span></div>' +
         '<div><span class="k">Average / Day</span><span class="v">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</span></div>' +
         '<div><span class="k">Target Hours</span><span class="v">'+minutesToHoursStr(s.targetSum)+'</span></div>' +
@@ -11458,13 +11535,13 @@ import { makeSchedule } from "./src/schedule.js";
     var totals = teamRowsCache.reduce(function(a, t){
       a.worked += t.summary.workedSum;
       a.target += t.summary.targetSum;
-      a.days   += t.summary.loggedDays;
-      // The average below divides by this, a half day counting half, the same
-      // as each person's own average (see dayWeight in summarize()).
+      // Days a half-day leave counts half in, the same as each person's own
+      // average (see dayWeight in summarize()): both the Days Logged tile and
+      // the average beside it read this.
       a.weight += t.summary.dayWeight;
       if(t.status.cls === "in") a.inNow++;
       return a;
-    }, {worked:0, target:0, days:0, weight:0, inNow:0});
+    }, {worked:0, target:0, weight:0, inNow:0});
 
     // Same figures the flat summary bar showed, but as the stat-card Overview
     // itself leads with — icon + label, a tabular-nums headline, one detail
@@ -11487,7 +11564,7 @@ import { makeSchedule } from "./src/schedule.js";
       },
       {
         icon:'<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/>',
-        label:"Days Logged", value:String(totals.days), detail:"Across the team"
+        label:"Days Logged", value:fmtDayCount(totals.weight), detail:"Across the team"
       },
       // Hours per logged day across the team, not the month's running total.
       // Same reasoning as the per-person figure on each row, and deliberately
@@ -11510,12 +11587,13 @@ import { makeSchedule } from "./src/schedule.js";
           ? "Of " + minutesToHoursStr(Math.round(totals.target / totals.weight)) + " target"
           : "Nobody logged time yet"
       },
-      // Same accomplishment reading as the Shortfall tab's Target Hours Met:
-      // share of target HOURS worked, not a day-count rate. Floored, not
-      // rounded — see the note by pMetRate above for why. Both carry the same
-      // label, because they are the same figure over different populations —
-      // "Target Met Rate" read as "how often the target was met", which is a
-      // count of days and a different number entirely.
+      // Share of target HOURS worked over the days people logged, not a
+      // day-count rate ("Target Met Rate" read as how often the target was
+      // met, a different number entirely). Floored, not rounded — see the
+      // note by pMetRate above for why. Shortfall's figure was also called
+      // Target Hours Met, but it counts a workday with no entry as a full day
+      // short, so for the same person and month the two could read 100% and
+      // 85% under one name. It is "Workday Hours Met" there now (2026-11-19).
       {
         icon:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.3"/><circle cx="12" cy="12" r=".8" fill="currentColor"/>',
         // Not "Team-wide": targetSum only accumulates over people who logged
@@ -11553,8 +11631,8 @@ import { makeSchedule } from "./src/schedule.js";
         // with no entry today but twelve days this month is not the same as
         // someone who has never logged anything, and the second belongs at
         // the very bottom.
-        if(a.summary.loggedDays !== b.summary.loggedDays){
-          return b.summary.loggedDays - a.summary.loggedDays;
+        if(a.summary.dayWeight !== b.summary.dayWeight){
+          return b.summary.dayWeight - a.summary.dayWeight;
         }
         return (a.profile.full_name || a.profile.email || "")
           .localeCompare(b.profile.full_name || b.profile.email || "");
@@ -11624,7 +11702,7 @@ import { makeSchedule } from "./src/schedule.js";
           // on a phone, where the Days figure below is dropped; on a pointer
           // it is already in .team-card-figures and would be the same count
           // twice on one card.
-          '<span class="team-daycount">'+s.loggedDays+(s.loggedDays === 1 ? " day" : " days")+'</span>'+
+          '<span class="team-daycount">'+dayCountLabel(s.dayWeight)+'</span>'+
         '</div>'+
         '<div class="team-card-numbers">'+
           '<div class="team-bar'+barCls+'"><span style="width:'+pct+'%"></span></div>'+
@@ -11652,7 +11730,7 @@ import { makeSchedule } from "./src/schedule.js";
         // drops three, and picking them by nth-child would silently pick the
         // wrong ones the day a figure is added.
         '<div class="team-card-figures">'+
-          '<div class="f-days"><div class="label">Days</div><div class="value">'+s.loggedDays+'</div></div>'+
+          '<div class="f-days"><div class="label">Days</div><div class="value">'+fmtDayCount(s.dayWeight)+'</div></div>'+
           '<div class="f-avg"><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div class="f-diff"><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
           '<div class="f-pct"><div class="label">Target Hours Met</div><div class="value">'+

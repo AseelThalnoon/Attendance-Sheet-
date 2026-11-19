@@ -63,6 +63,9 @@ function calledByScheduler(req: Request): boolean {
 // and tests/regression/clockout-reminders.js runs it exactly as written.
 const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000;
 const EXCUSED_TYPES = ["leave", "sick", "holiday", "other"];
+// A half-day leave owes half the day's hours, as in computeEntry() (HALF_TYPES
+// in src/constants.js).
+const HALF_TYPES = ["halfleave"];
 // Mirrors DEFAULT_SETTINGS in src/constants.js -- kept in sync by hand since
 // this function has no access to that file at build time.
 // Both reminders fire this long after the moment the day says you should
@@ -83,6 +86,11 @@ function dateStr(d: Date): string {
 function toMinutes(t: string): number {
   const [h, m] = t.split(":");
   return Number(h) * 60 + Number(m);
+}
+// "HH:MM" this many minutes after another, wrapping past midnight.
+function timeAfter(t: string, min: number): string {
+  const m = (((toMinutes(t) + min) % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
 }
 // Same rule as scheduleFor() in src/schedule.js: the first seasonal period
 // covering this date wins; otherwise the person's own standard time.
@@ -165,7 +173,12 @@ function dueReminders(
     const clockInMs = Date.parse(`${entry.date}T${entry.clock_in.slice(0, 5)}:00+03:00`);
     if (!isFinite(clockInMs)) continue;
     if (settings.remindClockOut === false) continue;
-    if ((nowMs - clockInMs) / 60000 < targetMinFor(settings, entry.date) + REMINDER_GRACE_MIN) continue;
+    // The day's own hours: half of them on a half-day leave. The full day's
+    // sent a half day's reminder four hours after its "Leave at" (2026-11-19).
+    const half = HALF_TYPES.includes(entry.type);
+    const fullTarget = targetMinFor(settings, entry.date);
+    const dayTarget = half ? Math.round(fullTarget / 2) : fullTarget;
+    if ((nowMs - clockInMs) / 60000 < dayTarget + REMINDER_GRACE_MIN) continue;
 
     const isToday = entry.date === today;
     if (isToday) {
@@ -180,7 +193,12 @@ function dueReminders(
       if (nowMin < toMinutes(scheduleTimeFor(settings, today, "standardIn"))) continue;
     }
 
-    const standardOut = scheduleTimeFor(settings, entry.date, "standardOut");
+    // What the Clock Out button writes (quickClockOutTime in app.js): the
+    // standard end, or on a half day the moment its hours were done -- the
+    // standard end recorded a full day, about four hours that never happened.
+    const standardOut = half
+      ? timeAfter(entry.clock_in.slice(0, 5), dayTarget)
+      : scheduleTimeFor(settings, entry.date, "standardOut");
     const title = isToday ? "Still clocked in" : "You never clocked out";
     const body = isToday
       ? `You clocked in at ${formatTime12(entry.clock_in)} and haven't clocked out yet.`

@@ -63,6 +63,16 @@ async function run(browser, query, entries){
     eq(s.search, "", "the query string is stripped even for the out-date case");
   }
   {
+    // A half-day leave owes 4 of the 8 hours: the push's Clock Out writes the
+    // moment they were done (clock-in + 4h, Overview's "Leave at"), not the
+    // 4 PM standard end, which recorded a full day on a half day.
+    const entries = [{ id:"h1", date:"2026-11-12", clockIn:"07:44", clockOut:"", type:"halfleave", note:"" }];
+    const s = await run(browser, "?action=out-date&date=2026-11-12", entries);
+    eq(s.upsertCalls.length, 1, "half day: the open half day is saved");
+    eq(s.upsertCalls[0] && s.upsertCalls[0].payload.clockOut, "11:44",
+      "half day: closes when its 4 hours were done, not at the standard end");
+  }
+  {
     // No entry for that date at all -- a stale notification tapped after the
     // day was already fixed by hand some other way.
     const s = await run(browser, "?action=out-date&date=2026-08-13", []);

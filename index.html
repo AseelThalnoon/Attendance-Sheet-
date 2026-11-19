@@ -4520,6 +4520,11 @@
     letter-spacing:0;
   }
   .cal-val.is-type b{font-weight:500;}
+  /* Hours on a day that counts toward nothing (a remote, trip or training
+     day, or work on a day off): the number stays, a step quieter, over the
+     kind of day it was -- see calendarDayStatus "uncounted". */
+  .cal-val.is-uncounted{color:var(--muted);}
+  .cal-short.is-note{color:var(--muted);}
   /* Both forms ship and CSS picks; see hoursCompact() for why. */
   .cal-val-short{display:none;}
   .cal-val-full{display:inline;}
@@ -4576,6 +4581,7 @@
      screen, and the month's total is the same fact as a cell's, added up. */
   .cal-summary .is-under b{color:var(--excused);}
   .cal-sum-empty{color:var(--muted-2);}
+  .cal-summary .cal-sum-note b{color:var(--muted);}
   @media (max-width:560px){
     /* The compact form. The narrowed weekend columns give this back some room --
        five working columns at 1fr against two at .62fr make a working cell
@@ -8354,7 +8360,10 @@
       </section>
       <div class="stats-row punct-stats">
         <div class="stat-card">
-          <p class="stat-label">Target Hours Met</p>
+          <!-- Not "Target Hours Met": that is Team's figure, over logged days
+               only. This one counts a workday with no entry as a full day
+               short, so the two could disagree under one name. -->
+          <p class="stat-label">Workday Hours Met</p>
           <p class="stat-value" id="pMetRate">—</p>
           <p class="stat-detail" id="pMetRateDetail">—</p>
         </div>
@@ -9728,6 +9737,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v69"></script>
+<script type="module" src="app.js?v=v70"></script>
 </body>
 </html>
