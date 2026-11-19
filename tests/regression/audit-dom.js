@@ -85,6 +85,46 @@ export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
   updateUser:async()=>({data:{user:{id:UID,email:"near@example.com"}},error:null}),
   getSession:async()=>({data:{session:null},error:null})}};}`;
 
+// A week with a half-day leave in it, on a clock pinned to Thursday 20 August
+// 2026 (Sun-Thu week, 08:00-16:00, so an 8h target and a 4h half day):
+//   Sun 16  08:00-16:30  8h 30m of 8h  +30m
+//   Mon 17  08:00-12:00  4h     of 4h   0     (half-day leave)
+//   Tue 18  08:00-15:45  7h 45m of 8h  -15m
+//   Wed 19  08:00-16:00  8h     of 8h   0
+// 28h 15m worked against 28h owed: the bank is +15m. Over 3.5 days (the half
+// day counts half) that is 8h 4m a day against 8h. Divided by four whole days
+// it read 7h 4m against "7h" -- under the 8h target beside a positive bank.
+const STUB_HALF_DAY = `
+const UID="66666666-6666-6666-6666-666666666666";
+const ENTRIES=[
+  {id:"h1",user_id:UID,date:"2026-08-16",clock_in:"08:00",clock_out:"16:30",type:"regular",note:""},
+  {id:"h2",user_id:UID,date:"2026-08-17",clock_in:"08:00",clock_out:"12:00",type:"halfleave",note:""},
+  {id:"h3",user_id:UID,date:"2026-08-18",clock_in:"08:00",clock_out:"15:45",type:"regular",note:""},
+  {id:"h4",user_id:UID,date:"2026-08-19",clock_in:"08:00",clock_out:"16:00",type:"regular",note:""}];
+const PROFILE={id:UID,email:"half@example.com",full_name:"Half Day",role:"admin"};
+const SETTINGS={workDays:[0,1,2,3,4],standardIn:"08:00",standardOut:"16:00",targetMin:480};
+function result(t,k){
+  if(t==="entries") return {data:ENTRIES,error:null};
+  if(t==="profiles") return k==="single"?{data:PROFILE,error:null}:{data:[PROFILE],error:null};
+  if(t==="user_settings") return k==="single"?{data:{settings:SETTINGS},error:null}:{data:[{user_id:UID,settings:SETTINGS}],error:null};
+  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:false,announcement:""},error:null};
+  return {data:[],error:null};}
+function builder(t){let k="list";
+  const proxy=new Proxy(function(){},{get(_,p){
+    if(p==="then") return (r,j)=>Promise.resolve(result(t,k)).then(r,j);
+    if(p==="catch") return f=>Promise.resolve(result(t,k)).catch(f);
+    if(p==="finally") return f=>Promise.resolve(result(t,k)).finally(f);
+    if(p==="single"||p==="maybeSingle") return ()=>{k="single";return proxy;};
+    return ()=>proxy;}});
+  return proxy;}
+export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
+  auth:{onAuthStateChange:(cb)=>{setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"half@example.com"}}),0);
+    return{data:{subscription:{unsubscribe(){}}}};},
+  signInWithPassword:async()=>({data:{},error:null}),signUp:async()=>({data:{},error:null}),
+  signOut:async()=>({error:null}),resetPasswordForEmail:async()=>({data:{},error:null}),
+  updateUser:async()=>({data:{user:{id:UID,email:"half@example.com"}},error:null}),
+  getSession:async()=>({data:{session:null},error:null})}};}`;
+
 // Two entries in the same year, one inside a 5h seasonal period (January),
 // one at the base 8h target (June) — so the Yearly chart's dashed target
 // reference has to actually change height across the year, not draw one
@@ -229,6 +269,79 @@ function ok(cond, name, detail){
     ok(!/100%/.test(s.heroLabel), "the hero progress label does not round 99.58% up to 100%",
       JSON.stringify(s));
     ok(/99%/.test(s.heroLabel), "the hero progress label floors 99.58% to 99%", JSON.stringify(s));
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- half days in every average
+  // A half-day leave counts as half a day wherever the app shows hours per
+  // day, so no screen puts an average under target beside a positive bank:
+  // Overview, Trends (weekly and monthly), Team (each row and the team tile)
+  // and the printed report. Same four days everywhere: 8h 4m against 8h.
+  {
+    const ctx = await browser.newContext({viewport: {width: 1440, height: 900}});
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", e => errors.push(e.message));
+    await page.clock.setFixedTime(new Date(2026, 7, 20, 10, 0, 0));
+    await page.route("**/vendor/supabase-js.min.js",
+      r => r.fulfill({status: 200, contentType: "text/javascript", body: STUB_HALF_DAY}));
+    await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+    await page.waitForTimeout(1200);
+
+    const ov = await page.evaluate(() => ({
+      avg: document.getElementById("monthAvg").textContent,
+      detail: document.getElementById("monthAvgDetail").textContent,
+      met: document.getElementById("avgMeter").classList.contains("is-met"),
+      label: document.getElementById("avgMeter").getAttribute("aria-label"),
+      bank: document.getElementById("otBank").textContent
+    }));
+    ok(ov.bank === "+15m", "half day: the bank is +15m", JSON.stringify(ov.bank));
+    ok(ov.avg === "8h 4m", "half day: Overview's average counts the half day as half (8h 4m, not 7h 4m)", JSON.stringify(ov.avg));
+    ok(/^Target 8h · 4 days$/.test(ov.detail), "half day: the target stays 8h and all four days are counted",
+      JSON.stringify(ov));
+    ok(ov.met && /^100% of the 8h daily target$/.test(ov.label),
+      "half day: a positive bank shows the average bar as met", JSON.stringify(ov));
+
+    const trends = await page.evaluate(async () => {
+      const cells = id => Array.from(document.querySelectorAll("#" + id + " td[data-label='Avg / Day']"))
+        .map(td => td.textContent.replace("Avg / Day", "").trim()).filter(t => t !== "—");
+      document.querySelector('.tab-btn[data-tab="trends"]').click();
+      document.querySelector('.sub-tab-btn[data-subtab="weekly"]').click();
+      await new Promise(r => setTimeout(r, 300));
+      const weekly = cells("weeklyBody");
+      document.querySelector('.sub-tab-btn[data-subtab="monthly"]').click();
+      await new Promise(r => setTimeout(r, 300));
+      return {weekly, monthly: cells("monthlyBody")};
+    });
+    ok(trends.weekly.length === 1 && trends.weekly[0] === "8h 4m",
+      "half day: the Weekly table's Avg / Day is 8h 4m", JSON.stringify(trends));
+    ok(trends.monthly.length === 1 && trends.monthly[0] === "8h 4m",
+      "half day: the Monthly table's Avg / Day is 8h 4m", JSON.stringify(trends));
+
+    await page.evaluate(() => document.querySelector('.tab-btn[data-tab="team"]').click());
+    await page.waitForTimeout(800);
+    const team = await page.evaluate(() => {
+      const tile = Array.from(document.querySelectorAll("#teamSummary .stat-card"))
+        .find(c => /Avg Hours \/ Day/.test(c.textContent));
+      return {
+        tileValue: tile ? tile.querySelector(".stat-value").textContent : null,
+        tileDetail: tile ? tile.querySelector(".stat-detail").textContent : null,
+        rows: document.getElementById("teamList").textContent
+      };
+    });
+    ok(team.tileValue === "8h 4m", "half day: Team's Avg Hours / Day tile is 8h 4m", JSON.stringify(team.tileValue));
+    ok(team.tileDetail === "Of 8h target", "half day: Team's tile measures against 8h", JSON.stringify(team.tileDetail));
+    ok(/8h 4m\s*\/day/.test(team.rows) && !/7h 4m/.test(team.rows),
+      "half day: the person's Team row reads 8h 4m a day", team.rows.slice(0, 300));
+
+    const sheet = await page.evaluate(() => {
+      window.dispatchEvent(new Event("beforeprint"));
+      const row = Array.from(document.querySelectorAll("#printArea .p-summary div"))
+        .find(d => /Average \/ Day/.test(d.textContent));
+      return row ? row.querySelector(".v").textContent : null;
+    });
+    ok(sheet === "8h 4m", "half day: the printed report's Average / Day is 8h 4m", JSON.stringify(sheet));
+    ok(errors.length === 0, "half day: no script errors", errors.join(" | "));
     await ctx.close();
   }
 
