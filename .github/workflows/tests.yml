@@ -45,20 +45,40 @@ jobs:
       # mirror for 27 minutes (run 44258974103), leaving three of the job's
       # thirty for the suites: the job was cancelled, the deploy that waits on
       # it skipped, and a passing release sat unpublished. Each attempt now
-      # gets five minutes; a stalled one is killed (with everything it
-      # started: timeout signals the whole process group), any half-done
-      # package install is finished off, and it tries again, three times at
-      # most. The step's own limit keeps the suites their time either way.
+      # gets five minutes; a stalled one is killed, any half-done package
+      # install is finished off, and it tries again, three times at most. The
+      # step's own limit keeps the suites their time either way.
+      #
+      # "Killed" has to include the apt-get that playwright starts through
+      # sudo. timeout signals its own process group, and sudo runs the command
+      # on a pty in a session of its own, so the apt-get outlived it: on
+      # 2026-11-19 (run 44472861838) attempt 1 stalled on the mirror, its
+      # apt-get kept the dpkg lock, and attempts 2 and 3 failed within seconds
+      # on "Could not get lock" -- three tries that were one. stop_apt stops
+      # it and waits for the lock before the next try. The [s] in the methods
+      # pattern keeps pkill -f from matching the sudo that runs it.
       - name: Install browsers
         working-directory: tests
         timeout-minutes: 18
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-ci-retries >/dev/null
+          stop_apt(){
+            sudo pkill -TERM -x apt-get || true
+            for i in $(seq 1 20); do
+              pgrep -x 'apt-get|dpkg' >/dev/null || return 0
+              sleep 1
+            done
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -f '/usr/lib/apt/method[s]/' || true
+            sleep 2
+          }
           for attempt in 1 2 3; do
             if timeout -k 30 300 npx playwright install --with-deps chromium webkit; then
               exit 0
             fi
+            [ "$attempt" = 3 ] && break
             echo "::warning::Installing the test browsers took over 5 minutes or failed (attempt $attempt of 3). Trying again."
+            stop_apt
             sudo dpkg --configure -a || true
             sleep 10
           done
