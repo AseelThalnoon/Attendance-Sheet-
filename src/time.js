@@ -30,11 +30,17 @@ function formatTime12(t){
   var h12 = h % 12; if(h12 === 0) h12 = 12;
   return h12 + ":" + p[1] + " " + period;
 }
+// "Xh Ym", and under an hour just "Ym": "0h 31m" reads like a typo, and one
+// number was written two ways -- Overview's bank said "+34m" while Trends,
+// Team and the printed report said "+0h 34m" (2026-11-19). Zero stays "0h",
+// the zero every figure in the app has always shown, and a value that rounds
+// to zero carries no sign.
 function minutesToHoursStr(mins){
   if(mins === null || mins === undefined || isNaN(mins)) return "—";
-  var sign = mins < 0 ? "-" : "";
   var v = Math.abs(Math.round(mins));
+  var sign = mins < 0 && v ? "-" : "";
   var h = Math.floor(v/60), m = v%60;
+  if(!h && m) return sign + m + "m";
   return sign + h + "h" + (m ? " " + m + "m" : "");
 }
 // For values that are naturally small and minutes-only (how late, how early) —

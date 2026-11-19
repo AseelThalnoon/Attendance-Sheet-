@@ -364,7 +364,7 @@ function ok(cond, name, detail){
     }));
     ok(ov.bank === "+15m", "half day: the bank is +15m", JSON.stringify(ov.bank));
     ok(ov.avg === "8h 4m", "half day: Overview's average counts the half day as half (8h 4m, not 7h 4m)", JSON.stringify(ov.avg));
-    ok(/^Target 8h · 3\.5 days$/.test(ov.detail),
+    ok(/^Target 8h · 3\.5 workdays$/.test(ov.detail),
       "half day: the target stays 8h and the four days count as 3.5 (the half day is half)", JSON.stringify(ov));
     ok(ov.met && /^100% of the 8h daily target$/.test(ov.label),
       "half day: a positive bank shows the average bar as met", JSON.stringify(ov));
@@ -372,7 +372,8 @@ function ok(cond, name, detail){
     const trends = await page.evaluate(async () => {
       const col = (id, label) => Array.from(document.querySelectorAll("#" + id + " td[data-label='" + label + "']"))
         .map(td => td.textContent.replace(label, "").trim()).filter(t => t !== "—");
-      const cells = id => ({avg: col(id, "Avg / Day"), days: col(id, "Days"), total: col(id, "Total")});
+      const cells = id => ({avg: col(id, "Avg / Day"), days: col(id, "Days"), total: col(id, "Total"),
+        diff: col(id, "Diff")});
       document.querySelector('.tab-btn[data-tab="trends"]').click();
       document.querySelector('.sub-tab-btn[data-subtab="weekly"]').click();
       await new Promise(r => setTimeout(r, 300));
@@ -389,12 +390,14 @@ function ok(cond, name, detail){
     ok(trends.weekly.days[0] === "3.5" && trends.weekly.total[0] === "28h 15m" &&
        trends.monthly.days[0] === "3.5" && trends.monthly.total[0] === "28h 15m",
       "half day: both Trends tables count the days as 3.5, so Days x Avg / Day is the Total", JSON.stringify(trends));
+    ok(trends.weekly.diff[0] === "+15m" && trends.monthly.diff[0] === "+15m",
+      "one format: Trends writes the bank as +15m, as Overview does, not +0h 15m", JSON.stringify(trends));
 
     await page.evaluate(() => document.querySelector('.tab-btn[data-tab="team"]').click());
     await page.waitForTimeout(800);
     const team = await page.evaluate(() => {
       const tile = Array.from(document.querySelectorAll("#teamSummary .stat-card"))
-        .find(c => /Avg Hours \/ Day/.test(c.textContent));
+        .find(c => /Avg \/ Day/.test(c.textContent));
       const daysTile = Array.from(document.querySelectorAll("#teamSummary .stat-card"))
         .find(c => /Days Logged/.test(c.textContent));
       const card = document.querySelector("#teamList .team-card");
@@ -404,15 +407,21 @@ function ok(cond, name, detail){
         daysTile: daysTile ? daysTile.querySelector(".stat-value").textContent : null,
         rowDays: card ? card.querySelector(".f-days .value").textContent : null,
         rowCount: card ? card.querySelector(".team-daycount").textContent : null,
+        rowDiff: card ? card.querySelector(".f-diff .value").textContent : null,
+        rowAvgLabel: card ? card.querySelector(".f-avg .label").textContent : null,
+        tileLabel: tile ? tile.querySelector(".stat-label").textContent : null,
         rows: document.getElementById("teamList").textContent
       };
     });
-    ok(team.tileValue === "8h 4m", "half day: Team's Avg Hours / Day tile is 8h 4m", JSON.stringify(team.tileValue));
+    ok(team.tileValue === "8h 4m", "half day: Team's Avg / Day tile is 8h 4m", JSON.stringify(team.tileValue));
     ok(team.tileDetail === "Of 8h target", "half day: Team's tile measures against 8h", JSON.stringify(team.tileDetail));
     ok(/8h 4m\s*\/day/.test(team.rows) && !/7h 4m/.test(team.rows),
       "half day: the person's Team row reads 8h 4m a day", team.rows.slice(0, 300));
     ok(team.daysTile === "3.5" && team.rowDays === "3.5" && team.rowCount === "3.5 days",
       "half day: Team's Days Logged tile and the person's row count 3.5 days", JSON.stringify(team));
+    ok(team.rowDiff === "+15m", "one format: Team writes the bank as +15m", JSON.stringify(team.rowDiff));
+    ok(team.tileLabel === "Avg / Day" && team.rowAvgLabel === "Avg / Day",
+      "one name: Team calls the average Avg / Day, tile and row", JSON.stringify(team));
 
     const sheet = await page.evaluate(() => {
       window.dispatchEvent(new Event("beforeprint"));
@@ -421,9 +430,9 @@ function ok(cond, name, detail){
           .find(d => d.querySelector(".k") && d.querySelector(".k").textContent === label);
         return row ? row.querySelector(".v").textContent : null;
       };
-      return {avg: v("Average / Day"), days: v("Days Logged")};
+      return {avg: v("Avg / Day"), days: v("Days Logged")};
     });
-    ok(sheet.avg === "8h 4m", "half day: the printed report's Average / Day is 8h 4m", JSON.stringify(sheet));
+    ok(sheet.avg === "8h 4m", "half day: the printed report's Avg / Day is 8h 4m", JSON.stringify(sheet));
     ok(sheet.days === "3.5", "half day: the printed report counts 3.5 days", JSON.stringify(sheet));
 
     const cal = await page.evaluate(async () => {
@@ -433,6 +442,27 @@ function ok(cond, name, detail){
       return document.getElementById("calSummary").textContent;
     });
     ok(/^3\.5 workdays logged/.test(cal), "half day: the Calendar's month line counts 3.5 workdays", cal);
+
+    const named = await page.evaluate(async () => {
+      document.querySelector('.tab-btn[data-tab="log"]').click();
+      await new Promise(r => setTimeout(r, 400));
+      const pill = id => {
+        const btn = document.querySelector('#logBody button[data-edit="' + id + '"]');
+        const td = btn && btn.closest("tr").querySelector("td.c-status");
+        return td ? td.textContent.replace("Status", "").trim() : null;
+      };
+      return {
+        over: pill("h1"), under: pill("h3"),
+        overviewLabel: document.getElementById("monthAvg").closest(".stat-card").querySelector(".stat-label").textContent.trim(),
+        legends: Array.from(document.querySelectorAll(".swatch.line")).map(s => s.parentElement.textContent.trim()),
+        headers: Array.from(document.querySelectorAll("th")).map(th => th.textContent.trim()).filter(t => /avg/i.test(t))
+      };
+    });
+    ok(named.over === "+30m" && named.under === "-15m",
+      "one format: the Log's day pills read +30m and -15m", JSON.stringify(named));
+    ok(named.overviewLabel === "Avg / Day" && named.legends.every(t => t === "Avg / Day") &&
+       named.headers.length >= 2 && named.headers.every(t => t === "Avg / Day"),
+      "one name: Overview, the chart legends and the table headers all say Avg / Day", JSON.stringify(named));
     ok(errors.length === 0, "half day: no script errors", errors.join(" | "));
     await ctx.close();
   }
@@ -456,7 +486,7 @@ function ok(cond, name, detail){
       detail: document.getElementById("monthAvgDetail").textContent,
       bank: document.getElementById("otBank").textContent
     }));
-    ok(ov.avg === "8h" && ov.bank === "+0h" && ov.detail === "Target 8h · 2 days · 1 not logged",
+    ok(ov.avg === "8h" && ov.bank === "+0h" && ov.detail === "Target 8h · 2 workdays · 1 not logged",
       "gaps: Overview's average says a workday went unlogged (Mon 17)", JSON.stringify(ov));
 
     const names = await page.evaluate(async () => {

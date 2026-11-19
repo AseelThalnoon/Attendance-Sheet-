@@ -4419,13 +4419,6 @@ import { makeSchedule } from "./src/schedule.js";
     return fmtDayCount(n) + " " + noun + (n === 1 ? "" : "s");
   }
 
-  // The stat tiles' signed figure: "+34m", not "+0h 34m". Zero stays "+0h",
-  // the same zero the tiles show when nothing is logged.
-  function signedShort(mins){
-    if(mins === null || isNaN(mins) || Math.round(mins) === 0) return signed(mins);
-    return (mins > 0 ? "+" : "") + minutesOnlyStr(mins);
-  }
-
   // A .stat-segs run under one of the four figures: one pill per state
   // ("on", "over", "under", or "" for an empty one). Nothing to show is one
   // empty track, so the card keeps its bar rather than losing its bottom edge.
@@ -4546,7 +4539,7 @@ import { makeSchedule } from "./src/schedule.js";
     // The target leads the line because it is what the bar under it is
     // measured against; the day count says how much the average rests on.
     document.getElementById("monthAvgDetail").textContent = (ms.loggedDays
-      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + dayCountLabel(ms.dayWeight)
+      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + dayCountLabel(ms.dayWeight, "workday")
       : "No workdays logged yet this month") +
       (notLogged ? " · " + notLogged + " not logged" : "") +
       (ms.incompleteDays ? " · " + ms.incompleteDays + " incomplete" : "");
@@ -4562,7 +4555,7 @@ import { makeSchedule } from "./src/schedule.js";
       : "No workdays logged yet this month");
 
     var otEl = document.getElementById("otBank");
-    otEl.textContent = signedShort(ms.diffSum);
+    otEl.textContent = signed(ms.diffSum);
     otEl.className = "stat-value " + (ms.diffSum > 0 ? "positive" : (ms.diffSum < 0 ? "negative" : ""));
     document.getElementById("otBankDetail").textContent =
       new Date().toLocaleDateString(undefined, {month:"long"}) + " vs. target";
@@ -6289,7 +6282,7 @@ import { makeSchedule } from "./src/schedule.js";
       '<div class="p-summary">' +
         '<div><span class="k">Days Logged</span><span class="v">'+fmtDayCount(s.dayWeight)+'</span></div>' +
         '<div><span class="k">Total Hours</span><span class="v">'+minutesToHoursStr(s.workedSum)+'</span></div>' +
-        '<div><span class="k">Average / Day</span><span class="v">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</span></div>' +
+        '<div><span class="k">Avg / Day</span><span class="v">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</span></div>' +
         '<div><span class="k">Target Hours</span><span class="v">'+minutesToHoursStr(s.targetSum)+'</span></div>' +
         '<div><span class="k">Overtime / Under</span><span class="v">'+signed(s.diffSum)+'</span></div>' +
       '</div>';
@@ -11572,7 +11565,9 @@ import { makeSchedule } from "./src/schedule.js";
       // against each other: this is the line every name in the roster is
       // above or below. A total could not be — it grows with the size of the
       // team and with how far into the month it is, so it says nothing a
-      // person's own row can be compared to.
+      // person's own row can be compared to. Named "Avg / Day" like the rows
+      // under it and every other screen: it was "Avg Hours / Day", one of four
+      // spellings of the one figure (with "Avg/Day" and "Average / Day").
       //
       // Keeps the ledger circle rather than taking Overview's calendar, which
       // is what Overview marks its own Avg / Day with: in THIS row the
@@ -11581,7 +11576,7 @@ import { makeSchedule } from "./src/schedule.js";
       // days, which is the distinction that matters here.
       {
         icon:'<circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/>',
-        label:"Avg Hours / Day",
+        label:"Avg / Day",
         value: totals.weight ? minutesToHoursStr(Math.round(totals.worked / totals.weight)) : "—",
         detail: totals.weight
           ? "Of " + minutesToHoursStr(Math.round(totals.target / totals.weight)) + " target"
@@ -11731,7 +11726,7 @@ import { makeSchedule } from "./src/schedule.js";
         // wrong ones the day a figure is added.
         '<div class="team-card-figures">'+
           '<div class="f-days"><div class="label">Days</div><div class="value">'+fmtDayCount(s.dayWeight)+'</div></div>'+
-          '<div class="f-avg"><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
+          '<div class="f-avg"><div class="label">Avg / Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div class="f-diff"><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
           '<div class="f-pct"><div class="label">Target Hours Met</div><div class="value">'+
             (s.targetSum ? Math.floor((s.workedSum/s.targetSum)*100)+"%" : "—")+'</div></div>'+
