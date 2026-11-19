@@ -16,8 +16,12 @@ const stubs = `
 var isOwnData = true, editingId = null, dismissedReminders = {};
 var currentUser = { id: "u1" };
 var viewedUserId = "u1";
-var settings = { periods: [], standardOut: "16:00" };
-function scheduleFor(){ return { standardOut: settings.standardOut }; }
+var settings = { periods: [], standardOut: "16:00", targetMin: 480 };
+function scheduleFor(){ return { standardOut: settings.standardOut, targetMin: settings.targetMin }; }
+// quickClockOutTime() (extracted below) needs these to time a half day.
+var HALF_TYPES = ["halfleave"];
+function pad2(n){ return String(n).padStart(2, "0"); }
+function timeToMinutes(t){ var p = String(t).split(":"); return (+p[0]) * 60 + (+p[1]); }
 function formatTime12(t){ return t; }
 function fmtDate(d){ return d; }
 function friendlyError(e){ return (e && e.message) || String(e); }
@@ -50,6 +54,7 @@ const html = `<!doctype html><meta charset="utf-8"><title>push actions harness</
 <script>
 ${stubs}
 var entries = [];
+${slice("function quickClockOutTime(e){", "function openShiftCount(){")}
 ${slice("async function quickClockOut(entry, btn){", "// ---------- Log ----------")}
 ${slice("function consumeShortcutAction(){", "var CLOCK_IN_PATH")}
 window.consumeShortcutAction = consumeShortcutAction;
@@ -59,5 +64,6 @@ window.setEntries = function(list){ entries.length = 0; list.forEach(function(e)
 
 fs.writeFileSync(OUT, html);
 if(!/async function quickClockOut/.test(html)) throw new Error("harness is missing quickClockOut");
+if(!/function quickClockOutTime/.test(html)) throw new Error("harness is missing quickClockOutTime");
 if(!/function consumeShortcutAction/.test(html)) throw new Error("harness is missing consumeShortcutAction");
 module.exports = { OUT };

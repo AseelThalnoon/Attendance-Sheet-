@@ -163,6 +163,35 @@ export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
   updateUser:async()=>({data:{user:{id:UID,email:"gaps@example.com"}},error:null}),
   getSession:async()=>({data:{session:null},error:null})}};}`;
 
+// One open half-day shift, for the clock-out reminder (Sun-Thu, 08:00-16:00,
+// so a half day owes 4h). Built per case: today's shift, or yesterday's.
+const STUB_HALF_OPEN = (entry) => `
+const UID="88888888-8888-8888-8888-888888888888";
+const ENTRIES=[Object.assign({id:"o1",user_id:UID,type:"halfleave",clock_out:null,note:""}, ${JSON.stringify(entry)})];
+const PROFILE={id:UID,email:"open@example.com",full_name:"Open Half",role:"admin"};
+const SETTINGS={workDays:[0,1,2,3,4],standardIn:"08:00",standardOut:"16:00",targetMin:480};
+function result(t,k){
+  if(t==="entries") return {data:ENTRIES,error:null};
+  if(t==="profiles") return k==="single"?{data:PROFILE,error:null}:{data:[PROFILE],error:null};
+  if(t==="user_settings") return k==="single"?{data:{settings:SETTINGS},error:null}:{data:[{user_id:UID,settings:SETTINGS}],error:null};
+  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:false,announcement:""},error:null};
+  return {data:[],error:null};}
+function builder(t){let k="list";
+  const proxy=new Proxy(function(){},{get(_,p){
+    if(p==="then") return (r,j)=>Promise.resolve(result(t,k)).then(r,j);
+    if(p==="catch") return f=>Promise.resolve(result(t,k)).catch(f);
+    if(p==="finally") return f=>Promise.resolve(result(t,k)).finally(f);
+    if(p==="single"||p==="maybeSingle") return ()=>{k="single";return proxy;};
+    return ()=>proxy;}});
+  return proxy;}
+export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
+  auth:{onAuthStateChange:(cb)=>{setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"open@example.com"}}),0);
+    return{data:{subscription:{unsubscribe(){}}}};},
+  signInWithPassword:async()=>({data:{},error:null}),signUp:async()=>({data:{},error:null}),
+  signOut:async()=>({error:null}),resetPasswordForEmail:async()=>({data:{},error:null}),
+  updateUser:async()=>({data:{user:{id:UID,email:"open@example.com"}},error:null}),
+  getSession:async()=>({data:{session:null},error:null})}};}`;
+
 // Two entries in the same year, one inside a 5h seasonal period (January),
 // one at the base 8h target (June) — so the Yearly chart's dashed target
 // reference has to actually change height across the year, not draw one
@@ -489,6 +518,47 @@ function ok(cond, name, detail){
       "gaps: the Log says Not counted for those two days, On target for a counted one", JSON.stringify(log));
     ok(errors.length === 0, "gaps: no script errors", errors.join(" | "));
     await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- a half day's clock-out reminder
+  // A half-day leave owes 4 of the 8 hours, and Overview says "Leave at" four
+  // hours after clock-in. The reminder used the full day's 8h 30m, and its
+  // one-tap Clock Out wrote the 4 PM standard end -- a full day on a half day.
+  {
+    const reminderAt = async (entry, when) => {
+      const ctx = await browser.newContext({viewport: {width: 1440, height: 900}});
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on("pageerror", e => errors.push(e.message));
+      await page.clock.setFixedTime(when);
+      await page.route("**/vendor/supabase-js.min.js",
+        r => r.fulfill({status: 200, contentType: "text/javascript", body: STUB_HALF_OPEN(entry)}));
+      await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+      await page.waitForTimeout(1200);
+      const r = await page.evaluate(() => {
+        const btn = document.querySelector("#reminderActions button");
+        return {
+          shown: document.getElementById("reminderBanner").classList.contains("show"),
+          title: document.getElementById("reminderTitle").textContent,
+          button: btn ? btn.textContent : null,
+          leaveAt: (document.getElementById("todayLineValue") || {}).textContent || null
+        };
+      });
+      await ctx.close();
+      return Object.assign(r, {errors});
+    };
+    const today = {date: "2026-08-20", clock_in: "08:00"};
+    const before = await reminderAt(today, new Date(2026, 7, 20, 12, 29, 0));
+    ok(!before.shown && before.leaveAt === "12:00 PM",
+      "half day: Leave at 12:00 PM, and no reminder at 12:29", JSON.stringify(before));
+    const after = await reminderAt(today, new Date(2026, 7, 20, 12, 31, 0));
+    ok(after.shown && after.title === "Still clocked in",
+      "half day: reminded 30 minutes after its 4 hours, not its 8", JSON.stringify(after));
+    const past = await reminderAt({date: "2026-08-19", clock_in: "07:44"}, new Date(2026, 7, 20, 10, 0, 0));
+    ok(past.shown && /never clocked out/.test(past.title) && past.button === "Clock Out at 11:44 AM",
+      "half day left open yesterday: one tap clocks out when its 4 hours were done, not at 4 PM", JSON.stringify(past));
+    ok(before.errors.length + after.errors.length + past.errors.length === 0, "half-day reminder: no script errors",
+      before.errors.concat(after.errors, past.errors).join(" | "));
   }
 
   // ---------------------------------------------------------------- chart target steps

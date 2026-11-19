@@ -4903,8 +4903,25 @@ import { makeSchedule } from "./src/schedule.js";
   // Minutes after clock-in at which an open shift counts as a forgotten
   // clock-out: the day's hours, plus the same 30 minutes the clock-in
   // reminder waits after the start time. Same moment the server's push uses.
-  function clockOutDueAfterMin(date){
-    return scheduleFor(date).targetMin + REMINDER_GRACE_MIN;
+  // The day's own hours: half of them on a half-day leave, the way
+  // computeEntry() and Overview's "Leave at" count them. This used the full
+  // day's, so a half day's reminder and badge came at 8h 30m after clock-in,
+  // four hours after "Leave at" (2026-11-19). check-clockout-reminders does
+  // the same for the push.
+  function clockOutDueAfterMin(e){
+    var t = scheduleFor(e.date).targetMin;
+    return (HALF_TYPES.indexOf(e.type) !== -1 ? Math.round(t / 2) : t) + REMINDER_GRACE_MIN;
+  }
+  // What a one-tap Clock Out writes, and the time its button names: the
+  // day's standard end -- or on a half-day leave the moment its half day's
+  // hours were done (clock-in + half the target, Overview's "Leave at"). The
+  // standard end on a half day recorded a full day: about four hours of
+  // overtime that never happened. Mirrored in check-clockout-reminders.
+  function quickClockOutTime(e){
+    var sched = scheduleFor(e.date);
+    if(HALF_TYPES.indexOf(e.type) === -1 || !e.clockIn) return sched.standardOut;
+    var m = (timeToMinutes(e.clockIn) + Math.round(sched.targetMin / 2)) % (24*60);
+    return pad2(Math.floor(m / 60)) + ":" + pad2(m % 60);
   }
   function openShiftCount(){
     var today = todayStr();
@@ -4912,7 +4929,7 @@ import { makeSchedule } from "./src/schedule.js";
     return entries.filter(function(e){
       if(!e.clockIn || e.clockOut || EXCUSED_TYPES.indexOf(e.type) !== -1) return false;
       if(e.date < today) return true;
-      if(e.date === today) return (nowMin - timeToMinutes(e.clockIn)) >= clockOutDueAfterMin(e.date);
+      if(e.date === today) return (nowMin - timeToMinutes(e.clockIn)) >= clockOutDueAfterMin(e);
       return false;
     }).length;
   }
@@ -4945,7 +4962,7 @@ import { makeSchedule } from "./src/schedule.js";
       if(e.date < today){ target = e; isPast = true; break; }
       if(e.date === today){
         var elapsed = nowMin - timeToMinutes(e.clockIn);
-        if(elapsed >= clockOutDueAfterMin(e.date)){ target = e; isPast = false; break; }
+        if(elapsed >= clockOutDueAfterMin(e)){ target = e; isPast = false; break; }
       }
     }
 
@@ -4984,7 +5001,7 @@ import { makeSchedule } from "./src/schedule.js";
       // the days the standard time is wrong.
       var quickOutBtn = document.createElement("button");
       quickOutBtn.className = "btn small";
-      quickOutBtn.textContent = "Clock Out at " + formatTime12(scheduleFor(target.date).standardOut);
+      quickOutBtn.textContent = "Clock Out at " + formatTime12(quickClockOutTime(target));
       quickOutBtn.addEventListener("click", function(){ quickClockOut(target, quickOutBtn); });
       actions.appendChild(quickOutBtn);
     }
@@ -5022,7 +5039,7 @@ import { makeSchedule } from "./src/schedule.js";
       var payload = {
         date: entry.date,
         clockIn: entry.clockIn,
-        clockOut: scheduleFor(entry.date).standardOut,
+        clockOut: quickClockOutTime(entry),
         type: entry.type || "regular",
         note: entry.note || ""
       };

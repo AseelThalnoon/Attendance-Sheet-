@@ -63,6 +63,36 @@ const titles = (res) => res.notifications.map(n => n.title);
 }
 
 {
+  // A half-day leave owes half the day: 4 of the 8 hours. The reminder comes
+  // 30 minutes after those 4, not after 8, and its Clock Out writes the
+  // moment they were done (Overview's "Leave at"), not the 4 PM end -- which
+  // recorded a full day on a half day (2026-11-19).
+  const open = [shift("2026-11-09", "08:00", { type: "halfleave" })];
+  eq(titles(dueReminders(open, mine(), {}, [], at("2026-11-09", "12:29"))), [],
+    "half day: nothing before its 4 hours plus 30 minutes");
+  const r = dueReminders(open, mine(), {}, [], at("2026-11-09", "12:30"));
+  eq(titles(r), ["Still clocked in"], "half day: reminded 30 minutes after its 4 hours, not its 8");
+  eq(r.notifications[0] && r.notifications[0].action_payload,
+    { date: "2026-11-09", standard_out: "12:00", label: "Clock Out at 12:00 PM" },
+    "half day: the Clock Out action writes when the half day's hours were done");
+
+  const past = [shift("2026-11-08", "07:44", { type: "halfleave" })];
+  const p = dueReminders(past, mine(), {}, [sent("2026-11-08", "2026-11-08")], at("2026-11-09", "08:00"));
+  eq(p.notifications.length && p.notifications[0].action_payload.standard_out, "11:44",
+    "half day left open on an earlier day: the action writes clock-in plus 4 hours");
+
+  // A full day is untouched: still 8 hours, still the standard end.
+  const full = dueReminders([shift("2026-11-09", "08:00")], mine(), {}, [], at("2026-11-09", "12:30"));
+  eq(titles(full), [], "a full day is not reminded at a half day's time");
+
+  // Ramadan's 6h halves to 3h, and the period's end time does not apply.
+  const ramadan = { periods: [{ start: "2026-11-01", end: "2026-11-30", targetMin: 360, standardIn: "10:00", standardOut: "16:00" }] };
+  const rm = dueReminders([shift("2026-11-09", "10:00", { type: "halfleave" })], mine(ramadan), {}, [], at("2026-11-09", "13:30"));
+  eq(rm.notifications.length && rm.notifications[0].action_payload.standard_out, "13:00",
+    "half day in a seasonal period: half of the period's 6 hours");
+}
+
+{
   const open = [shift("2026-11-08", "08:00")];
   const sameDay = [sent("2026-11-08", "2026-11-08")];
   eq(titles(dueReminders(open, mine(), {}, sameDay, at("2026-11-09", "00:00"))), [],
