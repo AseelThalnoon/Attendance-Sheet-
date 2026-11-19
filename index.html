@@ -8354,7 +8354,10 @@
       </section>
       <div class="stats-row punct-stats">
         <div class="stat-card">
-          <p class="stat-label">Target Hours Met</p>
+          <!-- Not "Target Hours Met": that is Team's figure, over logged days
+               only. This one counts a workday with no entry as a full day
+               short, so the two could disagree under one name. -->
+          <p class="stat-label">Workday Hours Met</p>
           <p class="stat-value" id="pMetRate">—</p>
           <p class="stat-detail" id="pMetRateDetail">—</p>
         </div>

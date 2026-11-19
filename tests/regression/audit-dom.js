@@ -125,6 +125,44 @@ export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
   updateUser:async()=>({data:{user:{id:UID,email:"half@example.com"}},error:null}),
   getSession:async()=>({data:{session:null},error:null})}};}`;
 
+// A week with a gap and two days whose hours do not count, on a clock pinned
+// to Thursday 20 August 2026 (Sun-Thu, 08:00-16:00):
+//   Fri 14  09:00-12:00  3h on a day off       -- not counted
+//   Sun 16  08:00-16:00  8h of 8h
+//   Mon 17  (no entry)                         -- not logged
+//   Tue 18  08:00-16:00  8h remote (wfh)       -- not counted
+//   Wed 19  08:00-16:00  8h of 8h
+const STUB_GAPS = `
+const UID="77777777-7777-7777-7777-777777777777";
+const ENTRIES=[
+  {id:"g0",user_id:UID,date:"2026-08-14",clock_in:"09:00",clock_out:"12:00",type:"regular",note:""},
+  {id:"g1",user_id:UID,date:"2026-08-16",clock_in:"08:00",clock_out:"16:00",type:"regular",note:""},
+  {id:"g3",user_id:UID,date:"2026-08-18",clock_in:"08:00",clock_out:"16:00",type:"wfh",note:""},
+  {id:"g4",user_id:UID,date:"2026-08-19",clock_in:"08:00",clock_out:"16:00",type:"regular",note:""}];
+const PROFILE={id:UID,email:"gaps@example.com",full_name:"Gap Week",role:"admin"};
+const SETTINGS={workDays:[0,1,2,3,4],standardIn:"08:00",standardOut:"16:00",targetMin:480};
+function result(t,k){
+  if(t==="entries") return {data:ENTRIES,error:null};
+  if(t==="profiles") return k==="single"?{data:PROFILE,error:null}:{data:[PROFILE],error:null};
+  if(t==="user_settings") return k==="single"?{data:{settings:SETTINGS},error:null}:{data:[{user_id:UID,settings:SETTINGS}],error:null};
+  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:false,announcement:""},error:null};
+  return {data:[],error:null};}
+function builder(t){let k="list";
+  const proxy=new Proxy(function(){},{get(_,p){
+    if(p==="then") return (r,j)=>Promise.resolve(result(t,k)).then(r,j);
+    if(p==="catch") return f=>Promise.resolve(result(t,k)).catch(f);
+    if(p==="finally") return f=>Promise.resolve(result(t,k)).finally(f);
+    if(p==="single"||p==="maybeSingle") return ()=>{k="single";return proxy;};
+    return ()=>proxy;}});
+  return proxy;}
+export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
+  auth:{onAuthStateChange:(cb)=>{setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"gaps@example.com"}}),0);
+    return{data:{subscription:{unsubscribe(){}}}};},
+  signInWithPassword:async()=>({data:{},error:null}),signUp:async()=>({data:{},error:null}),
+  signOut:async()=>({error:null}),resetPasswordForEmail:async()=>({data:{},error:null}),
+  updateUser:async()=>({data:{user:{id:UID,email:"gaps@example.com"}},error:null}),
+  getSession:async()=>({data:{session:null},error:null})}};}`;
+
 // Two entries in the same year, one inside a 5h seasonal period (January),
 // one at the base 8h target (June) — so the Yearly chart's dashed target
 // reference has to actually change height across the year, not draw one
@@ -367,6 +405,50 @@ function ok(cond, name, detail){
     });
     ok(/^3\.5 workdays logged/.test(cal), "half day: the Calendar's month line counts 3.5 workdays", cal);
     ok(errors.length === 0, "half day: no script errors", errors.join(" | "));
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- days the figures leave out
+  // A workday with no entry, and hours that do not count, must be said where
+  // the figures that leave them out are shown -- not only on Shortfall.
+  {
+    const ctx = await browser.newContext({viewport: {width: 1440, height: 900}});
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", e => errors.push(e.message));
+    await page.clock.setFixedTime(new Date(2026, 7, 20, 10, 0, 0));
+    await page.route("**/vendor/supabase-js.min.js",
+      r => r.fulfill({status: 200, contentType: "text/javascript", body: STUB_GAPS}));
+    await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+    await page.waitForTimeout(1200);
+
+    const ov = await page.evaluate(() => ({
+      avg: document.getElementById("monthAvg").textContent,
+      detail: document.getElementById("monthAvgDetail").textContent,
+      bank: document.getElementById("otBank").textContent
+    }));
+    ok(ov.avg === "8h" && ov.bank === "+0h" && ov.detail === "Target 8h · 2 days · 1 not logged",
+      "gaps: Overview's average says a workday went unlogged (Mon 17)", JSON.stringify(ov));
+
+    const names = await page.evaluate(async () => {
+      document.querySelector('.tab-btn[data-tab="trends"]').click();
+      document.querySelector('.sub-tab-btn[data-subtab="shortfall"]').click();
+      await new Promise(r => setTimeout(r, 300));
+      const shortfall = document.getElementById("pMetRate").closest(".stat-card").querySelector(".stat-label").textContent;
+      const rate = document.getElementById("pMetRate").textContent;
+      document.querySelector('.tab-btn[data-tab="team"]').click();
+      await new Promise(r => setTimeout(r, 800));
+      const tile = Array.from(document.querySelectorAll("#teamSummary .stat-card"))
+        .find(c => /Hours Met/.test(c.textContent));
+      return {shortfall, rate,
+        team: tile ? tile.querySelector(".stat-label").textContent : null,
+        teamRate: tile ? tile.querySelector(".stat-value").textContent : null};
+    });
+    ok(names.rate === "66%" && names.teamRate === "100%",
+      "gaps: Shortfall counts the unlogged day as short (66%), Team does not (100%)", JSON.stringify(names));
+    ok(names.shortfall === "Workday Hours Met" && names.team === "Target Hours Met",
+      "gaps: so the two figures carry different names", JSON.stringify(names));
+    ok(errors.length === 0, "gaps: no script errors", errors.join(" | "));
     await ctx.close();
   }
 

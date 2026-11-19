@@ -4535,11 +4535,20 @@ import { makeSchedule } from "./src/schedule.js";
     // Floored, not rounded — see the note by pMetRate: 99.6% rounding up to
     // "100%" would claim the target was fully met when it's still short.
     var progressPct = ms.loggedDays ? Math.max(0, Math.min(100, Math.floor((ms.avgMin / targetPerDay) * 100))) : 0;
+    // Workdays this month with no entry at all, through yesterday and not
+    // before the first day ever logged: the days Shortfall counts as a full
+    // day short and the Calendar marks "Not logged". The average and the
+    // bank count logged days only (a decision, see unloggedWorkdays), so the
+    // line says how many there are instead of letting them vanish -- with 12
+    // of them, Overview read on target while Shortfall read ~96h short
+    // (owner, 2026-11-19).
+    var notLogged = unloggedWorkdays(mk + "-01", "").length;
     // The target leads the line because it is what the bar under it is
     // measured against; the day count says how much the average rests on.
     document.getElementById("monthAvgDetail").textContent = (ms.loggedDays
       ? "Target " + minutesToHoursStr(targetPerDay) + " · " + dayCountLabel(ms.dayWeight)
       : "No workdays logged yet this month") +
+      (notLogged ? " · " + notLogged + " not logged" : "") +
       (ms.incompleteDays ? " · " + ms.incompleteDays + " incomplete" : "");
     var progressFill = document.getElementById("heroProgressFill");
     progressFill.style.transform = "scaleX(" + (progressPct / 100) + ")";
@@ -11521,12 +11530,13 @@ import { makeSchedule } from "./src/schedule.js";
           ? "Of " + minutesToHoursStr(Math.round(totals.target / totals.weight)) + " target"
           : "Nobody logged time yet"
       },
-      // Same accomplishment reading as the Shortfall tab's Target Hours Met:
-      // share of target HOURS worked, not a day-count rate. Floored, not
-      // rounded — see the note by pMetRate above for why. Both carry the same
-      // label, because they are the same figure over different populations —
-      // "Target Met Rate" read as "how often the target was met", which is a
-      // count of days and a different number entirely.
+      // Share of target HOURS worked over the days people logged, not a
+      // day-count rate ("Target Met Rate" read as how often the target was
+      // met, a different number entirely). Floored, not rounded — see the
+      // note by pMetRate above for why. Shortfall's figure was also called
+      // Target Hours Met, but it counts a workday with no entry as a full day
+      // short, so for the same person and month the two could read 100% and
+      // 85% under one name. It is "Workday Hours Met" there now (2026-11-19).
       {
         icon:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.3"/><circle cx="12" cy="12" r=".8" fill="currentColor"/>',
         // Not "Team-wide": targetSum only accumulates over people who logged
