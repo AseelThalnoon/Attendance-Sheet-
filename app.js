@@ -4419,13 +4419,6 @@ import { makeSchedule } from "./src/schedule.js";
     return fmtDayCount(n) + " " + noun + (n === 1 ? "" : "s");
   }
 
-  // The stat tiles' signed figure: "+34m", not "+0h 34m". Zero stays "+0h",
-  // the same zero the tiles show when nothing is logged.
-  function signedShort(mins){
-    if(mins === null || isNaN(mins) || Math.round(mins) === 0) return signed(mins);
-    return (mins > 0 ? "+" : "") + minutesOnlyStr(mins);
-  }
-
   // A .stat-segs run under one of the four figures: one pill per state
   // ("on", "over", "under", or "" for an empty one). Nothing to show is one
   // empty track, so the card keeps its bar rather than losing its bottom edge.
@@ -4517,6 +4510,19 @@ import { makeSchedule } from "./src/schedule.js";
     if(active) applyFilterBarVisibility(active.id.replace(/^tab-/, ""), activeSubtab());
   }
 
+  // Whether a day keeps the streak going: hours were worked on it -- or it
+  // is a remote, trip or training day, a working day whether or not clock
+  // times were kept. Logged without times those compute as 0h worked, and
+  // read as a day not worked: one remote day with no punches reset the
+  // streak (owner, 2026-11-19). Leave, sick days and holidays still break it,
+  // and so does a day left without a clock-out.
+  function countsForStreak(rec){
+    if(!rec) return false;
+    if(!rec.clockIn && NO_TARGET_TYPES.indexOf(rec.type) !== -1) return true;
+    var c = computeEntry(rec);
+    return !!(c.workedMin && c.workedMin > 0);
+  }
+
   function renderStats(){
     var today = todayStr();
     var mk = monthKey(today);
@@ -4546,7 +4552,7 @@ import { makeSchedule } from "./src/schedule.js";
     // The target leads the line because it is what the bar under it is
     // measured against; the day count says how much the average rests on.
     document.getElementById("monthAvgDetail").textContent = (ms.loggedDays
-      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + dayCountLabel(ms.dayWeight)
+      ? "Target " + minutesToHoursStr(targetPerDay) + " · " + dayCountLabel(ms.dayWeight, "workday")
       : "No workdays logged yet this month") +
       (notLogged ? " · " + notLogged + " not logged" : "") +
       (ms.incompleteDays ? " · " + ms.incompleteDays + " incomplete" : "");
@@ -4562,7 +4568,7 @@ import { makeSchedule } from "./src/schedule.js";
       : "No workdays logged yet this month");
 
     var otEl = document.getElementById("otBank");
-    otEl.textContent = signedShort(ms.diffSum);
+    otEl.textContent = signed(ms.diffSum);
     otEl.className = "stat-value " + (ms.diffSum > 0 ? "positive" : (ms.diffSum < 0 ? "negative" : ""));
     document.getElementById("otBankDetail").textContent =
       new Date().toLocaleDateString(undefined, {month:"long"}) + " vs. target";
@@ -4600,16 +4606,14 @@ import { makeSchedule } from "./src/schedule.js";
     // precisely when the user opened the app to start work.
     var streak = 0, cursor = new Date(), scanned = 0;
     var todayRec = entries.find(function(e){ return e.date === todayStr(); });
-    var todayComplete = !!(todayRec && computeEntry(todayRec).workedMin > 0);
+    var todayComplete = countsForStreak(todayRec);
     if(!todayComplete) cursor.setDate(cursor.getDate()-1);
     while(scanned < 400){
       scanned++;
       var dStr = dateToStr(cursor);
       if(settings.workDays.indexOf(cursor.getDay()) !== -1){
         var rec = entries.find(function(e){ return e.date === dStr; });
-        if(!rec) break;
-        var c = computeEntry(rec);
-        if(c.workedMin && c.workedMin > 0) streak++;
+        if(countsForStreak(rec)) streak++;
         else break;
       }
       cursor.setDate(cursor.getDate()-1);
@@ -4629,7 +4633,7 @@ import { makeSchedule } from "./src/schedule.js";
       if(settings.workDays.indexOf(day.getDay()) !== -1){
         var dayStr = dateToStr(day);
         var dayRec = entries.find(function(e){ return e.date === dayStr; });
-        var dayWorked = !!dayRec && computeEntry(dayRec).workedMin > 0;
+        var dayWorked = countsForStreak(dayRec);
         if(dayWorked) workedRecent++;
         recent.unshift(dayWorked ? "on" : "");
       }
@@ -4673,7 +4677,12 @@ import { makeSchedule } from "./src/schedule.js";
     var sealText;
     if(todayEntry){
       var tc = computeEntry(todayEntry);
-      if(tc.excused){ sealText = typeLabel(todayEntry.type); }
+      // A remote, trip or training day logged without clock times has no
+      // hours to state: it computed as "0h" here, which reads as a day not
+      // worked. Named, as an excused day is.
+      if(tc.excused || (!todayEntry.clockIn && NO_TARGET_TYPES.indexOf(todayEntry.type) !== -1)){
+        sealText = typeLabel(todayEntry.type);
+      }
       // Open first. A running remote/trip/training shift owes no target, so
       // computeEntry reports it as zero hours worked -- and with the figure
       // tested first, the seal said "0h" all day to someone who was clocked in.
@@ -6289,7 +6298,7 @@ import { makeSchedule } from "./src/schedule.js";
       '<div class="p-summary">' +
         '<div><span class="k">Days Logged</span><span class="v">'+fmtDayCount(s.dayWeight)+'</span></div>' +
         '<div><span class="k">Total Hours</span><span class="v">'+minutesToHoursStr(s.workedSum)+'</span></div>' +
-        '<div><span class="k">Average / Day</span><span class="v">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</span></div>' +
+        '<div><span class="k">Avg / Day</span><span class="v">'+(s.loggedDays?minutesToHoursStr(s.avgMin):"—")+'</span></div>' +
         '<div><span class="k">Target Hours</span><span class="v">'+minutesToHoursStr(s.targetSum)+'</span></div>' +
         '<div><span class="k">Overtime / Under</span><span class="v">'+signed(s.diffSum)+'</span></div>' +
       '</div>';
@@ -11359,7 +11368,7 @@ import { makeSchedule } from "./src/schedule.js";
   // an excused day sit above "not logged today" because they are answers --
   // that person is not expected in — while "not logged" is the absence of one,
   // and the only row on this list anybody needs to chase.
-  var TEAM_STATUS_RANK = {in:0, done:1, excused:2, off:3, missing:4};
+  var TEAM_STATUS_RANK = {in:0, done:1, away:1, excused:2, off:3, missing:4};
 
   // What that person is doing today — the question a roster is actually opened
   // to answer, and one the old three-number row could not answer at all.
@@ -11378,6 +11387,12 @@ import { makeSchedule } from "./src/schedule.js";
     if(e && EXCUSED_TYPES.indexOf(e.type) !== -1)
       return {cls:"excused", label:typeLabel(e.type), short:calTypeShort(e.type)};
     if(e && e.clockIn && e.clockOut) return {cls:"done", label:"Done today", short:"Done"};
+    // A remote, trip or training day logged without clock times: accounted
+    // for and working elsewhere. It fell through to "Not logged today".
+    // Not "in" or "done" -- nobody clocked in -- so Overview's In today list
+    // (in/done only) leaves it out, as it leaves out leave.
+    if(e && !e.clockIn && NO_TARGET_TYPES.indexOf(e.type) !== -1)
+      return {cls:"away", label:typeLabel(e.type), short:calTypeShort(e.type)};
     if(!scheduledFor(personSettings, today)) return {cls:"off", label:"Day off", short:"Off"};
     // "Not logged" alone read as a verdict on the whole card — which sits
     // right above real monthly totals ("32h 5m worked · 133% of target"),
@@ -11572,7 +11587,9 @@ import { makeSchedule } from "./src/schedule.js";
       // against each other: this is the line every name in the roster is
       // above or below. A total could not be — it grows with the size of the
       // team and with how far into the month it is, so it says nothing a
-      // person's own row can be compared to.
+      // person's own row can be compared to. Named "Avg / Day" like the rows
+      // under it and every other screen: it was "Avg Hours / Day", one of four
+      // spellings of the one figure (with "Avg/Day" and "Average / Day").
       //
       // Keeps the ledger circle rather than taking Overview's calendar, which
       // is what Overview marks its own Avg / Day with: in THIS row the
@@ -11581,7 +11598,7 @@ import { makeSchedule } from "./src/schedule.js";
       // days, which is the distinction that matters here.
       {
         icon:'<circle cx="12" cy="12" r="8"/><path d="M9 12h6M9 9.5h6M9 14.5h4"/>',
-        label:"Avg Hours / Day",
+        label:"Avg / Day",
         value: totals.weight ? minutesToHoursStr(Math.round(totals.worked / totals.weight)) : "—",
         detail: totals.weight
           ? "Of " + minutesToHoursStr(Math.round(totals.target / totals.weight)) + " target"
@@ -11731,7 +11748,7 @@ import { makeSchedule } from "./src/schedule.js";
         // wrong ones the day a figure is added.
         '<div class="team-card-figures">'+
           '<div class="f-days"><div class="label">Days</div><div class="value">'+fmtDayCount(s.dayWeight)+'</div></div>'+
-          '<div class="f-avg"><div class="label">Avg/Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
+          '<div class="f-avg"><div class="label">Avg / Day</div><div class="value">'+(s.loggedDays ? minutesToHoursStr(s.avgMin) : "—")+'</div></div>'+
           '<div class="f-diff"><div class="label">Diff</div><div class="value'+diffCls+'">'+diffTxt+'</div></div>'+
           '<div class="f-pct"><div class="label">Target Hours Met</div><div class="value">'+
             (s.targetSum ? Math.floor((s.workedSum/s.targetSum)*100)+"%" : "—")+'</div></div>'+

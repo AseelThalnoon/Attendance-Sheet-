@@ -192,6 +192,45 @@ export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
   updateUser:async()=>({data:{user:{id:UID,email:"open@example.com"}},error:null}),
   getSession:async()=>({data:{session:null},error:null})}};}`;
 
+// Working days with no clock times, on a clock pinned to Thursday 20 August
+// 2026 (Sun-Thu, 08:00-16:00):
+//   Sun 16  regular 08:00-16:00
+//   Mon 17  remote, no times
+//   Tue 18  regular 08:00-16:00
+//   Wed 19  business trip, no times
+//   Thu 20  remote, no times  (today)
+const STUB_UNTIMED = `
+const UID="99999999-9999-9999-9999-999999999999";
+const ENTRIES=[
+  {id:"u1",user_id:UID,date:"2026-08-16",clock_in:"08:00",clock_out:"16:00",type:"regular",note:""},
+  {id:"u2",user_id:UID,date:"2026-08-17",clock_in:null,clock_out:null,type:"wfh",note:""},
+  {id:"u3",user_id:UID,date:"2026-08-18",clock_in:"08:00",clock_out:"16:00",type:"regular",note:""},
+  {id:"u4",user_id:UID,date:"2026-08-19",clock_in:null,clock_out:null,type:"trip",note:""},
+  {id:"u5",user_id:UID,date:"2026-08-20",clock_in:null,clock_out:null,type:"wfh",note:""}];
+const PROFILE={id:UID,email:"untimed@example.com",full_name:"Untimed Week",role:"admin"};
+const SETTINGS={workDays:[0,1,2,3,4],standardIn:"08:00",standardOut:"16:00",targetMin:480};
+function result(t,k){
+  if(t==="entries") return {data:ENTRIES,error:null};
+  if(t==="profiles") return k==="single"?{data:PROFILE,error:null}:{data:[PROFILE],error:null};
+  if(t==="user_settings") return k==="single"?{data:{settings:SETTINGS},error:null}:{data:[{user_id:UID,settings:SETTINGS}],error:null};
+  if(t==="app_settings") return {data:{allow_registration:true,announcement_active:false,announcement:""},error:null};
+  return {data:[],error:null};}
+function builder(t){let k="list";
+  const proxy=new Proxy(function(){},{get(_,p){
+    if(p==="then") return (r,j)=>Promise.resolve(result(t,k)).then(r,j);
+    if(p==="catch") return f=>Promise.resolve(result(t,k)).catch(f);
+    if(p==="finally") return f=>Promise.resolve(result(t,k)).finally(f);
+    if(p==="single"||p==="maybeSingle") return ()=>{k="single";return proxy;};
+    return ()=>proxy;}});
+  return proxy;}
+export function createClient(){return{from:builder,rpc:()=>builder("rpc"),
+  auth:{onAuthStateChange:(cb)=>{setTimeout(()=>cb("SIGNED_IN",{user:{id:UID,email:"untimed@example.com"}}),0);
+    return{data:{subscription:{unsubscribe(){}}}};},
+  signInWithPassword:async()=>({data:{},error:null}),signUp:async()=>({data:{},error:null}),
+  signOut:async()=>({error:null}),resetPasswordForEmail:async()=>({data:{},error:null}),
+  updateUser:async()=>({data:{user:{id:UID,email:"untimed@example.com"}},error:null}),
+  getSession:async()=>({data:{session:null},error:null})}};}`;
+
 // Two entries in the same year, one inside a 5h seasonal period (January),
 // one at the base 8h target (June) — so the Yearly chart's dashed target
 // reference has to actually change height across the year, not draw one
@@ -364,7 +403,7 @@ function ok(cond, name, detail){
     }));
     ok(ov.bank === "+15m", "half day: the bank is +15m", JSON.stringify(ov.bank));
     ok(ov.avg === "8h 4m", "half day: Overview's average counts the half day as half (8h 4m, not 7h 4m)", JSON.stringify(ov.avg));
-    ok(/^Target 8h · 3\.5 days$/.test(ov.detail),
+    ok(/^Target 8h · 3\.5 workdays$/.test(ov.detail),
       "half day: the target stays 8h and the four days count as 3.5 (the half day is half)", JSON.stringify(ov));
     ok(ov.met && /^100% of the 8h daily target$/.test(ov.label),
       "half day: a positive bank shows the average bar as met", JSON.stringify(ov));
@@ -372,7 +411,8 @@ function ok(cond, name, detail){
     const trends = await page.evaluate(async () => {
       const col = (id, label) => Array.from(document.querySelectorAll("#" + id + " td[data-label='" + label + "']"))
         .map(td => td.textContent.replace(label, "").trim()).filter(t => t !== "—");
-      const cells = id => ({avg: col(id, "Avg / Day"), days: col(id, "Days"), total: col(id, "Total")});
+      const cells = id => ({avg: col(id, "Avg / Day"), days: col(id, "Days"), total: col(id, "Total"),
+        diff: col(id, "Diff")});
       document.querySelector('.tab-btn[data-tab="trends"]').click();
       document.querySelector('.sub-tab-btn[data-subtab="weekly"]').click();
       await new Promise(r => setTimeout(r, 300));
@@ -389,12 +429,14 @@ function ok(cond, name, detail){
     ok(trends.weekly.days[0] === "3.5" && trends.weekly.total[0] === "28h 15m" &&
        trends.monthly.days[0] === "3.5" && trends.monthly.total[0] === "28h 15m",
       "half day: both Trends tables count the days as 3.5, so Days x Avg / Day is the Total", JSON.stringify(trends));
+    ok(trends.weekly.diff[0] === "+15m" && trends.monthly.diff[0] === "+15m",
+      "one format: Trends writes the bank as +15m, as Overview does, not +0h 15m", JSON.stringify(trends));
 
     await page.evaluate(() => document.querySelector('.tab-btn[data-tab="team"]').click());
     await page.waitForTimeout(800);
     const team = await page.evaluate(() => {
       const tile = Array.from(document.querySelectorAll("#teamSummary .stat-card"))
-        .find(c => /Avg Hours \/ Day/.test(c.textContent));
+        .find(c => /Avg \/ Day/.test(c.textContent));
       const daysTile = Array.from(document.querySelectorAll("#teamSummary .stat-card"))
         .find(c => /Days Logged/.test(c.textContent));
       const card = document.querySelector("#teamList .team-card");
@@ -404,15 +446,21 @@ function ok(cond, name, detail){
         daysTile: daysTile ? daysTile.querySelector(".stat-value").textContent : null,
         rowDays: card ? card.querySelector(".f-days .value").textContent : null,
         rowCount: card ? card.querySelector(".team-daycount").textContent : null,
+        rowDiff: card ? card.querySelector(".f-diff .value").textContent : null,
+        rowAvgLabel: card ? card.querySelector(".f-avg .label").textContent : null,
+        tileLabel: tile ? tile.querySelector(".stat-label").textContent : null,
         rows: document.getElementById("teamList").textContent
       };
     });
-    ok(team.tileValue === "8h 4m", "half day: Team's Avg Hours / Day tile is 8h 4m", JSON.stringify(team.tileValue));
+    ok(team.tileValue === "8h 4m", "half day: Team's Avg / Day tile is 8h 4m", JSON.stringify(team.tileValue));
     ok(team.tileDetail === "Of 8h target", "half day: Team's tile measures against 8h", JSON.stringify(team.tileDetail));
     ok(/8h 4m\s*\/day/.test(team.rows) && !/7h 4m/.test(team.rows),
       "half day: the person's Team row reads 8h 4m a day", team.rows.slice(0, 300));
     ok(team.daysTile === "3.5" && team.rowDays === "3.5" && team.rowCount === "3.5 days",
       "half day: Team's Days Logged tile and the person's row count 3.5 days", JSON.stringify(team));
+    ok(team.rowDiff === "+15m", "one format: Team writes the bank as +15m", JSON.stringify(team.rowDiff));
+    ok(team.tileLabel === "Avg / Day" && team.rowAvgLabel === "Avg / Day",
+      "one name: Team calls the average Avg / Day, tile and row", JSON.stringify(team));
 
     const sheet = await page.evaluate(() => {
       window.dispatchEvent(new Event("beforeprint"));
@@ -421,9 +469,9 @@ function ok(cond, name, detail){
           .find(d => d.querySelector(".k") && d.querySelector(".k").textContent === label);
         return row ? row.querySelector(".v").textContent : null;
       };
-      return {avg: v("Average / Day"), days: v("Days Logged")};
+      return {avg: v("Avg / Day"), days: v("Days Logged")};
     });
-    ok(sheet.avg === "8h 4m", "half day: the printed report's Average / Day is 8h 4m", JSON.stringify(sheet));
+    ok(sheet.avg === "8h 4m", "half day: the printed report's Avg / Day is 8h 4m", JSON.stringify(sheet));
     ok(sheet.days === "3.5", "half day: the printed report counts 3.5 days", JSON.stringify(sheet));
 
     const cal = await page.evaluate(async () => {
@@ -433,6 +481,27 @@ function ok(cond, name, detail){
       return document.getElementById("calSummary").textContent;
     });
     ok(/^3\.5 workdays logged/.test(cal), "half day: the Calendar's month line counts 3.5 workdays", cal);
+
+    const named = await page.evaluate(async () => {
+      document.querySelector('.tab-btn[data-tab="log"]').click();
+      await new Promise(r => setTimeout(r, 400));
+      const pill = id => {
+        const btn = document.querySelector('#logBody button[data-edit="' + id + '"]');
+        const td = btn && btn.closest("tr").querySelector("td.c-status");
+        return td ? td.textContent.replace("Status", "").trim() : null;
+      };
+      return {
+        over: pill("h1"), under: pill("h3"),
+        overviewLabel: document.getElementById("monthAvg").closest(".stat-card").querySelector(".stat-label").textContent.trim(),
+        legends: Array.from(document.querySelectorAll(".swatch.line")).map(s => s.parentElement.textContent.trim()),
+        headers: Array.from(document.querySelectorAll("th")).map(th => th.textContent.trim()).filter(t => /avg/i.test(t))
+      };
+    });
+    ok(named.over === "+30m" && named.under === "-15m",
+      "one format: the Log's day pills read +30m and -15m", JSON.stringify(named));
+    ok(named.overviewLabel === "Avg / Day" && named.legends.every(t => t === "Avg / Day") &&
+       named.headers.length >= 2 && named.headers.every(t => t === "Avg / Day"),
+      "one name: Overview, the chart legends and the table headers all say Avg / Day", JSON.stringify(named));
     ok(errors.length === 0, "half day: no script errors", errors.join(" | "));
     await ctx.close();
   }
@@ -456,7 +525,7 @@ function ok(cond, name, detail){
       detail: document.getElementById("monthAvgDetail").textContent,
       bank: document.getElementById("otBank").textContent
     }));
-    ok(ov.avg === "8h" && ov.bank === "+0h" && ov.detail === "Target 8h · 2 days · 1 not logged",
+    ok(ov.avg === "8h" && ov.bank === "+0h" && ov.detail === "Target 8h · 2 workdays · 1 not logged",
       "gaps: Overview's average says a workday went unlogged (Mon 17)", JSON.stringify(ov));
 
     const names = await page.evaluate(async () => {
@@ -559,6 +628,50 @@ function ok(cond, name, detail){
       "half day left open yesterday: one tap clocks out when its 4 hours were done, not at 4 PM", JSON.stringify(past));
     ok(before.errors.length + after.errors.length + past.errors.length === 0, "half-day reminder: no script errors",
       before.errors.concat(after.errors, past.errors).join(" | "));
+  }
+
+  // ---------------------------------------------------------------- working days with no clock times
+  // A remote, trip or training day is a working day whether or not clock
+  // times were kept. Logged without them it computes as 0h worked, and that
+  // reset the streak, read "0h" as today's figure and "Not logged today" on
+  // Team (owner, 2026-11-19).
+  {
+    const ctx = await browser.newContext({viewport: {width: 1440, height: 900}});
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", e => errors.push(e.message));
+    await page.clock.setFixedTime(new Date(2026, 7, 20, 10, 0, 0));
+    await page.route("**/vendor/supabase-js.min.js",
+      r => r.fulfill({status: 200, contentType: "text/javascript", body: STUB_UNTIMED}));
+    await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
+    await page.waitForTimeout(1200);
+
+    const ov = await page.evaluate(() => ({
+      streak: document.getElementById("streak").textContent,
+      dots: Array.from(document.querySelectorAll("#streakMeterSegs i")).map(i => i.classList.contains("is-on") ? 1 : 0).join(""),
+      today: document.getElementById("sealValue").textContent,
+      todayLine: (document.getElementById("todayLineValue") || {}).textContent || null,
+      person: (document.getElementById("personStatus") || {}).textContent || null
+    }));
+    ok(ov.streak === "5d" && ov.dots === "0000011111",
+      "untimed: remote and trip days keep the streak going (5 days, five dots)", JSON.stringify(ov));
+    ok(ov.today === "Remotely" && ov.todayLine === "Remotely" && ov.person === "Remotely",
+      "untimed: today's figure and the person card name the remote day, not 0h or Not logged today", JSON.stringify(ov));
+
+    const team = await page.evaluate(async () => {
+      document.querySelector('.tab-btn[data-tab="team"]').click();
+      await new Promise(r => setTimeout(r, 800));
+      const card = document.querySelector("#teamList .team-card");
+      const inNow = Array.from(document.querySelectorAll("#teamSummary .stat-card"))
+        .find(c => /Clocked In Now/.test(c.textContent));
+      return {status: card ? card.querySelector(".team-status").textContent : null,
+        statusCls: card ? card.querySelector(".team-status").className : null,
+        inNow: inNow ? inNow.querySelector(".stat-value").textContent : null};
+    });
+    ok(team.status === "Remotely" && /\baway\b/.test(team.statusCls) && team.inNow === "0",
+      "untimed: Team shows the remote day, not Not logged today, and nobody as clocked in", JSON.stringify(team));
+    ok(errors.length === 0, "untimed: no script errors", errors.join(" | "));
+    await ctx.close();
   }
 
   // ---------------------------------------------------------------- chart target steps

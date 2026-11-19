@@ -6356,6 +6356,8 @@
   }
   .team-status.in{background:var(--positive-bg); color:var(--positive);}
   .team-status.done{background:var(--info-bg); color:var(--info);}
+  /* Remote, trip or training, logged without clock times: working, elsewhere. */
+  .team-status.away{background:var(--info-bg); color:var(--info);}
   .team-status.off{background:var(--ink-50); color:var(--muted-2);}
   .team-status.excused{background:var(--excused-bg); color:var(--excused);}
   /* Same neutral treatment as .off, not the alarm-red it used to carry: most
@@ -8221,7 +8223,7 @@
           </div>
           <div class="chart-holder" id="weeklyChart"></div>
           <div class="chart-legend">
-            <span><i class="swatch line"></i>Avg / day</span>
+            <span><i class="swatch line"></i>Avg / Day</span>
             <span data-legend="met"><i class="swatch" style="background:var(--positive)"></i>Met target</span>
             <span data-legend="under"><i class="swatch" style="background:var(--negative)"></i>Below target</span>
             <span><i class="swatch target"></i>Daily target</span>
@@ -8257,7 +8259,7 @@
           </div>
           <div class="chart-holder" id="monthlyChart"></div>
           <div class="chart-legend">
-            <span><i class="swatch line"></i>Avg / day</span>
+            <span><i class="swatch line"></i>Avg / Day</span>
             <span data-legend="met"><i class="swatch" style="background:var(--positive)"></i>Met target</span>
             <span data-legend="under"><i class="swatch" style="background:var(--negative)"></i>Below target</span>
             <span><i class="swatch target"></i>Daily target</span>
@@ -9737,6 +9739,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v70"></script>
+<script type="module" src="app.js?v=v71"></script>
 </body>
 </html>

@@ -487,6 +487,21 @@ const entry = (o) => Object.assign({clockIn:"", clockOut:"", type:"regular", not
   settings.targetMin = saved.t; settings.periods = saved.p; settings.workDays = saved.w;
 }
 
+// ---------------------------------------------------------------- one way to write a duration
+// Under an hour is minutes alone: Overview's bank said "+34m" while Trends,
+// Team and the printed report said "+0h 34m" for the same number
+// (2026-11-19). Zero stays "0h", and a value that rounds to zero has no sign.
+{
+  eq(minutesToHoursStr(15), "15m", "under an hour: minutes alone");
+  eq(minutesToHoursStr(-15), "-15m", "under an hour, negative: minutes alone");
+  eq(minutesToHoursStr(0), "0h", "zero is still 0h");
+  eq(minutesToHoursStr(60), "1h", "a whole hour");
+  eq(minutesToHoursStr(75), "1h 15m", "an hour and more: hours and minutes");
+  eq(minutesToHoursStr(-75), "-1h 15m", "negative, an hour and more");
+  eq(minutesToHoursStr(59.6), "1h", "59.6 minutes rounds to the hour");
+  eq(minutesToHoursStr(-0.4), "0h", "a value that rounds to zero carries no minus sign");
+}
+
 // ---------------------------------------------------------------- off-days (weekends) are neutral
 // A day outside the configured work days must not move the average, the bank
 // or the target-accomplished rate either way — 20 hours logged on a Friday or
