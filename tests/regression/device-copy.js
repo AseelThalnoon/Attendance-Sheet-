@@ -256,9 +256,11 @@ const view = page => page.evaluate(copyKey => ({
     const h = await boot({ viewport: { width: 375, height: 812 }, meId: me.id, seed: seed({ entries: [leave] }) });
     try {
       const lab = await h.page.evaluate(() => {
-        const el = document.getElementById("heroProgressLabel");
+        const el = document.getElementById("monthAvgDetail");
+        const fill = document.getElementById("heroProgressFill");
         return { text: el.textContent, clipped: el.scrollWidth > el.clientWidth + 1,
-          empty: el.closest(".hero-progress").classList.contains("is-empty"),
+          // Nothing to draw: the bar is there, empty, rather than gone.
+          empty: /scaleX\(0\)/.test(fill.style.transform) && !!fill.getClientRects().length,
           inside: el.getBoundingClientRect().right <= el.closest(".stat-card").getBoundingClientRect().right };
       });
       ok(lab.empty && !lab.clipped && lab.inside && /No workdays logged yet this month/.test(lab.text),

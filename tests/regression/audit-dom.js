@@ -224,7 +224,7 @@ function ok(cond, name, detail){
     await page.goto(`http://localhost:${PORT}/index.html`, {waitUntil: "load"});
     await page.waitForTimeout(1000);
     const s = await page.evaluate(() => ({
-      heroLabel: document.getElementById("heroProgressLabel").textContent,
+      heroLabel: document.getElementById("avgMeter").getAttribute("aria-label"),
     }));
     ok(!/100%/.test(s.heroLabel), "the hero progress label does not round 99.58% up to 100%",
       JSON.stringify(s));
