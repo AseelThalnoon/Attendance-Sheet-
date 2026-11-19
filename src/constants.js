@@ -38,6 +38,7 @@ function typeLabel(t){ return TYPE_LABELS[t] || (t ? String(t) : "Regular"); }
 var CAL_STATUS_LABELS = {
   met:"met target", under:"under target", excused:"leave or excused",
   open:"still clocked in", missing:"no entry", off:"day off", future:"upcoming",
+  uncounted:"hours not counted",
   before:"before your first logged day"
 };
 

@@ -448,6 +448,45 @@ function ok(cond, name, detail){
       "gaps: Shortfall counts the unlogged day as short (66%), Team does not (100%)", JSON.stringify(names));
     ok(names.shortfall === "Workday Hours Met" && names.team === "Target Hours Met",
       "gaps: so the two figures carry different names", JSON.stringify(names));
+
+    const grid = await page.evaluate(async () => {
+      document.querySelector('.tab-btn[data-tab="calendar"]').click();
+      await new Promise(r => setTimeout(r, 400));
+      const cell = d => {
+        const el = document.querySelector('.cal-cell[data-date="' + d + '"]');
+        const val = el && el.querySelector(".cal-val");
+        const note = el && el.querySelector(".cal-short");
+        return {cls: el ? el.className : null,
+          val: val ? val.querySelector(".cal-val-full").textContent : null,
+          valMuted: !!val && val.classList.contains("is-uncounted"),
+          note: note ? note.textContent : null,
+          label: el ? el.getAttribute("aria-label") : null};
+      };
+      return {fri: cell("2026-08-14"), sun: cell("2026-08-16"), tue: cell("2026-08-18"),
+        summary: document.getElementById("calSummary").textContent};
+    });
+    ok(grid.tue.val === "8h" && grid.tue.valMuted && grid.tue.note === "Remote" && /hours not counted/.test(grid.tue.label),
+      "gaps: the remote day's 8h is muted, named, and read out as not counted", JSON.stringify(grid.tue));
+    ok(grid.fri.val === "3h" && grid.fri.valMuted && grid.fri.note === "Day off",
+      "gaps: the Friday's 3h is muted and marked as a day off", JSON.stringify(grid.fri));
+    ok(grid.sun.val === "8h" && !grid.sun.valMuted && /met target/.test(grid.sun.label),
+      "gaps: a counted day is unchanged", JSON.stringify(grid.sun));
+    ok(/2 workdays logged/.test(grid.summary) && /16h worked/.test(grid.summary) &&
+       /11h on remote days and days off not counted/.test(grid.summary),
+      "gaps: the month line says the 11h it leaves out, and on what", grid.summary);
+
+    const log = await page.evaluate(async () => {
+      document.querySelector('.tab-btn[data-tab="log"]').click();
+      await new Promise(r => setTimeout(r, 400));
+      const status = id => {
+        const btn = document.querySelector('#logBody button[data-edit="' + id + '"]');
+        const td = btn && btn.closest("tr").querySelector("td.c-status");
+        return td ? td.textContent.replace("Status", "").trim() : null;
+      };
+      return {fri: status("g0"), sun: status("g1"), tue: status("g3")};
+    });
+    ok(log.fri === "Not counted" && log.tue === "Not counted" && log.sun === "On target",
+      "gaps: the Log says Not counted for those two days, On target for a counted one", JSON.stringify(log));
     ok(errors.length === 0, "gaps: no script errors", errors.join(" | "));
     await ctx.close();
   }

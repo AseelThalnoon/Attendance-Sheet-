@@ -5051,6 +5051,11 @@ import { makeSchedule } from "./src/schedule.js";
     if(c.open) return '<span class="pill open">Open</span>';
     if(c.excused) return '<span class="pill excused">Excused</span>';
     if(c.diffMin === null) return "—";
+    // Hours on a remote, trip or training day, or on a day off: they owe
+    // nothing and count toward nothing, so "On target" (0 over a 0 target)
+    // said the opposite of what happens to them. Same quiet weight as On
+    // target; the Calendar marks the same days the same way.
+    if(!c.targetMin) return '<span class="on-target not-counted">Not counted</span>';
     if(Math.abs(c.diffMin) < 1) return '<span class="on-target" title="On target">On target</span>';
     return c.diffMin > 0
       ? '<span class="pill over">'+signed(c.diffMin)+'</span>'
@@ -5457,6 +5462,13 @@ import { makeSchedule } from "./src/schedule.js";
     if(c.open) return "open";
     if(c.excused) return "excused";
     if(c.workedMin === null) return scheduled && dateStr <= todayStr() ? "missing" : "off";
+    // Hours on a day that owes nothing: a remote, trip or training day with
+    // clock times, or work on a day off. computeEntry scores them 0 over a
+    // 0 target, so they read as "met" -- hours in ink, like any counted day
+    // -- beside a month line whose "worked" leaves them out. Neither the
+    // averages nor the bank count them (WORKED_TYPES, isScheduled), and the
+    // grid says so now (2026-11-19).
+    if(entry.clockIn && !(countsAsWorked(entry.type) && scheduled)) return "uncounted";
     if(c.diffMin !== null && c.diffMin >= 0) return "met";
     return "under";
   }
@@ -5540,6 +5552,9 @@ import { makeSchedule } from "./src/schedule.js";
     // day's own hours. Unlogged workdays are the Shortfall tab's question.
     var monthEntries = entries.filter(function(e){ return monthKey(e.date) === y + "-" + pad2(m+1); });
     var monthSummary = summarize(monthEntries);
+    // Hours on the grid that the month line's "worked" leaves out, and what
+    // kind of days they were on, so the line can say so.
+    var uncountedMin = 0, uncountedKinds = {};
 
     for(var day=1; day<=daysInMonth; day++){
       var dStr = y+"-"+pad2(m+1)+"-"+pad2(day);
@@ -5580,6 +5595,13 @@ import { makeSchedule } from "./src/schedule.js";
             '<b class="cal-val-full">'+escapeHtml(minutesToHoursStr(worked))+'</b>' +
             '<b class="cal-val-short">'+escapeHtml(hoursCompact(worked))+'</b>' +
           '</span>';
+      } else if(status === "uncounted"){
+        // The hours, muted, over what the day was: "8h / Remote", "3h / Day
+        // off". Muted because they are not part of anything the month adds up.
+        value = '<span class="cal-val is-uncounted" aria-hidden="true">' +
+            '<b class="cal-val-full">'+escapeHtml(minutesToHoursStr(worked))+'</b>' +
+            '<b class="cal-val-short">'+escapeHtml(hoursCompact(worked))+'</b>' +
+          '</span>';
       } else if(status === "open" && entry.clockIn){
         value = '<span class="cal-val is-time" aria-hidden="true">' +
             '<b class="cal-val-full">'+escapeHtml(formatTime12(entry.clockIn))+'</b>' +
@@ -5609,6 +5631,11 @@ import { makeSchedule } from "./src/schedule.js";
           '</span>';
       } else if(status === "missing"){
         short = '<span class="cal-short" aria-hidden="true">Not logged</span>';
+      } else if(status === "uncounted"){
+        var kind = countsAsWorked(entry.type) ? "Day off" : calTypeShort(entry.type);
+        short = '<span class="cal-short is-note" aria-hidden="true">'+escapeHtml(kind)+'</span>';
+        uncountedMin += worked;
+        uncountedKinds[countsAsWorked(entry.type) ? "off" : entry.type] = true;
       }
 
       var dow = (startDow + day - 1) % 7;
@@ -5636,16 +5663,29 @@ import { makeSchedule } from "./src/schedule.js";
       filled++;
     }
     document.getElementById("calendarGrid").innerHTML = html;
-    renderCalendarSummary(monthSummary.dayWeight, monthSummary.workedSum, monthSummary.diffSum, monthEntries.length > 0);
+    renderCalendarSummary(monthSummary.dayWeight, monthSummary.workedSum, monthSummary.diffSum, monthEntries.length > 0,
+      uncountedMin, uncountedKinds);
   }
 
-  function renderCalendarSummary(days, workedMin, diffMin, anyEntries){
+  // "16h on remote days not counted": the hours the grid shows that "worked"
+  // leaves out, named by the kinds of day they were on.
+  var UNCOUNTED_KIND_WORDS = { wfh:"remote days", trip:"trips", training:"training days", off:"days off" };
+  function uncountedNote(min, kinds){
+    if(!min) return "";
+    var words = ["wfh", "trip", "training", "off"].filter(function(k){ return kinds && kinds[k]; })
+      .map(function(k){ return UNCOUNTED_KIND_WORDS[k]; });
+    var list = words.length > 1 ? words.slice(0, -1).join(", ") + " and " + words[words.length - 1] : words[0];
+    return '<span class="cal-sum-note"><b>'+escapeHtml(minutesToHoursStr(min))+'</b> on '+escapeHtml(list)+' not counted</span>';
+  }
+
+  function renderCalendarSummary(days, workedMin, diffMin, anyEntries, uncountedMin, uncountedKinds){
     var host = document.getElementById("calSummary");
     if(!host) return;
+    var note = uncountedNote(uncountedMin, uncountedKinds);
     if(!days){
       host.innerHTML = '<span class="cal-sum-empty">' +
         (anyEntries ? "No regular workdays logged this month." : "Nothing logged this month yet.") +
-        '</span>';
+        '</span>' + note;
       return;
     }
     var diff = diffMin === 0
@@ -5657,7 +5697,7 @@ import { makeSchedule } from "./src/schedule.js";
     host.innerHTML =
       '<span><b>'+fmtDayCount(days)+'</b> '+(days === 1 ? "workday" : "workdays")+' logged</span>' +
       '<span><b>'+escapeHtml(minutesToHoursStr(workedMin))+'</b> worked</span>' +
-      diff;
+      diff + note;
   }
 
   // "10:00 AM" is 52px of an axis column that is 44px wide on a phone, and the

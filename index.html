@@ -4520,6 +4520,11 @@
     letter-spacing:0;
   }
   .cal-val.is-type b{font-weight:500;}
+  /* Hours on a day that counts toward nothing (a remote, trip or training
+     day, or work on a day off): the number stays, a step quieter, over the
+     kind of day it was -- see calendarDayStatus "uncounted". */
+  .cal-val.is-uncounted{color:var(--muted);}
+  .cal-short.is-note{color:var(--muted);}
   /* Both forms ship and CSS picks; see hoursCompact() for why. */
   .cal-val-short{display:none;}
   .cal-val-full{display:inline;}
@@ -4576,6 +4581,7 @@
      screen, and the month's total is the same fact as a cell's, added up. */
   .cal-summary .is-under b{color:var(--excused);}
   .cal-sum-empty{color:var(--muted-2);}
+  .cal-summary .cal-sum-note b{color:var(--muted);}
   @media (max-width:560px){
     /* The compact form. The narrowed weekend columns give this back some room --
        five working columns at 1fr against two at .62fr make a working cell
