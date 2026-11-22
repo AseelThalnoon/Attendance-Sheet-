@@ -7272,6 +7272,11 @@
   /* The charts are drawn in coordinates: their own axis text keeps the
      drawing's direction, and Arabic inside it still reads right to left. */
   [dir="rtl"] svg{direction:ltr;}
+  /* ...and each label takes its own reading order from its first letter, so
+     "8س 40د" reads as written instead of coming out as "س 8د40" when its
+     letters and digits are laid out left to right. Where it sits is still
+     the drawing's business. */
+  [dir="rtl"] svg text{unicode-bidi:plaintext;}
   /* Letter-spacing pulls Arabic's joined letters apart, and this stylesheet
      tracks its small capitals out and its big figures in. In Arabic none of
      it applies. */

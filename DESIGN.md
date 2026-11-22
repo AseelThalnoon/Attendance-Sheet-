@@ -1464,13 +1464,54 @@ Added 2026-11-22 at the owner's request; each person picks English or
 - **Pointing icons face the reader.** Chevrons, the back arrow and the clock
   in/out arrows mirror; they are matched by their drawing in the RTL block at
   the end of the stylesheet, so a new icon with the same path mirrors too.
-  The charts keep their own axis direction (`svg{direction:ltr}`).
+  The charts keep their own axis direction (`svg{direction:ltr}`), while each
+  label inside reads in its own order (`svg text{unicode-bidi:plaintext}`), so
+  "8س 40د" does not come out as "س 8د40". Month labels on a chart are the
+  month's name alone when the chart shows one year, and name and full year
+  when it shows all of them: Arabic has no short month names, and "نوفمبر '26"
+  reads as the 26th of November.
 - **No letter-spacing in Arabic.** Tracking pulls Arabic's joined letters
   apart, so `html[lang="ar"]` turns it off everywhere — the uppercase labels
   and the tightened figures alike.
 - **Switzer has no Arabic.** Arabic falls back to the device's own Arabic face
   (SF Arabic, Noto); weight and size still carry the hierarchy.
 - **Western digits, Gregorian dates**, and the app's own units: 7:48 ص, 8س 5د.
+
+#### Writing the Arabic
+Rewritten 2026-11-22 at the owner's request ("write suitable Arabic. It
+doesn't have to be an exact translation"). The Arabic is written as an Arabic
+attendance app would write it, not mapped word for word from the English. The
+terms follow the Arabic attendance products checked at the time (Daftra,
+Jibble's Arabic site, Odoo's Arabic documentation) and Saudi HR usage:
+
+| Concept | Arabic | Not |
+|---|---|---|
+| Clock in / out | تسجيل الحضور / تسجيل الانصراف | بصمة |
+| Schedule, shift, workday hours | الدوام (جدول الدوام، دوام الفريق) | الجدول، الوردية |
+| Daily target | الساعات المطلوبة / المطلوب | الهدف |
+| Met / below target | مكتمل / ناقص | حقق الهدف |
+| Overtime bank | رصيد الساعات الإضافية | |
+| Leave balance | رصيد الإجازات | |
+| Punctuality | الانضباط | الالتزام بالمواعيد |
+| Streak | حضور متواصل | سلسلة |
+| Time away (Recap) | خارج المكتب | |
+| Public holiday | عطلة رسمية | |
+| Remote · Business trip | عن بُعد · مهمة عمل | |
+| Overview · Trends · Recap | الرئيسية · الإحصاءات · الملخص | نظرة عامة · الاتجاهات |
+| People · Who's Away (Admin) | الموظفون · الغياب | الأشخاص · الغائبون |
+
+- **Buttons are verbal nouns** (تسجيل الحضور الآن، إعادة المحاولة، حفظ،
+  اختيار صورة), as Arabic apps label them; instructions speak to the person
+  (سجّل، اختر، حدّد). A sentence that names a button quotes it as the button
+  says it: «إعادة المحاولة».
+- **Errors start with تعذّر**, and a question is a question (هل تريد…؟), not a
+  translated "Replace it with…?".
+- **Counts that Arabic grammar bends** (3 أيام but 11 يومًا, and the adjective
+  that has to agree with both) are counted with `{n|noun}`; where a sentence
+  would still need the adjective to agree, it is written as a label and a
+  figure instead: «أيام عمل غير مسجّلة: 4».
+- The team can reword any of it in Admin › Labels; this table is the house
+  style for the app's own wording.
 
 ### Trend charts
 A line over a labelled y-axis with light gridlines, each point's own target

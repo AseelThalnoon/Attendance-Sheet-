@@ -40,19 +40,19 @@ function ok(cond, label, detail){
     const tr = s => { const n = node(s); i18n.translateTree(n); return n.nodeValue; };
 
     const before = tr("Overview"), beforePattern = tr("92 days logged");
-    i18n.setOverrides({ en: { "Overview": "Home", "{n} days logged": "{n} days on record" }, ar: { "Overview": "الرئيسية" } });
+    i18n.setOverrides({ en: { "Overview": "Home", "{n} days logged": "{n} days on record" }, ar: { "Overview": "صفحتي" } });
     if(lang === "en"){
       ok(before === "Overview", "en: with nothing reworded, English is the app's own", before);
       ok(tr("Overview") === "Home" && i18n.t("Overview") === "Home", "en: a reworded label shows the team's English", tr("Overview"));
       ok(tr("92 days logged") === "92 days on record", "en: a reworded pattern fills in its number", tr("92 days logged"));
       ok(tr("Log") === "Log", "en: everything else is left alone", tr("Log"));
     } else {
-      ok(before === "نظرة عامة", "ar: with nothing reworded, Arabic is the app's own", before);
-      ok(tr("Overview") === "الرئيسية", "ar: a reworded label shows the team's Arabic", tr("Overview"));
+      ok(before === "الرئيسية", "ar: with nothing reworded, Arabic is the app's own", before);
+      ok(tr("Overview") === "صفحتي", "ar: a reworded label shows the team's Arabic", tr("Overview"));
       ok(tr("Log") === "السجل", "ar: everything else keeps the app's Arabic", tr("Log"));
     }
     i18n.setOverrides({});
-    ok(tr("Overview") === (lang === "en" ? "Overview" : "نظرة عامة"), `${lang}: taking the wording away gives the app's own text back`, tr("Overview"));
+    ok(tr("Overview") === (lang === "en" ? "Overview" : "الرئيسية"), `${lang}: taking the wording away gives the app's own text back`, tr("Overview"));
     ok(tr("92 days logged") === beforePattern, `${lang}: and the app's own pattern`, tr("92 days logged") + " vs " + beforePattern);
   }
 
