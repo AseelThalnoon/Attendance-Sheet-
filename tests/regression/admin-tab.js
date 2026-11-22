@@ -412,8 +412,9 @@ async function boot(browser, server, query){
     // Crash Reports, which gave the rows written by the global error handler
     // somewhere to be read that is not the Supabase dashboard. 10: +1 for
     // Who's Away. 9: Overview and Backup & Storage became Data & Backup.
-    ok(s.count === 9, "the console is split into nine sections", JSON.stringify(s.count));
-    ok(s.sections === 9, "every nav row has a section behind it", JSON.stringify(s.sections));
+    // 10: +1 for Labels, the team's own wording for any text (2026-11-22).
+    ok(s.count === 10, "the console is split into ten sections", JSON.stringify(s.count));
+    ok(s.sections === 10, "every nav row has a section behind it", JSON.stringify(s.sections));
     ok(s.paired && s.controls, "each nav row points at the section it selects", JSON.stringify(s));
     ok(s.shown.length === 1 && s.selected.length === 1 && s.shown[0] === s.selected[0],
       "exactly one section shows, and the nav agrees which", JSON.stringify(s));

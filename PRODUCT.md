@@ -77,8 +77,13 @@ a file copy"; see README, **Publishing**).
   open shifts, independently of push.
 - Punch times come from the device clock and are therefore unverifiable —
   acceptable given the confirmed low-stakes/personal-tracking success bar.
-- English only, no RTL layout; user-authored text is bidi-isolated with
-  `dir="auto"`.
+- English and Arabic (owner's decision, 2026-11-22): each person picks in
+  Settings › Appearance, per device, starting in the phone's language. Arabic
+  is right to left, Western digits, Gregorian calendar (ar-SA with
+  `ca-gregory`/`nu-latn`). The push notifications, the reminder function and
+  the sign-up email are still English: a later step, which needs a migration
+  and a function redeploy the owner approves. User-authored text stays
+  bidi-isolated with `dir="auto"` and is never translated.
 - `is_admin()` gates every policy; `profiles.role` is not writable through
   the API (role changes go through `admin_set_user_role()`, which refuses to
   remove the last administrator); `audit_log` is append-only by construction.

@@ -542,10 +542,32 @@ import { rowToEntry, entryToRow } from "./src/entries.js";
 import { explainedError, friendlyError } from "./src/errors.js";
 import { makeSchedule } from "./src/schedule.js";
 import { makeRecap } from "./src/recap.js";
+import { getLang, isArabic, setLang, locale as appLocale, t, count, translateTree, retranslate, watch as watchTranslations,
+  entries as labelDefaults, setOverrides as setLabelOverrides, getOverrides as getLabelOverrides } from "./src/i18n.js";
+// The Arabic, by area. Each registers its entries with src/i18n.js as it loads.
+import "./src/i18n-ar-1.js";
+import "./src/i18n-ar-2.js";
+import "./src/i18n-ar-3.js";
+import "./src/i18n-ar-4.js";
+import "./src/i18n-ar-5.js";
 import { monthSlides, yearSlides } from "./src/recap-view.js";
 
 (function(){
   "use strict";
+
+  // Arabic (2026-11-22). The page's fixed text is swapped now, before anything
+  // is drawn, and everything app.js draws later is swapped as it lands; see
+  // src/i18n.js. In English both are no-ops. APP_LOCALE is what every date
+  // format below asks for: Saudi Arabic on the Gregorian calendar with Western
+  // digits, or -- in English -- whatever this browser is set to, as before.
+  var APP_LOCALE = appLocale();
+  // The team's own wording (Admin › Labels), from the copy kept on this
+  // device, so the first paint already says it; loadAppSettings() brings the
+  // current one and redraws if it has moved (syncLabels).
+  var LABELS_KEY = "attendance.labels.v1";
+  try{ setLabelOverrides(JSON.parse(safeGet(LABELS_KEY) || "{}")); }catch(err){}
+  translateTree(document.documentElement);
+  watchTranslations(document.documentElement);
 
   // ---------- Auth / multi-user state ----------
   var currentUser = null;      // {id, email} — the signed-in Supabase auth user
@@ -1336,13 +1358,13 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     return fmtWith(new Date(+p[0], +p[1]-1, 1), {month:"short"}) + " '" + String(+p[0]).slice(-2);
   }
   // One Intl.DateTimeFormat per set of options, built on first use.
-  // toLocaleDateString(undefined, opts) builds a fresh formatter on every call
+  // toLocaleDateString(APP_LOCALE, opts) builds a fresh formatter on every call
   // (see src/time.js), and the weekly table alone asked for two per week of
   // history on every redraw.
   var dtfCache = {};
   function fmtWith(date, opts){
     var key = JSON.stringify(opts);
-    var f = dtfCache[key] || (dtfCache[key] = new Intl.DateTimeFormat(undefined, opts));
+    var f = dtfCache[key] || (dtfCache[key] = new Intl.DateTimeFormat(APP_LOCALE, opts));
     return f.format(date);
   }
   // Strips the bidirectional-override control characters. Left in place they
@@ -3172,8 +3194,10 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       });
       item.addEventListener("keydown", function(e){
         var next = null;
-        if(e.key === "ArrowDown" || e.key === "ArrowRight") next = items[(i + 1) % items.length];
-        else if(e.key === "ArrowUp" || e.key === "ArrowLeft") next = items[(i - 1 + items.length) % items.length];
+        var rtl = document.documentElement.dir === "rtl";
+        var fwd = rtl ? "ArrowLeft" : "ArrowRight", bwd = rtl ? "ArrowRight" : "ArrowLeft";
+        if(e.key === "ArrowDown" || e.key === fwd) next = items[(i + 1) % items.length];
+        else if(e.key === "ArrowUp" || e.key === bwd) next = items[(i - 1 + items.length) % items.length];
         else if(e.key === "Home") next = items[0];
         else if(e.key === "End") next = items[items.length - 1];
         if(!next) return;
@@ -3302,8 +3326,10 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       item.addEventListener("click", function(){ onPick(item.getAttribute(attr)); });
       item.addEventListener("keydown", function(e){
         var next = null;
-        if(e.key === "ArrowDown" || e.key === "ArrowRight") next = items[(i + 1) % items.length];
-        else if(e.key === "ArrowUp" || e.key === "ArrowLeft") next = items[(i - 1 + items.length) % items.length];
+        var rtl = document.documentElement.dir === "rtl";
+        var fwd = rtl ? "ArrowLeft" : "ArrowRight", bwd = rtl ? "ArrowRight" : "ArrowLeft";
+        if(e.key === "ArrowDown" || e.key === fwd) next = items[(i + 1) % items.length];
+        else if(e.key === "ArrowUp" || e.key === bwd) next = items[(i - 1 + items.length) % items.length];
         else if(e.key === "Home") next = items[0];
         else if(e.key === "End") next = items[items.length - 1];
         if(!next) return;
@@ -3314,6 +3340,22 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     });
   }
 
+  // Language: saved on this device, then the page starts again in it -- the
+  // one way every screen is redrawn, rather than each tab re-rendering its own.
+  (function(){
+    var seg = document.getElementById("langSeg");
+    if(!seg) return;
+    Array.prototype.forEach.call(seg.querySelectorAll("[data-lang]"), function(btn){
+      var on = btn.getAttribute("data-lang") === getLang();
+      btn.setAttribute("aria-checked", on ? "true" : "false");
+      btn.tabIndex = on ? 0 : -1;
+    });
+    initRadioGroup(seg, "data-lang", function(v){
+      if((v !== "en" && v !== "ar") || v === getLang()) return;
+      setLang(v);
+      location.reload();
+    });
+  })();
   initRadioGroup(document.getElementById("modeSeg"), "data-mode", function(mode){
     if(MODE_IDS.indexOf(mode) === -1) return;
     applyAppearance({palette: appearance.palette, mode: mode}, true);
@@ -4541,7 +4583,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
 
     document.getElementById("monthAvg").textContent = ms.loggedDays ? minutesToHoursStr(ms.avgMin) : "0h";
 
-    document.getElementById("heroMonthLabel").textContent = new Date().toLocaleDateString(undefined, {month:"long", year:"numeric"});
+    document.getElementById("heroMonthLabel").textContent = new Date().toLocaleDateString(APP_LOCALE, {month:"long", year:"numeric"});
     // A flat single-day target would misrepresent a month that mixes, say,
     // Ramadan's 5h days with regular 8h ones — averaging the logged days'
     // own targets (ms.targetSum) keeps this in step with the Diff/bank figure,
@@ -4580,7 +4622,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     otEl.textContent = signed(ms.diffSum);
     otEl.className = "stat-value " + (ms.diffSum > 0 ? "positive" : (ms.diffSum < 0 ? "negative" : ""));
     document.getElementById("otBankDetail").textContent =
-      new Date().toLocaleDateString(undefined, {month:"long"}) + " vs. target";
+      new Date().toLocaleDateString(APP_LOCALE, {month:"long"}) + " vs. target";
     // Where the figure came from: one pill per day that moved it, in date
     // order, green for a day at or over its target and red for one under.
     // The same days summarize() adds into diffSum — a day with no target
@@ -5495,9 +5537,9 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
   }
   function recapMonthLabel(mk, withYear){
     var d = dateFromStr(mk + "-01");
-    return d.toLocaleDateString(undefined, withYear ? {month:"long", year:"numeric"} : {month:"long"});
+    return d.toLocaleDateString(APP_LOCALE, withYear ? {month:"long", year:"numeric"} : {month:"long"});
   }
-  function recapShortMonth(dateStr){ return dateFromStr(dateStr.slice(0, 7) + "-01").toLocaleDateString(undefined, {month:"short"}); }
+  function recapShortMonth(dateStr){ return dateFromStr(dateStr.slice(0, 7) + "-01").toLocaleDateString(APP_LOCALE, {month:"short"}); }
 
   function renderRecap(keepCard){
     var track = document.getElementById("recapTrack");
@@ -5553,7 +5595,8 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
   function recapStep(){
     var track = document.getElementById("recapTrack");
     var cards = track ? track.children : [];
-    return cards.length > 1 ? cards[1].offsetLeft - cards[0].offsetLeft : (track ? track.clientWidth : 0);
+    // Absolute: in right to left the second card sits to the left of the first.
+    return cards.length > 1 ? Math.abs(cards[1].offsetLeft - cards[0].offsetLeft) : (track ? track.clientWidth : 0);
   }
   function recapSyncArrows(){
     var track = document.getElementById("recapTrack");
@@ -5569,7 +5612,10 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     // "instant", not "auto": the track's own scroll-behavior is smooth, and
     // "auto" defers to it, so a redraw would visibly slide from card one.
-    track.scrollTo({left: recapCard * recapStep(), behavior: smooth && !calm ? "smooth" : "instant"});
+    // In Arabic the row runs right to left, and a scroll offset to the left
+    // of the start is negative -- the same for every engine since 2022.
+    var dirSign = document.documentElement.dir === "rtl" ? -1 : 1;
+    track.scrollTo({left: dirSign * recapCard * recapStep(), behavior: smooth && !calm ? "smooth" : "instant"});
     recapSyncArrows();
   }
   // Swiping moves the track without telling anyone; read where it settled.
@@ -5580,7 +5626,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       recapScrollRaf = 0;
       var track = document.getElementById("recapTrack"), step = recapStep();
       if(!track || !step) return;
-      recapCard = Math.max(0, Math.min(track.children.length - 1, Math.round(track.scrollLeft / step)));
+      recapCard = Math.max(0, Math.min(track.children.length - 1, Math.round(Math.abs(track.scrollLeft) / step)));
       recapSyncArrows();
     });
   }, {passive:true});
@@ -5671,7 +5717,10 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
     if(isEditableTarget(ev.target)) return;
     ev.preventDefault();
-    recapGoTo(recapCard + (ev.key === "ArrowLeft" ? -1 : 1), true);
+    // The arrow that points the way the cards run moves on: right in
+    // English, left in Arabic.
+    var back = ev.key === (document.documentElement.dir === "rtl" ? "ArrowRight" : "ArrowLeft");
+    recapGoTo(recapCard + (back ? -1 : 1), true);
   });
   onId("tab-team", "keydown", function(ev){
     if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
@@ -6718,7 +6767,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
   function updateLiveClock(){
     var d = new Date();
     var h = d.getHours();
-    var period = h >= 12 ? "PM" : "AM";
+    var period = h >= 12 ? t("PM") : t("AM");
     var h12 = h % 12; if(h12 === 0) h12 = 12;
     var timeStr = h12 + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()) + " " + period;
     document.getElementById("liveClock").textContent = timeStr;
@@ -9755,7 +9804,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     var period = document.getElementById("heroMonthLabel");
     if(!dial || !legend) return;
     if(period){
-      period.textContent = new Date().toLocaleDateString(undefined, {month:"long", year:"numeric"});
+      period.textContent = new Date().toLocaleDateString(APP_LOCALE, {month:"long", year:"numeric"});
     }
 
     var mk = monthKey(todayStr());
@@ -10894,7 +10943,9 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
   function renderIdentityChrome(){
     if(!currentProfile) return;
     var greeting = document.getElementById("headGreeting");
-    if(greeting) greeting.textContent = currentProfile.notLoaded ? "Hello" : "Hello " + firstNameOf(currentProfile);
+    // Through t(): the greeting carries a name, and a name is never matched
+    // against the dictionary, so the sentence around it is translated here.
+    if(greeting) greeting.textContent = currentProfile.notLoaded ? t("Hello") : t("Hello {name}", {name: firstNameOf(currentProfile)});
 
     // The rail's avatar and the phone header's are the same picture.
     ["railUserAvatar", "headAvatar"].forEach(function(avatarId){
@@ -11600,7 +11651,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       safeSet(BACKUP_AT_KEY, String(Date.now()));
       status.classList.remove("is-working");
       refreshBackupStatus();
-      showToast("Downloaded " + parts[2].length.toLocaleString() + " entries from " +
+      showToast("Downloaded " + parts[2].length.toLocaleString(APP_LOCALE) + " entries from " +
         parts[0].length + (parts[0].length === 1 ? " account." : " accounts."), "success");
     }catch(err){
       status.classList.remove("is-working");
@@ -11631,7 +11682,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       var tr = document.createElement("tr");
       tr.innerHTML =
         "<td data-label='Table'><span class=\"cell-label\">Table</span>"+escapeHtml(t.name)+"</td>"+
-        "<td class='num' data-label='Rows'><span class=\"cell-label\">Rows</span>"+Number(t.rows).toLocaleString()+"</td>"+
+        "<td class='num' data-label='Rows'><span class=\"cell-label\">Rows</span>"+Number(t.rows).toLocaleString(APP_LOCALE)+"</td>"+
         "<td class='num' data-label='Size'><span class=\"cell-label\">Size</span>"+fmtBytes(t.total_bytes)+"</td>";
       body.appendChild(tr);
     });
@@ -11767,7 +11818,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
             // .last_seen_at is that fact (migration 20260909060549), and the
             // sign-in is still one hover away for when the distinction
             // matters.
-            Number(u.entry_count).toLocaleString()+' entries · Last active '+
+            Number(u.entry_count).toLocaleString(APP_LOCALE)+' entries · Last active '+
             escapeHtml(fmtRelative(u.last_seen_at || u.last_sign_in_at))+
           '</div>'+
         '</div>'+
@@ -11825,7 +11876,10 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     var r = btn.getBoundingClientRect();
     var m = menu.getBoundingClientRect();
     var gap = 6, edge = 8;
-    var left = Math.max(edge, Math.min(r.right - m.width, window.innerWidth - m.width - edge));
+    // Lined up with the button's far edge: its right in English, its left
+    // in Arabic, so the menu opens over the row rather than off it.
+    var anchor = document.documentElement.dir === "rtl" ? r.left : r.right - m.width;
+    var left = Math.max(edge, Math.min(anchor, window.innerWidth - m.width - edge));
     var top = r.bottom + gap;
     // Flip above when it would run off the bottom. With a roster this long
     // the lower half of the list is where every menu opens.
@@ -11967,7 +12021,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
         makeActive
           ? "Reactivate " + user.email + "? They'll be able to sign in again."
           : "Deactivate " + user.email + "? They won't be able to sign in, but all " +
-            Number(user.entry_count).toLocaleString() + " of their entries stay intact.",
+            Number(user.entry_count).toLocaleString(APP_LOCALE) + " of their entries stay intact.",
         {title: makeActive ? "Reactivate account?" : "Deactivate account?",
          confirmText: makeActive ? "Reactivate" : "Deactivate", danger: !makeActive}
       );
@@ -11992,13 +12046,13 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       // including a nudge toward Deactivate, which keeps records intact and
       // can be undone, right before the point of no return.
       var deleteStep1 = await showConfirm(
-        "Permanently delete " + user.email + " and all " + Number(user.entry_count).toLocaleString() +
+        "Permanently delete " + user.email + " and all " + Number(user.entry_count).toLocaleString(APP_LOCALE) +
         " of their attendance entries? If you just need to remove their access, Deactivate keeps their records intact and can be undone — Delete cannot.",
         {title:"Delete this user?", confirmText:"Continue", danger:true}
       );
       if(!deleteStep1) return;
       var okDelete = await showConfirm(
-        "Delete " + user.email + " and all " + Number(user.entry_count).toLocaleString() +
+        "Delete " + user.email + " and all " + Number(user.entry_count).toLocaleString(APP_LOCALE) +
         " entries? This can't be undone.",
         {title:"Last check", confirmText:"Delete Permanently", danger:true}
       );
@@ -12077,6 +12131,13 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
   function appSettingsDiff(oldV, newV){
     oldV = oldV || {}; newV = newV || {};
     var bits = [];
+    // Admin › Labels: the trigger records which texts moved (up to twenty) and
+    // how many, rather than copying the whole wording into the log.
+    if(Array.isArray(newV.labels_changed) && newV.labels_changed.length){
+      var more = (newV.labels_changed_count || newV.labels_changed.length) - Math.min(3, newV.labels_changed.length);
+      bits.push("Labels: " + newV.labels_changed.slice(0, 3).map(function(k){ return "“" + k + "”"; }).join(", ") +
+        (more > 0 ? " and " + more + " more" : ""));
+    }
     Object.keys(APP_SETTINGS_LABELS).forEach(function(key){
       var label = APP_SETTINGS_LABELS[key];
       if(key === "default_settings"){
@@ -12446,6 +12507,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
         supabase.from("app_settings").select("*").eq("id", 1).maybeSingle());
       if(res.error) throw res.error;
       var s = res.data || {};
+      syncLabels(s.label_overrides);
       document.getElementById("setAllowRegistration").checked = s.allow_registration !== false;
       announcementExtras = Object.prototype.hasOwnProperty.call(s, "announcement_posted_at");
       document.getElementById("setAnnouncementUntilWrap").hidden = !announcementExtras;
@@ -12507,6 +12569,216 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
   // (never hidden anything), and it is not worth a 406 in the console. A
   // failure only means the banner shows, which is what it did before hiding
   // existed.
+  // ---------- Labels (Admin) ----------
+  // Admin › Labels (2026-11-22): the team's own wording for any text in the
+  // app, in English and in Arabic. Every text is listed by the app's own
+  // English (the keys of src/i18n-ar-*.js); an admin fills in a box to reword
+  // it and empties the box to give it back. Saved in
+  // app_settings.label_overrides, which everyone already loads at startup, and
+  // kept on each device (LABELS_KEY) so the first paint already says it.
+
+  // The team's wording as loadAppSettings() just read it: kept, applied, and
+  // the screen redrawn when it has moved. Undefined is a database without the
+  // column yet (its migration not applied), and changes nothing.
+  function syncLabels(ov){
+    if(ov === undefined) return;
+    var json = JSON.stringify(ov || {});
+    if(json === (safeGet(LABELS_KEY) || "{}")) return;
+    try{ localStorage.setItem(LABELS_KEY, json); }catch(err){}
+    setLabelOverrides(ov || {});
+    retranslate(document.documentElement);
+    updateLabelsNav();
+  }
+
+  var LABELS_PAGE = 40;
+  var labelsState = { saved: {en: {}, ar: {}}, draft: null, query: "", changedOnly: false, shown: LABELS_PAGE, missing: false };
+  var labelsDirty = false;
+  function cloneLabels(o){
+    return { en: Object.assign({}, (o && o.en) || {}), ar: Object.assign({}, (o && o.ar) || {}) };
+  }
+  // The {…} names a text carries, in order: what a reworded pattern has to
+  // keep, or the app has nowhere to put the number, time or name.
+  function labelSlots(s){
+    return (String(s).match(/\{\w+(?:\|[^}]*)?\}/g) || []).map(function(x){ return x.slice(1).split(/[|}]/)[0]; }).sort().join(",");
+  }
+  function labelsChanged(d){
+    var keys = {};
+    Object.keys(d.en).forEach(function(k){ keys[k] = 1; });
+    Object.keys(d.ar).forEach(function(k){ keys[k] = 1; });
+    return Object.keys(keys).length;
+  }
+  function updateLabelsNav(){
+    var n = labelsChanged(getLabelOverrides());
+    setNavDesc("cnavDescLabels", n ? t("{n} changed", {n: n}) : t("Any text in the app, in English and Arabic"));
+  }
+  function setLabelsDirty(on){
+    labelsDirty = !!on;
+    var group = document.getElementById("labelsCommit");
+    if(group) group.classList.toggle("is-dirty", labelsDirty);
+    var discard = document.getElementById("discardLabelsBtn");
+    if(discard) discard.hidden = !labelsDirty;
+  }
+
+  async function loadLabels(){
+    var host = document.getElementById("labelsList");
+    if(!host || !isAdmin) return;
+    if(!labelsState.draft) host.innerHTML = '<p class="settings-hint">' + escapeHtml(t("Loading…")) + '</p>';
+    try{
+      var res = await supabase.from("app_settings").select("label_overrides").eq("id", 1).maybeSingle();
+      if(res.error) throw res.error;
+      labelsState.missing = false;
+      labelsState.saved = cloneLabels(res.data && res.data.label_overrides);
+    }catch(err){
+      // The column comes with this release's migration. Until it is applied
+      // the list still reads, and Save says why it cannot work.
+      var msg = String((err && (err.message || err.details)) || "");
+      labelsState.missing = /label_overrides/.test(msg) || (err && err.code === "42703");
+      if(!labelsState.missing) showToast(t("Couldn't load the labels: {e}", {e: friendlyError(err)}), "error");
+      labelsState.saved = cloneLabels(getLabelOverrides());
+    }
+    if(!labelsDirty) labelsState.draft = cloneLabels(labelsState.saved);
+    document.getElementById("labelsMissing").hidden = !labelsState.missing;
+    document.getElementById("saveLabelsBtn").disabled = labelsState.missing;
+    renderLabels();
+  }
+
+  function renderLabels(){
+    var host = document.getElementById("labelsList");
+    if(!host) return;
+    var defaults = labelDefaults();
+    var d = labelsState.draft || cloneLabels(labelsState.saved);
+    var q = labelsState.query.trim().toLowerCase();
+    var keys = Object.keys(defaults).filter(function(k){
+      var changed = d.en[k] != null || d.ar[k] != null;
+      if(labelsState.changedOnly && !changed) return false;
+      if(!q) return true;
+      return [k, defaults[k], d.en[k] || "", d.ar[k] || ""].some(function(s){ return String(s).toLowerCase().indexOf(q) !== -1; });
+    });
+    var shown = keys.slice(0, labelsState.shown);
+    labelsState.listed = { shown: shown.length, of: keys.length };
+    document.getElementById("labelsMeta").textContent = t("Showing {n} of {n2} · {n3} changed",
+      {n: shown.length, n2: keys.length, n3: labelsChanged(d)});
+    if(!keys.length){
+      host.innerHTML = '<p class="settings-hint">' + escapeHtml(t("No labels match.")) + '</p>';
+      return;
+    }
+    host.innerHTML = shown.map(function(k){
+      var changed = d.en[k] != null || d.ar[k] != null;
+      var slots = labelSlots(k);
+      return '<div class="label-row" data-label-key="' + escapeAttr(k) + '">' +
+        '<div class="label-source">' +
+          '<span class="label-default" dir="ltr" lang="en" data-no-i18n>' + escapeHtml(k) + '</span>' +
+          (slots ? '<span class="label-pattern">' + escapeHtml(t("Keep {x} as written: the app fills them in.", {x: slots.split(",").map(function(s){ return "{" + s + "}"; }).join(" ")})) + '</span>' : '') +
+          (changed ? '<span class="label-changed">' + escapeHtml(t("Changed")) + '</span>' : '') +
+        '</div>' +
+        '<label class="label-field"><span class="label-lang" lang="en" data-no-i18n>English</span>' +
+          '<input type="text" maxlength="600" dir="ltr" data-label-lang="en" data-no-i18n value="' + escapeAttr(d.en[k] || "") + '" placeholder="' + escapeAttr(k) + '"></label>' +
+        '<label class="label-field"><span class="label-lang" lang="ar" data-no-i18n>العربية</span>' +
+          '<input type="text" maxlength="600" dir="rtl" data-label-lang="ar" data-no-i18n value="' + escapeAttr(d.ar[k] || "") + '" placeholder="' + escapeAttr(defaults[k]) + '"></label>' +
+        '<button type="button" class="btn ghost small label-reset" data-label-reset' + (changed ? '' : ' hidden') + '>' + escapeHtml(t("Reset")) + '</button>' +
+      '</div>';
+    }).join("") + (keys.length > shown.length
+      ? '<button type="button" class="btn ghost labels-more" id="labelsMoreBtn">' +
+        escapeHtml(t("Show {n} more", {n: Math.min(LABELS_PAGE, keys.length - shown.length)})) + '</button>'
+      : "");
+  }
+
+  function labelRowState(row){
+    var d = labelsState.draft, k = row.getAttribute("data-label-key");
+    var changed = d.en[k] != null || d.ar[k] != null;
+    var reset = row.querySelector("[data-label-reset]");
+    if(reset) reset.hidden = !changed;
+    row.classList.remove("is-invalid");
+    // The same list as before the edit: only the changed count moves.
+    var listed = labelsState.listed || { shown: 0, of: 0 };
+    document.getElementById("labelsMeta").textContent = t("Showing {n} of {n2} · {n3} changed",
+      {n: listed.shown, n2: listed.of, n3: labelsChanged(d)});
+  }
+  onId("labelsList", "input", function(ev){
+    var input = ev.target.closest("[data-label-lang]");
+    if(!input || !labelsState.draft) return;
+    var row = input.closest(".label-row"), k = row.getAttribute("data-label-key");
+    var lang = input.getAttribute("data-label-lang");
+    if(input.value.trim()) labelsState.draft[lang][k] = input.value;
+    else delete labelsState.draft[lang][k];
+    labelRowState(row);
+    setLabelsDirty(true);
+  });
+  onId("labelsList", "click", function(ev){
+    if(ev.target.closest("#labelsMoreBtn")){
+      labelsState.shown += LABELS_PAGE;
+      renderLabels();
+      return;
+    }
+    var reset = ev.target.closest("[data-label-reset]");
+    if(!reset || !labelsState.draft) return;
+    var row = reset.closest(".label-row"), k = row.getAttribute("data-label-key");
+    delete labelsState.draft.en[k];
+    delete labelsState.draft.ar[k];
+    row.querySelectorAll("[data-label-lang]").forEach(function(i){ i.value = ""; });
+    labelRowState(row);
+    setLabelsDirty(true);
+  });
+  var labelsSearchTimer = 0;
+  onId("labelsSearch", "input", function(){
+    var v = this.value;
+    clearTimeout(labelsSearchTimer);
+    labelsSearchTimer = setTimeout(function(){
+      labelsState.query = v;
+      labelsState.shown = LABELS_PAGE;
+      renderLabels();
+    }, 120);
+  });
+  onId("labelsChangedOnly", "change", function(){
+    labelsState.changedOnly = this.checked;
+    labelsState.shown = LABELS_PAGE;
+    renderLabels();
+  });
+  onId("discardLabelsBtn", "click", function(){
+    labelsState.draft = cloneLabels(labelsState.saved);
+    setLabelsDirty(false);
+    renderLabels();
+    showToast(t("Changes discarded."), "info");
+  });
+  onId("saveLabelsBtn", "click", async function(){
+    if(!isAdmin || !labelsState.draft || labelsState.missing) return;
+    var d = labelsState.draft, defaults = labelDefaults();
+    // A reworded pattern keeps its {…} parts, or the app has nowhere to put
+    // the number, the time or the name it fills in.
+    var bad = null;
+    ["en", "ar"].forEach(function(lang){
+      Object.keys(d[lang]).forEach(function(k){
+        var want = lang === "en" ? labelSlots(k) : labelSlots(defaults[k] != null ? defaults[k] : k);
+        if(!bad && labelSlots(d[lang][k]) !== want) bad = k;
+      });
+    });
+    if(bad){
+      document.querySelectorAll("#labelsList .label-row").forEach(function(row){
+        row.classList.toggle("is-invalid", row.getAttribute("data-label-key") === bad);
+      });
+      showToast(t("“{x}” has to keep its {…} parts: the app fills them in.", {x: bad}), "error");
+      return;
+    }
+    var payload = {};
+    if(Object.keys(d.en).length) payload.en = d.en;
+    if(Object.keys(d.ar).length) payload.ar = d.ar;
+    var btn = this;
+    btn.disabled = true;
+    var res = await supabase.from("app_settings").update({label_overrides: payload}).eq("id", 1).select("label_overrides");
+    btn.disabled = false;
+    if(res.error){
+      showToast(t("Couldn't save the labels: {e}", {e: friendlyError(res.error)}), "error");
+      return;
+    }
+    labelsState.saved = cloneLabels(payload);
+    labelsState.draft = cloneLabels(payload);
+    setLabelsDirty(false);
+    syncLabels(payload);
+    renderLabels();
+    showToast(t("Labels saved. Everyone sees them the next time they open the app."), "success");
+  });
+  onId("cnav-admin-labels", "click", function(){ loadLabels(); });
+
   async function loadAnnouncementHide(){
     announcementHiddenAt = null;
     // Before the migration there is no table to ask, and the request would
@@ -13027,7 +13299,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     // in the datetime field is, by the time this runs, technically already
     // a moment in the past.
     var isImmediate = scheduledFor.getTime() <= Date.now() + 5000;
-    var whenPhrase = isImmediate ? " now" : ", scheduled for " + scheduledFor.toLocaleString();
+    var whenPhrase = isImmediate ? " now" : ", scheduled for " + scheduledFor.toLocaleString(APP_LOCALE);
     // The "specific people" branch has always named its real count — "Send this
     // to 2 selected people now?" — and the "everyone" branch never did, even
     // though the composer prints the exact figure three lines above the button.
@@ -13094,7 +13366,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       // one is not reported as a success — the row is saved either way, which
       // is why the message says so rather than pretending nothing happened.
       if(!isImmediate){
-        showToast("Notification scheduled for " + scheduledFor.toLocaleString() + ".", "success");
+        showToast("Notification scheduled for " + scheduledFor.toLocaleString(APP_LOCALE) + ".", "success");
       } else if(notifyTarget !== "all" || reachN === null){
         showToast("Notification sent.", "success");
       } else if(reachN){
@@ -13281,7 +13553,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       var auto = isAutomaticNotification(n);
       var hasRun = n.status === "sent" || n.status === "failed";
       var whenStamp = n.status === "sent" ? n.sent_at : n.scheduled_for;
-      var whenAbs = whenStamp ? new Date(whenStamp).toLocaleString() : "";
+      var whenAbs = whenStamp ? new Date(whenStamp).toLocaleString(APP_LOCALE) : "";
       var canCancel = n.status === "pending" && new Date(n.scheduled_for).getTime() > Date.now();
       var canRetry = n.status === "failed";
 

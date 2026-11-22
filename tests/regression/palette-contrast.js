@@ -255,7 +255,9 @@ for(const mode of ["light", "dark"]){
 
 // The dark theme's hairlines are what the relaxed rail/canvas step above is
 // backed by, so their absence is a real regression rather than a style nit.
-ok(/html\[data-theme="dark"\][^{]*\.rail\s*\{[^}]*border-right/.test(html),
+// border-inline-end since Arabic (2026-11-22): the edge between the rail and
+// the page, which is the rail's right in English and its left in Arabic.
+ok(/html\[data-theme="dark"\][^{]*\.rail\s*\{[^}]*border-(?:right|inline-end)/.test(html),
   "dark mode draws the rail's edge");
 ok(/html\[data-theme="dark"\][^{]*\.card[\s\S]{0,120}?border-color/.test(html),
   "dark mode draws the card's edge");

@@ -1452,6 +1452,26 @@ cards carry surfaces (white, cream, gray) and a card inside a card is the one
 nesting the system never allows. They also carry `.card`, so dark mode gives
 them the same hairline as every other card.
 
+### Arabic, right to left
+Added 2026-11-22 at the owner's request; each person picks English or
+العربية in Settings › Appearance. What keeps it working:
+
+- **Sides are logical.** Every margin, padding, border and offset that has a
+  side is written `inline-start` / `inline-end`, never `left` / `right`, so the
+  rail, the cards and the tables mirror with the page. The exceptions are
+  physical on purpose: centring (`left:50%` with a −50% shift), the photo crop,
+  the phone's safe-area insets and time inputs.
+- **Pointing icons face the reader.** Chevrons, the back arrow and the clock
+  in/out arrows mirror; they are matched by their drawing in the RTL block at
+  the end of the stylesheet, so a new icon with the same path mirrors too.
+  The charts keep their own axis direction (`svg{direction:ltr}`).
+- **No letter-spacing in Arabic.** Tracking pulls Arabic's joined letters
+  apart, so `html[lang="ar"]` turns it off everywhere — the uppercase labels
+  and the tightened figures alike.
+- **Switzer has no Arabic.** Arabic falls back to the device's own Arabic face
+  (SF Arabic, Noto); weight and size still carry the hierarchy.
+- **Western digits, Gregorian dates**, and the app's own units: 7:48 ص, 8س 5د.
+
 ### Trend charts
 A line over a labelled y-axis with light gridlines, each point's own target
 drawn as a gold dashed step behind it, and dots coloured met/under.

@@ -81,6 +81,20 @@
   root.setAttribute("data-theme", resolve(mode));
   root.setAttribute("data-theme-mode", mode);
 
+  // The language, for the same reason as the palette: set before the first
+  // paint, or an Arabic reader watches the page lay itself out left to right
+  // and then flip. Each person chooses in Settings (owner's decision,
+  // 2026-11-22); until they do, the phone's own language decides. src/i18n.js
+  // reads the same key and the same rule, so the two cannot disagree.
+  var lang = "en";
+  try {
+    var savedLang = window.localStorage.getItem("attendance.language");
+    if (savedLang === "ar" || savedLang === "en") lang = savedLang;
+    else lang = /^ar\b/i.test((navigator.languages && navigator.languages[0]) || navigator.language || "") ? "ar" : "en";
+  } catch (e) { /* English stands */ }
+  root.setAttribute("lang", lang);
+  root.setAttribute("dir", lang === "ar" ? "rtl" : "ltr");
+
   // The PWA's status bar and the browser's own chrome read this, so it has to
   // move with the palette or an installed app keeps a near-black bar over a
   // Terracotta interface. It is set from the computed token rather than a
