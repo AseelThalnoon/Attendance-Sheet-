@@ -81,7 +81,7 @@ register({
   "Crashes are being recorded, but this view is not finished setting up yet.": "تُسجَّل الأعطال، لكن هذه الشاشة لم تكتمل بعد.",
   "None of that kind.": "لا شيء من هذا النوع.",
   "Nothing recorded": "لا شيء مسجّل",
-  "Signed out": "مسجّل الخروج",
+  "Signed out": "قبل تسجيل الدخول",
 
   // ---- Announcement ----
   "Couldn't load app settings — announcements may not be shown.": "تعذّر تحميل إعدادات التطبيق — قد لا تظهر الإعلانات.",
@@ -102,7 +102,7 @@ register({
 
   // ---- Team Schedule ----
   "Everyone's week and hours": "أيام الدوام وساعاته للجميع",
-  "Not set — using Sun–Thu, 8h": "غير محدد — الأحد إلى الخميس، 8 س",
+  "Not set — using Sun–Thu, 8h": "غير محدد — الأحد إلى الخميس، 8س",
   "Set both a Standard Start and a Standard End.": "حدّد بداية الدوام ونهايته.",
   "Standard End has to be after Standard Start.": "يجب أن تكون نهاية الدوام بعد بدايته.",
   "Leave days aren't changed.": "أرصدة الإجازات لا تتغير.",
@@ -196,7 +196,7 @@ register({
   "1 person away this week": "غائب واحد هذا الأسبوع",
   "{n} people away this week": "الغائبون هذا الأسبوع: {n}",
   "Everyone’s in this week": "لا غياب هذا الأسبوع",
-  "Everyone away {x} this week": "الجميع غائبون {x} هذا الأسبوع",
+  "Everyone away {x} this week": "غياب الجميع هذا الأسبوع: {x}",
   "Trying…": "جارٍ المحاولة…",
   "Discard the waiting punches?": "تجاهل التسجيلات المعلّقة؟",
 
@@ -230,7 +230,7 @@ register({
   "Thursday": "الخميس", "Friday": "الجمعة", "Saturday": "السبت",
   "Sun–Thu": "الأحد–الخميس", "Mon–Fri": "الاثنين–الجمعة",
   "SUN": "الأحد", "MON": "الاثنين", "TUE": "الثلاثاء", "WED": "الأربعاء", "THU": "الخميس", "FRI": "الجمعة", "SAT": "السبت",
-  "DAYS": "أيام",
+  "DAYS": "الأيام",
   "{n} days": "{n|day}",
   "{n} day": "{n|day}",
   "{n} workdays": "{n|workday}",
@@ -251,8 +251,8 @@ register({
   "{n} day assessed": "الأيام المحتسبة: {n}",
   "{h} of {h2} target": "{h} من أصل {h2}",
   "All partial — some hours were logged": "كلها جزئية — سُجّلت بعض الساعات",
-  "Across {n} days": "على مدى {n|day}",
-  "Across {n} day": "على مدى {n|day}",
+  "Across {n} days": "على مدى {n|day:gen}",
+  "Across {n} day": "على مدى {n|day:gen}",
   "Of {h} target": "من أصل {h}",
   "/day": "/يوم",
   "{h}/day": "{h}/يوم",
@@ -271,7 +271,7 @@ register({
 
   // ---- Labels a screen reader hears, and tooltips ----
   "{n}% of the {h} daily target": "{n}% من {h} المطلوبة يوميًا",
-  "Worked {n} of your last {n2} workdays": "عملت {n} من آخر {n2|workday}",
+  "Worked {n} of your last {n2} workdays": "عملت {n} من آخر {n2|workday:gen}",
   "{n} days: {list}": "{n|day}: {list}",
   "{a}, {b}": "{a}، {b}",
   "{k} {n} days": "{k} {n|day}",
@@ -284,7 +284,7 @@ register({
   "{n} of {n2} logged, {n3} live": "{n} من {n2} مسجّلة، منها {n3} في وقتها",
   "{n} of {n2} logged": "{n} من {n2} مسجّلة",
   "Open {who}'s attendance for {m}": "فتح حضور {who} لشهر {m}",
-  "Sign in with {x} instead of typing your password.": "الدخول بـ{x} بدل كتابة كلمة المرور.",
+  "Sign in with {x} instead of typing your password.": "الدخول باستخدام {x} بدل كتابة كلمة المرور.",
   "your device's fingerprint, face or PIN": "بصمة جهازك أو وجهك أو رمزه",
   "Couldn't check whether {x} is set up. {e}": "تعذّر التحقق مما إذا كان {x} مُعدًّا. {e}",
   "Public holidays in {y}: {list}.": "العطلات الرسمية في {y}: {list}.",

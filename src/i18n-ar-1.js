@@ -114,7 +114,7 @@ register({
   "Select Days": "تحديد أيام",
   "Add Entry": "إضافة يوم",
   "Search notes and day types": "البحث في الملاحظات وأنواع الأيام",
-  "Search notes and day types…": "ابحث في الملاحظات وأنواع الأيام…",
+  "Search notes and day types…": "ابحث في السجل…",
   "Filters": "التصفية",
   "Filter by day type": "تصفية حسب نوع اليوم",
   "All Types": "كل الأنواع",

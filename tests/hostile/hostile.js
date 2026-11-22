@@ -2190,8 +2190,15 @@ async function run(){
       const carriers = [...document.querySelectorAll('[dir="auto"]')]
         .filter(e => arabic.test(e.textContent));
       const stray = [...document.querySelectorAll("option, td, .team-name, .admin-user-name")]
-        .filter(e => arabic.test(e.textContent) && e.closest('[dir="auto"]') === null
-                     && e.getAttribute("dir") !== "auto");
+        // The Arabic that is not inside an isolating element: a People row
+        // isolates the name in its own span, so the badges beside it can be
+        // the app's (translated) words.
+        .filter(e => {
+          if(e.closest('[dir="auto"]') !== null || e.getAttribute("dir") === "auto") return false;
+          const c = e.cloneNode(true);
+          c.querySelectorAll('[dir="auto"]').forEach(x => x.remove());
+          return arabic.test(c.textContent);
+        });
       return {
         carriers: carriers.length,
         resolvedRtl: carriers.filter(e => getComputedStyle(e).direction === "rtl").length,
