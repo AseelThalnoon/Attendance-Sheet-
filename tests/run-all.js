@@ -55,6 +55,7 @@ const SUITES = [
   "regression/crash-handler.js",
   "regression/passkeys.js",
   "regression/whos-away.js",
+  "regression/recap.js",
   "regression/pull-refresh.js",
   "regression/stale-resume.js",
   "regression/request-rounds.js",

@@ -282,7 +282,7 @@ async function start(opts){
   // The new worker is in charge of this page without this page having asked.
   {
     const h = await start({ viewport: DESKTOP, meId: me.id, seed: seed(), beforeLoad: fakeWorker({ controller: true }) });
-    await goTab(h.page, "calendar");
+    await goTab(h.page, "recap");
     await h.page.evaluate(() => window.__sw.takeOver());
     await settle(h.page, 400);
     let s = await sw(h.page);
@@ -294,7 +294,7 @@ async function start(opts){
     await settle(h.page, 900);
     s = await sw(h.page);
     ok(s.loads === 2 && s.posted === 0, "and reloads at its own next quiet moment, with nobody left to ask", JSON.stringify(s));
-    ok(await activeTab(h.page) === "tab-calendar", "back on the tab it was on", await activeTab(h.page));
+    ok(await activeTab(h.page) === "tab-recap", "back on the tab it was on", await activeTab(h.page));
     await h.close();
   }
 })().catch(err => { fail++; failures.push("suite threw: " + (err && err.message || err)); })

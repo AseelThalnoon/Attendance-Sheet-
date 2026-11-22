@@ -608,9 +608,10 @@ part that says what to do. The ceiling is the one that holds at every width in
 
 The tab card hugs its content and shrinks to the frame when content exceeds it,
 rather than always stretching. Stretching turned every short tab into a white
-rectangle with its content huddled at the top. The exception is the Calendar,
-whose cells are drawn to the height they are given; `activateTab()` puts it in
-`CARD_FILLS_FRAME` and the card takes the whole frame there.
+rectangle with its content huddled at the top. The exception was the Calendar,
+whose cells were drawn to the height they were given; `CARD_FILLS_FRAME` is empty
+since Recap replaced it (2026-11-22). Recap, like the Overview, sits on the page
+outside the tab card, so its cards can carry their own surfaces.
 
 ### Flex-shrink protection has to reach every level
 The direct-child rule that stops a panel's children from being flex-shrunk
@@ -989,7 +990,7 @@ an admin is looking at someone else's record, where it says whose days are about
 to be edited.
 
 On a phone the header is one row on every tab, the Overview included, and above
-760px the heading names the tab ("Log", "Calendar") rather than greeting on all
+760px the heading names the tab ("Log", "Recap") rather than greeting on all
 of them.
 
 **The roster spans the middle row and the clock's**, so the clock is a band under
@@ -1020,9 +1021,9 @@ the other clock surfaces, and the clock panel's own button steps aside while
 the card shows it. Hand entry is the second link, "Add a past day by hand".
 The card also lasts through the first shift instead of ending at the first
 clock-in, which used to swap it for a row of zeros at the moment someone had
-just started; it says the day is underway until the first clock-out. The
-calendar starts at the first logged day, as Shortfall already did: a workday
-before it is drawn like an upcoming one, never "Not logged".
+just started; it says the day is underway until the first clock-out. Recap
+starts counting at the first logged day, as Shortfall and the Calendar before it
+did: a workday before it is never "not logged".
 
 **Trends and Shortfall take the same first-run state.** An account with nothing
 logged used to get the whole chart apparatus wrapped around no chart: sub-tabs
@@ -1420,13 +1421,36 @@ Addresses in a card get one line and an ellipsis, with the full value in
 `title`. Wrapped, they split mid-domain, which reads as two broken strings
 rather than one truncated address.
 
-### Week timeline
-An hour axis and seven day columns; each entry is an ink bar spanning its real
-clock-in to clock-out, ringed mint or blush for met/under, hatched while a shift
-is still open. All-day entries with no clock times become a chip pinned to the
-top of the column rather than a bar at an arbitrary hour. The frame adapts to
-the week's data — a fixed 6am–10pm window clamps an overnight shift into an
-unreadable sliver.
+### Recap
+Replaced the Calendar on 2026-11-22, at the owner's request: the Calendar re-drew
+what the Log and Trends already show. Recap answers "how am I really doing?",
+and every choice below was the owner's, asked one at a time.
+
+- **One card at a time**, at every width: a scroll-snap row a phone swipes, with
+  arrows beside it above 760px and dots on each card saying where you are. Month
+  has five cards (Summary, Punctuality, Hours, Consistency, Time off); Year has
+  six, led by a picture of the year.
+- **Against your own usual**, the three months before the month in view, never
+  against the team. The Year view compares the same months of last year, and
+  only months both years logged; with none, it says so.
+- **No figure the Overview shows.** The month's average, the bank, the streak
+  and the leave left stay on the Overview; Recap says how they moved.
+- **An honest coach.** An area that slipped gets one "Try this", in the lime
+  box (a fill, ink-on-gold text). An area that held or improved gets a "Well
+  done" line in the positive tint, and nothing to do. Time off is described,
+  never judged.
+- **The Summary is a verdict per area**: Better, Steady or Slipped, with the
+  reason, and the slipped row outlined and linking to its card.
+- **The Year picture starts where logging did.** One square per workday, a row
+  per month, a group per week, so a weekday is always the same column. Months
+  before the logging stretch are not drawn, so they never read as missed.
+- **A dot on the Recap item** from the 1st of a month until that month's
+  finished recap is opened; on days 1-7 the tab opens on last month's.
+
+It sits on the page like the Overview, not inside the tab card, because its
+cards carry surfaces (white, cream, gray) and a card inside a card is the one
+nesting the system never allows. They also carry `.card`, so dark mode gives
+them the same hairline as every other card.
 
 ### Trend charts
 A line over a labelled y-axis with light gridlines, each point's own target
@@ -1470,7 +1494,7 @@ Four things changed on 2026-11-16, on the owner's decision:
 Shortfall is a view inside Trends — the third button on the Weekly / Monthly
 switch — rather than a destination of its own (changed 2026-11-16, on the
 owner's decision). The phone bar is the same for everyone: Overview, Log, the
-clock, Trends, Calendar. Team, for an admin, is an icon in the phone header beside
+clock, Trends, Recap (Calendar until 2026-11-22). Team, for an admin, is an icon in the phone header beside
 Admin and Settings, and Admin is an icon (the shield) rather than a labelled
 pill. The Shortfall panel itself is unchanged; only the way in
 moved.

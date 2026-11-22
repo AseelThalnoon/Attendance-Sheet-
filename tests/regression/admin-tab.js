@@ -305,7 +305,7 @@ async function boot(browser, server, query){
     // Overview leads and Settings closes the strip: both moved into tabs of
     // their own so switching views replaces the screen instead of scrolling
     // past the same cards, or expanding a panel that pushes them down.
-    ok(s.strip.join(",") === "overview,log,trends,calendar,punctuality,team,settings",
+    ok(s.strip.join(",") === "overview,log,trends,recap,punctuality,team,settings",
       "the tab strip keeps the attendance views", JSON.stringify(s.strip));
   }
   {

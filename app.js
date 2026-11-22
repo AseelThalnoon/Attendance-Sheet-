@@ -527,7 +527,7 @@ var __authLinkError = (function(){
 // movable at all. See src/constants.js for why the declarations inside them
 // kept their original `var` wording.
 import {
-  DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
+  DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel,
   EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
   DISMISS_KEY,
   DEFAULT_SETTINGS, VAPID_PUBLIC_KEY, REMINDER_GRACE_MIN
@@ -541,6 +541,8 @@ import { safeGet, safeSet, normalizeSettings } from "./src/storage.js";
 import { rowToEntry, entryToRow } from "./src/entries.js";
 import { explainedError, friendlyError } from "./src/errors.js";
 import { makeSchedule } from "./src/schedule.js";
+import { makeRecap } from "./src/recap.js";
+import { monthSlides, yearSlides } from "./src/recap-view.js";
 
 (function(){
   "use strict";
@@ -575,6 +577,9 @@ import { makeSchedule } from "./src/schedule.js";
     isScheduled, targetMinPerDay, scheduleFor, workDaysLabel, scheduleSummary,
     computeEntry, weekStartDow, weekStartDate, weekKey
   } = makeSchedule(function(){ return settings; });
+  // Recap's arithmetic, judged by the same schedule functions as every other
+  // screen (and so through the same settings getter, swaps included).
+  const recapCalc = makeRecap({ isScheduled: isScheduled, scheduleFor: scheduleFor, computeEntry: computeEntry });
 
   // Persisted across reloads. These were plain in-memory values, so "Dismiss" on
   // an open-shift reminder reset on every refresh — which on an installed PWA
@@ -5460,506 +5465,186 @@ import { makeSchedule } from "./src/schedule.js";
     });
   }
 
-  // ---------- Calendar ----------
-  var calendarViewDate = new Date(); // tracks which month is currently shown
-
-  // The first day this record holds: its earliest entry, or null for a record
-  // with none. A workday before it is not a day someone failed to log -- they
-  // were not using the app yet. The calendar marked every earlier workday of
-  // the month "Not logged", eleven of them on an account opened that morning;
-  // Shortfall already started from the first entry (unloggedWorkdays), and
-  // the calendar now starts from the same place.
-  var recordStartMemo = {epoch: -1, value: null};
-  function recordStartDate(){
-    if(recordStartMemo.epoch === dataEpoch) return recordStartMemo.value;
-    var first = null;
-    entries.forEach(function(e){ if(!first || e.date < first) first = e.date; });
-    recordStartMemo = {epoch: dataEpoch, value: first};
-    return first;
-  }
-
-  // One badge per day: what actually happened, in priority order.
-  function calendarDayStatus(dateStr){
-    var entry = entries.find(function(e){ return e.date === dateStr; });
-    var scheduled = isScheduled(dateStr);
-    if(!entry){
-      if(!scheduled) return "off";
-      if(dateStr > todayStr()) return "future";
-      var start = recordStartDate();
-      return !start || dateStr < start ? "before" : "missing";
-    }
-    var c = computeEntry(entry);
-    if(c.open) return "open";
-    if(c.excused) return "excused";
-    if(c.workedMin === null) return scheduled && dateStr <= todayStr() ? "missing" : "off";
-    // Hours on a day that owes nothing: a remote, trip or training day with
-    // clock times, or work on a day off. computeEntry scores them 0 over a
-    // 0 target, so they read as "met" -- hours in ink, like any counted day
-    // -- beside a month line whose "worked" leaves them out. Neither the
-    // averages nor the bank count them (WORKED_TYPES, isScheduled), and the
-    // grid says so now (2026-11-19).
-    if(entry.clockIn && !(countsAsWorked(entry.type) && scheduled)) return "uncounted";
-    if(c.diffMin !== null && c.diffMin >= 0) return "met";
-    return "under";
-  }
-
-  // The phone grid's hours. This was a decimal -- "6.9h" for 6h 55m -- because
-  // "8h 24m" does not fit a 41px cell on one line. But it made the calendar
-  // the one place in the app that wrote hours differently: the same day read
-  // 6h 55m in the Log and 6.9h here, and a tenth of an hour is not a unit
-  // anybody clocks in. The cell wraps at the space instead (.cal-val b), so a
-  // day with minutes is "6h" over "55m": two short lines of the same words
-  // every other screen uses. Both forms are still rendered and CSS still picks
-  // one, because the short form keeps its own smaller type.
-  function hoursCompact(mins){
-    if(mins === null || mins === undefined || isNaN(mins)) return "";
-    return minutesToHoursStr(mins);
-  }
-  // "8:03 AM" does not fit that cell either, and on an hours grid the meridiem
-  // is the part a reader can infer.
-  function timeNoMeridiem(t){ return formatTime12(t).replace(/\s*[AP]M$/i, ""); }
-  // "Sick Leave" truncated to "Sick L..." in a 41px cell. The four
-  // EXCUSED_TYPES and the three NO_TARGET_TYPES (when logged without clock
-  // times) reach the calendar's type branch, so they need a short form; the
-  // full label still shows everywhere there is room for it.
+  // Short names for the day types that have no clock times, for the places a
+  // full label does not fit (the Team roster's day cells). This lived with the
+  // Calendar, whose 41px cells it was written for, and stayed when Recap
+  // replaced it.
   var CAL_TYPE_SHORT = { leave:"Leave", sick:"Sick", holiday:"Holiday", other:"Excused",
                          wfh:"Remote", trip:"Trip", training:"Training" };
   function calTypeShort(t){ return CAL_TYPE_SHORT[t] || typeLabel(t); }
 
-  function renderCalendar(){
-    var y = calendarViewDate.getFullYear(), m = calendarViewDate.getMonth();
-    document.getElementById("calMonthLabel").textContent =
-      calendarViewDate.toLocaleDateString(undefined, {month:"long", year:"numeric"});
+  // ---------- Recap ----------
+  // The tab that replaced the Calendar (2026-11-22). src/recap.js works out
+  // how a month or a year went against the person's own usual, and
+  // src/recap-view.js writes the cards; this puts them on the page, pages
+  // through them, and keeps the period controls honest.
+  var recapMode = "month";   // "month" | "year"
+  var recapMonth = null;     // "YYYY-MM" in view; null until first drawn
+  var recapYear = null;      // "YYYY" in view
+  var recapCard = 0;         // which card is in view
+  var recapForUser = null;   // whose record the period was chosen for
 
-    var firstOfMonth = new Date(y, m, 1);
-    var startDow = firstOfMonth.getDay();
-    var daysInMonth = new Date(y, m+1, 0).getDate();
-
-    // The week's own shape, from settings.workDays rather than from an
-    // assumption about which columns the weekend lands in. A non-working column
-    // is narrower and washed cream; the boundary rule goes on the first
-    // non-working column that follows a working one. Sun-Thu is only this
-    // account's default -- a Mon-Fri account gets the narrow columns at both
-    // ends, and someone who works all seven gets an even grid and no wash,
-    // which is correct rather than a special case.
-    var offCol = [], anyOff = false;
-    for(var dw=0; dw<7; dw++){
-      offCol[dw] = settings.workDays.indexOf(dw) === -1;
-      if(offCol[dw]) anyOff = true;
+  // The working weekdays in the order a week runs, for the weekday charts.
+  function recapWeekOrder(){
+    var first = weekStartDow(), out = [];
+    for(var i = 0; i < 7; i++){
+      var d = (first + i) % 7;
+      if(settings.workDays.indexOf(d) !== -1) out.push(d);
     }
-    // Only the first column of a run gets the rule: a two-day weekend is one
-    // boundary, not two.
-    function isWeekBoundary(dw){ return anyOff && offCol[dw] && !offCol[(dw+6)%7]; }
-    // A days-off column is narrow because it is normally empty. One that holds
-    // a logged day this month keeps its wash but gets a full width back: at
-    // .62fr a weekend cell is 15-22px wide on a phone, and the hours someone
-    // worked on their day off were clipped to "1…" in the one cell that most
-    // needed to show them.
-    var offUsed = [];
-    entries.forEach(function(e){
-      var d = dateFromStr(e.date);
-      if(d.getFullYear() === y && d.getMonth() === m) offUsed[d.getDay()] = true;
-    });
-    var grid = document.getElementById("calendarGrid");
-    grid.style.gridTemplateColumns = offCol.map(function(off, dw){
-      return off && !offUsed[dw] ? "minmax(0,.62fr)" : "minmax(0,1fr)";
-    }).join(" ");
-
-    var html = DAY_NAMES.map(function(d, dw){
-      return '<div class="cal-dow' + (offCol[dw] ? ' cal-dow-off' : '') +
-        (isWeekBoundary(dw) ? ' cal-dow-weekstart' : '') + '">'+d+'</div>';
-    }).join("");
-    for(var i=0;i<startDow;i++){
-      html += '<div class="cal-cell cal-empty' + (offCol[i] ? ' cal-weekend' : '') +
-        (isWeekBoundary(i) ? ' cal-weekstart' : '') + '"></div>';
-    }
-
-    // Month totals by the Overview's own rules (summarize): Regular and Half
-    // Day work on scheduled days. This line used to add up every cell with
-    // hours -- WFH, trips, training and days off included -- and count leave
-    // days as "logged", so the Calendar and the Overview gave two different
-    // "over target" figures for the same month. The cells still show every
-    // day's own hours. Unlogged workdays are the Shortfall tab's question.
-    var monthEntries = entries.filter(function(e){ return monthKey(e.date) === y + "-" + pad2(m+1); });
-    var monthSummary = summarize(monthEntries);
-    // Hours on the grid that the month line's "worked" leaves out, and what
-    // kind of days they were on, so the line can say so.
-    var uncountedMin = 0, uncountedKinds = {};
-
-    for(var day=1; day<=daysInMonth; day++){
-      var dStr = y+"-"+pad2(m+1)+"-"+pad2(day);
-      var status = calendarDayStatus(dStr);
-      var isToday = dStr === todayStr();
-      var entry = entries.find(function(e){ return e.date === dStr; });
-      var c = entry ? computeEntry(entry) : null;
-      var worked = c && c.workedMin !== null ? c.workedMin : null;
-
-      // A no-target day (WFH, trip, training) logged without clock times has
-      // no hours to state, but computes as 0h against a 0h target and so
-      // reached the hours branch below as "met": a business trip read "0h",
-      // which looks like a missed day. It is named instead, as an excused day
-      // is -- the same thing the week view's chip already does.
-      var untimedNoTarget = !!entry && !entry.clockIn && NO_TARGET_TYPES.indexOf(entry.type) !== -1;
-
-      var title = entry ? (typeLabel(entry.type) + (entry.clockIn ? " · " + formatTime12(entry.clockIn) : "")) : "No entry";
-      // The hours are on the cell now, so they belong in the label the screen
-      // reader gets too -- otherwise the one view that finally states the
-      // number states it to everyone except the reader who cannot see it.
-      // Only for a day with clock times: an untimed leave, sick or trip day
-      // computes as 0h, and "Sick Leave · 0h" says a missed day out loud.
-      if(worked !== null && entry.clockIn) title += " · " + minutesToHoursStr(worked);
-      // Status was previously carried by background colour and a coloured dot
-      // alone — indistinguishable for colour-blind users and invisible to a
-      // screen reader, whose only cue was the bare day number.
-      var statusWord = untimedNoTarget ? "no target" : (CAL_STATUS_LABELS[status] || status);
-      var calLabel = fmtDateLong(dStr) + ", " + statusWord +
-        (entry ? ", " + title : "") + (isToday ? ", today" : "");
-
-      // What the cell says out loud. A worked day states its hours; an open one
-      // states when it started (a running total would be wrong the moment it
-      // was painted, and this grid has no clock driving it); an excused one
-      // names the reason. Everything else stays empty on purpose.
-      var value = "";
-      if((status === "met" || status === "under") && !untimedNoTarget){
-        value = '<span class="cal-val" aria-hidden="true">' +
-            '<b class="cal-val-full">'+escapeHtml(minutesToHoursStr(worked))+'</b>' +
-            '<b class="cal-val-short">'+escapeHtml(hoursCompact(worked))+'</b>' +
-          '</span>';
-      } else if(status === "uncounted"){
-        // The hours, muted, over what the day was: "8h / Remote", "3h / Day
-        // off". Muted because they are not part of anything the month adds up.
-        value = '<span class="cal-val is-uncounted" aria-hidden="true">' +
-            '<b class="cal-val-full">'+escapeHtml(minutesToHoursStr(worked))+'</b>' +
-            '<b class="cal-val-short">'+escapeHtml(hoursCompact(worked))+'</b>' +
-          '</span>';
-      } else if(status === "open" && entry.clockIn){
-        value = '<span class="cal-val is-time" aria-hidden="true">' +
-            '<b class="cal-val-full">'+escapeHtml(formatTime12(entry.clockIn))+'</b>' +
-            '<b class="cal-val-short">'+escapeHtml(timeNoMeridiem(entry.clockIn))+'</b>' +
-          '</span>';
-      } else if(entry && (status === "excused" || untimedNoTarget)){
-        value = '<span class="cal-val is-type" aria-hidden="true">' +
-            '<b class="cal-val-full">'+escapeHtml(typeLabel(entry.type))+'</b>' +
-            '<b class="cal-val-short">'+escapeHtml(calTypeShort(entry.type))+'</b>' +
-          '</span>';
-      }
-
-      // The shortfall, said rather than drawn. This replaces the tint and the
-      // target bar together: a bar could show that a day was short but never by
-      // how much, and both channels were colour. "1h 45m short" is the fact
-      // itself, and it survives a reader who cannot tell the two bars apart.
-      // minutesOnlyStr, not minutesToHoursStr -- this app already decided that
-      // "0h 31m" reads like a typo.
-      var short = "";
-      if(status === "under" && c.targetMin > 0 && worked !== null){
-        var behind = minutesOnlyStr(c.targetMin - worked);
-        // "1h 45m short" wraps to two lines in a 52px cell and takes the row
-        // with it; the phone gets the same signed shorthand the hours use.
-        short = '<span class="cal-short" aria-hidden="true">' +
-            '<b class="cal-val-full">'+escapeHtml(behind)+' short</b>' +
-            '<b class="cal-val-short">−'+escapeHtml(behind)+'</b>' +
-          '</span>';
-      } else if(status === "missing"){
-        short = '<span class="cal-short" aria-hidden="true">Not logged</span>';
-      } else if(status === "uncounted"){
-        var kind = countsAsWorked(entry.type) ? "Day off" : calTypeShort(entry.type);
-        short = '<span class="cal-short is-note" aria-hidden="true">'+escapeHtml(kind)+'</span>';
-        uncountedMin += worked;
-        uncountedKinds[countsAsWorked(entry.type) ? "off" : entry.type] = true;
-      }
-
-      var dow = (startDow + day - 1) % 7;
-      // Row-by-row reveal on month navigation; capped so a 5-6 week month
-      // doesn't drag the animation out past a quick, routine transition.
-      var gridIndex = startDow + day - 1;
-      var cellDelay = Math.min(gridIndex, 20) * 12;
-      html +=
-        '<button type="button" class="cal-cell cal-'+status+(isToday?' cal-today':'') +
-          (offCol[dow] ? ' cal-weekend' : '') + (isWeekBoundary(dow) ? ' cal-weekstart' : '') +
-          '" data-date="'+dStr+'" ' +
-          'title="'+escapeAttr(title)+'" aria-label="'+escapeAttr(calLabel)+'"' +
-          (isToday ? ' aria-current="date"' : '') +
-          ' style="animation-delay:'+cellDelay+'ms">' +
-          '<span class="cal-daynum" aria-hidden="true">'+day+'</span>' +
-          value + short +
-        '</button>';
-    }
-    // Fill the last row out. The hairline is per cell, so without these the
-    // final rule stops under the last date instead of closing the month.
-    var filled = startDow + daysInMonth;
-    while(filled % 7){
-      html += '<div class="cal-cell cal-empty' + (offCol[filled % 7] ? ' cal-weekend' : '') +
-        (isWeekBoundary(filled % 7) ? ' cal-weekstart' : '') + '"></div>';
-      filled++;
-    }
-    document.getElementById("calendarGrid").innerHTML = html;
-    renderCalendarSummary(monthSummary.dayWeight, monthSummary.workedSum, monthSummary.diffSum, monthEntries.length > 0,
-      uncountedMin, uncountedKinds);
-  }
-
-  // "16h on remote days not counted": the hours the grid shows that "worked"
-  // leaves out, named by the kinds of day they were on.
-  var UNCOUNTED_KIND_WORDS = { wfh:"remote days", trip:"trips", training:"training days", off:"days off" };
-  function uncountedNote(min, kinds){
-    if(!min) return "";
-    var words = ["wfh", "trip", "training", "off"].filter(function(k){ return kinds && kinds[k]; })
-      .map(function(k){ return UNCOUNTED_KIND_WORDS[k]; });
-    var list = words.length > 1 ? words.slice(0, -1).join(", ") + " and " + words[words.length - 1] : words[0];
-    return '<span class="cal-sum-note"><b>'+escapeHtml(minutesToHoursStr(min))+'</b> on '+escapeHtml(list)+' not counted</span>';
-  }
-
-  function renderCalendarSummary(days, workedMin, diffMin, anyEntries, uncountedMin, uncountedKinds){
-    var host = document.getElementById("calSummary");
-    if(!host) return;
-    var note = uncountedNote(uncountedMin, uncountedKinds);
-    if(!days){
-      host.innerHTML = '<span class="cal-sum-empty">' +
-        (anyEntries ? "No regular workdays logged this month." : "Nothing logged this month yet.") +
-        '</span>' + note;
-      return;
-    }
-    var diff = diffMin === 0
-      ? '<span><b>On target</b></span>'
-      : '<span class="'+(diffMin > 0 ? "is-over" : "is-under")+'">' +
-          '<b>'+escapeHtml(minutesToHoursStr(Math.abs(diffMin)))+'</b> ' +
-          (diffMin > 0 ? "over target" : "under target") +
-        '</span>';
-    host.innerHTML =
-      '<span><b>'+fmtDayCount(days)+'</b> '+(days === 1 ? "workday" : "workdays")+' logged</span>' +
-      '<span><b>'+escapeHtml(minutesToHoursStr(workedMin))+'</b> worked</span>' +
-      diff + note;
-  }
-
-  // "10:00 AM" is 52px of an axis column that is 44px wide on a phone, and the
-  // timeline's own overflow:auto cropped the difference off the left -- so the
-  // label read "0:00 AM", and 12:00 PM read "2:00 PM", which is not a broken
-  // time but a different real one. On a fixed hourly scale the ":00" is the
-  // part carrying no information, so it goes and the label fits.
-  function hourTickLabel(h){
-    var hh = ((h % 24) + 24) % 24;
-    return (hh % 12 === 0 ? 12 : hh % 12) + " " + (hh < 12 ? "AM" : "PM");
-  }
-
-  // ---------- Week timeline ----------
-  // Month view answers "which days went well". This answers "when did I
-  // actually work", which a grid of coloured day cells cannot show: each entry
-  // is a bar spanning its real clock-in to clock-out.
-  var calMode = "month";               // "month" | "week"
-  var WL_DEFAULT_START = 6, WL_DEFAULT_END = 22;
-
-  function startOfWeek(d){
-    var out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    out.setDate(out.getDate() - out.getDay()); // Sunday-first, matching DAY_NAMES
     return out;
   }
-
-  function renderWeekLine(){
-    var host = document.getElementById("weekLine");
-    if(!host) return;
-    var start = startOfWeek(calendarViewDate);
-
-    var days = [];
-    for(var i=0;i<7;i++){
-      days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate()+i));
-    }
-    function dstr(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }
-
-    // The window adapts to the week's own data. A fixed 6am-10pm frame is right
-    // for office hours, but this app explicitly supports overnight shifts
-    // (computeEntry adds 24h to a negative span), and those would otherwise
-    // collapse into an unreadable sliver clamped against the bottom edge.
-    var WL_START_HOUR = WL_DEFAULT_START, WL_END_HOUR = WL_DEFAULT_END;
-    days.forEach(function(d){
-      var e = entries.find(function(x){ return x.date === dstr(d); });
-      if(!e || !e.clockIn) return;
-      var from = timeToMinutes(e.clockIn);
-      var to = e.clockOut ? timeToMinutes(e.clockOut) : from;
-      if(to < from) to += 24*60; // overnight
-      WL_START_HOUR = Math.min(WL_START_HOUR, Math.floor(from/60));
-      WL_END_HOUR   = Math.max(WL_END_HOUR, Math.ceil(to/60));
-    });
-    if(WL_END_HOUR - WL_START_HOUR > 24){ WL_START_HOUR = 0; WL_END_HOUR = 24; }
-    var span = (WL_END_HOUR - WL_START_HOUR) * 60;
-
-    // The same week shape the month grid draws, from the same setting: a
-    // non-working column is narrower and cream, and the boundary rule goes on
-    // the first one that follows a working day.
-    var offCol = [], anyOff = false;
-    for(var dw=0; dw<7; dw++){
-      offCol[dw] = settings.workDays.indexOf(dw) === -1;
-      if(offCol[dw]) anyOff = true;
-    }
-    function isWeekBoundary(dw){ return anyOff && offCol[dw] && !offCol[(dw+6)%7]; }
-    var axisCol = window.matchMedia && window.matchMedia("(max-width:760px)").matches ? "44px" : "56px";
-    host.style.gridTemplateColumns = axisCol + " " + days.map(function(d){
-      return offCol[d.getDay()] ? "minmax(0,.62fr)" : "minmax(0,1fr)";
-    }).join(" ");
-
-    var html = '<div class="wl-dayhead"></div>';
-    days.forEach(function(d){
-      var isToday = dstr(d) === todayStr();
-      var dw = d.getDay();
-      html += '<div class="wl-dayhead'+(isToday?' is-today':'')+(offCol[dw]?' is-off':'')+
-        (isWeekBoundary(dw)?' is-weekstart':'')+'">'+
-        DAY_NAMES[dw]+'<b>'+d.getDate()+'</b></div>';
-    });
-
-    // Hour axis. Labelled every two hours so the column does not become a
-    // stack of touching numerals on a phone.
-    var ticks = [];
-    var axis = '<div class="wl-axis" style="grid-row:2;">';
-    var tickStep = (WL_END_HOUR - WL_START_HOUR) > 18 ? 3 : 2;
-    for(var h=WL_START_HOUR; h<=WL_END_HOUR; h+=tickStep){
-      var pct = ((h - WL_START_HOUR) * 60 / span) * 100;
-      ticks.push(pct);
-      axis += '<span style="top:'+pct.toFixed(2)+'%">'+hourTickLabel(h)+'</span>';
-    }
-    html += axis + '</div>';
-    // Every labelled hour gets a rule across the columns, so a bar's edges land
-    // against something readable instead of floating beside a list of times.
-    var hourRules = ticks.map(function(p){
-      return '<div class="wl-hour" style="top:'+p.toFixed(2)+'%"></div>';
-    }).join("");
-
-    var any = false;
-    days.forEach(function(d){
-      var ds = dstr(d);
-      var isToday = ds === todayStr();
-      var dwc = d.getDay();
-      var cell = '<div class="wl-col'+(offCol[dwc]?' is-weekend':'')+
-        (isWeekBoundary(dwc)?' is-weekstart':'')+'" style="grid-row:2;">' + hourRules;
-      // Same source of truth the month grid reads, so the two views can never
-      // disagree about whether a day counts as unlogged.
-      if(calendarDayStatus(ds) === "missing"){
-        cell += '<div class="wl-missing">Not logged</div>';
-      }
-      var entry = entries.find(function(e){ return e.date === ds; });
-      if(entry){
-        any = true;
-        var c = computeEntry(entry);
-        if(entry.clockIn){
-          var from = timeToMinutes(entry.clockIn);
-          // An open shift is still running: draw it to now, so the bar grows
-          // through the day instead of showing nothing until you clock out.
-          var toRaw = entry.clockOut ? timeToMinutes(entry.clockOut)
-                    : (isToday ? (new Date().getHours()*60 + new Date().getMinutes()) : from + 30);
-          // Overnight: match computeEntry's rule (a negative span means the
-          // shift crossed midnight) so the bar length equals the hours the
-          // rest of the app credits for that day.
-          if(toRaw < from) toRaw += 24*60;
-          var top = Math.max(0, Math.min(100, ((from - WL_START_HOUR*60) / span) * 100));
-          var bot = Math.max(0, Math.min(100, ((toRaw - WL_START_HOUR*60) / span) * 100));
-          var height = Math.max(2.2, bot - top);
-          // "8:03 AM – now" rather than a bare start time: an open shift is the
-          // one bar whose end is not a fact yet, and saying so is what lets the
-          // hatch stop needing a legend to explain it.
-          var label = formatTime12(entry.clockIn) +
-            (entry.clockOut ? "–" + formatTime12(entry.clockOut) : c.open ? " – now" : "");
-          cell += '<div class="wl-bar'+(c.open ? " is-open" : "")+'" style="top:'+top.toFixed(2)+'%; height:'+height.toFixed(2)+'%" '+
-            'title="'+escapeAttr(typeLabel(entry.type)+" · "+label)+'">'+escapeHtml(label)+'</div>';
-          // The shortfall, in the month's words and the month's olive, pinned
-          // just under the bar it belongs to.
-          if(!c.open && c.targetMin > 0 && c.workedMin !== null && c.workedMin < c.targetMin){
-            cell += '<div class="wl-short" style="top:calc('+bot.toFixed(2)+'% + 3px)">' +
-              escapeHtml(minutesOnlyStr(c.targetMin - c.workedMin)) + ' short</div>';
-          }
-        } else {
-          cell += '<div class="wl-chip" title="'+escapeAttr(typeLabel(entry.type))+'">'+
-            escapeHtml(typeLabel(entry.type))+'</div>';
-        }
-      }
-      cell += '</div>';
-      html += cell;
-    });
-
-    if(!any){
-      html += '<p class="wl-empty" style="grid-row:3;">Nothing logged this week yet.</p>';
-    }
-    host.innerHTML = html;
+  function recapMonthLabel(mk, withYear){
+    var d = dateFromStr(mk + "-01");
+    return d.toLocaleDateString(undefined, withYear ? {month:"long", year:"numeric"} : {month:"long"});
   }
+  function recapShortMonth(dateStr){ return dateFromStr(dateStr.slice(0, 7) + "-01").toLocaleDateString(undefined, {month:"short"}); }
 
-  // One entry point so every caller (nav, Today, tab activation, data reload)
-  // paints whichever view is currently selected.
-  function renderCalendarView(){
-    var grid = document.getElementById("calendarGrid");
-    var week = document.getElementById("weekLine");
-    var label = document.getElementById("calMonthLabel");
-    // Neither view carries a legend any more; both state what they know in
-    // words. The month's totals line still belongs to the month.
-    var isWeek = calMode === "week";
-    var summary = document.getElementById("calSummary");
-    if(summary) summary.hidden = isWeek;
-    if(isWeek){
-      grid.hidden = true; grid.style.display = "none";
-      week.hidden = false;
-      renderWeekLine();
-      var s = startOfWeek(calendarViewDate);
-      var e = new Date(s.getFullYear(), s.getMonth(), s.getDate()+6);
-      var sameMonth = s.getMonth() === e.getMonth();
-      // Composed by hand: asking toLocaleDateString for {day, year} alone lets
-      // the runtime render "2026 (day: 22)", which is not a date range.
-      var left = fmtWith(s, {month:"short", day:"numeric"});
-      var right = sameMonth
-        ? String(e.getDate())
-        : fmtWith(e, {month:"short", day:"numeric"});
-      label.textContent = left + " – " + right + ", " + e.getFullYear();
+  function renderRecap(keepCard){
+    var track = document.getElementById("recapTrack");
+    if(!track) return;
+    var today = todayStr();
+    // An admin switching to someone else's record starts from that record's
+    // own default period, not wherever the last one was left.
+    if(recapForUser !== viewedUserId){
+      recapForUser = viewedUserId; recapMonth = null; recapYear = null; keepCard = false;
+    }
+    if(!recapMonth) recapMonth = recapCalc.defaultMonth(entries, today);
+    if(!recapYear) recapYear = today.slice(0, 4);
+    var bounds = recapCalc.range(entries, today);
+    var slides, title, sub, atStart, atEnd;
+    if(recapMode === "year"){
+      var y = recapCalc.yearRecap(entries, recapYear, today, settings.workDays, weekStartDate);
+      slides = yearSlides(y, recapWeekOrder());
+      title = recapYear + (y.isCurrent ? " so far" : "");
+      sub = y.empty ? "Nothing logged this year" :
+        y.from > recapYear + "-01-01" ? "Since you began logging on " + fmtDateNoYear(y.from) : "From January";
+      atStart = !bounds || recapYear <= bounds.firstMonth.slice(0, 4);
+      atEnd = recapYear >= today.slice(0, 4);
     } else {
-      week.hidden = true;
-      grid.hidden = false; grid.style.display = "";
-      renderCalendar();
+      var m = recapCalc.monthRecap(entries, recapMonth, today);
+      slides = monthSlides(m, recapWeekOrder());
+      var sameYear = recapMonth.slice(0, 4) === today.slice(0, 4);
+      title = recapMonthLabel(recapMonth, !sameYear) + (m.isCurrent ? " so far" : "");
+      if(m.base){
+        var a = recapShortMonth(m.base.from), b = recapShortMonth(m.base.to);
+        sub = "Your usual: " + (a === b ? a : a + " – " + b);
+      } else {
+        sub = "Your usual takes shape after a few weeks of logging";
+      }
+      atStart = !bounds || recapMonth <= bounds.firstMonth;
+      atEnd = recapMonth >= today.slice(0, 7);
     }
+    document.getElementById("recapTitle").textContent = title;
+    document.getElementById("recapSub").textContent = sub;
+    var unit = recapMode === "year" ? "year" : "month";
+    var prev = document.getElementById("recapPrevBtn"), next = document.getElementById("recapNextBtn");
+    prev.disabled = atStart; next.disabled = atEnd;
+    prev.setAttribute("aria-label", "Previous " + unit);
+    next.setAttribute("aria-label", "Next " + unit);
+    document.querySelectorAll("[data-recap-mode]").forEach(function(b){
+      var on = b.getAttribute("data-recap-mode") === recapMode;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    track.innerHTML = slides.join("");
+    recapGoTo(keepCard ? recapCard : 0, false);
   }
 
-  document.querySelectorAll("[data-cal-mode]").forEach(function(btn){
+  function recapStep(){
+    var track = document.getElementById("recapTrack");
+    var cards = track ? track.children : [];
+    return cards.length > 1 ? cards[1].offsetLeft - cards[0].offsetLeft : (track ? track.clientWidth : 0);
+  }
+  function recapSyncArrows(){
+    var track = document.getElementById("recapTrack");
+    var n = track ? track.children.length : 0;
+    document.getElementById("recapCardPrev").disabled = recapCard <= 0;
+    document.getElementById("recapCardNext").disabled = recapCard >= n - 1;
+  }
+  function recapGoTo(i, smooth){
+    var track = document.getElementById("recapTrack");
+    if(!track) return;
+    var n = track.children.length;
+    recapCard = Math.max(0, Math.min(n - 1, i));
+    var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // "instant", not "auto": the track's own scroll-behavior is smooth, and
+    // "auto" defers to it, so a redraw would visibly slide from card one.
+    track.scrollTo({left: recapCard * recapStep(), behavior: smooth && !calm ? "smooth" : "instant"});
+    recapSyncArrows();
+  }
+  // Swiping moves the track without telling anyone; read where it settled.
+  var recapScrollRaf = 0;
+  onId("recapTrack", "scroll", function(){
+    if(recapScrollRaf) return;
+    recapScrollRaf = requestAnimationFrame(function(){
+      recapScrollRaf = 0;
+      var track = document.getElementById("recapTrack"), step = recapStep();
+      if(!track || !step) return;
+      recapCard = Math.max(0, Math.min(track.children.length - 1, Math.round(track.scrollLeft / step)));
+      recapSyncArrows();
+    });
+  }, {passive:true});
+  onId("recapTrack", "click", function(ev){
+    var go = ev.target.closest("[data-recap-go]");
+    if(go) recapGoTo(+go.getAttribute("data-recap-go"), true);
+  });
+  onId("recapCardPrev", "click", function(){ recapGoTo(recapCard - 1, true); });
+  onId("recapCardNext", "click", function(){ recapGoTo(recapCard + 1, true); });
+  document.querySelectorAll("[data-recap-mode]").forEach(function(btn){
     btn.addEventListener("click", function(){
-      calMode = btn.getAttribute("data-cal-mode");
-      document.querySelectorAll("[data-cal-mode]").forEach(function(b){
-        var on = b === btn;
-        b.classList.toggle("active", on);
-        b.setAttribute("aria-pressed", on ? "true" : "false");
-      });
-      renderCalendarView();
+      var mode = btn.getAttribute("data-recap-mode");
+      if(mode === recapMode) return;
+      recapMode = mode;
+      renderRecap(false);
     });
   });
-
-  // Nav steps by whichever unit is on screen: a month at a time in month view,
-  // a week at a time in week view.
-  function stepCalendar(dir){
-    if(calMode === "week") calendarViewDate.setDate(calendarViewDate.getDate() + dir*7);
-    // From the 1st, so stepping from the 31st does not skip a 30-day month.
-    else calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() + dir, 1);
-    renderCalendarView();
-    periodFollowCalendar();
+  function recapShift(dir){
+    if(recapMode === "year") recapYear = String(+recapYear + dir);
+    else recapMonth = recapCalc.shiftMonth(recapMonth, dir);
+    // The same card stays up, so paging months compares one area at a time.
+    renderRecap(true);
   }
-  onId("calPrevBtn", "click", function(){ stepCalendar(-1); });
-  onId("calNextBtn", "click", function(){ stepCalendar(1); });
-  onId("calTodayBtn", "click", function(){
-    calendarViewDate = new Date();
-    renderCalendarView();
-    periodFollowCalendar();
+  onId("recapPrevBtn", "click", function(){ recapShift(-1); });
+  onId("recapNextBtn", "click", function(){ recapShift(1); });
+  // A resize changes the card width under a scroll offset measured in the
+  // old one; put the current card back square in the frame.
+  var recapResizeTimer = 0;
+  window.addEventListener("resize", function(){
+    clearTimeout(recapResizeTimer);
+    recapResizeTimer = setTimeout(function(){
+      if(document.querySelector('.tab-btn[data-tab="recap"].active')) recapGoTo(recapCard, false);
+    }, 120);
   });
 
-  // The Calendar and the shared period follow each other while a single month
-  // is picked: March in the Log opens the Calendar on March, and paging the
-  // Calendar to May moves the Log and Shortfall to May. A whole year or All
-  // time is left alone -- paging the Calendar does not quietly narrow it.
-  function calendarFollowPeriod(){
-    var sp = currentPeriod();
-    if(sp.month === "all") return;
-    var y = +sp.month.slice(0, 4), m = +sp.month.slice(5, 7) - 1;
-    if(calendarViewDate.getFullYear() === y && calendarViewDate.getMonth() === m) return;
-    var now = new Date();
-    calendarViewDate = (now.getFullYear() === y && now.getMonth() === m) ? now : new Date(y, m, 1);
+  // The dot on the Recap item: from the 1st of a month until last month's
+  // finished recap has been opened, on your own record only. Kept per person
+  // on this device, so a shared tablet does not tell one person the other has
+  // already looked.
+  var RECAP_SEEN_KEY = "attendance.recapSeen.v1";
+  function recapSeenMap(){
+    try{ return JSON.parse(safeGet(RECAP_SEEN_KEY) || "{}") || {}; }catch(err){ return {}; }
   }
-  function periodFollowCalendar(){
-    if(calMode !== "month") return;
-    var sp = currentPeriod();
-    if(sp.month === "all") return;
-    var mk = calendarViewDate.getFullYear() + "-" + String(calendarViewDate.getMonth() + 1).padStart(2, "0");
-    // A month with nothing to show elsewhere (before the first entry, or
-    // ahead of today) leaves the shared period where it was.
-    if(mk === sp.month || periodMonthKeys().indexOf(mk) === -1) return;
-    setPeriod(mk.slice(0, 4), mk);
+  function recapLastMonth(){ return recapCalc.shiftMonth(todayStr().slice(0, 7), -1); }
+  function updateRecapDot(){
+    var show = false;
+    if(currentUser && isOwnData){
+      var lm = recapLastMonth(), seen = recapSeenMap()[currentUser.id];
+      show = (!seen || seen < lm) && entries.some(function(e){ return e.date.slice(0, 7) === lm; });
+    }
+    document.querySelectorAll('.bn-item[data-bn-tab="recap"], .rail-item[data-rail-tab="recap"]').forEach(function(el){
+      el.classList.toggle("has-new", show);
+      if(show) el.setAttribute("aria-label", "Recap, new: " + recapMonthLabel(recapLastMonth(), false) + "'s recap is ready");
+      else el.removeAttribute("aria-label");
+    });
+  }
+  function markRecapSeen(){
+    if(!currentUser || !isOwnData) return;
+    var map = recapSeenMap();
+    map[currentUser.id] = recapLastMonth();
+    // Not safeSet: a full storage would put its "export a backup" warning on
+    // screen over a dot.
+    try{ localStorage.setItem(RECAP_SEEN_KEY, JSON.stringify(map)); }catch(err){}
+    updateRecapDot();
   }
 
   function openNewEntryForm(dateStr){
@@ -5973,18 +5658,6 @@ import { makeSchedule } from "./src/schedule.js";
     openEntryModal();
   }
 
-  onId("calendarGrid", "click", function(ev){
-    var cell = ev.target.closest(".cal-cell[data-date]");
-    if(!cell) return;
-    var dStr = cell.getAttribute("data-date");
-    var entry = entries.find(function(e){ return e.date === dStr; });
-    if(entry){
-      loadEntryIntoForm(entry.id);
-    } else {
-      openNewEntryForm(dStr);
-    }
-  });
-
   // Keyboard accelerators. Before this, only modals trapped Tab/Escape/Enter —
   // the two most repeated actions (paging through a month, opening the manual-
   // entry form) had no accelerator at all.
@@ -5992,11 +5665,13 @@ import { makeSchedule } from "./src/schedule.js";
     var tag = t && t.tagName;
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable);
   }
-  onId("tab-calendar", "keydown", function(ev){
+  // Left and right page the Recap cards, the way they paged the Calendar's
+  // months before it.
+  onId("tab-recap", "keydown", function(ev){
     if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
     if(isEditableTarget(ev.target)) return;
     ev.preventDefault();
-    document.getElementById(ev.key === "ArrowLeft" ? "calPrevBtn" : "calNextBtn").click();
+    recapGoTo(recapCard + (ev.key === "ArrowLeft" ? -1 : 1), true);
   });
   onId("tab-team", "keydown", function(ev){
     if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
@@ -6255,10 +5930,13 @@ import { makeSchedule } from "./src/schedule.js";
     // correct even when it's the one already on screen and the viewed
     // person or role just changed underneath it (see refreshSettingsPanel).
     refreshSettingsPanel();
-    // Repaint the calendar only when it is the visible tab: it is not part of
+    // Repaint Recap only when it is the visible tab: it is not part of
     // the default view, and rendering a hidden panel on every data change is
     // work nobody sees.
-    if(document.querySelector('.tab-btn[data-tab="calendar"].active')) renderCalendarView();
+    if(document.querySelector('.tab-btn[data-tab="recap"].active')) renderRecap(true);
+    // The dot on the Recap item can appear or go with any change to the record
+    // (the first entry of a new month, a switch to someone else's record).
+    updateRecapDot();
     // Every change to the record ends here, so this is where the copy kept
     // on this device is brought up to date (see openFromDeviceCopy).
     scheduleDeviceCopySave();
@@ -8084,7 +7762,7 @@ import { makeSchedule } from "./src/schedule.js";
     // The same four for everyone. Team used to be appended here for an admin,
     // which made the bar five places with a spacer beside the clock; it is a
     // header button now (#teamBtn), next to Admin and Settings.
-    var order = ["overview", "log", "trends", "calendar"];
+    var order = ["overview", "log", "trends", "recap"];
 
     // Return anything no longer in scope to the hidden pool FIRST. Without this,
     // an admin who demoted themselves kept Team and Admin sitting in the visible
@@ -8157,9 +7835,10 @@ import { makeSchedule } from "./src/schedule.js";
   }
   window.addEventListener("resize", positionRailIndicator);
 
-  // The one tab whose content is sized to its container rather than to itself:
-  // the month grid's cells stretch to whatever height the frame gives them, and
-  // a card that hugged would collapse them to a strip.
+  // Tabs whose content is sized to its container rather than to itself. The
+  // Calendar's month grid was the one, and went with it (2026-11-22); Recap
+  // sits on the page like the Overview and never uses the card at all. The
+  // list stays so the rule below has somewhere to say it.
   //
   // Not the two chart tabs, despite the temptation. Their chart-holder is
   // deliberately flex:0 1 auto — a four-point line stretched to fill a tall
@@ -8167,14 +7846,14 @@ import { makeSchedule } from "./src/schedule.js";
   // #tab-trends .chart-holder in index.html) — so filling the frame there
   // only moves the empty space from under the card to inside it. Hugging puts
   // the card's edge right below the content, and the canvas takes the rest.
-  var CARD_FILLS_FRAME = ["calendar"];
+  var CARD_FILLS_FRAME = [];
 
   // One activation path for every control that can open a panel: the tab strip,
   // the mobile bottom nav, and the header's Admin button — which is not a tab at
   // all, since managing the organisation is not a view of your own attendance.
   // `quiet` switches the panel and every marker of which one is open, and
   // draws nothing: forgetLastPerson() uses it on the way out of an account.
-  var TAB_MOTION_ORDER = ["overview", "log", "trends", "punctuality", "calendar", "team", "admin", "settings"];
+  var TAB_MOTION_ORDER = ["overview", "log", "trends", "punctuality", "recap", "team", "admin", "settings"];
   var TAB_MOTION_SLOT = {punctuality: 2};
   var lastActiveTab = "overview";
   function activateTab(tab, quiet){
@@ -8236,7 +7915,7 @@ import { makeSchedule } from "./src/schedule.js";
     // wrapper has to be hidden when Overview is the active tab, or an empty
     // white panel is left standing under it.
     var tabCard = document.getElementById("tabContentCard");
-    if(tabCard) tabCard.hidden = (tab === "overview");
+    if(tabCard) tabCard.hidden = (tab === "overview" || tab === "recap");
 
     // Which panel is active now decides whether the sticky clock belongs on
     // screen, and the IntersectionObserver that normally drives it only fires
@@ -8260,7 +7939,7 @@ import { makeSchedule } from "./src/schedule.js";
         renderTodayTeam().catch(function(){});
       }
       if(tab === "trends") renderSubtab(activeSubtab());
-      if(tab === "calendar"){ calendarFollowPeriod(); renderCalendarView(); }
+      if(tab === "recap"){ renderRecap(true); markRecapSeen(); }
       if(tab === "punctuality") renderPunctuality();
       if(tab === "team") renderTeam();
       if(tab === "admin") renderAdmin();
