@@ -153,6 +153,15 @@ Its sections run in three groups, most used first:
 - **Who's Away**, then **Company-Wide Days** (this year's public holidays are
   listed; Mark as offers no Sick Leave), **Notifications** and
   **Announcement** (posted and taken down, not ticked and saved).
+- **Labels** (2026-11-22) — the team's own wording for any text in the app,
+  in English and Arabic: every text listed by the app's English, a box for
+  each language with the app's wording as its placeholder, search, *Changed
+  only*, Reset per row, and *Unsaved changes* with Discard. A reworded pattern
+  must keep its `{…}` parts. Saved in `app_settings.label_overrides`
+  (migration `20261122120000_label_overrides`, which also teaches the
+  Activity Log trigger to name the labels that moved); everyone already loads
+  it at startup, and each device keeps a copy so the first paint says it.
+  Until that migration is applied the section reads but does not save.
 - **Data & Backup** (data checks that run as counted queries: open shifts from
   past days, blank working days, implausible dates, people with no schedule,
   with checks that pass listed too; the team backup; storage by table),
@@ -212,6 +221,8 @@ npm run test:regression   # just the audit regression suites
 | `regression/undo-and-replace` | What one tap could lose: Undo after a clock-out (saved, or waiting on the device) that never writes over a newer change; no blank Regular day from the entry form; Replace says what it replaces and offers Undo; messages above the phone's bottom bar; Admin's Download Team Backup holds every account, entry and schedule |
 | `regression/device-copy` | Opening on the record kept on the device: no sign-in form flash, the record and the tab bar before the server answers, the Day Types ring not redrawn for the same days, the copy kept and labelled when the server is unreachable, a punch queued while the session is renewed, nobody else's copy, gone on sign-out; day one lasting through the first shift |
 | `regression/recap` | The Recap tab (replaced the Calendar, 2026-11-22): the month against the three months before it, a tip only where an area slipped, no figure the Overview shows, no "not logged" before the first entry or for a day still open, last month's recap opening on days 1-7, the year picture starting where logging did and last year compared on the same months only, public holidays left out of time off; then the tab itself on a phone and a desktop: outside the tab card, five cards one at a time, the keyboard and Year switch, and the new-month dot |
+| `regression/arabic` | Arabic: plurals in all their forms, the patterns that translate sentences built from parts (a number never eats a word; an untranslated sentence stays whole), ص/م and س/د, every entry's placeholders; then every tab on a phone and a desktop in Arabic: right to left, nothing left in English on screen but names and product names, nothing off the side, Recap's first card in view, and the switch back to English |
+| `regression/labels` | Admin › Labels: the team's wording shows in English and in Arabic, a reworded pattern fills in its number, taking it away restores the app's own text; then the app: the wording on the first screen, an edit saved and shown at once, a pattern that loses its `{n}` refused, Reset, and an Arabic rewording in Arabic |
 | `regression/sign-out-clean` | Nothing of one person is left for the next: the page starts over after a sign-out (or is emptied by hand where it cannot), and the device stops receiving the last person's notifications |
 | `regression/csv-export` | The exported file as a spreadsheet reads it: notes cannot run as formulas, figures stay figures, Arabic survives Excel, and the file imports back unchanged |
 | `regression/frame-guard` | The app refuses to run inside another page's frame, on another site or its own origin; the description, no-index and no-JavaScript notices |
@@ -255,8 +266,15 @@ ATTENDANCE_APP_SRC=/tmp/old-app.js npm run test:regression
 - **Punch times come from the device clock** and are therefore unverifiable.
 - **Single tenant.** Every admin sees every user; there is no organisation or
   department boundary in the schema.
-- **English only.** No RTL layout. User-authored text is bidi-isolated with
-  `dir="auto"`, but the interface itself is not translated.
+- **English and Arabic, app only.** Each person picks the language in
+  Settings › Appearance (kept on the device, starting in the phone's
+  language). Arabic is right to left, with Western digits and the Gregorian
+  calendar. The text is looked up by its English in `src/i18n-ar-*.js`:
+  fixed text is swapped where it lands (`translateTree` / `watch` in
+  `src/i18n.js`), and sentences app.js builds from parts are matched by
+  `{placeholder}` patterns, so most of app.js writes English and needs no
+  change. Push notifications, the reminder function and the sign-up email
+  are still English. User-authored text (`dir="auto"`) is never translated.
 - **Ledger is the only pre-redesign world brought back.** The old codebase
   also shipped Kinetic (scroll-reveal motion) and Velocity (a full dark/3D
   alternate world with its own fonts) alongside it, switched by an

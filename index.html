@@ -1267,7 +1267,7 @@
      mode where shadows do not read, not an abandonment of it. */
   html[data-theme="dark"] .card,
   html[data-theme="dark"] .stat-card{border-color:var(--line-soft);}
-  html[data-theme="dark"] .rail{border-right:1px solid var(--line);}
+  html[data-theme="dark"] .rail{border-inline-end:1px solid var(--line);}
 
   /* The two hardcoded light fills that sit on a surface which flips.
      Most of this stylesheet's rgba(255,255,255,…) values are safe without a
@@ -1370,14 +1370,14 @@
      dark surface in the system, which is what lets the canvas stay light and
      the accents stay pastel. Below 900px it is replaced by the bottom nav. */
   .rail{
-    position:fixed; left:0; top:0; bottom:0; width:236px; z-index:120;
+    position:fixed; inset-inline-start:0; top:0; bottom:0; width:236px; z-index:120;
     background:var(--rail); color:#fff;
     /* The rail's own left edge IS the screen's left edge, so in landscape its
        contents run under the sensor housing. The dark ground already extends
        beneath it, which is the right look; only the contents move. Rounding
        stays off that edge for the same reason — only the seam against the
        canvas, top-right and bottom-right, gets it. */
-    border-radius:0 var(--radius-md) var(--radius-md) 0;
+    border-start-start-radius:0; border-start-end-radius:var(--radius-md); border-end-end-radius:var(--radius-md); border-end-start-radius:0;
     display:flex; flex-direction:column;
     padding:24px 16px 16px calc(16px + env(safe-area-inset-left, 0px));
   }
@@ -1392,7 +1392,7 @@
   .rail-item{
     position:relative; display:flex; align-items:center; gap:12px;
     padding:12px 12px; border-radius:var(--radius-sm); cursor:pointer;
-    background:none; border:none; width:100%; text-align:left;
+    background:none; border:none; width:100%; text-align:start;
     font-family:inherit; font-size:11px; font-weight:500;
     text-transform:uppercase; letter-spacing:.09em;
     color:var(--muted-on-dark); min-height:44px;
@@ -1424,7 +1424,7 @@
      blanket transition-duration override still lands it correctly, just
      without the glide. */
   .rail-nav-indicator{
-    position:absolute; left:-16px; top:0; width:3px; height:26px;
+    position:absolute; inset-inline-start:-16px; top:0; width:3px; height:26px;
     /* A 3px-wide bar: the cap is a half-pill, not a corner. Was a literal 3px,
        which is off the rounded scale and reads as a magic number; the pill
        token clamps to the same shape at this width. */
@@ -1433,7 +1433,7 @@
        holds a mark that is the sole carrier of a fact to the same floor as the
        sentence that would have said it. The halo was Atrium's lime in all
        fourteen compositions — a blue bar in a lime glow in Studio. */
-    border-radius:0 var(--radius-pill) var(--radius-pill) 0; background:var(--gold-on-dark);
+    border-start-start-radius:0; border-start-end-radius:var(--radius-pill); border-end-end-radius:var(--radius-pill); border-end-start-radius:0; background:var(--gold-on-dark);
     box-shadow:0 0 14px rgba(var(--gold-rgb),.55);
     opacity:0; transform:translateY(0);
     transition:transform var(--dur-slow) var(--ease-soft), opacity var(--dur-fast) var(--ease-snap);
@@ -1471,8 +1471,8 @@
   .seal .seal-sub{font-size:12px; color:var(--muted-on-dark); margin:0;}
   /* Status reads as a coloured edge, not a tinted panel — the accents are
      fills here, at a size where they never carry text. */
-  .seal.status-over{border-left:3px solid var(--mint);}
-  .seal.status-under{border-left:3px solid var(--blush);}
+  .seal.status-over{border-inline-start:3px solid var(--mint);}
+  .seal.status-under{border-inline-start:3px solid var(--blush);}
   .seal.punched{animation:sealPunch .55s var(--ease-soft);}
   @keyframes sealPunch{
     0%{transform:scale(1);}
@@ -1502,7 +1502,7 @@
      hidden, so a 100vh box is taller than the screen actually is and the
      bottom of it sits under the chrome. Browsers without dvh ignore the
      second declaration and keep the first. */
-  .shell{margin-left:236px; min-height:100vh; min-height:100dvh;}
+  .shell{margin-inline-start:236px; min-height:100vh; min-height:100dvh;}
   /* Installed as a standalone PWA locked to portrait (see manifest.json), this
      header is the first thing painted below the status bar / notch / Dynamic
      Island on a phone — the rail that would otherwise sit above it is hidden
@@ -1596,7 +1596,7 @@
     position:relative; width:44px; padding:0; justify-content:center; gap:0;
   }
   .head-action.is-icon .notif-badge{
-    position:absolute; top:4px; right:3px;
+    position:absolute; top:4px; inset-inline-end:3px;
   }
   @media (max-width:480px){
     /* The labels stay. Dropping them was what turned this row into three
@@ -1686,7 +1686,7 @@
     }
     .notice-stack > .reminder .reminder-title,
     .notice-stack > .reminder .reminder-text{margin:0;}
-    .notice-stack > .reminder .reminder-actions{margin:0 0 0 auto; flex-shrink:0; gap:6px;}
+    .notice-stack > .reminder .reminder-actions{margin-block:0 0; margin-inline:auto 0; flex-shrink:0; gap:6px;}
     .notice-stack > .reminder .reminder-actions .btn{font-size:11.5px;}
     .notice-stack > .reminder svg{width:14px; height:14px; margin-top:0;}
     /* The gap goes below the strip, not between its rows — so it is paid once
@@ -1898,7 +1898,7 @@
      is the primary moment on a phone and must not move. */
   @media (max-width:760px){
     .rail{display:none;}
-    .shell{margin-left:0;}
+    .shell{margin-inline-start:0;}
     /* This is the rule actually on screen for an installed portrait PWA on
        most phones (see the base header.ledger-head rule's own comment on
        why the safe-area addition has to be repeated at every breakpoint that
@@ -1954,7 +1954,7 @@
   }
   .today-line-text{display:flex; flex-direction:column; gap:2px; min-width:0;}
   .today-line-sub{font-size:12px; color:var(--muted-on-dark);}
-  .today-line-value{font-size:20px; font-weight:900; letter-spacing:-.02em; margin-left:auto; white-space:nowrap; font-variant-numeric:tabular-nums;}
+  .today-line-value{font-size:20px; font-weight:900; letter-spacing:-.02em; margin-inline-start:auto; white-space:nowrap; font-variant-numeric:tabular-nums;}
   .today-line.status-over .today-line-value{color:var(--positive-on-dark);}
   .today-line.status-under .today-line-value{color:var(--negative-on-dark);}
   @media (max-width:759px){ .today-line:not([hidden]){display:flex;} }
@@ -2026,7 +2026,7 @@
      skip link (400) sits higher, because it has to be reachable before
      anything else. */
   .status-bar-scrim{
-    position:fixed; top:0; left:0; right:0; z-index:300;
+    position:fixed; top:0; inset-inline-start:0; inset-inline-end:0; z-index:300;
     height:env(safe-area-inset-top, 0px);
     /* --paper, not --ink-950. Under "default" the app no longer renders beneath
        the status bar, so this strip should be zero-height -- but if a device
@@ -2088,7 +2088,7 @@
     padding:var(--space-4) var(--space-4) var(--space-3);
     border-bottom:1px solid var(--line-soft); flex:0 0 auto;
   }
-  .notif-title{font-family:var(--font-display); font-size:16px; margin:0; margin-right:auto;}
+  .notif-title{font-family:var(--font-display); font-size:16px; margin:0; margin-inline-end:auto;}
   .notif-head-actions{display:flex; gap:var(--space-2);}
   .notif-head-actions .btn{white-space:nowrap;}
   /* Title, two labelled buttons and the close do not fit one line on a
@@ -2226,7 +2226,7 @@
      down, so it reads as "remove this row" rather than "close the panel". */
   .notif-dismiss{
     display:flex; align-items:center; justify-content:center;
-    width:32px; height:32px; flex-shrink:0; margin:-4px -6px 0 0;
+    width:32px; height:32px; flex-shrink:0; margin-block:-4px 0; margin-inline:0 -6px;
     background:none; border:none; border-radius:var(--radius-sm);
     color:var(--muted-2); cursor:pointer;
   }
@@ -2685,8 +2685,8 @@
   /* Right-aligned in tabular figures, so "12d" and "4d" end on one edge;
      the extra margin keeps the count a step apart from the longest name. */
   .format-leg-num{
-    font-weight:700; color:var(--ink); white-space:nowrap; text-align:right;
-    font-variant-numeric:tabular-nums; margin-left:6px;
+    font-weight:700; color:var(--ink); white-space:nowrap; text-align:end;
+    font-variant-numeric:tabular-nums; margin-inline-start:6px;
   }
   /* Small phones: beside a 112px ring the list has ~120px, and names wrap
      two and three lines deep. Ring on top, list under it at full width. */
@@ -2729,7 +2729,7 @@
      itself, so it stays pinned to the visible edge instead of scrolling away
      with the content it's hinting at. */
   .format-legend-wrap::after{
-    content:""; position:absolute; left:0; right:0; bottom:0; height:20px;
+    content:""; position:absolute; inset-inline-start:0; inset-inline-end:0; bottom:0; height:20px;
     background:linear-gradient(180deg, transparent, var(--card));
     pointer-events:none; opacity:0; transition:opacity var(--dur-fast) var(--ease-snap);
   }
@@ -2761,7 +2761,7 @@
     flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain;
     /* Gutter for the scrollbar, pulled back out again so rows still sit flush
        with the card's padding when there is nothing to scroll. */
-    padding-right:8px; margin-right:-8px;
+    padding-inline-end:8px; margin-inline-end:-8px;
     scrollbar-width:thin; scrollbar-color:var(--line) transparent;
   }
   .today-team-list::-webkit-scrollbar{width:6px;}
@@ -2880,7 +2880,7 @@
      closing tag, further down this block, for the full explanation. */
   .stat-card::before{
     content:none;
-    position:absolute; top:0; left:14px; right:14px; height:3px;
+    position:absolute; top:0; inset-inline-start:14px; inset-inline-end:14px; height:3px;
     /* 3px tall, so these corners are a cap rather than a radius — the pill
        token clamps to the same shape and keeps it on the scale. */
     background:var(--gradient-gold); border-radius:0 0 var(--radius-pill) var(--radius-pill);
@@ -3109,7 +3109,7 @@
   }
   /* max(): .42em of the panel's 23px step, or of the sticky bar's 15px, would
      put "PM" under the 11px floor. */
-  .punch-flood-time .punch-flood-period{font-size:max(11px, .42em); letter-spacing:.06em; margin-left:.3em;}
+  .punch-flood-time .punch-flood-period{font-size:max(11px, .42em); letter-spacing:.06em; margin-inline-start:.3em;}
   .punch-flood .punch-flood-sub{
     color:inherit;
     animation:punchTextIn .4s var(--ease-soft) .5s both;
@@ -3264,7 +3264,7 @@
      its half-width cell rather than stretching across the row. */
   .entry-date-fields{display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:var(--space-3);}
   .entry-link{
-    display:flex; width:fit-content; margin-right:auto; align-self:flex-start;
+    display:flex; width:fit-content; margin-inline-end:auto; align-self:flex-start;
     justify-content:flex-start; padding:2px 0; margin-top:var(--space-1);
   }
   .entry-std-row{margin-top:calc(-1 * var(--space-2));}
@@ -3339,7 +3339,7 @@
   /* The picker indicator keeps its own intrinsic width in Safari; let it shrink
      rather than push the value out of the box. */
   input[type="date"]::-webkit-calendar-picker-indicator,
-  input[type="time"]::-webkit-calendar-picker-indicator{margin-left:4px; flex-shrink:0;}
+  input[type="time"]::-webkit-calendar-picker-indicator{margin-inline-start:4px; flex-shrink:0;}
 
   .btn{
     position:relative; overflow:hidden;
@@ -3467,7 +3467,7 @@
     width:100%; display:flex; align-items:center; justify-content:space-between;
     background:var(--ink-50); border:none; cursor:pointer;
     padding:var(--space-3) var(--space-4); font-size:13px; font-weight:700; color:var(--ink);
-    text-align:left; min-height:44px;
+    text-align:start; min-height:44px;
   }
   .accordion-chevron{transition:transform var(--dur-slow) var(--ease-soft); color:var(--muted); flex-shrink:0;}
   .accordion-section.open .accordion-chevron{transform:rotate(180deg);}
@@ -3504,7 +3504,7 @@
      aligns on the baseline — right for a heading beside its sentence, wrong for
      a 44px circle, which would hang off the text's baseline instead of sitting
      level with it. */
-  .console-head-action{margin-left:auto; align-self:center; flex-shrink:0;}
+  .console-head-action{margin-inline-start:auto; align-self:center; flex-shrink:0;}
   /* Wide enough, the heading and its sentence share a line and the button sits
      at the far end of it. Narrow, the sentence needs the full width — and
      wrapping in source order left the button stranded on a line of its own
@@ -3604,7 +3604,7 @@
      same floor as the sentence it replaced. */
   .console-nav-item.needs-attention .console-nav-desc{color:var(--warn); font-weight:500;}
   .console-nav-item.needs-attention .console-nav-title::after{
-    content:""; display:inline-block; width:6px; height:6px; margin-left:6px;
+    content:""; display:inline-block; width:6px; height:6px; margin-inline-start:6px;
     border-radius:50%; background:var(--warn); vertical-align:middle;
   }
   .console-nav-item.needs-attention .console-nav-icon{background:var(--warn-bg); color:var(--warn);}
@@ -3612,7 +3612,7 @@
   .console-nav-item{
     display:flex; align-items:center; gap:var(--space-3); width:100%; min-height:62px;
     padding:10px var(--space-3); border:none; background:transparent; cursor:pointer;
-    border-radius:var(--radius-md); text-align:left; color:var(--ink);
+    border-radius:var(--radius-md); text-align:start; color:var(--ink);
     font:inherit; letter-spacing:0; text-transform:none; min-width:0;
     transition:background var(--dur-base) var(--ease-soft), box-shadow var(--dur-base) var(--ease-soft);
   }
@@ -3663,7 +3663,7 @@
   @media (max-width:899px){
     .console-back{
       display:inline-flex; align-items:center; gap:6px;
-      min-height:44px; margin:-4px 0 10px; padding:0 10px 0 4px;
+      min-height:44px; margin:-4px 0 10px; padding-block:0 0; padding-inline:4px 10px;
       background:none; border:none; cursor:pointer; font:inherit;
       font-size:13px; font-weight:500; color:var(--muted-2); border-radius:var(--radius-sm);
     }
@@ -3703,7 +3703,7 @@
     margin:var(--space-4) 0 0;
     padding-top:var(--space-3); padding-bottom:var(--space-1);
     border:none; border-top:1px solid var(--line-soft);
-    border-radius:0; background:transparent; padding-left:0; padding-right:0;
+    border-radius:0; background:transparent; padding-inline-start:0; padding-inline-end:0;
   }
   /* The measure belongs to the sentence, not to the row — capping the row
      shortened its rule and left it out of step with the section divider. */
@@ -3964,7 +3964,7 @@
      form where a person who edited the first field never scrolls. */
   .console-commit-group.is-dirty{
     position:sticky; bottom:0; z-index:5;
-    margin-left:calc(-1 * var(--space-4)); margin-right:calc(-1 * var(--space-4));
+    margin-inline-start:calc(-1 * var(--space-4)); margin-inline-end:calc(-1 * var(--space-4));
     padding:var(--space-3) var(--space-4);
     background:var(--card); border-top:1px solid var(--line-soft);
     box-shadow:0 -8px 20px rgba(0,0,0,.06);
@@ -4062,8 +4062,8 @@
 
   /* ---------- Log search bar ---------- */
   .search-field{position:relative; flex:1 1 200px; min-width:170px; display:flex; align-items:center;}
-  .search-field svg{position:absolute; left:10px; color:var(--muted-2); pointer-events:none;}
-  .search-field input{padding-left:32px; width:100%;}
+  .search-field svg{position:absolute; inset-inline-start:10px; color:var(--muted-2); pointer-events:none;}
+  .search-field input{padding-inline-start:32px; width:100%;}
   .filter-bar .date-field{width:auto; min-width:130px;}
   .filter-bar #typeFilterSelect{min-width:140px;}
   .filter-count{font-size:11.5px; color:var(--muted-2); white-space:nowrap;}
@@ -4191,8 +4191,8 @@
     content:""; position:absolute; top:0; bottom:1px; width:26px; pointer-events:none;
     opacity:0; transition:opacity var(--dur-fast) var(--ease-snap); z-index:2;
   }
-  .tabs-wrap::before{left:0; background:linear-gradient(90deg, var(--card), transparent);}
-  .tabs-wrap::after{right:0; background:linear-gradient(270deg, var(--card), transparent);}
+  .tabs-wrap::before{inset-inline-start:0; background:linear-gradient(90deg, var(--card), transparent);}
+  .tabs-wrap::after{inset-inline-end:0; background:linear-gradient(270deg, var(--card), transparent);}
   .tabs-wrap.can-scroll-left::before{opacity:1;}
   .tabs-wrap.can-scroll-right::after{opacity:1;}
   .tabs{
@@ -4210,7 +4210,7 @@
      like the four tabs before it — a hairline divider marks that boundary
      instead of leaving five equal-weight destinations in an undifferentiated
      row. */
-  .tab-btn[data-tab="team"]{margin-left:10px; padding-left:16px; border-left:1px solid var(--line-soft);}
+  .tab-btn[data-tab="team"]{margin-inline-start:10px; padding-inline-start:16px; border-inline-start:1px solid var(--line-soft);}
   .tab-panel{display:none;}
   .tab-panel.active{display:block; animation:fadeIn .25s var(--ease-soft);}
   /* On a phone the tabs are a row of places along the bottom bar, so moving
@@ -4291,7 +4291,7 @@
      contrast in DESIGN.md. Lime is a fill (the "Try this" box) and nothing
      else. */
   .recap-panel{margin-bottom:var(--space-6);}
-  .recap-controls, .recap-stage{width:100%; max-width:520px; margin-left:auto; margin-right:auto;}
+  .recap-controls, .recap-stage{width:100%; max-width:520px; margin-inline-start:auto; margin-inline-end:auto;}
   .recap-controls{display:flex; flex-direction:column; gap:var(--space-2-5); margin-bottom:var(--space-3);}
   /* The segmented tray the Calendar's Month/Week used, under its own name:
      DESIGN.md's rule about .sub-tab-btn applies to any class that carries a
@@ -4371,7 +4371,7 @@
 
   .recap-rows{display:flex; flex-direction:column; gap:var(--space-2);}
   .recap-row{
-    display:flex; flex-direction:column; gap:3px; width:100%; min-height:44px; text-align:left;
+    display:flex; flex-direction:column; gap:3px; width:100%; min-height:44px; text-align:start;
     padding:var(--space-3) var(--space-3-5); border:none; border-radius:var(--radius-md);
     color:var(--ink); font-family:inherit; cursor:pointer;
     transition:box-shadow var(--dur-fast) var(--ease-snap);
@@ -4423,13 +4423,13 @@
 
   .recap-chart{display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:140px auto; column-gap:6px; row-gap:4px;}
   .recap-axis{position:relative; min-width:30px; font-size:10px; color:var(--muted);}
-  .recap-axis > span{position:absolute; right:0; transform:translateY(-50%); white-space:nowrap;}
+  .recap-axis > span{position:absolute; inset-inline-end:0; transform:translateY(-50%); white-space:nowrap;}
   .recap-axis > span.is-std{color:var(--ink); font-weight:700;}
   .recap-plot{
     position:relative; display:grid; grid-template-columns:repeat(var(--cols), minmax(0,1fr));
     background:var(--ink-50); border-radius:var(--radius-sm);
   }
-  .recap-std{position:absolute; left:0; right:0; border-top:1.5px dashed var(--muted);}
+  .recap-std{position:absolute; inset-inline-start:0; inset-inline-end:0; border-top:1.5px dashed var(--muted);}
   .recap-col{position:relative;}
   .recap-col > .recap-mark{position:absolute; left:50%; width:10px; height:10px; transform:translate(-50%,-50%); border-radius:50%;}
   .recap-col > .recap-mark.is-remote, .recap-col > .recap-mark.is-away{border-radius:3px;}
@@ -4458,10 +4458,10 @@
   .recap-months{display:flex; flex-direction:column; gap:var(--space-2);}
   .recap-month-row{display:flex; align-items:center; gap:var(--space-3); font-size:14px;}
   .recap-month-name{flex:0 0 40px; font-weight:600; color:var(--muted-2);}
-  .recap-month-value{margin-left:auto; color:var(--ink); font-weight:600; white-space:nowrap;}
+  .recap-month-value{margin-inline-start:auto; color:var(--ink); font-weight:600; white-space:nowrap;}
   .recap-track-line{position:relative; flex:1 1 auto; height:6px; border-radius:var(--radius-pill); background:var(--ink-50);}
-  .recap-track-line::after{content:""; position:absolute; left:50%; top:-4px; bottom:-4px; border-left:1.5px dashed var(--muted);}
-  .recap-track-line > i{position:absolute; top:50%; width:12px; height:12px; border-radius:50%; background:var(--ink); transform:translate(-50%,-50%);}
+  .recap-track-line::after{content:""; position:absolute; inset-inline-start:50%; top:-4px; bottom:-4px; border-inline-start:1.5px dashed var(--muted);}
+  .recap-track-line > i{position:absolute; top:50%; width:12px; height:12px; border-radius:50%; background:var(--ink); transform:translateY(-50%); margin-inline-start:-6px;}
 
   .recap-pic{display:flex; flex-direction:column; gap:7px;}
   .recap-pic-row{display:grid; grid-template-columns:34px minmax(0,1fr); align-items:center; gap:var(--space-1-5);}
@@ -4470,7 +4470,7 @@
   .recap-pic-week{display:grid; grid-template-columns:repeat(var(--slots), minmax(0,1fr)); gap:2px;}
   .recap-pic-week > i{display:block; aspect-ratio:1; font-style:normal;}
   .recap-pic-week > .recap-mark{width:auto; height:auto; border-radius:2px;}
-  .recap-pic-caption{font-size:11px; color:var(--muted); padding-left:40px;}
+  .recap-pic-caption{font-size:11px; color:var(--muted); padding-inline-start:40px;}
   .recap-counts{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:6px var(--space-3); font-size:13px; color:var(--muted-2);}
   .recap-counts > span{display:inline-flex; align-items:center; gap:6px;}
   .recap-counts b{color:var(--ink);}
@@ -4482,7 +4482,7 @@
      the icon rather than a smudge beside it. */
   .recap-new-host{position:relative; display:inline-flex; font-style:normal;}
   .recap-new-dot{
-    display:none; position:absolute; top:-2px; right:-4px; width:9px; height:9px;
+    display:none; position:absolute; top:-2px; inset-inline-end:-4px; width:9px; height:9px;
     border-radius:50%; background:var(--gold-deep); box-shadow:0 0 0 2px var(--card);
   }
   .rail-item .recap-new-dot{background:var(--gold); box-shadow:0 0 0 2px var(--rail);}
@@ -4504,14 +4504,14 @@
      width, so a longer label still gets its space rather than colliding. */
   .filter-bar label{margin:0; min-width:44px; white-space:nowrap;}
   .filter-bar select{width:auto; min-width:170px;}
-  .filter-spacer{margin-left:auto;}
+  .filter-spacer{margin-inline-start:auto;}
   /* ‹ Month › -- steps the shared period one month at a time (stepPeriod()
      in app.js), so paging back through months is a tap each rather than two
      selects. Kept on one line with its select; the select gives up width
      first so the pair still fits a 320px phone. */
   .period-step-group{display:flex; align-items:center; gap:var(--space-1); flex-wrap:nowrap; min-width:0;}
   .filter-bar .period-step-group select{min-width:0; flex:1 1 auto;}
-  .period-step{flex:0 0 auto; padding-left:var(--space-2); padding-right:var(--space-2);}
+  .period-step{flex:0 0 auto; padding-inline-start:var(--space-2); padding-inline-end:var(--space-2);}
   .period-step:disabled{opacity:.4; cursor:default;}
   /* The one Period control takes the line it sits on, up to a width a month
      name needs; the ⋯ beside it keeps its 44px. */
@@ -4549,7 +4549,7 @@
      header reads as its own row rather than blending into the first even
      data row beneath it — both were the same wash before. */
   thead th{
-    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.07em;
+    text-align:start; font-size:11px; text-transform:uppercase; letter-spacing:.07em;
     color:var(--muted-2); padding:8px 10px; background:var(--ink-100);
     border-bottom:1px solid var(--line); white-space:nowrap;
   }
@@ -4571,7 +4571,7 @@
      and cream bands with the reason for each band printed inside it. The
      phone dropped the tints first (.mobile-rows, below); the row classes stay
      on the <tr> for anything that reads them. */
-  td.num, th.num{text-align:right; font-variant-numeric:tabular-nums;}
+  td.num, th.num{text-align:end; font-variant-numeric:tabular-nums;}
   td.num{font-family:var(--font-num); font-size:13.5px;}
   /* The one number worth a glance is the actual worked total; Target and
      Diff (the pill already carries Diff's own weight) stay regular. */
@@ -4597,10 +4597,10 @@
      six-column Monthly totals was 34px too wide for it and cut the Diff column
      to "+5h 2…". Tighter cell padding gives back 8px a column. */
   @media (min-width:761px) and (max-width:899px){
-    #tabContentCard thead th, #tabContentCard tbody td{padding-left:6px; padding-right:6px;}
+    #tabContentCard thead th, #tabContentCard tbody td{padding-inline-start:6px; padding-inline-end:6px;}
   }
   @media (min-width:1100px) and (max-width:1279px){
-    #logTableWrap th, #logTableWrap td{padding-left:6px; padding-right:6px;}
+    #logTableWrap th, #logTableWrap td{padding-inline-start:6px; padding-inline-end:6px;}
     #logTableWrap td.c-primary .cell-date-full{display:none;}
     #logTableWrap td.c-primary .cell-date-compact{display:inline;}
   }
@@ -4612,7 +4612,7 @@
     display:inline-flex; align-items:center; font-size:11px; font-weight:500;
     color:var(--muted-2); letter-spacing:.01em;
   }
-  .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 10px 4px 8px; border-radius:99px; font-size:11px; font-weight:500; letter-spacing:.01em;}
+  .pill{display:inline-flex; align-items:center; gap:6px; padding-block:4px 4px; padding-inline:8px 10px; border-radius:99px; font-size:11px; font-weight:500; letter-spacing:.01em;}
   .pill::before{content:""; width:5px; height:5px; border-radius:50%; background:currentColor; flex-shrink:0; box-shadow:0 0 4px currentColor;}
   .pill.over{background:var(--positive-bg); color:var(--positive);}
   .pill.under{background:var(--negative-bg); color:var(--negative);}
@@ -4669,7 +4669,7 @@
     /* Re-asserted after the shorthand above, which has the same specificity and
        would otherwise reset the room the search icon sits in — the glyph ended
        up printed under the first letter of the placeholder. */
-    .search-field input{padding-left:32px;}
+    .search-field input{padding-inline-start:32px;}
     /* Capped. flex:1 1 200px with no ceiling made the search box 65% of the
        content width, and narrowing the selects only fed it more — 808px at
        1920 to hold a short phrase, with the buttons beside it pushed to the
@@ -4765,7 +4765,7 @@
     .table-wrap.responsive-cards td{
       display:flex; align-items:center; justify-content:space-between; gap:14px;
       padding:8px 0; border-bottom:1px dashed var(--line-soft);
-      white-space:normal; text-align:right; font-size:13px;
+      white-space:normal; text-align:end; font-size:13px;
     }
     .table-wrap.responsive-cards td:last-child{border-bottom:none;}
     /* The column name is a real DOM element (.cell-label), not generated
@@ -4774,11 +4774,11 @@
        stripping the table role, a screen-reader user on a phone heard an
        unlabelled stream of dates and numbers. */
     .table-wrap.responsive-cards td > .cell-label{
-      display:inline-block; flex-shrink:0; text-align:left;
+      display:inline-block; flex-shrink:0; text-align:start;
       font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
     }
     .table-wrap.responsive-cards td.note-cell{
-      flex-direction:column; align-items:flex-start; text-align:left;
+      flex-direction:column; align-items:flex-start; text-align:start;
     }
     .table-wrap.responsive-cards td.note-cell > .cell-label{margin-bottom:4px;}
     .table-wrap.responsive-cards td.row-actions{
@@ -4847,13 +4847,13 @@
     .table-wrap.mobile-rows tbody tr.row-open,
     .table-wrap.mobile-rows tbody tr.row-excused,
     .table-wrap.mobile-rows tbody tr.row-over{
-      background:transparent; border-left:none; border-right:none; border-top:none;
+      background:transparent; border-inline-start:none; border-inline-end:none; border-top:none;
       border-radius:0; box-shadow:none;
     }
     .table-wrap.mobile-rows tbody tr:last-child{border-bottom:none;}
     .table-wrap.mobile-rows td{
       display:block; width:auto; padding:0; border:none;
-      text-align:left; white-space:nowrap; min-width:0; font-size:13px;
+      text-align:start; white-space:nowrap; min-width:0; font-size:13px;
     }
     /* Kept in the DOM and kept announced. The column name is the only thing
        telling a screen reader what a bare time or figure is once the table
@@ -4871,12 +4871,12 @@
       white-space:normal;
     }
     .table-wrap.mobile-rows td.c-primary .cell-weekday{
-      display:inline; color:var(--muted); font-weight:500; margin-right:7px;
+      display:inline; color:var(--muted); font-weight:500; margin-inline-end:7px;
     }
     .table-wrap.mobile-rows td.c-primary .cell-date-full{display:none;}
     .table-wrap.mobile-rows td.c-primary .cell-date-compact{display:inline;}
     .table-wrap.mobile-rows td.c-figure{
-      grid-row:1; grid-column:5; justify-self:end; text-align:right;
+      grid-row:1; grid-column:5; justify-self:end; text-align:end;
       font-family:var(--font-num); font-size:15px; font-weight:700;
       color:var(--ink); font-variant-numeric:tabular-nums;
     }
@@ -4884,12 +4884,12 @@
     /* Line 2 — the supporting detail, placed in source order across the three
        auto columns, and how the record landed at the end of it. */
     .table-wrap.mobile-rows td.c-meta{
-      grid-row:2; margin-right:12px;
+      grid-row:2; margin-inline-end:12px;
       font-size:12.5px; color:var(--muted-2);
     }
-    .table-wrap.mobile-rows td.c-meta:last-of-type{margin-right:0;}
+    .table-wrap.mobile-rows td.c-meta:last-of-type{margin-inline-end:0;}
     .table-wrap.mobile-rows td.c-meta > .cell-label{
-      position:static; width:auto; height:auto; margin:0 5px 0 0; overflow:visible;
+      position:static; width:auto; height:auto; margin-block:0 0; margin-inline:0 5px; overflow:visible;
       clip:auto; display:inline; font-size:11px; text-transform:uppercase;
       letter-spacing:.06em; color:var(--muted);
     }
@@ -4898,7 +4898,7 @@
       overflow:hidden; clip:rect(0 0 0 0);
     }
     .table-wrap.mobile-rows td.c-status{
-      grid-row:2; grid-column:5; justify-self:end; text-align:right;
+      grid-row:2; grid-column:5; justify-self:end; text-align:end;
       font-family:var(--font-num); font-size:12.5px; font-weight:700;
       font-variant-numeric:tabular-nums;
     }
@@ -4937,7 +4937,7 @@
        first with a dash instead of its own label — and only when there is
        actually a time to its left to be separated from. A leave day has no
        clock times, so the dash led the line. */
-    .table-wrap.mobile-rows td.c-in{margin-right:0;}
+    .table-wrap.mobile-rows td.c-in{margin-inline-end:0;}
     /* The day type is the one meta on line 2 made of words, and the only one
        that can give width back. Kept on one line, "7:42 AM – 4:06 PM  Half Day
        Leave" plus the right-hand figure is ~310px, so on a 320px screen the
@@ -4947,7 +4947,7 @@
       content:"–"; margin:0 5px; color:var(--muted);
     }
     .table-wrap.mobile-rows td.c-in.has-time ~ td.c-daytype::before{
-      content:"·"; margin:0 7px 0 0; color:var(--line);
+      content:"·"; margin-block:0 0; margin-inline:0 7px; color:var(--line);
     }
 
     /* The row opens the record (see the #logBody click handler), so the pair
@@ -4976,7 +4976,7 @@
     .table-wrap.mobile-rows tbody tr[data-fix-date]::after{
       content:""; grid-row:1 / span 2; grid-column:6;
       align-self:center; justify-self:end;
-      width:7px; height:12px; margin-left:10px; background-color:var(--line);
+      width:7px; height:12px; margin-inline-start:10px; background-color:var(--line);
       -webkit-mask:var(--chevron-right) center/7px 12px no-repeat;
       mask:var(--chevron-right) center/7px 12px no-repeat;
     }
@@ -5180,7 +5180,7 @@
     #printArea .p-rule{border:0; border-top:1.5pt solid #000; margin:10pt 0 14pt;}
     #printArea h2{font-size:12pt; margin:16pt 0 6pt; border-bottom:.5pt solid #999; padding-bottom:3pt;}
     #printArea table{width:100%; border-collapse:collapse; font-size:8.5pt;}
-    #printArea th{text-align:left; border-bottom:1pt solid #000; padding:4pt 5pt; font-size:7.5pt; text-transform:uppercase; letter-spacing:.05em;}
+    #printArea th{text-align:start; border-bottom:1pt solid #000; padding:4pt 5pt; font-size:7.5pt; text-transform:uppercase; letter-spacing:.05em;}
     #printArea td{border-bottom:.5pt solid #ccc; padding:4pt 5pt;}
     /* The note is the one column that wraps. `tbody td` carries
        white-space:nowrap for the screen's Log, where a row is one line and the
@@ -5190,7 +5190,7 @@
        clean off the right edge. Only this column: a date or a clock time
        breaking across two lines would be worse, not better. */
     #printArea th.p-note, #printArea td.p-note{white-space:normal; overflow-wrap:anywhere;}
-    #printArea .num{text-align:right; font-family:var(--font-num); font-variant-numeric:tabular-nums;}
+    #printArea .num{text-align:end; font-family:var(--font-num); font-variant-numeric:tabular-nums;}
     #printArea .p-summary{display:flex; gap:22pt; flex-wrap:wrap; margin:0 0 6pt;}
     #printArea .p-summary div span{display:block;}
     #printArea .p-summary .k{font-size:7.5pt; text-transform:uppercase; letter-spacing:.06em; color:#555;}
@@ -5288,9 +5288,9 @@
      Built by app.js rather than five copies in the markup, so every password
      input in the app gets it and a sixth one cannot arrive without it. */
   .pw-wrap{position:relative; display:block;}
-  .pw-wrap > input{padding-right:44px;}
+  .pw-wrap > input{padding-inline-end:44px;}
   .pw-reveal{
-    position:absolute; top:0; right:0; height:100%; width:44px;
+    position:absolute; top:0; inset-inline-end:0; height:100%; width:44px;
     display:flex; align-items:center; justify-content:center;
     background:none; border:none; padding:0; cursor:pointer;
     color:var(--muted); border-radius:var(--radius-sm);
@@ -5759,7 +5759,7 @@
   .auth-email{color:var(--ink); font-weight:700; overflow-wrap:anywhere;}
   .auth-title:focus{outline:none;}
   .auth-steps{
-    margin:0; padding:14px 16px 14px 34px; border-radius:var(--radius-sm);
+    margin:0; padding-block:14px 14px; padding-inline:34px 16px; border-radius:var(--radius-sm);
     background:var(--ink-50); color:var(--ink-600);
     font-size:13px; line-height:1.55; display:flex; flex-direction:column; gap:6px;
   }
@@ -6009,7 +6009,7 @@
      unbroken string: the link has to wrap inside the card rather than push the
      page sideways. overflow-wrap:anywhere also lowers its min-content width,
      which is what lets an inline-flex box shrink at all. */
-  .attention-rows .link-btn{font-size:12px; padding:0; text-align:left; max-width:100%; overflow-wrap:anywhere;}
+  .attention-rows .link-btn{font-size:12px; padding:0; text-align:start; max-width:100%; overflow-wrap:anywhere;}
   .attention-more{font-size:11.5px; color:var(--muted-2); margin-top:2px;}
 
   /* ---------- Team tab (admin) ---------- */
@@ -6092,7 +6092,7 @@
      comes from surface colour and shadow") — this one sits on the canvas
      alone rather than in a row, so shadow-sm alone does the separating. */
   .team-card{
-    display:flex; flex-direction:column; gap:8px; width:100%; min-width:0; text-align:left;
+    display:flex; flex-direction:column; gap:8px; width:100%; min-width:0; text-align:start;
     padding:12px 14px; border-radius:var(--radius-md);
     background:var(--card); box-shadow:var(--shadow-sm); cursor:pointer; font-family:inherit;
     /* Said, because a .team-card is a <button> and the browser gives a button
@@ -6237,10 +6237,10 @@
     .team-card .team-status{
       background:none; padding:0; font-size:11.5px;
     }
-    .team-card .admin-badge{background:none; padding:0 0 0 6px; font-size:10.5px;}
+    .team-card .admin-badge{background:none; padding-block:0 0; padding-inline:6px 0; font-size:10.5px;}
     .team-card-figures{display:contents;}
     .team-card-figures .f-diff{
-      grid-row:2; grid-column:3; justify-self:end; text-align:right;
+      grid-row:2; grid-column:3; justify-self:end; text-align:end;
     }
     .team-card-figures .f-diff .label{display:none;}
     .team-card-figures .f-diff .value{font-size:12.5px;}
@@ -6306,7 +6306,7 @@
     font-size:12.5px; font-weight:500; color:var(--ink); min-width:0;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .activity-row-time{font-size:11px; color:var(--muted-2); white-space:nowrap; margin-left:auto;}
+  .activity-row-time{font-size:11px; color:var(--muted-2); white-space:nowrap; margin-inline-start:auto;}
   .activity-row-desc{font-size:11.5px; color:var(--muted-2); margin:2px 0 0;}
 
   .sr-only{
@@ -6316,7 +6316,7 @@
   /* Off-screen until focused, so a keyboard/screen-reader user doesn't have to
      re-tab through the full header's 5+ interactive elements on every page. */
   .skip-link{
-    position:absolute; left:12px; top:-48px; z-index:400;
+    position:absolute; inset-inline-start:12px; top:-48px; z-index:400;
     background:var(--ink-900); color:#fff; padding:10px 16px; min-height:44px;
     display:inline-flex; align-items:center;
     border-radius:var(--radius-sm); font-size:13px; font-weight:700;
@@ -6412,7 +6412,7 @@
   /* How many rows sit behind each filter, so an empty one is visibly empty
      before it is clicked rather than after. */
   .choice-count{
-    display:inline-block; margin-left:6px; padding:1px 6px; border-radius:99px;
+    display:inline-block; margin-inline-start:6px; padding:1px 6px; border-radius:99px;
     background:var(--ink-50); color:var(--muted-2);
     font-family:var(--font-num); font-size:10.5px; font-weight:700;
   }
@@ -6466,7 +6466,7 @@
   /* Which of these is the one you are holding. Without it a list of two
      Chromes says nothing about which is which. */
   .push-device-here{
-    margin-left:8px; padding:1px 7px; border-radius:99px;
+    margin-inline-start:8px; padding:1px 7px; border-radius:99px;
     background:var(--positive-bg); color:var(--positive);
     font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
   }
@@ -6512,22 +6512,22 @@
   .notify-people-list li:last-child{padding-bottom:0;}
   .notify-person{font-size:12.5px; font-weight:700; color:var(--ink); overflow-wrap:anywhere;}
   .notify-device{margin-top:3px; font-size:11.5px; color:var(--muted-2);}
-  .notify-device-name{margin-left:4px;}
+  .notify-device-name{margin-inline-start:4px;}
   /* The reason, not the status code. Indented under the device it explains. */
   .notify-device-why{
-    margin:3px 0 0 2px; padding-left:8px; border-left:2px solid var(--line);
+    margin-block:3px 0; margin-inline:2px 0; padding-inline-start:8px; border-inline-start:2px solid var(--line);
     font-size:11.5px; line-height:1.45; color:var(--muted-2); overflow-wrap:anywhere;
   }
   /* Not a status: this says which of the two kinds of row it is, and it is
      the quieter kind. */
   .notify-auto-tag{
-    display:inline-block; margin-left:6px; padding:1px 7px; border-radius:99px;
+    display:inline-block; margin-inline-start:6px; padding:1px 7px; border-radius:99px;
     background:var(--ink-50); color:var(--muted-2);
     font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
     vertical-align:middle;
   }
   .field-count{
-    float:right; font-family:var(--font-num); font-size:10.5px; font-weight:500;
+    float:inline-end; font-family:var(--font-num); font-size:10.5px; font-weight:500;
     color:var(--muted); text-transform:none; letter-spacing:0;
   }
   .field-count.is-full{color:var(--negative);}
@@ -6540,7 +6540,7 @@
 
   /* ---------- Toasts ---------- */
   .toast-stack{
-    position:fixed; left:0; right:0; bottom:calc(18px + env(safe-area-inset-bottom)); z-index:200;
+    position:fixed; inset-inline-start:0; inset-inline-end:0; bottom:calc(18px + env(safe-area-inset-bottom)); z-index:200;
     display:flex; flex-direction:column; align-items:center; gap:8px;
     /* Landscape insets on top of the 16px gutter, so a toast clears the notch
        instead of being centred against a width that includes it. */
@@ -6594,7 +6594,7 @@
      the notification panel, 210 the crop modal), since a crash behind a modal
      is exactly the one nobody can read. */
   .crash-notice{
-    position:fixed; top:0; left:0; right:0; z-index:500;
+    position:fixed; top:0; inset-inline-start:0; inset-inline-end:0; z-index:500;
     display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap;
     /* The top inset is the same clearance the header takes: an installed PWA
        paints this under the status bar / Dynamic Island otherwise, and a
@@ -6677,12 +6677,12 @@
      after the rail is the whole fix; below 760px there is no rail and the base
      12px stands. */
   @media (min-width:761px){
-    .sticky-clock{left:calc(236px + 12px);}
+    .sticky-clock{inset-inline-start:calc(236px + 12px);}
   }
 
   /* ---------- Bottom navigation (mobile) ---------- */
   .bottom-nav{
-    display:none; position:fixed; left:0; right:0; bottom:0; z-index:150;
+    display:none; position:fixed; inset-inline-start:0; inset-inline-end:0; bottom:0; z-index:150;
     /* Rotate an iPhone and the sensor housing takes a bite out of one end of
        this bar -- which end depends on which way you turned. The bottom inset
        was already handled for the home indicator; these are its landscape
@@ -6727,7 +6727,7 @@
      since the icon and text are both centred. The ≤340px block already zeroes
      this padding for the same reason. */
   @media (max-width:400px){
-    .bn-item{padding-left:0; padding-right:0;}
+    .bn-item{padding-inline-start:0; padding-inline-end:0;}
     /* And a step down in size. Zeroing the padding alone still left "Overview"
        about 5px wider than its slot at 360px, where it did not fail loudly --
        text-overflow:ellipsis simply served "Overvie..." and scrollWidth went on
@@ -6756,7 +6756,7 @@
      silently eaten the one letter that told "Overview" apart from
      "Overtime". */
   @media (max-width:340px){
-    .bn-item{padding-left:0; padding-right:0;}
+    .bn-item{padding-inline-start:0; padding-inline-end:0;}
     /* One line, always. This used to wrap: "Over&shy;view" and "Calen&shy;dar"
        broke across two lines here, which made those two tabs taller than the
        four beside them. nowrap holds every label on one line at every width --
@@ -6900,7 +6900,7 @@
   .entry-modal-head h2{margin:0;}
   .entry-modal-card .form-actions{margin-bottom:0;}
   /* Apart from Save and Cancel, at the far end of the row. */
-  .entry-modal-card .entry-delete{margin-left:auto;}
+  .entry-modal-card .entry-delete{margin-inline-start:auto;}
 
   /* ---------- Confirm modal ---------- */
   /* The scrim was rgba(6,25,23,.45) — #061917, Gilt Ledger's teal-black, still
@@ -7039,7 +7039,7 @@
     gap:var(--space-3);
   }
   .palette-swatch{
-    display:flex; flex-direction:column; gap:var(--space-2-5); text-align:left;
+    display:flex; flex-direction:column; gap:var(--space-2-5); text-align:start;
     padding:var(--space-2-5); background:var(--card); cursor:pointer;
     border:1px solid var(--line-soft); border-radius:var(--radius-md);
     font-family:inherit; min-height:44px;
@@ -7173,8 +7173,8 @@
      Past the mark it darkens; let go there and it spins while the refresh
      runs. */
   .pull-refresh{
-    position:fixed; top:calc(env(safe-area-inset-top, 0px) + 6px); left:50%; z-index:60;
-    width:40px; height:40px; margin-left:-20px; border-radius:50%;
+    position:fixed; top:calc(env(safe-area-inset-top, 0px) + 6px); inset-inline-start:50%; z-index:60;
+    width:40px; height:40px; margin-inline-start:-20px; border-radius:50%;
     display:none; align-items:center; justify-content:center;
     background:var(--card); color:var(--muted); border:1px solid var(--line);
     box-shadow:var(--shadow-sm); pointer-events:none; opacity:0;
@@ -7214,6 +7214,68 @@
     .notif-item-meta, .away-week-range,
     .team-stats .stat-detail, .row-actions button{font-size:12px;}
   }
+
+  /* ---------- Admin › Labels ----------
+     One row per text: the app's English (what the row is), then a box for
+     the team's English and one for its Arabic, each showing the app's own
+     wording as its placeholder. Rows sit on the wash, the way the Settings
+     accordion heads do inside the tab card; a changed row says so in a pill
+     rather than a stripe. */
+  .labels-toolbar{display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);}
+  .labels-search{flex:1 1 260px; min-width:0;}
+  .labels-changed-toggle{display:inline-flex; align-items:center; gap:var(--space-2); margin:0; font-size:13px; color:var(--ink); white-space:nowrap;}
+  .labels-meta{margin:0 0 var(--space-2); font-size:12px; color:var(--muted);}
+  .labels-list{display:flex; flex-direction:column; gap:var(--space-2);}
+  .label-row{
+    display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr) auto;
+    gap:var(--space-2) var(--space-3); align-items:end;
+    padding:var(--space-3); border-radius:var(--radius-md); background:var(--ink-50);
+  }
+  .label-row.is-invalid{box-shadow:inset 0 0 0 1.5px var(--negative);}
+  .label-source{display:flex; flex-direction:column; gap:4px; align-self:center; min-width:0;}
+  .label-default{font-size:13px; font-weight:600; color:var(--ink); overflow-wrap:anywhere;}
+  .label-pattern{font-size:11px; color:var(--muted);}
+  .label-changed{align-self:flex-start; font-size:11px; font-weight:600; padding:1px 8px; border-radius:var(--radius-pill); background:var(--card); color:var(--ink);}
+  .label-field{display:flex; flex-direction:column; gap:4px; margin:0; min-width:0;}
+  .label-lang{font-size:11px; font-weight:600; color:var(--muted);}
+  .label-field input{width:100%; min-height:40px;}
+  .labels-more{align-self:center; margin-top:var(--space-2);}
+  /* .btn is display:inline-flex, which beats [hidden] -- the trap this sheet
+     already records for .qc-btn and others. Hidden but still holding its
+     column, so a changed row's boxes line up with every other row's. */
+  .label-reset[hidden]{display:inline-flex; visibility:hidden;}
+  @media (max-width:900px){ .label-row{grid-template-columns:minmax(0,1fr);} .label-row .label-reset{justify-self:start;} .label-row .label-reset[hidden]{display:none;} }
+
+  /* ---------- Right to left (Arabic, 2026-11-22) ----------
+     Most of the layout mirrors by itself: flex and grid follow the page's
+     direction, and every margin, padding, border and offset above that has a
+     side is written as a logical property (inline-start / inline-end), which
+     is the same as left / right in English. What is left here is what CSS
+     cannot infer.
+
+     Icons that point -- chevrons, the back arrow, clocking in and out -- face
+     the way an Arabic reader moves. Matched by their drawing rather than a
+     class, so an icon written into a template in app.js mirrors too. */
+  [dir="rtl"] svg:has(path[d^="M9 6l6 6-6 6"], path[d^="M15 18l-6-6 6-6"], path[d^="M9 18l6-6-6-6"],
+    path[d^="M15 6l-6 6 6 6"], path[d^="M15 5l-7 7 7 7"], path[d^="M16 17l5-5-5-5"],
+    path[d^="M15 3h4a2"], path[d^="M10 17l5-5"], path[d^="M5 12h14M13"]){transform:scaleX(-1);}
+  [dir="rtl"] .console-nav-item[aria-selected="true"] .console-nav-chevron{transform:scaleX(-1) translateX(2px);}
+  /* A tab further along the bar comes in from the side it lies on. */
+  [dir="rtl"] .tab-panel.active[data-enter="fwd"]{animation-name:tabInBack;}
+  [dir="rtl"] .tab-panel.active[data-enter="back"]{animation-name:tabInFwd;}
+  /* Meters fill from where a line of Arabic starts. */
+  [dir="rtl"] .stat-bar-fill{transform-origin:right;}
+  [dir="rtl"] .auth-aside-line::after{transform-origin:100% 50%;}
+  /* The switch is off at the start of the line and on at its end. */
+  [dir="rtl"] input.switch::before{left:auto; right:4px; transition:transform .15s, width .15s, height .15s, right .15s;}
+  [dir="rtl"] input.switch:checked::before{left:auto; right:2px; transform:translate(-18px, -50%);}
+  /* The charts are drawn in coordinates: their own axis text keeps the
+     drawing's direction, and Arabic inside it still reads right to left. */
+  [dir="rtl"] svg{direction:ltr;}
+  /* Letter-spacing pulls Arabic's joined letters apart, and this stylesheet
+     tracks its small capitals out and its big figures in. In Arabic none of
+     it applies. */
+  html[lang="ar"] *{letter-spacing:normal !important;}
 
   </style>
 </head>
@@ -8574,6 +8636,20 @@
           <p>Just for this device.</p>
         </div>
 
+        <!-- Language (owner's decision, 2026-11-22): each person picks, the
+             way they pick a palette, and until they do the phone's own
+             language decides. Each name is written in its own language and
+             marked so the translator leaves it alone, so either reader can
+             find theirs whichever language is on screen. -->
+        <div class="appearance-group">
+          <label id="languageLabel">Language</label>
+          <div class="appearance-seg" role="radiogroup" aria-labelledby="languageLabel" id="langSeg">
+            <button type="button" class="appearance-seg-btn" role="radio" data-lang="en" aria-checked="false" lang="en" dir="ltr" data-no-i18n>English</button>
+            <button type="button" class="appearance-seg-btn" role="radio" data-lang="ar" aria-checked="false" lang="ar" dir="rtl" data-no-i18n>العربية</button>
+          </div>
+          <p class="settings-hint" id="langHint">The app reloads in the language you pick.</p>
+        </div>
+
         <div class="appearance-group">
           <label id="modeLabel">Mode</label>
           <div class="appearance-seg" role="radiogroup" aria-labelledby="modeLabel" id="modeSeg">
@@ -8899,6 +8975,14 @@
             </span>
             <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
+          <button type="button" class="console-nav-item" role="tab" data-console-target="admin-labels" id="cnav-admin-labels" aria-selected="false" aria-controls="csec-admin-labels">
+            <span class="console-nav-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span>
+            <span class="console-nav-text">
+              <span class="console-nav-title">Labels</span>
+              <span class="console-nav-desc" id="cnavDescLabels">Any text in the app, in English and Arabic</span>
+            </span>
+            <svg class="console-nav-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
           </div>
           <div class="console-nav-group" role="presentation">
             <p class="console-nav-group-title" aria-hidden="true">System</p>
@@ -9141,6 +9225,36 @@
 
           <div class="form-actions console-commit">
             <button type="button" class="btn" id="postAnnouncementBtn">Post Announcement</button>
+          </div>
+        </div>
+      </div>
+      <!-- ---------- Labels: the team's own wording (2026-11-22) ----------
+           Every text the app has, listed by its English, with a box for the
+           team's English and one for its Arabic. An empty box is the app's
+           own wording. Saved into app_settings.label_overrides for everyone;
+           see "Labels (Admin)" in app.js and setOverrides in src/i18n.js. -->
+      <div class="console-section" data-section="admin-labels" id="csec-admin-labels" role="tabpanel" aria-labelledby="cnav-admin-labels" tabindex="0">
+        <div class="console-section-head">
+          <h3>Labels</h3>
+          <p>Change any text in the app, in English and Arabic. Leave a box empty to keep the app's own wording.</p>
+        </div>
+        <p class="settings-warn" id="labelsMissing" hidden>Saving labels needs this release's database update. Until it is applied, the list can be read but not saved.</p>
+        <div class="labels-toolbar">
+          <div class="search-field labels-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input type="search" id="labelsSearch" maxlength="100" dir="auto" placeholder="Search labels" autocomplete="off" aria-label="Search labels">
+          </div>
+          <label class="labels-changed-toggle"><input type="checkbox" class="switch" id="labelsChangedOnly"> Changed only</label>
+        </div>
+        <p class="labels-meta" id="labelsMeta" aria-live="polite"></p>
+        <div class="labels-list" id="labelsList"></div>
+        <div class="console-commit-group console-commit" id="labelsCommit">
+          <div class="form-actions">
+            <p class="console-dirty-note" aria-live="polite">Unsaved changes</p>
+            <span class="console-dirty-actions">
+              <button type="button" class="btn ghost" id="discardLabelsBtn" hidden>Discard</button>
+              <button type="button" class="btn" id="saveLabelsBtn">Save Labels</button>
+            </span>
           </div>
         </div>
       </div>
@@ -9533,6 +9647,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v73"></script>
+<script type="module" src="app.js?v=v74"></script>
 </body>
 </html>

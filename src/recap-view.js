@@ -9,6 +9,7 @@
 // saying so, and nothing to do.
 import { DAY_FULL } from "./constants.js";
 import { formatTime12, minutesToHoursStr, pad2, dateFromStr, fmtDateShort, fmtDateNoYear } from "./time.js";
+import { locale } from "./i18n.js";
 
 function esc(s){
   return String(s).replace(/[&<>"']/g, function(c){
@@ -19,12 +20,12 @@ function clock(min){ return min == null ? "—" : formatTime12(pad2(Math.floor(m
 function clockShort(min){ return clock(min).replace(/\s*[AP]M$/i, ""); }
 function dur(min){ return minutesToHoursStr(min); }
 function plural(n, one, many){ return n + " " + (n === 1 ? one : (many || one + "s")); }
-function monthName(mk, style){ return dateFromStr(mk + "-01").toLocaleDateString(undefined, { month: style || "long" }); }
+function monthName(mk, style){ return dateFromStr(mk + "-01").toLocaleDateString(locale(), { month: style || "long" }); }
 var RANGE_FMT = null;
 function range(a, b){
   if(a === b) return fmtDateNoYear(a);
   try{
-    RANGE_FMT = RANGE_FMT || new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+    RANGE_FMT = RANGE_FMT || new Intl.DateTimeFormat(locale(), { month: "short", day: "numeric" });
     if(RANGE_FMT.formatRange) return RANGE_FMT.formatRange(dateFromStr(a), dateFromStr(b));
   }catch(e){}
   return fmtDateNoYear(a) + " – " + fmtDateNoYear(b);
@@ -39,7 +40,8 @@ function oneIn(rate){
   if(rate >= 0.5) return Math.round(rate * 10) + " in 10";
   return "1 in " + Math.round(1 / rate);
 }
-function minutesWord(min){ return Math.abs(Math.round(min)) + "m"; }
+// Written the way every duration in the app is ("9m", in Arabic "9د").
+function minutesWord(min){ return minutesToHoursStr(Math.abs(Math.round(min))); }
 
 var AREA = { punctuality: "Punctuality", hours: "Hours", consistency: "Consistency", time: "Time off" };
 var VERDICT = { better: "Better", steady: "Steady", slipped: "Slipped" };
@@ -219,7 +221,7 @@ function monthRows(rows, kind){
   return '<div class="recap-months">' + rows.map(function(r){
     return '<div class="recap-month-row"><span class="recap-month-name">' + esc(r[0]) + "</span>" +
       (kind === "start"
-        ? '<span class="recap-track-line" aria-hidden="true"><i style="left:' + r[2].toFixed(1) + '%"></i></span>'
+        ? '<span class="recap-track-line" aria-hidden="true"><i style="inset-inline-start:' + r[2].toFixed(1) + '%"></i></span>'
         : "") +
       '<span class="recap-month-value">' + esc(r[1]) + "</span></div>";
   }).join("") + "</div>";
@@ -302,9 +304,10 @@ function consistencyCard(m, n, i, cur, base, v, tip, isYear){
     facts.push(fmtDateNoYear(x.date) + " was typed in " + (x.late != null && x.late > 0 ? (x.late >= 90 ? Math.round(x.late / 60) + " hours" : x.late + " minutes") + " after you arrived" : "later"));
   });
   cur.loggedLater.filter(function(x){ return x.days > 0; }).slice(0, 2).forEach(function(x){
-    facts.push("the " + fmtDateNoYear(x.date) + " entry went in " + plural(x.days, "day") + " later");
+    facts.push("The " + fmtDateNoYear(x.date) + " entry went in " + plural(x.days, "day") + " later");
   });
-  if(!isYear && facts.length) body += note(esc(facts.join("; ").replace(/^./, function(c){ return c.toUpperCase(); })) + ".");
+  // One sentence each, in a span each, so each is a sentence to translate.
+  if(!isYear && facts.length) body += note(facts.map(function(f){ return "<span>" + esc(f) + ".</span>"; }).join(" "));
   var tipText = null, wellText = null;
   if(tip){
     if(tip.kind === "missing") tipText = tip.dates.map(fmtDateNoYear).join(", ") + (tip.count > tip.dates.length ? " and " + (tip.count - tip.dates.length) + " more" : "") +

@@ -12,6 +12,7 @@
 // and audit suites pull these out by matching the opening line (see
 // tests/extract.js), so the export list goes at the bottom, past the end of
 // every range those suites ask for.
+import { getLang as i18nLang, locale as i18nLocale } from "./i18n.js";
 
 function uid(){ return "e" + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function pad2(n){ return String(n).padStart(2,"0"); }
@@ -26,10 +27,18 @@ function formatTime12(t){
   if(!t) return "";
   var p = t.split(":");
   var h = +p[0];
-  var period = h >= 12 ? "PM" : "AM";
+  var period = h >= 12 ? TIME_WORDS.pm : TIME_WORDS.am;
   var h12 = h % 12; if(h12 === 0) h12 = 12;
   return h12 + ":" + p[1] + " " + period;
 }
+// The words a time and a duration are written with. Arabic (owner's choice,
+// 2026-11-22: Western digits) writes 7:48 ص and 8س 5د. Defined here, between
+// formatTime12 and minutesToHoursStr, because the audit suite lifts exactly
+// that span into a sandbox; the typeof guard is what lets the lifted copy run
+// there without src/i18n.js, in English.
+var TIME_WORDS = (typeof i18nLang === "function" && i18nLang() === "ar")
+  ? { am: "ص", pm: "م", h: "س", m: "د" }
+  : { am: "AM", pm: "PM", h: "h", m: "m" };
 // "Xh Ym", and under an hour just "Ym": "0h 31m" reads like a typo, and one
 // number was written two ways -- Overview's bank said "+34m" while Trends,
 // Team and the printed report said "+0h 34m" (2026-11-19). Zero stays "0h",
@@ -40,8 +49,8 @@ function minutesToHoursStr(mins){
   var v = Math.abs(Math.round(mins));
   var sign = mins < 0 && v ? "-" : "";
   var h = Math.floor(v/60), m = v%60;
-  if(!h && m) return sign + m + "m";
-  return sign + h + "h" + (m ? " " + m + "m" : "");
+  if(!h && m) return sign + m + TIME_WORDS.m;
+  return sign + h + TIME_WORDS.h + (m ? " " + m + TIME_WORDS.m : "");
 }
 // For values that are naturally small and minutes-only (how late, how early) —
 // "0h 31m" reads like a typo; "31m" is what it actually is. Still falls back
@@ -50,7 +59,7 @@ function minutesOnlyStr(mins){
   if(mins === null || mins === undefined || isNaN(mins)) return "—";
   var sign = mins < 0 ? "-" : "";
   var v = Math.abs(Math.round(mins));
-  if(v < 60) return sign + v + "m";
+  if(v < 60) return sign + v + TIME_WORDS.m;
   return minutesToHoursStr(mins);
 }
 function signed(mins){
@@ -83,27 +92,31 @@ function dayBefore(dateStr){
 // browser is set to", which is the behaviour these already had -- the
 // formatter is cached, not the locale decision.
 var DTF_DATE, DTF_LONG, DTF_SHORT, DTF_NOYEAR;
+// The locale is the person's language now, not the browser's: Arabic is
+// Saudi Arabic on the Gregorian calendar with Western digits (src/i18n.js);
+// English stays "whatever this browser is set to", as before.
+function dateLocale(){ return typeof i18nLocale === "function" ? i18nLocale() : undefined; }
 
 function fmtDate(s){
-  DTF_DATE = DTF_DATE || new Intl.DateTimeFormat(undefined,{month:"short", day:"numeric", year:"numeric"});
+  DTF_DATE = DTF_DATE || new Intl.DateTimeFormat(dateLocale(),{month:"short", day:"numeric", year:"numeric"});
   return DTF_DATE.format(dateFromStr(s));
 }
 function fmtDateLong(s){
-  DTF_LONG = DTF_LONG || new Intl.DateTimeFormat(undefined,{weekday:"long", month:"long", day:"numeric", year:"numeric"});
+  DTF_LONG = DTF_LONG || new Intl.DateTimeFormat(dateLocale(),{weekday:"long", month:"long", day:"numeric", year:"numeric"});
   return DTF_LONG.format(dateFromStr(s));
 }
 // Weekday + month + day, no year — for lists already scoped to one month
 // (the Team roster's recent-days lines, the activity feed), where the year
 // and often the month too would just repeat what the toolbar already says.
 function fmtDateShort(s){
-  DTF_SHORT = DTF_SHORT || new Intl.DateTimeFormat(undefined,{weekday:"short", month:"short", day:"numeric"});
+  DTF_SHORT = DTF_SHORT || new Intl.DateTimeFormat(dateLocale(),{weekday:"short", month:"short", day:"numeric"});
   return DTF_SHORT.format(dateFromStr(s));
 }
 // Month and day alone, for a list whose year is already fixed by a control
 // above it — the Log's own Year select, which makes ", 2026" the same four
 // characters repeated down every row of the month.
 function fmtDateNoYear(s){
-  DTF_NOYEAR = DTF_NOYEAR || new Intl.DateTimeFormat(undefined,{month:"short", day:"numeric"});
+  DTF_NOYEAR = DTF_NOYEAR || new Intl.DateTimeFormat(dateLocale(),{month:"short", day:"numeric"});
   return DTF_NOYEAR.format(dateFromStr(s));
 }
 
