@@ -4,7 +4,7 @@
 const { boot, goTab, settle, DESKTOP, PHONE } = require("./harness");
 const D = require("./data");
 
-const TABS = ["overview","log","trends","calendar","punctuality","team","settings","admin"];
+const TABS = ["overview","log","trends","recap","punctuality","team","settings","admin"];
 
 const MEASURE = () => {
   const out = { pageScrollX: document.documentElement.scrollWidth - document.documentElement.clientWidth,

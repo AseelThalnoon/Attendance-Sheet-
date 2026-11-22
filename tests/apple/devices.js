@@ -81,7 +81,7 @@ const TARGETS = [
 
     // Every tab renders without a script error. A page error in WebKit means a
     // JS feature that works in Chromium is missing or behaves differently.
-    for(const tab of ["overview","log","trends","calendar","punctuality","settings"]){
+    for(const tab of ["overview","log","trends","recap","punctuality","settings"]){
       try { await goTab(h.page, tab); } catch(e){ continue; }
       await settle(h.page, 350);
       const painted = await h.page.evaluate(t => {

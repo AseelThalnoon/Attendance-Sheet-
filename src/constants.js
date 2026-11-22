@@ -35,13 +35,6 @@ var TYPE_LABELS = {
 // tooltip, the print report and the audit detail for any unrecognised value.
 function typeLabel(t){ return TYPE_LABELS[t] || (t ? String(t) : "Regular"); }
 
-var CAL_STATUS_LABELS = {
-  met:"met target", under:"under target", excused:"leave or excused",
-  open:"still clocked in", missing:"no entry", off:"day off", future:"upcoming",
-  uncounted:"hours not counted",
-  before:"before your first logged day"
-};
-
 // "other" is a catch-all excused absence — real usage is things like
 // marriage or bereavement leave that don't fit the named categories, always
 // logged with no clock times. It's excused in exactly the same way Sick
@@ -93,7 +86,7 @@ var REMINDER_GRACE_MIN = 30;
 var VAPID_PUBLIC_KEY = "BJlxibKyLbjnTvhH6hFdlNHSugC15FqdNxT55UJbY0RJtn3DGIWMTX4XG0FKB-K1H8SbvGcWYhLpmCD58OiD-es";
 
 export {
-  DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel, CAL_STATUS_LABELS,
+  DAY_NAMES, DAY_FULL, TYPE_LABELS, typeLabel,
   EXCUSED_TYPES, HALF_TYPES, WORKED_TYPES, countsAsWorked, NO_TARGET_TYPES,
   DISMISS_KEY,
   DEFAULT_SETTINGS, VAPID_PUBLIC_KEY, REMINDER_GRACE_MIN

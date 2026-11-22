@@ -83,12 +83,7 @@ const MEASURE = (floor) => {
     const lr = lab ? lab.getBoundingClientRect() : null;
     const h = Math.max(r.height, lr ? lr.height : 0);
     const w = Math.max(r.width, lr ? lr.width : 0);
-    // The month grid is the one documented exception: seven columns in a 393px
-    // viewport leave 41.6px of width per cell, and the only routes to 44 are a
-    // horizontal scrollbar on a month or a week that does not fit on a line.
-    // Its height is not constrained that way and still has to make the floor.
-    const isCell = el.classList.contains("cal-cell");
-    if(h < floor - 0.5 || (!isCell && w < floor - 0.5 && el.matches(".icon-btn, [class*=logout]")))
+    if(h < floor - 0.5 || (w < floor - 0.5 && el.matches(".icon-btn, [class*=logout]")))
       out.push({
         sel: el.tagName.toLowerCase() + "." + String(el.className || "").split(" ").filter(Boolean).slice(0, 2).join("."),
         t: (el.textContent || el.value || el.getAttribute("aria-label") || "").trim().slice(0, 24),
@@ -129,8 +124,7 @@ const MEASURE = (floor) => {
       else document.querySelector('.tab-btn[data-tab="' + x + '"]').click();
       if(sec) document.querySelector('[data-console-target="' + sec + '"]')?.click();
     }, [t, section || null]);
-    // Past the panel's entrance and the calendar's staggered row reveal: both
-    // animate transform, and getBoundingClientRect reports the visual box, so
+    // Past the panel's entrance: it animates transform, and getBoundingClientRect reports the visual box, so
     // a cell mid-reveal measures 43.9px and reads as a failure that is not one.
     await page.waitForTimeout(900);
   }

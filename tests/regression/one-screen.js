@@ -520,54 +520,30 @@ function ok(cond, name, detail){
   await page.setViewportSize({width: 1440, height: 900});
   await page.waitForTimeout(250);
 
-  // ------------------------------------------------------- the month grid's rows
-  // The Calendar is the one tab drawn to the height it is given, so how that
-  // height is divided is the whole layout. The grid's first row is the seven
-  // SUN..SAT labels, and it has no grid-template-rows of its own — so
-  // grid-auto-rows:minmax(0,1fr) sized that 19px strip of text like a week:
-  // 97px, of which 77 were blank, banded across the top of the month while
-  // every row that holds actual dates was 16px shorter to pay for it.
-  await page.evaluate(() => document.querySelector('.tab-btn[data-tab="calendar"]').click());
+  // ------------------------------------------------------------------- Recap
+  // Recap replaced the Calendar (2026-11-22), and the month grid's row checks
+  // went with it. Recap sits on the page like the Overview, so the frame
+  // rule is the one to hold it to: the page never scrolls, and the panel
+  // shows one card at a time without scrolling sideways itself.
+  await page.evaluate(() => document.querySelector('.tab-btn[data-tab="recap"]').click());
   await page.waitForTimeout(600);
   {
-    const g = await page.evaluate(() => {
-      const grid = document.querySelector(".calendar-grid");
-      if(!grid) return null;
-      const rows = getComputedStyle(grid).gridTemplateRows.split(" ").map(parseFloat);
-      // Over the text itself, not the box: the box is what the grid stretched,
-      // so measuring it would report the bug as if it were the requirement.
-      const dow = Array.from(grid.querySelectorAll(".cal-dow")).reduce((m, e) => {
-        const r = document.createRange(); r.selectNodeContents(e);
-        return Math.max(m, r.getBoundingClientRect().height);
-      }, 0);
-      // The grid renders whatever month is on screen when the suite runs, and
-      // a month spans 4-6 week rows depending on where its first and last days
-      // fall — the leading empty cells plus the day count, divided by 7 and
-      // rounded up. Asserting a fixed 6 made this test pass only in months
-      // that happened to need all six rows and fail in every other one.
-      const leading = Array.from(grid.querySelectorAll(".cal-empty")).length;
-      const dated = Array.from(grid.querySelectorAll(".cal-cell:not(.cal-empty)")).length;
-      const expectedWeeks = Math.ceil((leading + dated) / 7);
-      return {head: rows[0], weeks: rows.slice(1), dowContent: dow, expectedWeeks};
+    const r = await page.evaluate(() => {
+      const panel = document.getElementById("tab-recap");
+      const track = document.getElementById("recapTrack");
+      const card = track && track.querySelector(".recap-card");
+      return {
+        active: !!panel && panel.classList.contains("active"),
+        pageScrolls: document.scrollingElement.scrollHeight > window.innerHeight + 1,
+        panelWide: panel ? panel.scrollWidth > panel.clientWidth + 1 : null,
+        cards: track ? track.children.length : 0,
+        oneAtATime: !!card && Math.abs(card.getBoundingClientRect().width - track.clientWidth) < 6
+      };
     });
-    ok(g !== null, "the calendar grid is on screen to measure");
-    if(g){
-      // The labels get what they need and no more. 40px is generous for a 19px
-      // strip and still nowhere near a week row.
-      ok(g.head <= 40,
-        "the day-of-week row is sized to its labels, not to a week",
-        `header row is ${Math.round(g.head)}px for ${Math.round(g.dowContent)}px of label`);
-      // And the week rows for whichever month is on screen split what is left
-      // evenly between them — 4 to 6 of them, depending on the month.
-      const lo = Math.min(...g.weeks), hi = Math.max(...g.weeks);
-      ok(g.weeks.length === g.expectedWeeks, "the month's week rows share the rest of the grid",
-        `${g.weeks.length} rows below the header, expected ${g.expectedWeeks} for this month`);
-      ok(hi - lo <= 2, "every week row is the same height",
-        `rows run ${Math.round(lo)}px to ${Math.round(hi)}px`);
-      // The bug's signature was a header row indistinguishable from a week.
-      ok(lo - g.head >= 40, "a week row is decisively taller than the header row",
-        `header ${Math.round(g.head)}px vs week ${Math.round(lo)}px`);
-    }
+    ok(r.active, "the Recap panel is the one on screen", JSON.stringify(r));
+    ok(!r.pageScrolls, "and the page does not scroll around it", JSON.stringify(r));
+    ok(r.panelWide === false, "nor does the panel scroll sideways", JSON.stringify(r));
+    ok(r.cards === 5 && r.oneAtATime, "five cards, one at a time", JSON.stringify(r));
   }
 
   // ---------------------------------------------------------------- a real roster

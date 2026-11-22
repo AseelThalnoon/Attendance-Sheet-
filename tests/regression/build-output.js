@@ -172,7 +172,7 @@ let outDir = null;
         for(const h of [src, out]){
           await h.page.evaluate(m => document.documentElement.setAttribute("data-theme", m), mode);
         }
-        for(const tab of ["overview", "log", "calendar", "settings", "admin"]){
+        for(const tab of ["overview", "log", "recap", "settings", "admin"]){
           await goTab(src.page, tab); await goTab(out.page, tab);
           await still(src.page); await still(out.page);
           const a = await snapshot(src.page), b = await snapshot(out.page);
@@ -242,7 +242,7 @@ let outDir = null;
       await settle(h.page, 900);
       const row = h.backend.state.entries.find(e => e.user_id === people[1].id && e.date === today);
       ok(!!row && !!row.clock_in, "a punch in the built app reaches the backend", JSON.stringify(row));
-      for(const tab of ["log", "trends", "calendar", "punctuality", "settings"]){
+      for(const tab of ["log", "trends", "recap", "punctuality", "settings"]){
         await goTab(h.page, tab);
       }
       ok(await h.page.evaluate(() => document.querySelector(".tab-panel.active").id) === "tab-settings", "every tab opens");

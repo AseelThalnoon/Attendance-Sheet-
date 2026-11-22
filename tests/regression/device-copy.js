@@ -154,7 +154,7 @@ const view = page => page.evaluate(copyKey => ({
       // logs' timings, 7s on the slowest renewal they show.
       const bar = await p.evaluate(() => [...document.querySelectorAll("#bottomNav .bn-item")]
         .filter(el => el.getClientRects().length).map(el => el.getAttribute("data-bn-tab")).join());
-      ok(bar === "overview,log,trends,calendar", "and its tab bar is there to move about in", bar);
+      ok(bar === "overview,log,trends,recap", "and its tab bar is there to move about in", bar);
       await p.evaluate(() => document.querySelector('#bottomNav .bn-item[data-bn-tab="log"]').click());
       await settle(p, 500);
       ok(await p.evaluate(() => document.getElementById("tab-log").classList.contains("active")),
@@ -225,36 +225,10 @@ const view = page => page.evaluate(copyKey => ({
     } finally { await h.close(); }
   }
 
-  // ---- The calendar starts at the first logged day ----------------------------
-  {
-    const d = new Date();
-    const back = n => D.dateStr(new Date(d.getFullYear(), d.getMonth(), d.getDate() - n));
-    const row = (date, id) => ({ id, user_id: me.id, date, clock_in: "08:00:00", clock_out: "16:00:00",
-      type: "regular", note: "", updated_at: "2026-01-01T00:00:00Z" });
-    // Today, and six days ago: the days between are real gaps, the days
-    // before are before the record began.
-    const h = await boot({ viewport: DESKTOP, meId: me.id, seed: seed({ entries: [row(back(6), 1), row(today, 2)] }) });
-    const p = h.page;
-    try {
-      await goTab(p, "calendar");
-      await settle(p, 600);
-      const cal = await p.evaluate(([first, sched]) => {
-        const cells = [...document.querySelectorAll("#calendarGrid .cal-cell[data-date]")];
-        const notLogged = c => /Not logged/.test(c.textContent);
-        return {
-          beforeMarked: cells.filter(c => c.dataset.date < first && notLogged(c)).length,
-          beforeCells: cells.filter(c => c.dataset.date < first && c.classList.contains("cal-before")).length,
-          gapMarked: cells.filter(c => c.dataset.date > first && c.classList.contains("cal-missing") && notLogged(c)).length,
-          label: (cells.find(c => c.classList.contains("cal-before")) || {}).getAttribute
-            ? cells.find(c => c.classList.contains("cal-before")).getAttribute("aria-label") : ""
-        };
-      }, [back(6)]);
-      ok(cal.beforeMarked === 0, "no workday before the first logged one is marked \"Not logged\"", JSON.stringify(cal));
-      // Only checkable when the month has scheduled days before the first entry.
-      if(cal.beforeCells) ok(/before your first logged day/.test(cal.label), "and a screen reader hears why", cal.label);
-      if(d.getDate() > 7) ok(cal.gapMarked >= 1, "a workday missed after it still is", JSON.stringify(cal));
-    } finally { await h.close(); }
-  }
+  // ---- The first logged day -------------------------------------------------
+  // The Calendar marked no workday before the first entry "Not logged". It
+  // went with the Calendar (2026-11-22); Recap keeps the same rule, and
+  // regression/recap.js checks it against src/recap.js directly.
 
   // ---- A month with no workday yet: the sentence wraps instead of being cut ---
   {

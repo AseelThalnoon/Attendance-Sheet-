@@ -180,7 +180,7 @@ const VIEWPORTS = [
           r.squeezed.slice(0, 3).map(o => `${o.el} is ${o.w}px wide over ${o.lines} lines: "${o.txt}"`).join("\n     "));
       };
 
-      for(const tab of ["overview","log","trends","calendar","punctuality","team","settings","admin"]){
+      for(const tab of ["overview","log","trends","recap","punctuality","team","settings","admin"]){
         try { await goTab(h.page, tab); } catch(e){ continue; }
         await settle(h.page, 400);
         await check(tab);

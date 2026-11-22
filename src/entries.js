@@ -20,7 +20,11 @@ function rowToEntry(row){
     clockIn: row.clock_in || "",
     clockOut: row.clock_out || "",
     type: row.type || "regular",
-    note: row.note || ""
+    note: row.note || "",
+    // When the row was first written. Read by Recap only, to tell a punch
+    // made on arrival from a day typed in afterwards; never written back
+    // (entryToRow leaves it out, and the database sets it).
+    createdAt: row.created_at || ""
   };
 }
 function entryToRow(entry, userId){
