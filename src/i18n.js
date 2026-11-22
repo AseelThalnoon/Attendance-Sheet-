@@ -146,7 +146,9 @@ function viaTemplate(key){
         // A captured word that is itself on the list ("dark", "Thursday")
         // comes across translated; a number or a name comes across as is.
         var tr = DICT[v] != null ? DICT[v] : viaTemplate(v);
-        if(tr == null && /[A-Za-z]{2,}/.test(v)) whole = false;
+        // {who} and {name} are people's names: as written, and never a reason
+        // to leave the sentence around them in English.
+        if(tr == null && /[A-Za-z]{2,}/.test(v) && !/^(who|name)/.test(list[i].names[j])) whole = false;
         vars[list[i].names[j]] = tr != null ? tr : v;
       }
       if(list[i].strict && !whole) continue;
@@ -156,13 +158,18 @@ function viaTemplate(key){
   return null;
 }
 // {name} drops a value in; {name|noun} counts it in Arabic ("{n|day}" with 16
-// is "16 يومًا", with 2 is "يومان"), through count() below.
+// is "16 يومًا", with 2 is "يومان"), through count() below. {name|noun:gen}
+// is the same count after a preposition, as an object or as the second half
+// of an idafa: "منذ يومين", "تم حذف سجلين", where the nominative "يومان"
+// would be wrong. Only the dual changes; 3-10 and 11+ already take the form
+// every case uses.
 function fill(s, vars){
   return s.replace(/\{(\w+)(?:\|([^}]+))?\}/g, function(m, k, noun){
     if(vars[k] == null) return m;
     if(noun){
       var num = Number(String(vars[k]).replace(/[,−]/g, function(c){ return c === "−" ? "-" : ""; }));
-      if(!isNaN(num)) return count(num, noun);
+      var parts = noun.split(":");
+      if(!isNaN(num)) return count(num, parts[0], undefined, parts[1]);
     }
     return String(vars[k]);
   });
@@ -181,13 +188,14 @@ function t(en, vars){
 var AR_NOUNS = {};
 var PR = null;
 function registerNouns(map){ for(var k in map) AR_NOUNS[k] = map[k]; }
-function count(n, one, many){
+function count(n, one, many, kase){
   if(lang !== "ar" || !AR_NOUNS[one]){
     return n + " " + (n === 1 ? one : (many || one + "s"));
   }
   var f = AR_NOUNS[one];
   try{ PR = PR || new Intl.PluralRules("ar"); }catch(err){ PR = null; }
   var cat = PR ? PR.select(n) : (n === 1 ? "one" : n === 2 ? "two" : "other");
+  if(cat === "two" && kase === "gen" && f.twoGen) cat = "twoGen";
   var form = f[cat] != null ? f[cat] : f.other;
   return form.indexOf("{n}") === -1 ? form : form.replace("{n}", String(n));
 }
@@ -226,11 +234,25 @@ function lookup(raw){
 // translate it again. __i18nOut is the text we wrote: seeing it again is our
 // own write coming back through the observer, and anything else is app.js
 // writing something new.
+// One English word, two meanings: "Admin" is the tab (الإدارة) and a
+// person's role (مسؤول). An element marked data-i18n-ctx="role" is looked up
+// as "role: Admin" first, and as plain "Admin" when that has no entry.
+function inContext(el, raw){
+  for(var n = el; n && n.nodeType === 1; n = n.parentNode){
+    var c = n.getAttribute && n.getAttribute("data-i18n-ctx");
+    if(c){
+      var key = raw.trim(), hit = DICT[c + ": " + key];
+      return hit == null ? null : raw.replace(key, hit);
+    }
+  }
+  return null;
+}
 function translateText(node){
   var v = node.nodeValue;
   if(!v || !node.parentNode || skip(node.parentNode)) return;
   if(node.__i18nOut !== undefined && v === node.__i18nOut) return;
-  var out = lookup(v);
+  var out = inContext(node.parentNode, v);
+  if(out == null) out = lookup(v);
   if(out != null && out !== v){ node.__i18nEn = v; node.__i18nOut = out; node.nodeValue = out; }
   else { node.__i18nEn = undefined; node.__i18nOut = undefined; }
 }

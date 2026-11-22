@@ -10105,6 +10105,12 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     document.getElementById("settingsBtn").style.display = (isAdmin || isOwnData) ? "" : "none";
   }
 
+  // A role as a word ("Admin" the role, not the tab): its "role: ..." entry
+  // where there is one, else the English as it is.
+  function roleWord(role){
+    var key = "role: " + role, v = t(key);
+    return v === key ? role : v;
+  }
   async function loadAllProfilesForSwitcher(){
     try{
       var res = await supabase.from("profiles")
@@ -10117,8 +10123,10 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     var sel = document.getElementById("viewerSelect");
     var prev = sel.value;
     sel.innerHTML = allProfiles.map(function(p){
-      var label = (p.id === currentUser.id ? "Me — " : "") + (p.full_name || p.email) +
-        (p.role === "admin" ? " (Admin)" : "");
+      // The options are dir="auto" for the names in them, which keeps the
+      // translator out, so the app's own words are put in here.
+      var label = (p.id === currentUser.id ? t("Me") + " — " : "") + (p.full_name || p.email) +
+        (p.role === "admin" ? " (" + roleWord("Admin") + ")" : "");
       return '<option dir="auto" value="'+p.id+'">'+escapeHtml(label)+'</option>';
     }).join("");
     sel.value = allProfiles.some(function(p){ return p.id === prev; }) ? prev : currentUser.id;
@@ -11450,7 +11458,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
         '</div>'+
         '<div class="team-tags">'+
           '<span class="team-status '+t.status.cls+'">'+escapeHtml(t.status.label)+'</span>'+
-          (p.role === "admin" ? '<span class="admin-badge">Admin</span>' : '')+
+          (p.role === "admin" ? '<span class="admin-badge" data-i18n-ctx="role">Admin</span>' : '')+
           (t.configured ? '' : '<span class="admin-badge unconfigured">No schedule</span>')+
           // How many days the average beside it is an average OF. Only shown
           // on a phone, where the Days figure below is dropped; on a pointer
@@ -11792,20 +11800,22 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       row.innerHTML =
         avatarSlotHtml(u)+
         '<div class="admin-user-main">'+
-          '<div class="admin-user-name" dir="auto">'+escapeHtml(name)+
+          // dir="auto" on the name and the address alone: the badges and the
+          // counts beside them are the app's words, and get translated.
+          '<div class="admin-user-name"><span dir="auto">'+escapeHtml(name)+'</span>'+
             (isSelf ? ' <span class="admin-badge role-you">You</span>' : '')+
             // Role used to be a two-button switch on every row. As a fact it
             // is binary and almost always the same value, so it reads better
             // as a mark on the minority that carries it than as a control
             // repeated once per person; changing it lives in the row menu.
-            (u.role === "admin" ? ' <span class="admin-badge role-admin">Admin</span>' : '')+
+            (u.role === "admin" ? ' <span class="admin-badge role-admin" data-i18n-ctx="role">Admin</span>' : '')+
             (u.deactivated ? ' <span class="admin-badge deactivated">Deactivated</span>' : '')+
             (unconfigured ? ' <span class="admin-badge unconfigured">No schedule</span>' : '')+
             // A mark on the few, like Admin: most people work to the Team
             // Schedule, and saying so on every row would be noise.
             (hasOwnSchedule(u) ? ' <span class="admin-badge own-schedule">Own schedule</span>' : '')+
           '</div>'+
-          '<div class="admin-user-meta" dir="auto"'+
+          '<div class="admin-user-meta"'+
             // Both facts in the tooltip, because they genuinely differ and the
             // difference is worth being able to see: "signed in 27 days ago,
             // last used it today" describes a perfectly normal person on a
@@ -11813,7 +11823,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
             ' title="'+escapeAttr(
               "Last active " + fmtRelative(u.last_seen_at || u.last_sign_in_at) +
               " · Last signed in " + fmtRelative(u.last_sign_in_at))+'">'+
-            escapeHtml(u.email)+' · '+
+            '<span dir="auto">'+escapeHtml(u.email)+'</span> · '+
             // This once read "Last sign-in", and was named that honestly:
             // auth.users.last_sign_in_at moves only when someone
             // authenticates, so it could not answer "when did this person

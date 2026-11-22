@@ -1510,6 +1510,19 @@ Jibble's Arabic site, Odoo's Arabic documentation) and Saudi HR usage:
   that has to agree with both) are counted with `{n|noun}`; where a sentence
   would still need the adjective to agree, it is written as a label and a
   figure instead: «أيام عمل غير مسجّلة: 4».
+- **A count takes its case.** After a preposition, as an object or in an
+  idafa it is `{n|day:gen}`: منذ يومين، تم حذف سجلين، على مدى يومين — never
+  the nominative يومان there. A count with an adjective is its own noun
+  (`logged day`, `unlogged workday`, `more short day`) so the adjective
+  agrees: يومان مسجّلان، 11 يومًا مسجّلًا. Zero reads لا أيام / لا سجلات.
+- **"Admin" is two words.** The tab is الإدارة; a person's role is مسؤول.
+  Role labels carry `data-i18n-ctx="role"` and are looked up as
+  "role: Admin" first.
+- **Names are isolated, not the line.** `dir="auto"` goes on the name or
+  address itself, so the badges and counts beside it are translated.
+- **Joined with "بـ" only before Latin** (بـ Face ID); before an Arabic word
+  the sentence says باستخدام instead, since the pattern can't know which
+  it will get.
 - The team can reword any of it in Admin › Labels; this table is the house
   style for the app's own wording.
 

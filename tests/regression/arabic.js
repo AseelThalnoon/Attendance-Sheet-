@@ -54,7 +54,21 @@ const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
     return node.nodeValue;
   };
   ok(tr("Clock In") === "تسجيل الحضور", "fixed text is swapped where it lands", tr("Clock In"));
-  ok(tr("92 days logged") === "92 يومًا مسجّلة", "a sentence built from parts is matched by its pattern", tr("92 days logged"));
+  ok(tr("92 days logged") === "92 يومًا مسجّلًا", "a sentence built from parts is matched by its pattern", tr("92 days logged"));
+  // The adjective agrees with the count, and a count after a preposition or
+  // in an idafa takes the genitive dual (منذ يومين, not منذ يومان).
+  const grammar = ["2 days logged", "2d ago", "Deleted 2 entries.", "and 2 more short days", "2 workdays not logged."].map(tr);
+  ok(grammar.join(" | ") === "يومان مسجّلان | منذ يومين | تم حذف سجلين. | ويومان ناقصان آخران | يوما عمل غير مسجّلين.",
+    "counts agree with their adjective and take the case they are in", grammar.join(" | "));
+  // A sentence built in parts, where each part is its own pattern.
+  ok(tr("Target 8h · 18 workdays · 2 not logged") === "المطلوب 8س · 18 يوم عمل · لم يُسجَّل 2",
+    "a line joined with dots is translated part by part", tr("Target 8h · 18 workdays · 2 not logged"));
+  // A person's name inside a pattern is kept, and does not stop the rest.
+  ok(tr("From Rana Haddad") === "من Rana Haddad", "a name inside a sentence stays as written", tr("From Rana Haddad"));
+  // "Admin" is the tab, and in a role's place the role.
+  const roleNode = { nodeType: 3, nodeValue: "Admin", parentNode: { nodeType: 1, nodeName: "P", getAttribute: k => (k === "data-i18n-ctx" ? "role" : null), hasAttribute: () => false, parentNode: null } };
+  i18n.translateTree(roleNode);
+  ok(tr("Admin") === "الإدارة" && roleNode.nodeValue === "مسؤول", "Admin the tab and Admin the role read differently", tr("Admin") + " / " + roleNode.nodeValue);
   ok(tr("16d") === "16 يومًا" && tr("Logged") === "مسجّل", "a number placeholder never eats a word", tr("Logged"));
   ok(tr("usually about 2 a month") === "عادةً نحو 2 في الشهر", "the more specific pattern wins", tr("usually about 2 a month"));
   const english = "Hours, punctuality and leave start from there.";

@@ -7558,7 +7558,7 @@
       <div class="avatar" id="railUserAvatar"></div>
       <div class="rail-user-text">
         <p class="rail-user-name" id="railUserName" dir="auto">—</p>
-        <p class="rail-user-role" id="railUserRole">—</p>
+        <p class="rail-user-role" id="railUserRole" data-i18n-ctx="role">—</p>
       </div>
       <!-- Proxies to the real #logoutBtn (see app.js) rather than duplicating
          its sign-out logic, the same way rail-item already proxies to the
@@ -7867,7 +7867,7 @@
     <div class="portrait-plate">
       <div class="portrait-id">
         <p class="portrait-name" id="personName" dir="auto">—</p>
-        <p class="portrait-role" id="personRole">—</p>
+        <p class="portrait-role" id="personRole" data-i18n-ctx="role">—</p>
       </div>
       <span class="team-status" id="personStatus" hidden></span>
     </div>
@@ -9652,6 +9652,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v74"></script>
+<script type="module" src="app.js?v=v75"></script>
 </body>
 </html>
