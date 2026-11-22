@@ -56,10 +56,10 @@ const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
   ok(tr("Clock In") === "تسجيل الحضور", "fixed text is swapped where it lands", tr("Clock In"));
   ok(tr("92 days logged") === "92 يومًا مسجّلة", "a sentence built from parts is matched by its pattern", tr("92 days logged"));
   ok(tr("16d") === "16 يومًا" && tr("Logged") === "مسجّل", "a number placeholder never eats a word", tr("Logged"));
-  ok(tr("usually about 2 a month") === "عادةً حوالي 2 في الشهر", "the more specific pattern wins", tr("usually about 2 a month"));
+  ok(tr("usually about 2 a month") === "عادةً نحو 2 في الشهر", "the more specific pattern wins", tr("usually about 2 a month"));
   const english = "Hours, punctuality and leave start from there.";
   ok(tr(english) === english, "a sentence nobody translated stays whole, not half-Arabic", tr(english));
-  ok(tr("Couldn't save that entry: Something went wrong.") === "تعذّر حفظ السجل: حدث خطأ ما.",
+  ok(tr("Couldn't save that entry: Something went wrong.") === "تعذّر حفظ السجل: حدث خطأ غير متوقع.",
     "an error inside a message is translated too", tr("Couldn't save that entry: Something went wrong."));
 
   // Every entry's Arabic uses only placeholders its English has.
@@ -119,6 +119,15 @@ const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
             if(r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
             if(getComputedStyle(el).visibility === "hidden") continue;
             left.add(v.slice(0, 80));
+          }
+          // A box's placeholder is the app's words even when the box is
+          // dir="auto" for what gets typed into it.
+          for(const el of document.querySelectorAll("input[placeholder], textarea[placeholder]")){
+            const v = el.getAttribute("placeholder").trim();
+            if(!/[A-Za-z]{2,}/.test(v.replace(allowed, "")) || el.closest("[data-no-i18n]") || !el.getClientRects().length) continue;
+            const r = el.getBoundingClientRect();
+            if(r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
+            left.add("placeholder: " + v.slice(0, 60));
           }
           const vw = document.documentElement.clientWidth;
           const track = document.getElementById("recapTrack");

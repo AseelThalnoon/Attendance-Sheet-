@@ -1355,6 +1355,13 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
   }
   function monthShortLabel(key){
     var p = key.split("-");
+    // Arabic has no short month names and no '26 for a year: "نوفمبر '26"
+    // reads as the 26th of November. One year on the chart, the selector
+    // above it already says which; across all years, the year in full.
+    if(isArabic()){
+      return fmtWith(new Date(+p[0], +p[1]-1, 1), {month:"long"}) +
+        (currentPeriod().year === "all" ? " " + p[0] : "");
+    }
     return fmtWith(new Date(+p[0], +p[1]-1, 1), {month:"short"}) + " '" + String(+p[0]).slice(-2);
   }
   // One Intl.DateTimeFormat per set of options, built on first use.

@@ -235,7 +235,11 @@ function translateText(node){
   else { node.__i18nEn = undefined; node.__i18nOut = undefined; }
 }
 function translateAttrs(el){
-  if(skip(el)) return;
+  // A search box is dir="auto" for the name typed into it, not for its own
+  // placeholder ("Name or email"), which is the app's: for a field, only its
+  // surroundings and its own data-no-i18n decide.
+  var field = el.nodeName === "INPUT" || el.nodeName === "TEXTAREA";
+  if(field ? (el.hasAttribute("data-no-i18n") || skip(el.parentNode)) : skip(el)) return;
   var seen = el.__i18nA || {};
   for(var i = 0; i < ATTRS.length; i++){
     var a = ATTRS[i], v = el.getAttribute(a);
