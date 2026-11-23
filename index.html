@@ -4497,6 +4497,67 @@
   .card.recap-empty{margin:0; padding:var(--space-5);}
   .recap-empty p{margin:0; font-size:14px; line-height:1.45; color:var(--muted-2);}
 
+  /* ---------- Motion that shows what just happened ----------
+     2026-11-23, owner: "Do all". The script half is src/motion.js; its rules
+     hold here too: only on the person's own action, transform and opacity
+     (and one background fade), the duration and easing tokens, and nothing
+     under reduced motion -- the blanket rule at the top of this sheet. */
+
+  /* A saved or restored day, lit for a moment where it landed: the accent as
+     a wash (a fill, as the Fill-Only Rule allows), fading back to the row's
+     own ground. On a phone the row is one block, so the row itself is lit;
+     on a desk, its cells. Under reduced motion it is marked without the fade. */
+  @keyframes rowFlash{0%, 30%{background-color:rgba(var(--gold-rgb), .34);} 100%{background-color:transparent;}}
+  #logBody tr.is-flash > td{animation:rowFlash 1.6s var(--ease-soft);}
+  #logBody tr.is-marked > td{background-color:rgba(var(--gold-rgb), .28);}
+  @media (max-width:700px){
+    .table-wrap.mobile-rows #logBody tr.is-flash{animation:rowFlash 1.6s var(--ease-soft);}
+    .table-wrap.mobile-rows #logBody tr.is-marked{background-color:rgba(var(--gold-rgb), .28);}
+    .table-wrap.mobile-rows #logBody tr.is-flash > td{animation:none;}
+    .table-wrap.mobile-rows #logBody tr.is-marked > td{background-color:transparent;}
+  }
+
+  /* One highlight per segmented control, sliding to the choice. The buttons'
+     own active fill steps aside while it is there; their text keeps its
+     active colour. Three classes each, so this wins over the two-class
+     active rules wherever they sit in the sheet. */
+  .has-pill{position:relative; isolation:isolate;}
+  .seg-pill{
+    position:absolute; left:0; top:0; z-index:0; pointer-events:none;
+    border-radius:var(--radius-sm); background:var(--card); box-shadow:var(--shadow-sm);
+    transition:transform var(--dur-base) var(--ease-soft), width var(--dur-base) var(--ease-soft),
+      height var(--dur-base) var(--ease-soft), opacity var(--dur-fast) var(--ease-snap);
+  }
+  .seg-pill.is-still{transition:none;}
+  .has-pill > :not(.seg-pill){position:relative; z-index:1;}
+  .has-pill > .sub-tab-btn.active, .has-pill > .recap-mode-btn.active,
+  .has-pill > .appearance-seg-btn[aria-checked="true"]{background:transparent; box-shadow:none;}
+
+  /* Recap, opened or stepped to another period: the cards rise in reading
+     order and the charts draw in -- the same verbs Trends' charts use. Only
+     while #recapBody carries .is-entering, which renderRecap() sets for the
+     person's own action and takes off after a second, so a repaint from a
+     sync draws nothing twice. */
+  @keyframes recapGrowX{from{transform:scaleX(0);}}
+  @keyframes recapGrowY{from{transform:scaleY(0);}}
+  @keyframes recapDotIn{from{opacity:0; transform:translate(-50%,-50%) scale(.2);}}
+  @keyframes recapTrackDotIn{from{opacity:0; transform:translateY(-50%) scale(.2);}}
+  .recap-body.is-entering .recap-areas > .recap-area, .recap-body.is-entering .recap-year{animation:cardIn var(--dur-slow) var(--ease-soft) both;}
+  .recap-body.is-entering .recap-areas > .recap-area:nth-child(2){animation-delay:40ms;}
+  .recap-body.is-entering .recap-areas > .recap-area:nth-child(3){animation-delay:80ms;}
+  .recap-body.is-entering .recap-areas > .recap-area:nth-child(4){animation-delay:120ms;}
+  .recap-body.is-entering .recap-bar > i{animation:recapGrowX var(--dur-slower) var(--ease-soft) 150ms both; transform-origin:left center;}
+  [dir="rtl"] .recap-body.is-entering .recap-bar > i{transform-origin:right center;}
+  .recap-body.is-entering .recap-mcol-area > i{animation:recapGrowY var(--dur-slower) var(--ease-soft) both; animation-delay:calc(150ms + var(--i, 0) * 25ms); transform-origin:bottom center;}
+  .recap-body.is-entering .recap-col > .recap-mark{animation:recapDotIn var(--dur-slow) var(--ease-soft) both; animation-delay:calc(150ms + var(--i, 0) * 18ms);}
+  .recap-body.is-entering .recap-dot-track > i{animation:recapTrackDotIn var(--dur-slow) var(--ease-soft) 200ms both;}
+  .recap-body.is-entering .recap-pic-row{animation:fadeFlat var(--dur-slow) var(--ease-soft) both; animation-delay:calc(var(--i, 0) * 30ms);}
+  @media (prefers-reduced-motion: reduce){ .recap-body.is-entering *{animation-delay:0s !important;} }
+
+  /* A palette or mode picked in Settings crossfades (src/motion.js,
+     crossfade); a little slower than the base so the change reads as one. */
+  ::view-transition-old(root), ::view-transition-new(root){animation-duration:var(--dur-slow);}
+
   /* A dot on the Recap item, from the 1st of a month until that month's
      finished recap is opened. Gold-deep on the bottom bar's white, gold on
      the rail's dark, each ringed in its own ground so it reads as a mark on
@@ -9663,6 +9724,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v78"></script>
+<script type="module" src="app.js?v=v79"></script>
 </body>
 </html>

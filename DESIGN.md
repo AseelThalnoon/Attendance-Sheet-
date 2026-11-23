@@ -1667,6 +1667,40 @@ base duration, a hint of direction rather than a swipe. The entry form opened
 from a Log row starts a third of the way toward that row and returns the same
 way. Both fall under the blanket reduced-motion rule.
 
+**Small motions show what just happened** (2026-11-23, owner: "Do all"; the
+script half is src/motion.js, the CSS is the "Motion that shows what just
+happened" block in index.html):
+
+- A day saved from the entry form is brought into view in the Log, clear of
+  the phone's bottom bar, and lit with the accent as a wash that fades over
+  1.6 seconds. It waits for the form to finish closing: the form steps the
+  history back as it closes, and the browser's scroll restoration for that
+  step would undo a scroll made before it.
+- A deleted row fades out and slips toward the start edge once the server
+  has it, and the rows below close over the gap (each slides from where it
+  was); Undo brings the row back the same way and lights it. A bulk delete's
+  rows leave the same way before the list reloads.
+- A month stepped or picked comes in from that side — 12px over the base
+  duration, the hint the phone's tab entrance already gives — in Recap and in
+  the Log and Shortfall. Team was left as it was: its cards already rise on a
+  month change.
+- Every segmented control (Recap's Month / Year, Trends' views, Settings'
+  language and mode) has one highlight that slides to the choice; the active
+  button's own fill steps aside while it is there.
+- Recap, opened or stepped, raises its cards in reading order and draws its
+  charts in with Trends' verbs (bars grow, dots land). Only for the person's
+  own action: a repaint after a sync draws nothing twice.
+- A palette or mode picked in Settings crossfades from the old look to the
+  new (the View Transitions API; where a browser lacks it, the change is
+  simply made). The system's own light/dark switch is not the person's
+  action and stays a plain change.
+
+All of it is transform and opacity (and that one background fade), at the
+existing duration and easing tokens, and none of it runs under reduced
+motion: the blanket rule stops the CSS, and the script-driven motions check
+for themselves, since that rule cannot reach them. A saved day is still
+brought into view and marked there, without the fade.
+
 A saved punch is shown at the size of the thing it confirms (added 2026-11-16,
 on the owner's request for an animation on clocking in and out). The colour of
 the action floods out from the control that was pressed, states the minute that

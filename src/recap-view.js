@@ -200,9 +200,9 @@ function startsChart(cur){
   var span = hi - lo, y = function(m){ return (((m - lo) / span) * 100).toFixed(1); };
   // A dot after the 8:00 line is only a ring -- late -- when that day came up
   // short; a day that made its hours is on time however it started.
-  var marks = cols.map(function(d){
+  var marks = cols.map(function(d, k){
     var st = cur.startByDate[d.date];
-    return '<span class="recap-col" title="' + esc(fmtDateShort(d.date) + " · " + clock(st)) + '"><i class="recap-mark is-' + (lateOn[d.date] ? "after" : "before") + '" style="top:' + y(st) + '%"></i></span>';
+    return '<span class="recap-col" style="--i:' + k + '" title="' + esc(fmtDateShort(d.date) + " · " + clock(st)) + '"><i class="recap-mark is-' + (lateOn[d.date] ? "after" : "before") + '" style="top:' + y(st) + '%"></i></span>';
   }).join("");
   var late = cur.lateDays.map(function(x){ return fmtDateNoYear(x.date); });
   var aria = "Start time on each workday. " + (late.length ? plural(late.length, "late day") + ": " + late.join(", ") + "." : "No late days.");
@@ -352,8 +352,8 @@ function offByMonth(y){
     cols.push({ key: k, n: n }); if(n > top) top = n;
   }
   var aria = "Days off by month: " + cols.filter(function(c){ return c.n; }).map(function(c){ return monthName(c.key, "short") + " " + days(c.n); }).join(", ") + ".";
-  return '<div class="recap-mchart" role="img" aria-label="' + esc(aria) + '" style="--cols:' + cols.length + '">' + cols.map(function(c){
-    return '<span class="recap-mcol" aria-hidden="true"><b>' + (c.n ? esc(days(c.n)) : "") + '</b><span class="recap-mcol-area"><i style="height:' +
+  return '<div class="recap-mchart" role="img" aria-label="' + esc(aria) + '" style="--cols:' + cols.length + '">' + cols.map(function(c, i){
+    return '<span class="recap-mcol" aria-hidden="true" style="--i:' + i + '"><b>' + (c.n ? esc(days(c.n)) : "") + '</b><span class="recap-mcol-area"><i style="height:' +
       (c.n ? Math.max(8, c.n / top * 100) : 0).toFixed(1) + '%"></i></span><span class="recap-mcol-label">' + esc(dateFromStr(c.key + "-01").toLocaleDateString(locale(), { month: "narrow" })) + "</span></span>";
   }).join("") + "</div>";
 }
@@ -388,8 +388,8 @@ function picture(y){
   var remote = c.days.filter(function(d){ return d.status === "remote"; }).length;
   var slots = y.order.length;
   var weeks = Math.max.apply(null, y.months.map(function(mo){ return mo.weeks.length; }).concat([1]));
-  var grid = y.months.map(function(mo){
-    return '<div class="recap-pic-row"><span class="recap-pic-month">' + esc(monthName(mo.key, "short")) + '</span><span class="recap-pic-weeks">' +
+  var grid = y.months.map(function(mo, r){
+    return '<div class="recap-pic-row" style="--i:' + r + '"><span class="recap-pic-month">' + esc(monthName(mo.key, "short")) + '</span><span class="recap-pic-weeks">' +
       mo.weeks.map(function(w){
         return '<span class="recap-pic-week">' + w.map(function(cell){
           var st = cell && cell.status;
