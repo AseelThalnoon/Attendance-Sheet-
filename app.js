@@ -5561,16 +5561,19 @@ import { monthPage, yearPage } from "./src/recap-view.js";
       atEnd = recapYear >= today.slice(0, 4);
     } else {
       var m = recapCalc.monthRecap(entries, recapMonth, today);
+      // An admin looking at someone else's record reads their name where
+      // the page would otherwise say "your" (2026-11-23).
+      var who = isOwnData ? null : { name: firstNameOf(viewedProfile) };
       var basis;
       if(m.base){
         // Says what "usual" is the first time anyone reads it: the average of
         // the months before, named.
-        var a = recapShortMonth(m.base.from), b = recapShortMonth(m.base.to);
-        basis = a === b ? "Compared with your average for " + a : "Compared with your average for " + a + " – " + b;
+        var a = recapShortMonth(m.base.from), b = recapShortMonth(m.base.to), span = a === b ? a : a + " – " + b;
+        basis = who ? "Compared with " + who.name + "'s average for " + span : "Compared with your average for " + span;
       } else {
         basis = "Comparisons start after a few weeks of logging.";
       }
-      html = monthPage(m, basis);
+      html = monthPage(m, basis, who);
       var sameYear = recapMonth.slice(0, 4) === today.slice(0, 4);
       title = recapMonthLabel(recapMonth, !sameYear) + (m.isCurrent ? " so far" : "");
       atStart = !bounds || recapMonth <= bounds.firstMonth;
@@ -5591,10 +5594,27 @@ import { monthPage, yearPage } from "./src/recap-view.js";
   }
 
   // A day on the page opens that day: a short day's entry to look at, or for
-  // a day nobody logged, the entry form on that date.
+  // a day nobody logged, the entry form on that date. "See all" opens
+  // Shortfall on the month in view, and on a phone the row of verdicts
+  // under the headline takes you down to each card.
   onId("recapBody", "click", function(ev){
     var day = ev.target.closest("[data-recap-day]");
-    if(day){ entryModalOrigin = day; openFixForDate(day.getAttribute("data-recap-day")); }
+    if(day){ entryModalOrigin = day; openFixForDate(day.getAttribute("data-recap-day")); return; }
+    var all = ev.target.closest("[data-recap-shortfall]");
+    if(all){
+      var mk = all.getAttribute("data-recap-shortfall");
+      setPeriod(mk.slice(0, 4), mk);
+      activateTab("punctuality");
+      return;
+    }
+    var to = ev.target.closest("[data-recap-jump]");
+    var card = to && document.getElementById(to.getAttribute("data-recap-jump"));
+    card = card && card.closest(".recap-area");
+    if(card){
+      var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      card.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
+      card.focus({ preventScroll: true });
+    }
   });
   document.querySelectorAll("[data-recap-mode]").forEach(function(btn){
     btn.addEventListener("click", function(){

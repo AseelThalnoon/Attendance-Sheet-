@@ -3,13 +3,17 @@
 // One page, readable at a glance (2026-11-23, owner: "It is really
 // complicated. Make sure it is easy for the user and can be understood from
 // the first look", then "Make it perfect"): a headline that answers "how did
-// it go?", then one card per area -- Start time, Hours, Logging, Time off.
+// it go?", then one card per area -- Hours, Start time, Logging, Time off.
+// Hours leads because making the day's hours is what the team's rule judges;
+// Start time counts a day late only when it started after 8:00 and came up
+// short, as the rest of the app does (2026-11-18 rule, applied here
+// 2026-11-23).
 //
 // Every card is the same five parts in the same order, so four of them side
 // by side line up row for row (index.html lays them on a subgrid):
 //   1. the area, with its verdict (Better, Steady, Slipped)
 //   2. one figure -- the one the verdict was decided on
-//   3. that figure's usual ("Usually 8:04 AM", "Last year: about 15")
+//   3. that figure's usual ("Usually about 3", "Last year: about 15")
 //   4. the days behind it: a chart, a list, a month by month
 //   5. one line on what to do ("Try this") or that nothing needs doing
 // A part with nothing to say is an empty box, so the rows still line up.
@@ -63,11 +67,14 @@ var OFF_WORDS = {
   leave: ["day of annual leave", "days of annual leave"], sick: ["sick day", "sick days"],
   other: ["excused day", "excused days"], halfleave: ["half-day leave", "half-day leaves"]
 };
-function offChips(byType){
-  var parts = Object.keys(byType).map(function(t){
+function offParts(byType){
+  return Object.keys(byType).map(function(t){
     var w = OFF_WORDS[t] || [t, t], n = byType[t];
     return n + " " + (n === 1 ? w[0] : w[1]);
   });
+}
+function offChips(byType){
+  var parts = offParts(byType);
   return parts.length ? '<div class="recap-chips">' + parts.map(function(p){ return '<span class="recap-chip">' + esc(p) + "</span>"; }).join("") + "</div>" : "";
 }
 function countTypes(list){
@@ -92,7 +99,7 @@ function svg(paths, size){
   return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + "</svg>";
 }
 function area(o){
-  return '<section class="card recap-area' + (o.surface ? " is-" + o.surface : "") + '" aria-labelledby="' + o.id + '">' +
+  return '<section class="card recap-area' + (o.surface ? " is-" + o.surface : "") + '" aria-labelledby="' + o.id + '" tabindex="-1">' +
     '<div class="recap-area-head"><span class="recap-area-icon">' + svg(ICONS[o.icon], 17) + '</span>' +
     '<h3 class="recap-area-name" id="' + o.id + '">' + esc(o.name) + "</h3>" +
     (o.verdict ? '<span class="recap-verdict is-' + o.verdict + '">' + svg(ARROW[o.verdict], 13) + "<span>" + esc(VERDICT[o.verdict]) + "</span></span>" : "") + "</div>" +
@@ -137,17 +144,43 @@ function meter(label, value, frac){
 
 function list(words){ return words.length > 1 ? words.slice(0, -1).join(", ") + " and " + words[words.length - 1] : words[0] || ""; }
 function cap(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
-function headline(v, isCurrent){
-  if(!v) return isCurrent ? "Your month so far." : "How your month went.";
-  var good = [], bad = [];
-  if(v.punctuality === "better") good.push("earlier starts"); else if(v.punctuality === "slipped") bad.push("your starts");
-  if(v.hours === "better") good.push("fuller days"); else if(v.hours === "slipped") bad.push("your hours");
-  if(v.consistency === "better") good.push("steadier logging"); else if(v.consistency === "slipped") bad.push("your logging");
-  var g = cap(list(good)), b = list(bad);
-  if(g && b) return g + ", but " + b + " slipped.";
-  if(b) return cap(b) + " slipped.";
-  if(g) return g + ", and nothing slipped.";
-  return "A steady stretch, much like usual.";
+// Says what happened, in the words of the cards under it: "More short days
+// and more late days than usual", never just "slipped".
+function headline(v, isCurrent, isYear){
+  var why = v.why || {}, good = [], bad = [];
+  if(v.hours === "slipped") bad.push(why.hours === "depth" ? "more time short" : "more short days");
+  else if(v.hours === "better") good.push("fewer short days");
+  if(v.punctuality === "slipped") bad.push("more late days"); else if(v.punctuality === "better") good.push("fewer late days");
+  if(v.consistency === "slipped") bad.push(why.consistency === "live" ? "more days typed in later" : "more days not logged");
+  else if(v.consistency === "better") good.push(why.consistency === "live" ? "more days clocked in on arrival" : "more days logged");
+  var than = isYear ? " than last year" : " than usual", g = list(good), b = list(bad);
+  if(g && b) return cap(g) + ", but " + b + than + ".";
+  if(b) return cap(b) + than + ".";
+  if(g) return cap(g) + than + ", and nothing slipped.";
+  return isYear ? "A steady year, much like last year." : "A steady month, much like usual.";
+}
+// With no usual to hold the month against yet, the headline says what the
+// month holds: "5 full days and 1 short day so far."
+function facts(m){
+  var cur = m.cur, when = m.isCurrent ? " so far." : " in " + monthName(m.key) + ".";
+  if(!cur.worked) return m.isCurrent ? "Nothing to count yet." : "No days to count in " + monthName(m.key) + ".";
+  var short = cur.short.length, full = cur.worked - short;
+  if(!short) return "Every day full" + when;
+  return list((full ? [plural(full, "full day")] : []).concat([plural(short, "short day")])) + when;
+}
+// (3) On a phone the cards stack, so the four verdicts sit in one row under
+// the headline, each a way to its card. Hidden from 761px, where the four
+// cards are all in view.
+var JUMP = [["recapAreaHours", "hours", "Hours", "hours"], ["recapAreaStart", "start", "Start time", "punctuality"],
+  ["recapAreaLogging", "logging", "Logging", "consistency"], ["recapAreaOff", "off", "Time off", null]];
+function jump(v){
+  if(!v) return "";
+  return '<nav class="recap-jump" aria-label="' + esc("Areas") + '">' + JUMP.map(function(j){
+    var verdict = j[3] ? v[j[3]] : null;
+    return '<button type="button" class="recap-jump-btn' + (verdict ? " is-" + verdict : "") + '" data-recap-jump="' + j[0] + '">' +
+      '<span class="recap-jump-top">' + svg(ICONS[j[1]], 15) + (verdict ? svg(ARROW[verdict], 13) : "") + "</span>" +
+      '<span class="recap-jump-name">' + esc(j[2]) + "</span>" + (verdict ? '<span class="sr-only">' + esc(VERDICT[verdict]) + "</span>" : "") + "</button>";
+  }).join("") + "</nav>";
 }
 function hero(title, basis){
   return '<header class="recap-hero"><p class="recap-headline display">' + esc(title) + "</p>" +
@@ -160,50 +193,61 @@ function startsChart(cur){
   var cols = cur.days.filter(function(d){ return cur.startByDate[d.date] != null; });
   var std = stdMinOf(cur);
   if(cols.length < 2 || std == null) return "";
+  var lateOn = {};
+  cur.lateDays.forEach(function(x){ lateOn[x.date] = true; });
   var lo = Math.min.apply(null, cur.starts.concat([std])), hi = Math.max.apply(null, cur.starts.concat([std]));
   lo = Math.floor((lo - 10) / 15) * 15; hi = Math.ceil((hi + 10) / 15) * 15;
   var span = hi - lo, y = function(m){ return (((m - lo) / span) * 100).toFixed(1); };
+  // A dot after the 8:00 line is only a ring -- late -- when that day came up
+  // short; a day that made its hours is on time however it started.
   var marks = cols.map(function(d){
     var st = cur.startByDate[d.date];
-    return '<span class="recap-col" title="' + esc(fmtDateShort(d.date) + " · " + clock(st)) + '"><i class="recap-mark is-' + (st > std ? "after" : "before") + '" style="top:' + y(st) + '%"></i></span>';
+    return '<span class="recap-col" title="' + esc(fmtDateShort(d.date) + " · " + clock(st)) + '"><i class="recap-mark is-' + (lateOn[d.date] ? "after" : "before") + '" style="top:' + y(st) + '%"></i></span>';
   }).join("");
-  var after = cur.afterStart.map(function(x){ return fmtDateNoYear(x.date); });
-  var aria = "Start time on each workday. " + (after.length ? plural(after.length, "start") + " came after " + clock(std) + ": " + after.join(", ") + "." : "Every start was by " + clock(std) + ".");
+  var late = cur.lateDays.map(function(x){ return fmtDateNoYear(x.date); });
+  var aria = "Start time on each workday. " + (late.length ? plural(late.length, "late day") + ": " + late.join(", ") + "." : "No late days.");
   return '<div class="recap-chart" role="img" aria-label="' + esc(aria) + '" style="--cols:' + cols.length + '">' +
     '<span class="recap-chart-axis" aria-hidden="true"><span style="top:' + y(std) + '%">' + esc(clockShort(std)) + "</span></span>" +
     '<div class="recap-plot"><span class="recap-std" aria-hidden="true" style="top:' + y(std) + '%"></span>' + marks + "</div>" +
     '<div class="recap-chart-ends" aria-hidden="true"><span>' + esc(fmtDateNoYear(cols[0].date)) + "</span><span>" +
     esc(fmtDateNoYear(cols[cols.length - 1].date)) + "</span></div></div>";
 }
+// Start time, judged the way the rest of the app judges it (2026-11-18): a
+// start after 8:00 is late only on a day that came up short. The figure is
+// those days; when you usually arrive is said under it, as information.
 function startArea(m, cur, base, v, tip, isYear){
-  var std = stdMinOf(cur), verdict = v ? v.punctuality : null;
-  var stdText = std != null ? clock(std) : "your start time";
+  var std = stdMinOf(cur), verdict = v ? v.punctuality : null, n = cur.lateDays.length;
+  var stdText = std != null ? clock(std) : "the start time";
+  var typical = cur.medStart != null ? "Typical start " + clock(cur.medStart) : "";
+  var usualText = "";
+  if(base && base.worked){
+    var expected = Math.round(base.lateRate * cur.worked);
+    usualText = usual(isYear, expected ? "about " + expected : "none");
+  } else if(typical){
+    usualText = typical; typical = "";
+  }
   var visual = "";
   if(isYear){
-    visual = monthRows(m.perMonth.filter(function(x){ return x.medStart != null; }).map(function(x){
-      return { label: monthName(x.key, "short"), value: clock(x.medStart), mark: std == null ? "" :
-        '<span class="recap-dot-track" aria-hidden="true"><i style="inset-inline-start:' + Math.max(0, Math.min(100, 50 + (x.medStart - std) * 50 / 30)).toFixed(1) + '%"></i></span>' };
+    var top = Math.max.apply(null, m.perMonth.map(function(x){ return x.late; }).concat([1]));
+    visual = (typical ? caption(typical) : "") + monthRows(m.perMonth.map(function(x){
+      return { label: monthName(x.key, "short"), value: x.late ? plural(x.late, "day") : "none", mark: bar(x.late / top) };
     }));
   } else if(cur.starts.length){
-    var late = cur.afterStart.length;
-    visual = caption(late ? "After " + stdText + " on " + late + " of " + plural(cur.worked, "day") : "In by " + stdText + " every day") +
-      startsChart(cur) + legend([["before", "By " + stdText], ["after", "After " + stdText]]);
+    visual = (typical ? caption(typical) : "") + startsChart(cur) + legend([["before", "Not late"], ["after", "Late: after " + stdText + " on a short day"]]);
   }
   var tipText = null, well = null;
   if(tip){
-    var aim = std != null ? clock(std - 10) : "ten minutes earlier";
-    if(tip.kind === "lateRun") tipText = "Late starts came in a run: " + range(tip.run.from, tip.run.to) + ". After a late day, aim to be in by " + aim + " the next morning.";
-    else if(tip.kind === "lateWeekday") tipText = DAY_FULL[tip.dow] + "s are your late days: " + tip.count + " of " + tip.of + ". Aim to be in by " + aim + " on " + DAY_FULL[tip.dow] + "s.";
-    else tipText = plural(tip.count, "start") + " came after " + stdText + ". Aim to be in by " + aim + ".";
+    var stay = "On a late start, stay the full " + dur(tip.target) + ": in at " + clock(tip.inAt) + ", out at " + clock(tip.outAt) + ".";
+    if(tip.kind === "lateRun") tipText = "Late days came in a run: " + range(tip.run.from, tip.run.to) + ". " + stay;
+    else if(tip.kind === "lateWeekday") tipText = "Most late days fall on " + DAY_FULL[tip.dow] + "s: " + tip.count + " of " + tip.of + ". " + stay;
+    else tipText = plural(tip.count, "day") + " started late and came up short. " + stay;
   } else if(verdict === "better"){
-    well = (m.earliest ? "Your earliest month yet. " : "") + "Keep starting before " + stdText + ".";
+    well = (m.earliest ? "Earliest starts of any month yet. " : "") + "Fewer late days than " + (isYear ? "last year" : "usual") + ". Keep it up.";
   } else if(verdict === "steady"){
-    well = "Your usual start. Nothing to change.";
+    well = n ? "Starts as usual. Nothing to change." : "No late days. Nothing to change.";
   }
-  return area({ id: "recapAreaStart", icon: "start", name: "Start time", surface: "", verdict: verdict,
-    fig: clock(cur.medStart), label: "typical start",
-    usual: base && base.medStart != null ? usual(isYear, clock(base.medStart)) : (std != null ? "Your day starts at " + stdText : ""),
-    visual: visual, tip: tipText, well: well });
+  return area({ id: "recapAreaStart", icon: "start", name: "Start time", surface: "cream", verdict: verdict,
+    fig: String(n), label: n === 1 ? "late day" : "late days", usual: usualText, visual: visual, tip: tipText, well: well });
 }
 
 // ---------- Hours ----------
@@ -232,19 +276,19 @@ function hoursArea(m, cur, base, v, tip, isYear){
     var shown = worst.slice(0, 3).sort(function(a, b){ return a.date < b.date ? -1 : 1; });
     visual = (why === "depth" ? "" : caption(dur(cur.shortMin) + " short in total")) +
       dayRows(shown.map(function(x){ return { date: x.date, value: dur(x.target - x.worked) + " short", tone: "bad" }; })) +
-      (n > 3 ? more("and " + plural(n - 3, "more short day")) : "");
+      (n > 3 && !isYear ? '<button type="button" class="btn ghost small recap-see-all" data-recap-shortfall="' + m.key + '">' + esc("See all " + n + " short days") + "</button>" : "");
   }
   var tipText = null, well = null;
   if(tip){
     if(tip.kind === "halfDay") tipText = "On a half day, stay the full " + dur(tip.target) + ". " + fmtDateNoYear(tip.date) + " alone was " + dur(tip.min) + " of the " + dur(tip.total) + ".";
-    else if(tip.kind === "lateStart") tipText = tip.count + " of your " + plural(tip.of, "short day") + " started late. On a late start, stay the full " + dur(tip.target) + ".";
-    else tipText = "Your short days were about " + dur(tip.min) + " short each. Stay that much longer on those days.";
+    else if(tip.kind === "lateStart") tipText = tip.count + " of " + plural(tip.of, "short day") + " started late. On a late start, stay the full " + dur(tip.target) + ".";
+    else tipText = "The short days were about " + dur(tip.min) + " short each. Stay that much longer on those days.";
   } else if(verdict === "better"){
     well = "Fewer short days than " + (isYear ? "last year" : "usual") + ". Keep it up.";
   } else if(verdict === "steady"){
-    well = "Your hours are where they usually are.";
+    well = "Hours are where they usually are.";
   }
-  return area({ id: "recapAreaHours", icon: "hours", name: "Hours", surface: "cream", verdict: verdict,
+  return area({ id: "recapAreaHours", icon: "hours", name: "Hours", surface: "", verdict: verdict,
     fig: String(n), label: n === 1 ? "short day" : "short days", usual: usualText, visual: visual, tip: tipText, well: well });
 }
 
@@ -326,8 +370,8 @@ function timeOffArea(m, cur, base, isYear){
   // A weekday that holds most of the days off is the one pattern worth a line.
   var pat = isYear ? { byDow: m.off.byDow, total: m.off.total, top: m.off.top } : m.away;
   var since = isYear ? "this year" : "since " + monthName(m.away.since.slice(0, 7));
-  if(pat.top != null) visual += '<p class="recap-pattern"><b>' + esc("Your time off falls on " + DAY_FULL[pat.top] + "s.") + "</b> <span>" +
-    esc(days(pat.byDow[pat.top]) + " of your " + days(pat.total) + " days off " + since + " were " + DAY_FULL[pat.top] + "s.") + "</span></p>";
+  if(pat.top != null) visual += '<p class="recap-pattern"><b>' + esc("Time off falls mostly on " + DAY_FULL[pat.top] + "s.") + "</b> <span>" +
+    esc(days(pat.byDow[pat.top]) + " of " + days(pat.total) + " days off " + since + " were " + DAY_FULL[pat.top] + "s.") + "</span></p>";
   visual += '<p class="recap-foot">Remote days and public holidays are not counted.</p>';
   return area({ id: "recapAreaOff", icon: "off", name: "Time off", surface: "", verdict: null,
     fig: days(total), label: total === 1 ? "day off" : "days off", usual: usualText, visual: visual });
@@ -363,7 +407,7 @@ function picture(y){
     facts.push("<b>" + esc(sameSize ? "Short days come " + r[0].count + " at a time:" : "Short days come in runs:") + "</b> <span>" +
       esc(r.map(function(x){ return range(x.from, x.to); }).join(" and ") + ". One short day tends to bring the next.") + "</span>");
   }
-  var since = y.from > y.year + "-01-01" ? "Since you began logging on " + fmtDateNoYear(y.from) : "From January";
+  var since = y.from > y.year + "-01-01" ? "Logged since " + fmtDateNoYear(y.from) : "From January";
   return '<section class="card recap-year" aria-labelledby="recapYearPic">' +
     '<div class="recap-year-main"><div class="recap-area-head"><h3 class="recap-area-name" id="recapYearPic">Every workday</h3>' +
     '<span class="recap-year-since">' + esc(since) + "</span></div>" +
@@ -392,22 +436,33 @@ function empty(title, text){
 }
 
 // basis: the line under the headline saying what the month is held against.
-export function monthPage(m, basis){
+// who: null on your own record; { name } when an admin is looking at someone
+// else's, so nothing on the page says "your" to the wrong person.
+export function monthPage(m, basis, who){
   var cur = m.cur, base = m.base, v = m.verdicts, t = m.tips || {};
-  if(!cur.worked && !cur.away.length && !cur.remote.length && !base){
-    return empty("Your first recap is on its way.", "It appears after your first full week of logging, and compares each month with your own usual once you have a few weeks behind you.");
+  if(!m.hasRecord){
+    return who ? empty("No recap yet.", "It fills in as days are logged.")
+      : empty("Your first recap is on its way.", "It appears after your first full week of logging, and compares each month with your own usual once you have a few weeks behind you.");
   }
-  if(!cur.workdays) return empty("Nothing to recap yet.", "This month's recap starts after its first workday.");
-  return hero(headline(v, m.isCurrent), basis) + areas([
-    startArea(m, cur, base, v, t.punctuality, false),
+  // (1) A month with nothing logged in it -- before the record began, or in
+  // a gap between logging stretches -- says so, and names any time off that
+  // was recorded, instead of four cards of nothing.
+  if(!(cur.worked + cur.remote.length + cur.missing.length + cur.unclosed.length)){
+    if(m.isCurrent && !cur.away.length) return empty("Nothing to recap yet.", "This month's recap starts after its first workday.");
+    var parts = offParts(countTypes(cur.away));
+    return empty("Nothing logged in " + monthName(m.key) + ".", parts.length ? "Only time off was recorded: " + list(parts) + "." : "Recap counts logged days.");
+  }
+  // Hours first: making the day's hours is what the team's rule judges.
+  return hero(v ? headline(v, m.isCurrent) : facts(m), basis) + jump(v) + areas([
     hoursArea(m, cur, base, v, t.hours, false),
+    startArea(m, cur, base, v, t.punctuality, false),
     loggingArea(m, cur, base, v, t.consistency, false),
     timeOffArea(m, cur, base, false)
   ]);
 }
 
 export function yearPage(y){
-  if(y.empty) return empty("Nothing logged this year yet.", "The year picture starts with your first logged workday.");
+  if(y.empty) return empty("Nothing logged this year yet.", "The year picture starts with the first logged workday.");
   var cmp = !!y.verdicts;
   var cur = cmp ? y.cmpCur : y.cur, base = cmp ? y.cmpBase : null, v = y.verdicts, t = y.tips || {};
   var basis = cmp
@@ -415,9 +470,9 @@ export function yearPage(y){
     : y.isCurrent ? "Nothing from last year to compare yet. Next year, each month is set against the same month of " + y.year + "."
     : "Nothing from " + (+y.year - 1) + " to compare with.";
   var view = Object.assign({}, y, { earliest: false });
-  return hero(cmp ? headline(v, y.isCurrent) : yearTitle(y), basis) + picture(y) + areas([
-    startArea(view, cur, base, v, t.punctuality, true),
+  return hero(cmp ? headline(v, y.isCurrent, true) : yearTitle(y), basis) + jump(v) + picture(y) + areas([
     hoursArea(view, cur, base, v, t.hours, true),
+    startArea(view, cur, base, v, t.punctuality, true),
     loggingArea(view, cur, base, v, t.consistency, true),
     timeOffArea(y, y.cur, null, true)
   ]);
