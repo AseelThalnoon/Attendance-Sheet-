@@ -57,8 +57,8 @@ const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
   ok(tr("92 days logged") === "92 يومًا مسجّلًا", "a sentence built from parts is matched by its pattern", tr("92 days logged"));
   // The adjective agrees with the count, and a count after a preposition or
   // in an idafa takes the genitive dual (منذ يومين, not منذ يومان).
-  const grammar = ["2 days logged", "2d ago", "Deleted 2 entries.", "and 2 more short days", "Out of 2 days worked"].map(tr);
-  ok(grammar.join(" | ") === "يومان مسجّلان | منذ يومين | تم حذف سجلين. | ويومان ناقصان آخران | من أصل يومَي عمل",
+  const grammar = ["2 days logged", "2d ago", "Deleted 2 entries.", "2 short days", "Out of 2 days worked"].map(tr);
+  ok(grammar.join(" | ") === "يومان مسجّلان | منذ يومين | تم حذف سجلين. | يومان ناقصان | من أصل يومَي عمل",
     "counts agree with their adjective and take the case they are in", grammar.join(" | "));
   // A sentence built in parts, where each part is its own pattern.
   ok(tr("Target 8h · 18 workdays · 2 not logged") === "المطلوب 8س · 18 يوم عمل · لم يُسجَّل 2",

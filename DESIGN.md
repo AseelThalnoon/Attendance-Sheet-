@@ -1439,14 +1439,20 @@ and every choice below was the owner's, asked one at a time.
   time, at every width"). The owner found the carousel "really complicated" —
   three sets of arrows, dots, and four of five cards out of sight — and the
   desktop "just a copy of the mobile". Now: one row of controls (the period
-  with its arrows, Month / Year), a headline that answers the question in a
-  sentence, then four area cards — **Start time, Hours, Logging, Time off** —
-  four across above 1240px, two by two from 761px, stacked on a phone. At
-  1440x900 the whole month fits the frame without scrolling.
+  with its arrows, Month / Year), a headline that says what happened in a
+  sentence ("More short days and more late days than usual", never just
+  "slipped"), then four area cards — **Hours, Start time, Logging, Time off**
+  — four across above 1240px, two by two from 761px, stacked on a phone. At
+  1440x900 the whole month fits the frame without scrolling. Hours leads
+  (2026-11-23): making the day's hours is what the team's rule judges.
+- **A calendar layout was tried and turned down** (2026-11-23). Asked to
+  "re-think everything", a pass rebuilt Recap as one headline over a month
+  calendar of tiles; the owner's answer was "Nahhh the old one was better".
+  These four cards are the design; improve them in place.
 - **Every card has the same five parts in the same order**: the area (an
   icon and its name) with its verdict (Better ↑, Steady –, Slipped ↓; an
   arrow as well as a colour); one figure, over its label; that figure's usual
-  ("Usually 8:04 AM"; in the Year, "Last year: 8:02 AM"); the days behind it;
+  ("Usually about 3"; in the Year, "Last year: about 15"); the days behind it;
   and one line on what to do. A part with nothing to say is an empty box, and
   from 761px the cards sit on a CSS subgrid, so side by side the figures, the
   usuals and the coaching each share one line across all four cards.
@@ -1458,6 +1464,33 @@ and every choice below was the owner's, asked one at a time.
   often a day comes up short, and by how much in all; days running past the
   target by less than they used to are not a slip (the Overview's bank holds
   overtime).
+- **Start time follows the team's lateness rule** (2026-11-18, applied here
+  2026-11-23): a start after 8:00 is late only on a day that came up short —
+  a day that makes its hours is never late, however it started. The card's
+  figure is those late days (computeEntry's own `lateMin`), its usual is the
+  usual count of them, and the typical start sits under it as information.
+  The chart rings only the late days, and its key says what late means
+  ("○ Late: after 8:00 AM on a short day"). Before this, the card held the typical start against the
+  usual one and told people to come in earlier on days the rest of the app
+  counts as on time.
+- **A month with nothing logged says so** (2026-11-23). A workday outside
+  every logging stretch (more than 30 days without a worked day ends one)
+  is not "not logged": the person was not using the app. So a month before
+  the record began, or in a gap between stretches, reads "Nothing logged in
+  June." — or "Only time off was recorded: 5 days of annual leave." — where
+  it used to list dozens of not-logged days with an Add each, or call itself
+  "your first recap" on a record a year old.
+- **Nothing says "your" to the wrong person.** When an admin opens someone
+  else's record, the line under the headline names them ("Compared with
+  Rana's average for Aug – Oct"), and the cards' own sentences are worded so
+  they read right either way ("The short days were about 22m short each",
+  "Time off falls mostly on Thursdays").
+- **On a phone, the four verdicts come first.** The cards stack there, so a
+  row of four small buttons under the headline gives each area's verdict at
+  first look and takes you down to its card. From 761px the cards are all in
+  view and the row is not drawn.
+- **A newcomer's headline says what the month holds**: "5 full days and 1
+  short day so far", until there is a usual to compare with.
 - **Time off is time off.** Leave, sick and excused days, a half-day leave as
   half (as the leave balance counts it). Remote, trip and training days are a
   day's work elsewhere and are not counted, and the card says so with public
@@ -1467,11 +1500,13 @@ and every choice below was the owner's, asked one at a time.
   on arrival". The headline's sub-line says what the usual is: "Compared with
   your average for Aug – Oct". In Arabic, "typical start" is حضورك في أغلب
   الأيام, so it never reads as the usual (عادةً) printed under it.
-- **Short, concrete tips.** "3 of your 4 short days started late. On a late
-  start, stay the full 8h." — the hours, the time, the days, never "the time
-  your clock card shows".
+- **Short, concrete tips.** "5 days started late and came up short. On a
+  late start, stay the full 8h: in at 8:21 AM, out at 4:21 PM." — the hours,
+  the times, the days, never "the time your clock card shows". The late-start
+  advice is Start time's; Hours never repeats it on the same page.
 - **Days open where they are named.** A short day's row opens that entry; a
-  missed day's Add opens the form on that date. On a desktop each dot of the
+  missed day's Add opens the form on that date; past three short days, "See
+  all 9 short days" opens Shortfall on the same month. On a desktop each dot of the
   start chart and each square of the year carries its date and value on
   hover.
 - **Against your own usual**, the three months before the month in view, never

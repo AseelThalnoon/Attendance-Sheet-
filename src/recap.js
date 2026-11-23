@@ -83,14 +83,31 @@ export function makeRecap(sch){
     while(i > 0 && daysBetween(dates[i - 1], dates[i]) <= STRETCH_GAP_DAYS) i--;
     return dates[i];
   }
+  // Every logging stretch, [first, last]. The latest runs on to today while
+  // its silence is short: days since the last entry are days still to log,
+  // not a stretch that has ended.
+  function stretches(dates, today){
+    var out = [];
+    dates.forEach(function(d){
+      var last = out[out.length - 1];
+      if(last && daysBetween(last[1], d) <= STRETCH_GAP_DAYS) last[1] = d; else out.push([d, d]);
+    });
+    var tail = out[out.length - 1];
+    if(tail && today > tail[1] && daysBetween(tail[1], today) <= STRETCH_GAP_DAYS) tail[1] = today;
+    return out;
+  }
+  function tracked(st, d){
+    for(var i = 0; i < st.length; i++) if(d >= st[i][0] && d <= st[i][1]) return true;
+    return false;
+  }
 
   // Everything the cards read, over the workdays from `from` to `to`. Today
   // counts only once it is closed: an open shift has no hours yet, and a
   // morning with nothing logged is not a missed day.
-  function collect(by, from, to, today){
+  function collect(by, from, to, today, spans){
     var s = { from: from, to: to, workdays: 0, logged: 0, missing: [], unclosed: [],
       worked: 0, weight: 0, workedSum: 0, short: [], shortMin: 0,
-      starts: [], startByDate: {}, finishes: [], afterStart: [], liveKnown: 0, live: 0, notLive: [],
+      starts: [], startByDate: {}, finishes: [], lateDays: [], liveKnown: 0, live: 0, notLive: [],
       sameDayKnown: 0, sameDay: 0, loggedLater: [], away: [], offDays: 0, remote: [], days: [] };
     if(!from || !to || from > to) return s;
     for(var d = from; d <= to; d = addDays(d, 1)){
@@ -99,6 +116,11 @@ export function makeRecap(sch){
       var e = by[d];
       var c = e ? computeEntry(e) : null;
       if(d === today && (!e || c.open)) continue;
+      // A workday outside every logging stretch with nothing on it was not
+      // missed: the person was not using the app then (2026-11-23: a record
+      // with an imported spring showed its gap months as dozens of "not
+      // logged" days, each with an Add).
+      if(!e && spans && !tracked(spans, d)) continue;
       s.workdays++;
       var status = "missing";
       if(!e){ s.missing.push(d); s.days.push({ date: d, status: status }); continue; }
@@ -133,14 +155,17 @@ export function makeRecap(sch){
         var std = timeToMinutes(c.sched.standardIn);
         s.starts.push(st);
         s.startByDate[d] = st;
-        if(st > std) s.afterStart.push({ date: d, min: st, std: std });
+        // Late the way the rest of the app means it (2026-11-18): a start
+        // after Start on a day that came up short. A day that makes its hours
+        // is never late, however it started -- computeEntry's own lateMin.
+        if(c.lateMin > 0) s.lateDays.push({ date: d, min: st, std: std, target: c.targetMin, half: c.half });
         if(!c.half && e.clockOut){
           var fo = timeToMinutes(e.clockOut);
           if(fo >= st) s.finishes.push(fo);
         }
         if(c.workedMin < c.targetMin){
           status = "short";
-          s.short.push({ date: d, worked: c.workedMin, target: c.targetMin, half: c.half, late: st > std });
+          s.short.push({ date: d, worked: c.workedMin, target: c.targetMin, half: c.half, late: c.lateMin > 0 });
           s.shortMin += c.targetMin - c.workedMin;
         } else {
           status = "full";
@@ -157,7 +182,7 @@ export function makeRecap(sch){
     s.shortRate = s.worked ? s.short.length / s.worked : null;
     s.medStart = median(s.starts);
     s.medFinish = median(s.finishes);
-    s.afterRate = s.worked ? s.afterStart.length / s.worked : null;
+    s.lateRate = s.worked ? s.lateDays.length / s.worked : null;
     s.liveRate = s.liveKnown ? s.live / s.liveKnown : null;
     s.loggedRate = s.workdays ? s.logged / s.workdays : null;
     s.sameDayRate = s.sameDayKnown ? s.sameDay / s.sameDayKnown : null;
@@ -193,8 +218,14 @@ export function makeRecap(sch){
   function verdicts(cur, base){
     if(!base || base.worked < MIN_BASE_DAYS || cur.worked < 3) return null;
     var p = "steady", h = "steady", k = "steady", hWhy = null, kWhy = null;
+    // Start time is judged on late days as the app counts them -- after
+    // Start on a day that came up short -- never on the clock alone: coming
+    // in at 8:20 and staying to 4:20 is on time here (2026-11-18). Until
+    // 2026-11-23 this held the typical start against the usual one, and
+    // coached people to come in earlier on days the app counts as on time.
     var dStart = cur.medStart - base.medStart;
-    if(dStart <= -3) p = "better"; else if(dStart >= 3) p = "slipped";
+    var dLate = cur.lateRate - base.lateRate;
+    if(dLate >= 0.08 && cur.lateDays.length >= 2) p = "slipped"; else if(dLate <= -0.08) p = "better";
 
     // Hours is the daily target: how often a day comes up short, and by how
     // much in all. Days that run past the target by less than they used to
@@ -218,7 +249,7 @@ export function makeRecap(sch){
 
   // The one thing to try in an area that slipped, chosen from what the
   // period actually shows. Each is a fact pattern; the wording is the view's.
-  function hoursTip(cur){
+  function hoursTip(cur, lateSaid){
     var halfShort = cur.short.filter(function(x){ return x.half; });
     var halfMin = halfShort.reduce(function(a, x){ return a + x.target - x.worked; }, 0);
     if(halfShort.length && halfMin * 2 >= cur.shortMin){
@@ -226,25 +257,31 @@ export function makeRecap(sch){
       return { kind: "halfDay", date: worst.date, min: worst.target - worst.worked, total: cur.shortMin, target: worst.target };
     }
     var lateShort = cur.short.filter(function(x){ return x.late && !x.half; });
-    if(lateShort.length && lateShort.length * 2 >= cur.short.length){
+    if(!lateSaid && lateShort.length && lateShort.length * 2 >= cur.short.length){
       return { kind: "lateStart", count: lateShort.length, of: cur.short.length, target: lateShort[0].target };
     }
     return { kind: "stayLonger", min: Math.ceil(cur.shortMin / Math.max(1, cur.short.length)), days: cur.short.length };
   }
   function punctualityRun(cur){
     var late = {};
-    cur.afterStart.forEach(function(x){ late[x.date] = true; });
+    cur.lateDays.forEach(function(x){ late[x.date] = true; });
     var worked = cur.days.filter(function(d){ return d.status === "full" || d.status === "short"; });
     return runs(worked, function(d){ return late[d.date]; }, 3)[0] || null;
   }
+  // The advice is the rule's own: on a late start, stay the full day. Said
+  // with the person's typical late start, so it is a time to leave by, not
+  // a principle: "in at 8:21, out at 4:21".
   function punctualityTip(cur){
+    var late = cur.lateDays, full = late.filter(function(x){ return !x.half; });
+    var day = (full[0] || late[0]).target, inAt = median((full.length ? full : late).map(function(x){ return x.min; }));
+    var extra = { target: day, inAt: inAt, outAt: inAt + day };
     var run = punctualityRun(cur);
-    if(run) return { kind: "lateRun", run: run, std: cur.standardIn };
+    if(run) return Object.assign({ kind: "lateRun", run: run }, extra);
     var byDow = [0, 0, 0, 0, 0, 0, 0];
-    cur.afterStart.forEach(function(x){ byDow[dateFromStr(x.date).getDay()]++; });
+    late.forEach(function(x){ byDow[dateFromStr(x.date).getDay()]++; });
     var top = byDow.indexOf(Math.max.apply(null, byDow));
-    if(byDow[top] >= 2 && byDow[top] * 2 >= cur.afterStart.length) return { kind: "lateWeekday", dow: top, count: byDow[top], of: cur.afterStart.length, std: cur.standardIn };
-    return { kind: "lateCount", count: cur.afterStart.length, std: cur.standardIn };
+    if(byDow[top] >= 2 && byDow[top] * 2 >= late.length) return Object.assign({ kind: "lateWeekday", dow: top, count: byDow[top], of: late.length }, extra);
+    return Object.assign({ kind: "lateCount", count: late.length }, extra);
   }
   function consistencyTip(cur){
     if(cur.missing.length) return { kind: "missing", dates: cur.missing.slice(0, 3), count: cur.missing.length };
@@ -257,8 +294,8 @@ export function makeRecap(sch){
   // Counted the way the card counts them, a half-day leave as half, so the
   // sentence never says "4 of your 4 days off" under a figure of 2; whether
   // there is a pattern at all is decided on the days themselves.
-  function awayPattern(by, from, to, today){
-    var s = collect(by, from, to, today);
+  function awayPattern(by, from, to, today, st){
+    var s = collect(by, from, to, today, st);
     var hits = [0, 0, 0, 0, 0, 0, 0], byDow = [0, 0, 0, 0, 0, 0, 0];
     s.away.forEach(function(a){
       var w = dateFromStr(a.date).getDay();
@@ -271,7 +308,7 @@ export function makeRecap(sch){
 
   // The whole Month view: the month so far against the usual before it.
   function monthRecap(entries, mk, today){
-    var by = index(entries), dates = workedDates(by);
+    var by = index(entries), dates = workedDates(by), st = stretches(dates, today);
     var from = mk + "-01", end = monthEnd(mk);
     var to = end < today ? end : today;
     // A workday before the record's first entry is not one somebody failed to
@@ -282,13 +319,13 @@ export function makeRecap(sch){
     var firstEntry = Object.keys(by).sort()[0];
     if(!firstEntry) from = addDays(to, 1);
     else if(firstEntry > from) from = firstEntry;
-    var cur = collect(by, from, to, today);
+    var cur = collect(by, from, to, today, st);
     var startOfStretch = stretchStart(dates, addDays(from, -1));
     var base = null;
     if(startOfStretch){
       var baseFrom = shiftMonth(mk, -3) + "-01";
       if(startOfStretch > baseFrom) baseFrom = startOfStretch;
-      base = collect(by, baseFrom, addDays(from, -1), today);
+      base = collect(by, baseFrom, addDays(from, -1), today, st);
       if(base.worked < MIN_BASE_DAYS) base = null;
     }
     var v = verdicts(cur, base);
@@ -298,7 +335,7 @@ export function makeRecap(sch){
     if(v && v.punctuality === "better" && startOfStretch){
       var prior = [], m = startOfStretch.slice(0, 7);
       while(m < mk){
-        var ms = collect(by, m + "-01" < startOfStretch ? startOfStretch : m + "-01", monthEnd(m), today);
+        var ms = collect(by, m + "-01" < startOfStretch ? startOfStretch : m + "-01", monthEnd(m), today, st);
         if(ms.starts.length >= 5) prior.push(ms.medStart);
         m = shiftMonth(m, 1);
       }
@@ -306,15 +343,15 @@ export function makeRecap(sch){
     }
     var patternFrom = stretchStart(dates, to) || from;
     return {
-      kind: "month", key: mk, from: from, to: to, isCurrent: today <= end && today >= from,
+      kind: "month", key: mk, from: from, to: to, isCurrent: today <= end && today >= mk + "-01", hasRecord: dates.length > 0,
       cur: cur, base: base, verdicts: v, earliest: earliest,
       lateRun: punctualityRun(cur),
       tips: v ? {
         punctuality: v.punctuality === "slipped" ? punctualityTip(cur) : null,
-        hours: v.hours === "slipped" ? hoursTip(cur) : null,
+        hours: v.hours === "slipped" ? hoursTip(cur, v.punctuality === "slipped") : null,
         consistency: v.consistency === "slipped" ? consistencyTip(cur) : null
       } : {},
-      away: awayPattern(by, patternFrom, to, today)
+      away: awayPattern(by, patternFrom, to, today, st)
     };
   }
 
@@ -329,19 +366,19 @@ export function makeRecap(sch){
     // concatenated day ranges would double-walk; summing the parts is enough
     // for the rates the cards read.
     var out = { worked: 0, weight: 0, workedSum: 0, short: [], shortMin: 0, starts: [], finishes: [],
-      afterStart: [], liveKnown: 0, live: 0, sameDayKnown: 0, sameDay: 0, workdays: 0, logged: 0,
+      lateDays: [], liveKnown: 0, live: 0, sameDayKnown: 0, sameDay: 0, workdays: 0, logged: 0,
       away: [], offDays: 0, remote: [], missing: [], notLive: [], loggedLater: [], days: [] };
     parts.forEach(function(p){
       ["worked", "weight", "workedSum", "shortMin", "liveKnown", "live", "sameDayKnown", "sameDay", "workdays", "logged", "offDays"]
         .forEach(function(k){ out[k] += p[k]; });
-      ["short", "starts", "finishes", "afterStart", "away", "remote", "missing", "notLive", "loggedLater", "days"]
+      ["short", "starts", "finishes", "lateDays", "away", "remote", "missing", "notLive", "loggedLater", "days"]
         .forEach(function(k){ out[k] = out[k].concat(p[k]); });
     });
     out.avgMin = out.weight ? out.workedSum / out.weight : null;
     out.shortRate = out.worked ? out.short.length / out.worked : null;
     out.medStart = median(out.starts);
     out.medFinish = median(out.finishes);
-    out.afterRate = out.worked ? out.afterStart.length / out.worked : null;
+    out.lateRate = out.worked ? out.lateDays.length / out.worked : null;
     out.liveRate = out.liveKnown ? out.live / out.liveKnown : null;
     out.loggedRate = out.workdays ? out.logged / out.workdays : null;
     out.sameDayRate = out.sameDayKnown ? out.sameDay / out.sameDayKnown : null;
@@ -352,7 +389,7 @@ export function makeRecap(sch){
   // the year's own figures, and -- only where both years logged the same
   // months -- a comparison with last year.
   function yearRecap(entries, year, today, workDays, weekStartDate){
-    var by = index(entries), dates = workedDates(by);
+    var by = index(entries), dates = workedDates(by), st = stretches(dates, today);
     var yFrom = year + "-01-01", yEnd = year + "-12-31";
     var yTo = yEnd < today ? yEnd : today;
     var inYear = dates.filter(function(d){ return d >= yFrom && d <= yTo; });
@@ -361,7 +398,7 @@ export function makeRecap(sch){
     var start = stretchStart(dates, last);
     if(start < yFrom) start = yFrom;
     var end = today <= yEnd ? yTo : last;
-    var cur = collect(by, start, end, today);
+    var cur = collect(by, start, end, today, st);
 
     // The picture: one row per month, one group per week, one slot per
     // working weekday, so a weekday is always the same column.
@@ -382,7 +419,7 @@ export function makeRecap(sch){
         if(d < start || d > end) continue;
         // Today with nothing closed yet is not a missed day, it is a day
         // still going; it stays blank like the days after it.
-        wk[order.indexOf(dateFromStr(d).getDay())] = { date: d, status: statusOf[d] || (d >= today ? null : "missing") };
+        wk[order.indexOf(dateFromStr(d).getDay())] = { date: d, status: statusOf[d] || (d >= today || !tracked(st, d) ? null : "missing") };
       }
       while(weeks.length && weeks[0].every(function(x){ return !x; })) weeks.shift();
       while(weeks.length && weeks[weeks.length - 1].every(function(x){ return !x; })) weeks.pop();
@@ -397,8 +434,8 @@ export function makeRecap(sch){
     }
     var cmpCur = null, cmpBase = null, v = null;
     if(pairs.length){
-      cmpCur = merge(pairs.map(function(p){ return collect(by, p[0] + "-01", monthEnd(p[0]), today); }));
-      cmpBase = merge(pairs.map(function(p){ return collect(by, p[1] + "-01", monthEnd(p[1]), today); }));
+      cmpCur = merge(pairs.map(function(p){ return collect(by, p[0] + "-01", monthEnd(p[0]), today, st); }));
+      cmpBase = merge(pairs.map(function(p){ return collect(by, p[1] + "-01", monthEnd(p[1]), today, st); }));
       cmpCur.standardIn = cur.standardIn;
       v = verdicts(cmpCur, cmpBase);
     }
@@ -422,8 +459,8 @@ export function makeRecap(sch){
     var perMonth = months.map(function(mo){
       var f = mo.key + "-01" < start ? start : mo.key + "-01";
       var t = monthEnd(mo.key) > end ? end : monthEnd(mo.key);
-      var s = collect(by, f, t, today);
-      return { key: mo.key, medStart: s.medStart, worked: s.worked, short: s.short.length, shortMin: s.shortMin,
+      var s = collect(by, f, t, today, st);
+      return { key: mo.key, medStart: s.medStart, worked: s.worked, late: s.lateDays.length, short: s.short.length, shortMin: s.shortMin,
         workdays: s.workdays, logged: s.logged, live: s.live, liveKnown: s.liveKnown };
     });
 
@@ -436,10 +473,10 @@ export function makeRecap(sch){
       off: { total: off.offDays, remote: off.remote.length, topMonth: topMonth, topCount: topMonth ? offByMonth[topMonth] : 0,
         byDow: offByDow, byType: offByType, byMonth: offByMonth,
         top: (offHits[offTop] >= 3 && offHits[offTop] * 2 >= off.away.length) ? offTop : null },
-      away: awayPattern(by, start, end, today),
+      away: awayPattern(by, start, end, today, st),
       tips: v ? {
         punctuality: v.punctuality === "slipped" ? punctualityTip(cmpCur) : null,
-        hours: v.hours === "slipped" ? hoursTip(cmpCur) : null,
+        hours: v.hours === "slipped" ? hoursTip(cmpCur, v.punctuality === "slipped") : null,
         consistency: v.consistency === "slipped" ? consistencyTip(cmpCur) : null
       } : {}
     };
@@ -448,8 +485,8 @@ export function makeRecap(sch){
   // Which month the Month view opens on: the current one, unless it is only
   // a few workdays old, in which case last month's finished recap.
   function defaultMonth(entries, today){
-    var mk = today.slice(0, 7);
-    var s = collect(index(entries), mk + "-01", today, today);
+    var mk = today.slice(0, 7), by = index(entries);
+    var s = collect(by, mk + "-01", today, today, stretches(workedDates(by), today));
     return s.workdays < EARLY_MONTH_DAYS ? shiftMonth(mk, -1) : mk;
   }
 

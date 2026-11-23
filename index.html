@@ -4422,6 +4422,24 @@
   .recap-mcol-label{font-size:10.5px; color:var(--muted);}
   .recap-chips{display:flex; flex-wrap:wrap; gap:6px;}
   .recap-chip{font-size:12.5px; font-weight:600; padding:4px 10px; border-radius:var(--radius-pill); background:var(--ink-50); color:var(--ink);}
+  .recap-see-all{align-self:flex-start;}
+
+  /* On a phone the cards stack, so the four verdicts sit in one row under
+     the headline, each a way down to its card. From 761px the four cards
+     are all in view and the row goes. */
+  .recap-jump{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px; margin:0 0 var(--space-3);}
+  .recap-jump-btn{
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-width:0; min-height:52px;
+    padding:6px 4px; border:none; border-radius:var(--radius-sm); background:var(--card); color:var(--muted-2);
+    font-family:inherit; cursor:pointer;
+  }
+  .recap-jump-btn.is-better{background:var(--positive-bg); color:var(--positive);}
+  .recap-jump-btn.is-slipped{background:var(--negative-bg); color:var(--negative);}
+  .recap-jump-top{display:inline-flex; align-items:center; gap:3px;}
+  .recap-jump-name{max-width:100%; font-size:11.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  @media (min-width:761px){ .recap-jump{display:none;} }
+  .card.recap-area{scroll-margin-top:var(--space-3);}
+  .card.recap-area:focus:not(:focus-visible){outline:none;}
 
   /* The marks, one vocabulary for the chart, the picture and their legends.
      Filled = a fact that went the usual way; a ring = the same day, but not
@@ -9645,6 +9663,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v77"></script>
+<script type="module" src="app.js?v=v78"></script>
 </body>
 </html>

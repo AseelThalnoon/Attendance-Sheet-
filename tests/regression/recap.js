@@ -31,7 +31,7 @@ function ok(cond, label, detail){
 const pad = n => String(n).padStart(2, "0");
 const ds = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
-const text = h => h.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+const text = h => h.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
 // The page's parts: the headline, then each area card, as text.
 const heroOf = h => text((h.match(/<header class="recap-hero">[\s\S]*?<\/header>/) || [""])[0]);
 const areasOf = h => h.split('<section class="card recap-area').slice(1).map(x => text('<section class="' + x));
@@ -61,8 +61,9 @@ const day = (date, start, len, extra) => Object.assign({
 
   // ---- A month against the usual ------------------------------------------
   // Aug-Oct: in at 7:58, 8h 6m a day, every one clocked live. November so
-  // far: in at 7:46 -- but a half day left at 2h 30m, and two late Mondays
-  // ran short. Punctuality better, hours slipped, logging steady.
+  // far: in at 7:46 -- but a half day left at 2h 30m, and two Mondays began
+  // at 8:20 and ran short. Those two are late days by the team's rule (after
+  // 8:00 on a day that came up short), so Start time slipped too.
   {
     const TODAY = "2026-11-22";
     const usual = record("2026-08-02", "2026-10-31", (d) => day(d, 478, 486));
@@ -74,11 +75,12 @@ const day = (date, start, len, extra) => Object.assign({
     const entries = usual.concat(nov, [Object.assign(day("2026-11-22", 467, 0), { clockOut: "" })]);
     const m = R.monthRecap(entries, "2026-11", TODAY);
     ok(m.base && m.base.from === "2026-08-02", "the usual is the three months before", m.base && m.base.from);
-    ok(m.verdicts && m.verdicts.punctuality === "better" && m.verdicts.hours === "slipped" && m.verdicts.consistency === "steady",
-      "verdicts: earlier starts better, short days slipped, logging steady", JSON.stringify(m.verdicts));
+    ok(m.verdicts && m.verdicts.punctuality === "slipped" && m.verdicts.hours === "slipped" && m.verdicts.consistency === "steady",
+      "verdicts: two late days slipped, short days slipped, logging steady", JSON.stringify(m.verdicts));
+    ok(m.cur.lateDays.length === 2, "late days are the starts after 8:00 that came up short", JSON.stringify(m.cur.lateDays.map(x => x.date)));
     ok(m.tips.hours && m.tips.hours.kind === "halfDay" && m.tips.hours.date === "2026-11-12",
-      "the one tip is about the half day that made most of the shortfall", JSON.stringify(m.tips.hours));
-    ok(!m.tips.punctuality && !m.tips.consistency, "no tip for an area that held or improved", JSON.stringify(m.tips));
+      "the Hours tip is about the half day that made most of the shortfall", JSON.stringify(m.tips.hours));
+    ok(!m.tips.consistency, "no tip for an area that held", JSON.stringify(m.tips));
     ok(m.cur.workdays === 15 && !m.cur.days.some(d => d.date === TODAY),
       "today's open shift is not counted as a finished day", m.cur.workdays + " " + JSON.stringify(m.cur.days.slice(-1)));
     ok(m.cur.missing.length === 0, "and a morning still in progress is not a missed day", JSON.stringify(m.cur.missing));
@@ -86,12 +88,13 @@ const day = (date, start, len, extra) => Object.assign({
     const page = monthPage(m, "Compared with your average for Aug – Oct");
     const areas = areasOf(page);
     ok(areas.length === 4, "four area cards on one page", areas.length);
-    ok(/^Earlier starts, but your hours slipped\. Compared with your average/.test(heroOf(page)), "the headline says it in one line, and what it is held against", heroOf(page));
-    ok(/^Start time Better/.test(areas[0]) && /^Hours Slipped/.test(areas[1]) && /^Logging Steady/.test(areas[2]) && /^Time off \d/.test(areas[3]),
-      "each card leads with its area and verdict; time off is not judged", areas.map(a => a.slice(0, 20)).join(" | "));
-    ok(/Try this/.test(areas[1]) && /half day/.test(areas[1]), "the Hours card carries the tip", areas[1]);
-    ok(!/Try this/.test(areas[0]) && /Well done/.test(areas[0]), "Start time gets a well-done, not advice", areas[0]);
-    ok(/typical start Usually 7:58 AM/.test(areas[0]), "the start sits over its usual", areas[0].slice(0, 120));
+    ok(/^More short days and more late days than usual\. Compared with your average/.test(heroOf(page)), "the headline says what happened, and what it is held against", heroOf(page));
+    ok(/^Hours Slipped/.test(areas[0]) && /^Start time Slipped/.test(areas[1]) && /^Logging Steady/.test(areas[2]) && /^Time off \d/.test(areas[3]),
+      "Hours first, each card leading with its verdict; time off is not judged", areas.map(a => a.slice(0, 20)).join(" | "));
+    ok(/Try this/.test(areas[0]) && /half day/.test(areas[0]), "the Hours card carries the half-day tip", areas[0]);
+    ok(/^Start time Slipped 2 late days Usually none Typical start 7:46 AM/.test(areas[1]), "Start time counts late days, with the typical start as information", areas[1].slice(0, 120));
+    ok(/On a late start, stay the full 8h: in at 8:20 AM, out at 4:20 PM\./.test(areas[1]), "and its tip is the rule's own: stay the full day, with the times", areas[1]);
+    ok(!/aim to be in by|be in by/i.test(page), "no card tells anyone to come in earlier", "");
     ok(/^Time off 0\.5 days off/.test(areas[3]), "a half-day leave is half a day off", areas[3].slice(0, 60));
     const slides = [text(page)];
     // The Overview's figures stay on the Overview: the month's average a day
@@ -165,7 +168,7 @@ const day = (date, start, len, extra) => Object.assign({
     });
     const m = R.monthRecap(entries, "2026-11", "2026-11-22");
     ok(m.away.top === 4 && m.away.total === 5, "five days away, all Thursdays: a pattern (the holiday left out)", JSON.stringify(m.away));
-    ok(/falls on Thursdays/.test(areasOf(monthPage(m, ""))[3]), "and the Time off card says so");
+    ok(/Time off falls mostly on Thursdays\./.test(areasOf(monthPage(m, ""))[3]), "and the Time off card says so");
   }
 
   // ---- Every verdict shows what decided it ---------------------------------
@@ -188,11 +191,65 @@ const day = (date, start, len, extra) => Object.assign({
     ok(/^Logging Slipped 0 of 13 clocked in on arrival Usually all/.test(a[2]), "the Logging card leads with the figure that slipped", a[2].slice(0, 90));
     ok(!/same as usual/i.test(a[2]), "and never says same as usual under a Slipped", a[2]);
     ok(/^Time off 0 days off/.test(a[3]) && m.cur.remote.length === 2, "two remote days are not time off", a[3].slice(0, 60));
-    ok(/^Your starts, your hours and your logging slipped\./.test(heroOf(page)), "three slipped areas, one sentence", heroOf(page));
+    ok(/^More short days, more late days and more days typed in later than usual\./.test(heroOf(page)), "three slipped areas, one sentence of what happened", heroOf(page));
+    ok(m.tips.hours && m.tips.hours.kind !== "lateStart", "Hours does not repeat the late-start advice Start time already gives", JSON.stringify(m.tips.hours));
     // Days that run past the target by less than they used to are not a slip.
     const fewer = record("2026-11-01", "2026-11-19", (d) => day(d, 478, 482));
     const steady = R.monthRecap(usual.concat(fewer), "2026-11", TODAY);
     ok(steady.verdicts && steady.verdicts.hours === "steady", "less overtime than usual, but every day full: hours steady", JSON.stringify(steady.verdicts));
+  }
+
+  // ---- The team's rule: a day that makes its hours is never late ---------
+  // Every November day starts at 8:25 and runs 8h 5m. The rest of the app
+  // marks none of them late, so neither does Recap: no late days, no tip.
+  {
+    const usual = record("2026-08-02", "2026-10-31", (d) => day(d, 478, 486));
+    const nov = record("2026-11-01", "2026-11-19", (d) => day(d, 505, 485));
+    const m = R.monthRecap(usual.concat(nov), "2026-11", "2026-11-22");
+    const a = areasOf(monthPage(m, ""));
+    ok(m.cur.lateDays.length === 0 && m.verdicts.punctuality === "steady" && !m.tips.punctuality,
+      "starts at 8:25 with full hours: no late days, nothing to coach", JSON.stringify({ late: m.cur.lateDays.length, v: m.verdicts }));
+    ok(/^Start time Steady 0 late days Usually none Typical start 8:25 AM/.test(a[1]) && /No late days\. Nothing to change\./.test(a[1]),
+      "the card says so in those words", a[1].slice(0, 160));
+  }
+
+  // ---- Months with nothing logged, an admin's view, a newcomer ------------
+  {
+    const TODAY = "2026-11-23";
+    // An imported 2025, a week of leave in March 2026, daily logging from
+    // 11 August 2026: the record behind the owner's own Recap.
+    const spring = record("2025-01-01", "2025-08-14", (d) => day(d, 478, 486, { createdAt: "2026-08-12T10:00:00" }));
+    const march = record("2026-03-08", "2026-03-12", () => ({ type: "leave", createdAt: "2026-08-12T10:00:00" }));
+    const daily = record("2026-08-11", "2026-11-19", (d, dow) => day(d, dow === 4 ? 505 : 478, dow === 2 || dow === 3 ? 440 : 486));
+    const entries = spring.concat(march, daily);
+    const mar = R.monthRecap(entries, "2026-03", TODAY), jun = R.monthRecap(entries, "2026-06", TODAY);
+    ok(mar.cur.missing.length === 0 && jun.cur.missing.length === 0, "a month between logging stretches has no 'not logged' days",
+      JSON.stringify([mar.cur.missing.length, jun.cur.missing.length]));
+    const marText = text(monthPage(mar, "")), junText = text(monthPage(jun, ""));
+    ok(/^Nothing logged in March\. Only time off was recorded: 5 days of annual leave\.$/.test(marText), "and says what it does hold", marText);
+    ok(/^Nothing logged in June\./.test(junText) && !/first recap/i.test(junText), "an empty month is not 'your first recap'", junText);
+    ok(!/data-recap-day/.test(monthPage(mar, "")), "with no Add buttons for days nobody was logging");
+
+    // An admin reading someone else's November: no "your" anywhere.
+    const nov = R.monthRecap(entries, "2026-11", TODAY);
+    const theirs = text(monthPage(nov, "Compared with Rana's average for Aug – Oct", { name: "Rana" }));
+    ok(!/\byour\b/i.test(theirs), "an admin's view of someone else's month never says 'your'", (theirs.match(/.{0,40}\byour\b.{0,40}/i) || [""])[0]);
+    ok(/Compared with Rana's average for Aug – Oct/.test(theirs), "and names whose usual it is", theirs.slice(0, 160));
+    ok(/^No recap yet\. It fills in as days are logged\.$/.test(text(monthPage(R.monthRecap([], "2026-11", TODAY), "", { name: "Rana" }))),
+      "an empty record, seen by an admin, is not 'your first recap'");
+
+    // The page itself: the row of verdicts for a phone, all the short days in
+    // Shortfall, and what late means, in the key.
+    const page = monthPage(nov, "");
+    ok((page.match(/data-recap-jump=/g) || []).length === 4 && /class="recap-jump"/.test(page), "four verdicts in a row, each a way to its card");
+    ok(/data-recap-shortfall="2026-11"/.test(page) && /See all \d+ short days/.test(text(page)), "the short days link to Shortfall on the month", "");
+    ok(/Late: after 8:00 AM on a short day/.test(text(page)), "the key says what late means");
+
+    // A newcomer's month: what it holds, not "your month so far".
+    const fresh = record("2026-11-12", "2026-11-19", (d) => day(d, 478, d === "2026-11-16" ? 440 : 486));
+    const first = R.monthRecap(fresh, "2026-11", TODAY);
+    ok(/^5 full days and 1 short day so far\./.test(text(monthPage(first, ""))), "a newcomer's headline says what the month holds", text(monthPage(first, "")).slice(0, 60));
+    ok(!/class="recap-jump"/.test(monthPage(first, "")), "and has no verdicts to put in a row");
   }
 
   // ---- The tab itself --------------------------------------------------------
@@ -208,7 +265,7 @@ const day = (date, start, len, extra) => Object.assign({
     if(d.getDay() === 5 || d.getDay() === 6) continue;
     if(!missed && n <= 45){ missed = back(n); continue; }
     const date = back(n), start = 470 + (n % 9) * 2;
-    rows.push({ id: "r" + n, user_id: me.id, date, type: "regular", clock_in: hm(start), clock_out: hm(start + 484),
+    rows.push({ id: "r" + n, user_id: me.id, date, type: "regular", clock_in: hm(start), clock_out: hm(start + (n % 4 === 0 ? 440 : 484)),
       note: "", created_at: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, start + 1).toISOString(),
       updated_at: "2026-01-01T00:00:00Z" });
   }
@@ -251,6 +308,18 @@ const day = (date, start, len, extra) => Object.assign({
       ok(s.dot === 0, `${label}: opening it clears the dot`, s.dot);
       ok(!s.scrollX, `${label}: nothing scrolls the page sideways`);
 
+      // On a phone, the row of verdicts is there and takes you to a card; on
+      // a desktop, where all four cards are in view, it is not.
+      const row = await p.evaluate(() => { const r = document.querySelector("#recapBody .recap-jump"); return !!r && !!r.getClientRects().length; });
+      ok(label === "phone" ? row : !row, `${label}: the row of verdicts is ${label === "phone" ? "shown" : "left out"}`);
+      if(label === "phone"){
+        await p.click('[data-recap-jump="recapAreaLogging"]');
+        await settle(p, 900);
+        const top = await p.evaluate(() => Math.round(document.getElementById("recapAreaLogging").closest(".recap-area").getBoundingClientRect().top));
+        ok(top >= 0 && top < 200, "phone: tapping Logging brings its card up", top);
+        await p.evaluate(() => { document.scrollingElement.scrollTop = 0; });
+      }
+
       // The left arrow key steps back a month, the way the arrow button does.
       const before = s.title;
       await p.focus("#tab-recap");
@@ -275,6 +344,21 @@ const day = (date, start, len, extra) => Object.assign({
       ok(y.prevLabel === "Previous year", `${label}: the arrows say what they step`, y.prevLabel);
       await p.click('[data-recap-mode="month"]');
       await settle(p, 300);
+
+      // See all: Shortfall, on the same month.
+      const seeAll = await p.$("[data-recap-shortfall]");
+      if(seeAll){
+        const mk = await seeAll.getAttribute("data-recap-shortfall");
+        await seeAll.click();
+        await settle(p, 500);
+        const sf = await p.evaluate(() => ({ on: document.getElementById("tab-punctuality").classList.contains("active"),
+          period: document.getElementById("punctPeriodSelect").value }));
+        ok(sf.on && sf.period === mk, `${label}: See all opens Shortfall on that month`, JSON.stringify(sf) + " " + mk);
+        await goTab(p, "recap");
+        await settle(p, 400);
+      } else {
+        ok(false, `${label}: a month with more than three short days links to Shortfall`);
+      }
 
       // The missed day: page back to its month and press its Add.
       for(let i = 0; i < 4; i++){
