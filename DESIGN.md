@@ -896,6 +896,15 @@ identity that had survived every redesign pass since — the favicon was still
 Gilt Ledger's after the app itself no longer was.
 
 ### The sticky clock bar
+**The Overview's alone** (owner, 2026-11-23: "No need for the black dock on
+other than the overview on desktop"). It comes up only when the Overview's own
+clock panel has scrolled out of view, which happens on a window under 1100px
+wide that scrolls as a page; at desktop sizes the Overview fits the frame and
+the bar never shows. It used to ride along on every tab but Settings and Admin,
+a second full-width dark mass beside the rail on Log, Trends, Recap, Shortfall
+and Team for an action none of them is about. Phones never show it: the bottom
+bar carries the clock.
+
 Fixed to the bottom of the viewport, but starting after the rail
 (`left: calc(236px + 12px)` above 760px) — the rail owns the left 236px. Anchored
 at 12px it ran underneath the rail and put the user block behind a dark panel on

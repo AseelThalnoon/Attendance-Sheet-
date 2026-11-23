@@ -7611,10 +7611,8 @@ import { monthPage, yearPage } from "./src/recap-view.js";
   onId("firstRunClockBtn", "click", function(){ clockControlClick(this); });
   onId("firstRunHandBtn", "click", function(){ entryModalOrigin = this; openNewEntryForm(); });
 
-  // The sticky bar only appears once the main punch card has scrolled out of
-  // view. It also steps aside whenever Settings is open, since clocking in
-  // isn't the point of that screen and the bar would just compete for the
-  // same bottom-of-screen space as the panel's own buttons.
+  // The sticky bar only appears on the Overview, once its main punch card has
+  // scrolled out of view.
   var stickyClockEl = document.getElementById("stickyClock");
   var mainQuickClockEl = document.querySelector(".quick-clock");
   var mainClockCurrentlyVisible = true;
@@ -7626,17 +7624,16 @@ import { monthPage, yearPage } from "./src/recap-view.js";
   // the observed panel with it) exactly the same way, so no special case is
   // needed.
   function updateStickyClockVisibility(){
-    // The comment above has claimed since it was written that this bar steps
-    // aside for Settings. Nothing ever implemented it: visibility was driven
-    // purely by whether the Overview quick-clock had scrolled out of view, so
-    // the bar rode over Settings and Admin alike. Implemented here, and
-    // extended to Admin, where the reasoning is stronger -- that screen is
-    // about other people's data, clocking yourself in is not what you opened
-    // it for, and a second full-width dark mass beside the rail spends the One
-    // Dark Region rule's single exception on chrome.
+    // The Overview only (owner, 2026-11-23: "No need for the black dock on
+    // other than the overview on desktop"). It used to ride along on every
+    // tab but Settings and Admin -- a second full-width dark mass beside the
+    // rail on Log, Trends, Recap, Shortfall and Team, for an action none of
+    // them is about. Now it appears only when the Overview's own clock panel
+    // has scrolled out of view on a short screen, which is what it was first
+    // made for. Phones never show it: their bottom bar carries the clock.
     var panel = document.querySelector(".tab-panel.active");
-    var quiet = !!panel && (panel.id === "tab-settings" || panel.id === "tab-admin");
-    var show = !mainClockCurrentlyVisible && isOwnData && !quiet;
+    var onOverview = !!panel && panel.id === "tab-overview";
+    var show = !mainClockCurrentlyVisible && isOwnData && onOverview;
     stickyClockEl.classList.toggle("show", show);
     // The bar floats over the bottom of the viewport, and above 1100px the
     // frame no longer scrolls out from under it — so the panel underneath has
