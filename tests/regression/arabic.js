@@ -57,8 +57,8 @@ const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
   ok(tr("92 days logged") === "92 يومًا مسجّلًا", "a sentence built from parts is matched by its pattern", tr("92 days logged"));
   // The adjective agrees with the count, and a count after a preposition or
   // in an idafa takes the genitive dual (منذ يومين, not منذ يومان).
-  const grammar = ["2 days logged", "2d ago", "Deleted 2 entries.", "and 2 more short days", "2 workdays not logged."].map(tr);
-  ok(grammar.join(" | ") === "يومان مسجّلان | منذ يومين | تم حذف سجلين. | ويومان ناقصان آخران | يوما عمل غير مسجّلين.",
+  const grammar = ["2 days logged", "2d ago", "Deleted 2 entries.", "and 2 more short days", "Out of 2 days worked"].map(tr);
+  ok(grammar.join(" | ") === "يومان مسجّلان | منذ يومين | تم حذف سجلين. | ويومان ناقصان آخران | من أصل يومَي عمل",
     "counts agree with their adjective and take the case they are in", grammar.join(" | "));
   // A sentence built in parts, where each part is its own pattern.
   ok(tr("Target 8h · 18 workdays · 2 not logged") === "المطلوب 8س · 18 يوم عمل · لم يُسجَّل 2",
@@ -70,7 +70,7 @@ const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
   i18n.translateTree(roleNode);
   ok(tr("Admin") === "الإدارة" && roleNode.nodeValue === "مسؤول", "Admin the tab and Admin the role read differently", tr("Admin") + " / " + roleNode.nodeValue);
   ok(tr("16d") === "16 يومًا" && tr("Logged") === "مسجّل", "a number placeholder never eats a word", tr("Logged"));
-  ok(tr("usually about 2 a month") === "عادةً نحو 2 في الشهر", "the more specific pattern wins", tr("usually about 2 a month"));
+  ok(tr("Usually about 2 a month") === "عادةً نحو 2 في الشهر", "the more specific pattern wins", tr("Usually about 2 a month"));
   const english = "Hours, punctuality and leave start from there.";
   ok(tr(english) === english, "a sentence nobody translated stays whole, not half-Arabic", tr(english));
   ok(tr("Couldn't save that entry: Something went wrong.") === "تعذّر حفظ السجل: حدث خطأ غير متوقع.",
@@ -144,9 +144,8 @@ const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
             left.add("placeholder: " + v.slice(0, 60));
           }
           const vw = document.documentElement.clientWidth;
-          const track = document.getElementById("recapTrack");
           const off = [...document.querySelectorAll(".shell *, .rail *")].filter(el => {
-            if(!el.getClientRects().length || (track && track.contains(el))) return false;
+            if(!el.getClientRects().length) return false;
             const r = el.getBoundingClientRect();
             return r.width > 0 && (r.right > vw + 1 || r.left < -1) && getComputedStyle(el).position !== "fixed";
           }).slice(0, 3).map(el => el.tagName + "." + String(el.className).split(" ")[0]);
@@ -155,15 +154,28 @@ const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
         ok(s.english.length === 0, `${label} ${tab}: nothing left in English`, JSON.stringify(s.english));
         ok(!s.off.length && !s.scrollX, `${label} ${tab}: nothing hangs off the side`, JSON.stringify(s));
       }
-      // Recap, right to left: the first card is the one on screen.
+      // Recap, right to left: Start time, the first area, is on the right.
       await goTab(p, "recap");
       await settle(p, 500);
       const card = await p.evaluate(() => {
-        const c = document.querySelector("#recapTrack > .recap-card");
-        const r = c.getBoundingClientRect();
-        return { left: Math.round(r.left), right: Math.round(r.right), vw: innerWidth, label: c.getAttribute("aria-label") };
+        const a = [...document.querySelectorAll("#recapBody .recap-area")].map(c => c.getBoundingClientRect());
+        return { first: a[0] && Math.round(a[0].right), second: a[1] && Math.round(a[1].right), left: Math.min(...a.map(r => r.left)), right: Math.max(...a.map(r => r.right)), vw: innerWidth };
       });
-      ok(card.left >= 0 && card.right <= card.vw, `${label}: Recap's first card is in view, right to left`, JSON.stringify(card));
+      ok(card.left >= 0 && card.right <= card.vw, `${label}: Recap's cards are all in view, right to left`, JSON.stringify(card));
+      if(label === "desktop") ok(card.first > card.second, "desktop: the first area is the rightmost, as Arabic reads", JSON.stringify(card));
+      // The year too: its picture and cards, every word in Arabic.
+      await p.click('[data-recap-mode="year"]');
+      await settle(p, 500);
+      const yearEnglish = await p.evaluate(() => {
+        const left = new Set();
+        const w = document.createTreeWalker(document.getElementById("recapBody"), NodeFilter.SHOW_TEXT);
+        let n;
+        while((n = w.nextNode())){ const v = n.nodeValue.trim(); if(v && /[A-Za-z]{2,}/.test(v)) left.add(v.slice(0, 80)); }
+        return [...left].slice(0, 8);
+      });
+      ok(yearEnglish.length === 0, `${label}: Recap's year, nothing left in English`, JSON.stringify(yearEnglish));
+      await p.click('[data-recap-mode="month"]');
+      await settle(p, 300);
       ok(h.errors.length === 0, `${label}: no script errors`, h.errors.join(" | "));
 
       if(label === "desktop"){

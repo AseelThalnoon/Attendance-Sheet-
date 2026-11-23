@@ -411,7 +411,7 @@ export function makeRecap(sch){
         function(d){ return d.status === "short"; }, 3),
       perMonth: perMonth,
       off: { total: off.away.length, topMonth: topMonth, topCount: topMonth ? offByMonth[topMonth] : 0,
-        byDow: offByDow, byType: offByType },
+        byDow: offByDow, byType: offByType, byMonth: offByMonth },
       away: awayPattern(by, start, end, today),
       tips: v ? {
         punctuality: v.punctuality === "slipped" ? punctualityTip(cmpCur) : null,

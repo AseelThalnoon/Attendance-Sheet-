@@ -102,7 +102,6 @@ register({
   "Previous year": "السنة السابقة",
   "Next year": "السنة التالية",
   "Previous card": "البطاقة السابقة",
-  "Recap cards": "بطاقات الملخص",
   "Next card": "البطاقة التالية",
   "Attendance views": "طرق العرض",
   "Shortfall": "الساعات الناقصة",
