@@ -4327,73 +4327,99 @@
   @media (min-width:761px){ .recap-headline{font-size:28px;} }
 
   .recap-areas{display:grid; grid-template-columns:minmax(0,1fr); gap:var(--space-3);}
-  @media (min-width:761px){ .recap-areas{grid-template-columns:repeat(2, minmax(0,1fr)); gap:var(--space-4);} }
-  @media (min-width:1240px){
-    .recap-areas{grid-template-columns:repeat(4, minmax(0,1fr));}
-    /* Four across: the comparison line takes two lines' room in every card,
-       so the pictures under it start on one line too. */
-    .recap-compare{min-height:2.9em;}
-  }
-
   .card.recap-area{
     display:flex; flex-direction:column; gap:var(--space-3); margin:0;
     padding:var(--space-5); box-sizing:border-box; min-width:0;
   }
+  /* A part with nothing to say is an empty box (see src/recap-view.js), kept
+     so cards side by side line up; one card to a row, it simply goes. */
+  .recap-area > :empty{display:none;}
+  @media (min-width:761px){
+    .recap-areas{grid-template-columns:repeat(2, minmax(0,1fr)); gap:var(--space-4);}
+    /* Side by side, every card's five parts sit on shared rows -- the figures
+       on one line, the usual under each on the next, the coaching along the
+       bottom -- whatever any one card has to say. A browser without subgrid
+       stacks the parts in each card as on a phone; nothing breaks, the rows
+       just stop lining up. */
+    .card.recap-area{display:grid; grid-row:span 5; grid-template-rows:subgrid; row-gap:var(--space-3); align-content:start;}
+    .recap-area > :empty{display:block;}
+    .recap-coach{align-self:end;}
+  }
+  @media (min-width:1240px){ .recap-areas{grid-template-columns:repeat(4, minmax(0,1fr));} }
+
   .recap-area.is-cream{background:var(--surface-cream);}
   .recap-area.is-gray{background:var(--surface-gray);}
-  .recap-area-head{display:flex; align-items:center; justify-content:space-between; gap:var(--space-2); min-height:26px;}
+  .recap-area-head{display:flex; align-items:center; gap:var(--space-2); min-height:26px; min-width:0;}
+  .recap-area-icon{display:inline-flex; flex-shrink:0; color:var(--muted-2);}
   .recap-area-name{margin:0; font-size:15px; font-weight:700; color:var(--ink);}
   .recap-verdict{
-    display:inline-flex; align-items:center; gap:4px; padding:3px 10px; padding-inline-start:7px;
+    display:inline-flex; align-items:center; gap:4px; margin-inline-start:auto; padding:3px 10px; padding-inline-start:7px;
     border-radius:var(--radius-pill); font-size:12px; font-weight:700; white-space:nowrap;
     background:var(--ink-50); color:var(--ink);
   }
   .recap-area.is-cream .recap-verdict.is-steady, .recap-area.is-gray .recap-verdict.is-steady{background:var(--card);}
   .recap-verdict.is-better{background:var(--positive-bg); color:var(--positive);}
   .recap-verdict.is-slipped{background:var(--negative-bg); color:var(--negative);}
-  .recap-fig{display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; min-width:0;}
+  /* The figure over its label, always: beside it, a long label ("clocked
+     in on arrival") wrapped in one card and not the next, and every row
+     under the figures stopped lining up. */
+  .recap-fig{display:flex; flex-direction:column; align-items:flex-start; gap:3px; min-width:0;}
   .recap-fig-num{font-family:var(--font-num); font-size:40px; font-weight:900; line-height:1; letter-spacing:-.03em; color:var(--ink); white-space:nowrap;}
   .recap-fig-label{font-size:13px; color:var(--muted);}
-  .recap-compare{margin:calc(var(--space-1-5) * -1) 0 0; font-size:13.5px; line-height:1.4; font-weight:600; color:var(--muted-2);}
-  .recap-compare.is-bad{color:var(--negative);}
-  .recap-compare.is-good{color:var(--positive);}
-  .recap-visual{display:flex; flex-direction:column; gap:var(--space-2);}
+  .recap-usual{margin:calc(var(--space-1-5) * -1) 0 0; font-size:13.5px; line-height:1.4; font-weight:600; color:var(--muted-2);}
+  .recap-visual{display:flex; flex-direction:column; gap:var(--space-2); min-width:0;}
   .recap-caption{margin:0; font-size:12.5px; font-weight:600; color:var(--muted-2);}
   .recap-more, .recap-foot{margin:0; font-size:12px; color:var(--muted);}
   .recap-pattern{margin:0; font-size:13.5px; line-height:1.45; color:var(--muted-2);}
   .recap-pattern b{color:var(--ink);}
 
-  .recap-take{display:flex; flex-direction:column; gap:3px; margin-top:auto; padding:12px 14px; border-radius:var(--radius-md);}
+  .recap-take{display:flex; flex-direction:column; gap:3px; padding:12px 14px; border-radius:var(--radius-md);}
   .recap-take.is-tip{background:var(--gold); color:var(--ink-on-gold);}
   .recap-take.is-well{background:var(--positive-bg); color:var(--positive);}
   .recap-take-label{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;}
   .recap-take-text{font-size:14px; font-weight:500; line-height:1.4;}
 
   /* Rows inside a card: the wash on a white card, white on a cream or gray
-     one -- the lift the Settings nav already uses, never a border. */
+     one -- the lift the Settings nav already uses, never a border. A day's
+     row is a button that opens that day. */
   .recap-rows{display:flex; flex-direction:column; gap:4px;}
   .recap-row{
-    display:flex; align-items:center; gap:var(--space-2); min-height:34px; padding:5px 10px;
+    display:flex; align-items:center; gap:var(--space-2); min-height:34px; padding:5px 10px; box-sizing:border-box;
     border-radius:var(--radius-sm); background:var(--ink-50); font-size:13.5px; min-width:0;
   }
   .recap-area.is-cream .recap-row, .recap-area.is-gray .recap-row{background:var(--card);}
+  button.recap-row{
+    width:100%; min-height:44px; border:none; font-family:inherit; color:inherit; text-align:start; cursor:pointer;
+    transition:box-shadow var(--dur-fast) var(--ease-snap);
+  }
+  button.recap-row:hover{box-shadow:var(--shadow-sm);}
+  @media (min-width:1100px){ button.recap-row{min-height:34px;} }
   .recap-row-label{font-weight:600; color:var(--ink); white-space:nowrap;}
   .recap-row-value{margin-inline-start:auto; font-weight:600; color:var(--muted-2); white-space:nowrap;}
-  .recap-row-value:empty{display:none;}
   .recap-row-value.is-bad{color:var(--negative);}
-  .recap-rows.is-fix .recap-row{padding-block:3px; padding-inline-end:4px;}
+  .recap-row.is-fix{padding-block:3px; padding-inline-end:4px;}
   .recap-add{margin-inline-start:auto;}
-  .recap-dot-track{position:relative; flex:1 1 auto; height:6px; border-radius:var(--radius-pill); background:var(--line);}
+  /* Month by month: the month, a mark the length (or, for a start, the
+     place) of its value, the value. */
+  .recap-rows.is-months .recap-row-label{flex:0 0 34px;}
+  .recap-rows.is-months .recap-row-value{flex:0 0 auto; margin-inline-start:0;}
+  .recap-bar, .recap-dot-track{position:relative; flex:1 1 auto; height:6px; border-radius:var(--radius-pill); background:var(--line);}
+  .recap-bar{overflow:hidden;}
+  .recap-bar > i{display:block; height:100%; border-radius:inherit; background:var(--muted-2);}
   .recap-dot-track::after{content:""; position:absolute; inset-inline-start:50%; top:-4px; bottom:-4px; border-inline-start:1.5px dashed var(--muted);}
   .recap-dot-track > i{position:absolute; top:50%; width:10px; height:10px; border-radius:50%; background:var(--ink); transform:translateY(-50%); margin-inline-start:-5px;}
 
-  .recap-meter{display:flex; flex-direction:column; gap:5px;}
+  .recap-meter{display:flex; flex-direction:column; gap:6px;}
   .recap-meter-top{display:flex; justify-content:space-between; gap:var(--space-2); font-size:13px; color:var(--muted-2);}
   .recap-meter-top b{color:var(--ink); font-weight:700; white-space:nowrap;}
-  .recap-meter-bar{display:block; height:6px; border-radius:var(--radius-pill); background:var(--card); overflow:hidden;}
-  .recap-meter-bar > i{display:block; height:100%; background:var(--muted); border-radius:inherit;}
-  .recap-meter-sub{font-size:12px; color:var(--muted);}
-
+  .recap-area.is-gray .recap-bar{background:var(--card);}
+  /* The year's days off, a column a month. */
+  .recap-mchart{display:grid; grid-template-columns:repeat(var(--cols), minmax(0,1fr)); gap:3px; align-items:end;}
+  .recap-mcol{display:flex; flex-direction:column; align-items:center; gap:3px; min-width:0;}
+  .recap-mcol > b{min-height:14px; font-size:10.5px; font-weight:700; color:var(--ink); line-height:14px;}
+  .recap-mcol-area{display:flex; align-items:flex-end; width:100%; height:56px; border-radius:3px; background:var(--ink-50);}
+  .recap-mcol-area > i{display:block; width:100%; border-radius:3px; background:var(--muted-2);}
+  .recap-mcol-label{font-size:10.5px; color:var(--muted);}
   .recap-chips{display:flex; flex-wrap:wrap; gap:6px;}
   .recap-chip{font-size:12.5px; font-weight:600; padding:4px 10px; border-radius:var(--radius-pill); background:var(--ink-50); color:var(--ink);}
 
@@ -9619,6 +9645,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v76"></script>
+<script type="module" src="app.js?v=v77"></script>
 </body>
 </html>

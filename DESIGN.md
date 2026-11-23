@@ -1443,16 +1443,37 @@ and every choice below was the owner's, asked one at a time.
   sentence, then four area cards — **Start time, Hours, Logging, Time off** —
   four across above 1240px, two by two from 761px, stacked on a phone. At
   1440x900 the whole month fits the frame without scrolling.
-- **Every card has the same five parts in the same order**: the area and its
-  verdict (Better ↑, Steady –, Slipped ↓; an icon as well as a colour), one
-  figure, how it compares with your usual *with the usual named* ("7m later
-  than your usual 8:04 AM"), a small picture of the days behind it, and one
-  line on what to do. Four across, the comparison line takes two lines' room
-  so the pictures start level.
+- **Every card has the same five parts in the same order**: the area (an
+  icon and its name) with its verdict (Better ↑, Steady –, Slipped ↓; an
+  arrow as well as a colour); one figure, over its label; that figure's usual
+  ("Usually 8:04 AM"; in the Year, "Last year: 8:02 AM"); the days behind it;
+  and one line on what to do. A part with nothing to say is an empty box, and
+  from 761px the cards sit on a CSS subgrid, so side by side the figures, the
+  usuals and the coaching each share one line across all four cards.
+- **The figure is the one the verdict was decided on** (2026-11-23). Logging
+  can slip on entries typed in afterwards with every workday logged; it then
+  leads with "8 of 15 clocked in on arrival · Usually 9 in 10", where it used
+  to show "16 of 16 logged · Same as usual" under a Slipped. `verdicts()` in
+  src/recap.js returns `why` for that. Hours is the daily target only — how
+  often a day comes up short, and by how much in all; days running past the
+  target by less than they used to are not a slip (the Overview's bank holds
+  overtime).
+- **Time off is time off.** Leave, sick and excused days, a half-day leave as
+  half (as the leave balance counts it). Remote, trip and training days are a
+  day's work elsewhere and are not counted, and the card says so with public
+  holidays. Its Arabic is الإجازات, no longer خارج المكتب.
 - **Plain names.** "Punctuality" became Start time and "Consistency" became
   Logging, the thing each card measures; "clocked in live" became "Clocked in
-  on arrival". The headline's sub-line says what "usual" is: "Compared with
-  your average for Aug – Oct".
+  on arrival". The headline's sub-line says what the usual is: "Compared with
+  your average for Aug – Oct". In Arabic, "typical start" is حضورك في أغلب
+  الأيام, so it never reads as the usual (عادةً) printed under it.
+- **Short, concrete tips.** "3 of your 4 short days started late. On a late
+  start, stay the full 8h." — the hours, the time, the days, never "the time
+  your clock card shows".
+- **Days open where they are named.** A short day's row opens that entry; a
+  missed day's Add opens the form on that date. On a desktop each dot of the
+  start chart and each square of the year carries its date and value on
+  hover.
 - **Against your own usual**, the three months before the month in view, never
   against the team. The Year view compares the same months of last year, and
   only months both years logged; with none, it says so.
@@ -1462,16 +1483,16 @@ and every choice below was the owner's, asked one at a time.
   box (a fill, ink-on-gold text). An area that held or improved gets a "Well
   done" line in the positive tint, and nothing to do. Time off is described,
   never judged, and carries no verdict.
-- **A missed day carries its own Add.** Logging lists the workdays with nothing
-  on them, each with an Add that opens the entry form on that date — the fix
-  beside the fact, as Shortfall's rows do.
 - **The Year picture starts where logging did.** One square per workday, a row
   per month, a group per week, so a weekday is always the same column. Months
   before the logging stretch are not drawn, so they never read as missed. On
   a desktop the squares are a fixed 15px beside the year's counts; stretched
   to the card's width they grew to the size of buttons. With no last year to
   compare, the headline says what the picture shows ("Mostly full days. The
-  short ones come in runs.") instead of repeating the period's name.
+  short ones come in runs.") instead of repeating the period's name. Its
+  cards list the months of the logging stretch, a small bar (or, for starts,
+  a dot either side of the start time) beside each; its days off are one
+  column a month from January, since leave counts the whole calendar year.
 - **A dot on the Recap item** from the 1st of a month until that month's
   finished recap is opened; on days 1-7 the tab opens on last month's. The
   left and right arrow keys step the period.
@@ -1523,7 +1544,7 @@ Jibble's Arabic site, Odoo's Arabic documentation) and Saudi HR usage:
 | Leave balance | رصيد الإجازات | |
 | Punctuality | الانضباط | الالتزام بالمواعيد |
 | Streak | حضور متواصل | سلسلة |
-| Time away (Recap) | خارج المكتب | |
+| Time off (Recap) | الإجازات | خارج المكتب (remote days are not time off) |
 | Public holiday | عطلة رسمية | |
 | Remote · Business trip | عن بُعد · مهمة عمل | |
 | Overview · Trends · Recap | الرئيسية · الإحصاءات · الملخص | نظرة عامة · الاتجاهات |

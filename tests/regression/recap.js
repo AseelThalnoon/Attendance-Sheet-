@@ -91,7 +91,8 @@ const day = (date, start, len, extra) => Object.assign({
       "each card leads with its area and verdict; time off is not judged", areas.map(a => a.slice(0, 20)).join(" | "));
     ok(/Try this/.test(areas[1]) && /half day/.test(areas[1]), "the Hours card carries the tip", areas[1]);
     ok(!/Try this/.test(areas[0]) && /Well done/.test(areas[0]), "Start time gets a well-done, not advice", areas[0]);
-    ok(/earlier than your usual 7:58 AM/.test(areas[0]), "the start is compared with the usual one, named", areas[0].slice(0, 120));
+    ok(/typical start Usually 7:58 AM/.test(areas[0]), "the start sits over its usual", areas[0].slice(0, 120));
+    ok(/^Time off 0\.5 days off/.test(areas[3]), "a half-day leave is half a day off", areas[3].slice(0, 60));
     const slides = [text(page)];
     // The Overview's figures stay on the Overview: the month's average a day
     // (8h 1m here) never appears, only how it moved.
@@ -114,7 +115,7 @@ const day = (date, start, len, extra) => Object.assign({
     ok(R.monthRecap([], "2026-03", "2026-03-25").cur.workdays === 0, "an empty record has nothing to count");
     ok(/first recap/i.test(text(monthPage(R.monthRecap([], "2026-03", "2026-03-25"), ""))), "and says its first recap is coming");
     // A missed day carries its own Add, on that date.
-    ok(/data-recap-add="2026-03-18"/.test(monthPage(gap, "")), "a day not logged carries an Add for that date");
+    ok(/class="btn ghost small recap-add" data-recap-day="2026-03-18"/.test(monthPage(gap, "")), "a day not logged carries an Add for that date");
   }
 
   // ---- Which month opens ---------------------------------------------------
@@ -143,7 +144,7 @@ const day = (date, start, len, extra) => Object.assign({
     ok(/class="card recap-year"/.test(yp) && ya.length === 4, "the year: its picture, then the four areas", ya.length);
     ok(/Nothing from last year to compare yet/.test(heroOf(yp)), "and the headline's line says why there is no comparison", heroOf(yp));
     ok(!/Your 2026 so far/.test(heroOf(yp)), "the headline says what the year shows, not its name again", heroOf(yp));
-    ok(/^Time off 19 days away/.test(ya[3]) && /Apr \d+ days/.test(ya[3]), "the year's time off says where it went, April included", ya[3].slice(0, 160));
+    ok(/^Time off 19 days off/.test(ya[3]) && /aria-label="Days off by month: Apr 19\."/.test(yp), "the year's time off says where it went, April included", ya[3].slice(0, 160));
 
     const y25 = R.yearRecap(entries, "2025", "2026-11-22", settings.workDays, sch.weekStartDate);
     ok(y25.from === "2025-01-01" && y25.to === "2025-08-14", "a past year runs to its last logged day", y25.from + ".." + y25.to);
@@ -165,6 +166,33 @@ const day = (date, start, len, extra) => Object.assign({
     const m = R.monthRecap(entries, "2026-11", "2026-11-22");
     ok(m.away.top === 4 && m.away.total === 5, "five days away, all Thursdays: a pattern (the holiday left out)", JSON.stringify(m.away));
     ok(/falls on Thursdays/.test(areasOf(monthPage(m, ""))[3]), "and the Time off card says so");
+  }
+
+  // ---- Every verdict shows what decided it ---------------------------------
+  // Logging can slip on entries typed in afterwards with every workday logged.
+  // The card then leads with that figure, never "same as usual" under a
+  // Slipped. Remote days are a day's work elsewhere, not time off, and three
+  // areas that slipped are one sentence.
+  {
+    const TODAY = "2026-11-22";
+    const usual = record("2026-08-02", "2026-10-31", (d) => day(d, 478, 486));
+    const nov = record("2026-11-01", "2026-11-19", (d, dow) => {
+      if(d === "2026-11-04" || d === "2026-11-11") return { type: "wfh", createdAt: d + "T09:00:00" };
+      // Late, short, and typed in three hours after arriving.
+      return Object.assign(day(d, 492, 440), { createdAt: d + "T" + hm(492 + 180) + ":00" });
+    });
+    const m = R.monthRecap(usual.concat(nov), "2026-11", TODAY);
+    ok(m.verdicts && m.verdicts.consistency === "slipped" && m.verdicts.why.consistency === "live",
+      "logging slips on late entries, and says that is why", JSON.stringify(m.verdicts));
+    const page = monthPage(m, ""), a = areasOf(page);
+    ok(/^Logging Slipped 0 of 13 clocked in on arrival Usually all/.test(a[2]), "the Logging card leads with the figure that slipped", a[2].slice(0, 90));
+    ok(!/same as usual/i.test(a[2]), "and never says same as usual under a Slipped", a[2]);
+    ok(/^Time off 0 days off/.test(a[3]) && m.cur.remote.length === 2, "two remote days are not time off", a[3].slice(0, 60));
+    ok(/^Your starts, your hours and your logging slipped\./.test(heroOf(page)), "three slipped areas, one sentence", heroOf(page));
+    // Days that run past the target by less than they used to are not a slip.
+    const fewer = record("2026-11-01", "2026-11-19", (d) => day(d, 478, 482));
+    const steady = R.monthRecap(usual.concat(fewer), "2026-11", TODAY);
+    ok(steady.verdicts && steady.verdicts.hours === "steady", "less overtime than usual, but every day full: hours steady", JSON.stringify(steady.verdicts));
   }
 
   // ---- The tab itself --------------------------------------------------------
@@ -250,11 +278,11 @@ const day = (date, start, len, extra) => Object.assign({
 
       // The missed day: page back to its month and press its Add.
       for(let i = 0; i < 4; i++){
-        if(await p.$(`[data-recap-add="${missed}"]`)) break;
+        if(await p.$(`.recap-add[data-recap-day="${missed}"]`)) break;
         await p.click("#recapPrevBtn");
         await settle(p, 250);
       }
-      const add = await p.$(`[data-recap-add="${missed}"]`);
+      const add = await p.$(`.recap-add[data-recap-day="${missed}"]`);
       ok(!!add, `${label}: the missed day ${missed} is listed with an Add`);
       if(add){
         await add.click();

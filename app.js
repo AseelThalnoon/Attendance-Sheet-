@@ -5568,7 +5568,7 @@ import { monthPage, yearPage } from "./src/recap-view.js";
         var a = recapShortMonth(m.base.from), b = recapShortMonth(m.base.to);
         basis = a === b ? "Compared with your average for " + a : "Compared with your average for " + a + " – " + b;
       } else {
-        basis = "Your usual takes shape after a few weeks of logging";
+        basis = "Comparisons start after a few weeks of logging.";
       }
       html = monthPage(m, basis);
       var sameYear = recapMonth.slice(0, 4) === today.slice(0, 4);
@@ -5590,10 +5590,11 @@ import { monthPage, yearPage } from "./src/recap-view.js";
     body.innerHTML = html;
   }
 
-  // A day nobody logged carries its own Add: the entry form, on that date.
+  // A day on the page opens that day: a short day's entry to look at, or for
+  // a day nobody logged, the entry form on that date.
   onId("recapBody", "click", function(ev){
-    var add = ev.target.closest("[data-recap-add]");
-    if(add){ entryModalOrigin = add; openFixForDate(add.getAttribute("data-recap-add")); }
+    var day = ev.target.closest("[data-recap-day]");
+    if(day){ entryModalOrigin = day; openFixForDate(day.getAttribute("data-recap-day")); }
   });
   document.querySelectorAll("[data-recap-mode]").forEach(function(btn){
     btn.addEventListener("click", function(){
