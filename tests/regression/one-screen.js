@@ -238,13 +238,12 @@ function ok(cond, name, detail){
       }
       ok(m.chrome <= MAX_CHROME_H, `${at} — header and notices stay under ${MAX_CHROME_H}px`,
         `they take ${m.chrome}px before the tab starts`);
-      // Clocking yourself in is not what either of these screens is for, and
-      // the bar would compete with the panel's own controls for the same strip
-      // of screen. updateStickyClockVisibility's comment claimed this for
-      // Settings long before anything implemented it, and it rode over both.
-      if(tab === "settings" || tab === "admin"){
-        ok(m.stickyShown === false, `${at} — the sticky clock bar steps aside`,
-          "the bar is up on a screen that is not about clocking in");
+      // The bar belongs to the Overview alone (owner, 2026-11-23): on every
+      // other tab it was a second dark mass beside the rail for an action
+      // none of them is about.
+      if(tab !== "overview"){
+        ok(m.stickyShown === false, `${at} — the sticky clock bar is not on this tab`,
+          "the bar is up on a tab other than the Overview");
       }
       if(m.railOverlap !== null){
         ok(m.railOverlap <= 0, `${at} — the sticky clock bar starts clear of the rail`,

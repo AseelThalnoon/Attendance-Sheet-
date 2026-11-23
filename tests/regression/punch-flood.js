@@ -327,18 +327,30 @@ async function start(opts){
       const end = await gone(h.page, 3000);
       ok(end.gone, "desktop: it is gone afterwards, wherever the person went", JSON.stringify(end));
 
-      // ---- The sticky bar, on a tab with no clock panel ------------------------
+      // The dark clock bar belongs to the Overview alone (owner, 2026-11-23).
       await settle(h.page);
       const sticky = await h.page.evaluate(() => document.getElementById("stickyClock").classList.contains("show"));
-      ok(sticky, "desktop, Log tab: the sticky bar is the clock control");
-      const s = await press(h.page, "stickyClockBtn");
-      ok(!!s && /\bis-out\b/.test(s.cls) && /\bis-bar\b/.test(s.cls), "sticky bar: the flood is the bar's own", s && s.cls);
-      ok(!!s && s.parent === "stickyClock", "sticky bar: and lives inside it", s && s.parent);
-      ok(!!s && near(s.box[2], s.host[2]) && near(s.box[3], s.host[3]), "sticky bar: at the bar's size", s && (JSON.stringify(s.box) + " vs " + JSON.stringify(s.host)));
-      ok(!!s && near(s.px, s.cx) && near(s.py, s.cy), "sticky bar: from the bar's button", s && `origin ${s.px},${s.py}  button ${s.cx},${s.cy}`);
-      ok(!!s && s.period >= 11, "sticky bar: AM/PM holds the 11px floor", s && (s.period + "px"));
+      ok(!sticky, "desktop, Log tab: no sticky clock bar");
     }
     ok(h.errors.length === 0, `${width}px: no script errors`, h.errors.join(" | "));
+    await h.close();
+  }
+
+  // ---- The sticky bar: the Overview, its clock panel below the fold -----------
+  // A window under 1100px scrolls as a page, and at 900x700 the Overview's
+  // clock panel starts below the fold, which is when the bar comes up.
+  {
+    const h = await start({ viewport: { width: 900, height: 700 }, meId: me.id, seed: seed() });
+    await settle(h.page);
+    const sticky = await h.page.evaluate(() => document.getElementById("stickyClock").classList.contains("show"));
+    ok(sticky, "900x700 Overview, clock panel below the fold: the sticky bar is up");
+    const s = await press(h.page, "stickyClockBtn");
+    ok(!!s && /\bis-(in|out)\b/.test(s.cls) && /\bis-bar\b/.test(s.cls), "sticky bar: the flood is the bar's own", s && s.cls);
+    ok(!!s && s.parent === "stickyClock", "sticky bar: and lives inside it", s && s.parent);
+    ok(!!s && near(s.box[2], s.host[2]) && near(s.box[3], s.host[3]), "sticky bar: at the bar's size", s && (JSON.stringify(s.box) + " vs " + JSON.stringify(s.host)));
+    ok(!!s && near(s.px, s.cx) && near(s.py, s.cy), "sticky bar: from the bar's button", s && `origin ${s.px},${s.py}  button ${s.cx},${s.cy}`);
+    ok(!!s && s.period >= 11, "sticky bar: AM/PM holds the 11px floor", s && (s.period + "px"));
+    ok(h.errors.length === 0, "900x700: no script errors", h.errors.join(" | "));
     await h.close();
   }
 
