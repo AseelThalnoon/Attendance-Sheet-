@@ -91,7 +91,7 @@ export function makeRecap(sch){
     var s = { from: from, to: to, workdays: 0, logged: 0, missing: [], unclosed: [],
       worked: 0, weight: 0, workedSum: 0, short: [], shortMin: 0,
       starts: [], startByDate: {}, finishes: [], afterStart: [], liveKnown: 0, live: 0, notLive: [],
-      sameDayKnown: 0, sameDay: 0, loggedLater: [], away: [], days: [] };
+      sameDayKnown: 0, sameDay: 0, loggedLater: [], away: [], offDays: 0, remote: [], days: [] };
     if(!from || !to || from > to) return s;
     for(var d = from; d <= to; d = addDays(d, 1)){
       if(d > today) break;
@@ -114,14 +114,18 @@ export function makeRecap(sch){
       } else if(EXCUSED_TYPES.indexOf(e.type) !== -1){
         status = "away";
         s.away.push({ date: d, type: e.type });
+        s.offDays += 1;
       } else if(NO_TARGET_TYPES.indexOf(e.type) !== -1){
+        // A remote, trip or training day is a day's work somewhere else, not
+        // time off (2026-11-23: counted as "time off" until then).
         status = "remote";
-        s.away.push({ date: d, type: e.type });
+        s.remote.push({ date: d, type: e.type });
       } else if(c.open || c.workedMin === null){
         status = "unclosed";
         s.unclosed.push(d);
       } else {
-        if(c.half) s.away.push({ date: d, type: e.type });
+        // Half a day off, counted as half, as the leave balance counts it.
+        if(c.half){ s.away.push({ date: d, type: e.type }); s.offDays += 0.5; }
         s.worked++;
         s.weight += c.half ? 0.5 : 1;
         s.workedSum += c.workedMin;
@@ -181,24 +185,35 @@ export function makeRecap(sch){
   // Better / steady / slipped per area, or null when there is no usual to
   // hold the period against. The bands are wide on purpose: a verdict that
   // flips on two minutes is noise dressed as advice.
+  //
+  // Each verdict also says what moved it (why.hours, why.consistency), so the
+  // card can put that on screen. A "Slipped" over a line reading "same as
+  // usual" -- which the logging card could show, its verdict having come from
+  // late entries -- is a verdict nobody can act on (2026-11-23).
   function verdicts(cur, base){
     if(!base || base.worked < MIN_BASE_DAYS || cur.worked < 3) return null;
-    var p = "steady", h = "steady", k = "steady";
+    var p = "steady", h = "steady", k = "steady", hWhy = null, kWhy = null;
     var dStart = cur.medStart - base.medStart;
     if(dStart <= -3) p = "better"; else if(dStart >= 3) p = "slipped";
 
+    // Hours is the daily target: how often a day comes up short, and by how
+    // much in all. Days that run past the target by less than they used to
+    // are not a slip -- the Overview's bank is where overtime lives.
     var dRate = cur.shortRate - base.shortRate;
-    var dAvg = cur.avgMin - base.avgMin;
-    var perDay = cur.worked ? cur.shortMin / cur.worked : 0, basePerDay = base.shortMin / base.worked;
-    if(dRate >= 0.08 || dAvg <= -10 || (cur.shortMin >= 30 && perDay >= basePerDay * 2)) h = "slipped";
-    else if(dRate <= -0.08 || (dAvg >= 10 && dRate <= 0)) h = "better";
+    var perDay = cur.shortMin / cur.worked, basePerDay = base.shortMin / base.worked;
+    if(dRate >= 0.08){ h = "slipped"; hWhy = "rate"; }
+    else if(cur.shortMin >= 30 && perDay >= basePerDay * 2){ h = "slipped"; hWhy = "depth"; }
+    else if(dRate <= -0.08){ h = "better"; hWhy = "rate"; }
 
+    // Logging: every workday has an entry, and a worked day's entry was made
+    // on arrival rather than typed in afterwards.
     var dLogged = cur.loggedRate - base.loggedRate;
     var dLive = (cur.liveRate != null && base.liveRate != null) ? cur.liveRate - base.liveRate : 0;
-    var dSame = (cur.sameDayRate != null && base.sameDayRate != null) ? cur.sameDayRate - base.sameDayRate : 0;
-    if(dLogged <= -0.05 || dLive <= -0.15 || dSame <= -0.15) k = "slipped";
-    else if(dLogged >= 0.05 || dLive >= 0.15) k = "better";
-    return { punctuality: p, hours: h, consistency: k, dStart: dStart, dAvg: dAvg };
+    if(dLogged <= -0.05){ k = "slipped"; kWhy = "logged"; }
+    else if(dLive <= -0.15){ k = "slipped"; kWhy = "live"; }
+    else if(dLogged >= 0.05){ k = "better"; kWhy = "logged"; }
+    else if(dLive >= 0.15){ k = "better"; kWhy = "live"; }
+    return { punctuality: p, hours: h, consistency: k, dStart: dStart, why: { hours: hWhy, consistency: kWhy } };
   }
 
   // The one thing to try in an area that slipped, chosen from what the
@@ -212,7 +227,7 @@ export function makeRecap(sch){
     }
     var lateShort = cur.short.filter(function(x){ return x.late && !x.half; });
     if(lateShort.length && lateShort.length * 2 >= cur.short.length){
-      return { kind: "lateStart", count: lateShort.length, of: cur.short.length };
+      return { kind: "lateStart", count: lateShort.length, of: cur.short.length, target: lateShort[0].target };
     }
     return { kind: "stayLonger", min: Math.ceil(cur.shortMin / Math.max(1, cur.short.length)), days: cur.short.length };
   }
@@ -236,17 +251,22 @@ export function makeRecap(sch){
     return { kind: "typedLater", count: cur.notLive.length };
   }
 
-  // Days away by weekday since the stretch began, public holidays left out:
+  // Days off by weekday since the stretch began, public holidays left out:
   // they are nobody's choice. A weekday holding at least half of them (and
   // three or more) is a pattern worth a headline.
+  // Counted the way the card counts them, a half-day leave as half, so the
+  // sentence never says "4 of your 4 days off" under a figure of 2; whether
+  // there is a pattern at all is decided on the days themselves.
   function awayPattern(by, from, to, today){
     var s = collect(by, from, to, today);
-    var byDow = [0, 0, 0, 0, 0, 0, 0];
-    s.away.forEach(function(a){ byDow[dateFromStr(a.date).getDay()]++; });
-    var top = byDow.indexOf(Math.max.apply(null, byDow));
-    var total = s.away.length;
-    return { byDow: byDow, total: total, since: from,
-      top: (byDow[top] >= 3 && byDow[top] * 2 >= total) ? top : null };
+    var hits = [0, 0, 0, 0, 0, 0, 0], byDow = [0, 0, 0, 0, 0, 0, 0];
+    s.away.forEach(function(a){
+      var w = dateFromStr(a.date).getDay();
+      hits[w]++; byDow[w] += a.type === "halfleave" ? 0.5 : 1;
+    });
+    var top = hits.indexOf(Math.max.apply(null, hits));
+    return { byDow: byDow, total: s.offDays, since: from,
+      top: (hits[top] >= 3 && hits[top] * 2 >= s.away.length) ? top : null };
   }
 
   // The whole Month view: the month so far against the usual before it.
@@ -310,11 +330,11 @@ export function makeRecap(sch){
     // for the rates the cards read.
     var out = { worked: 0, weight: 0, workedSum: 0, short: [], shortMin: 0, starts: [], finishes: [],
       afterStart: [], liveKnown: 0, live: 0, sameDayKnown: 0, sameDay: 0, workdays: 0, logged: 0,
-      away: [], missing: [], notLive: [], loggedLater: [], days: [] };
+      away: [], offDays: 0, remote: [], missing: [], notLive: [], loggedLater: [], days: [] };
     parts.forEach(function(p){
-      ["worked", "weight", "workedSum", "shortMin", "liveKnown", "live", "sameDayKnown", "sameDay", "workdays", "logged"]
+      ["worked", "weight", "workedSum", "shortMin", "liveKnown", "live", "sameDayKnown", "sameDay", "workdays", "logged", "offDays"]
         .forEach(function(k){ out[k] += p[k]; });
-      ["short", "starts", "finishes", "afterStart", "away", "missing", "notLive", "loggedLater", "days"]
+      ["short", "starts", "finishes", "afterStart", "away", "remote", "missing", "notLive", "loggedLater", "days"]
         .forEach(function(k){ out[k] = out[k].concat(p[k]); });
     });
     out.avgMin = out.weight ? out.workedSum / out.weight : null;
@@ -386,12 +406,15 @@ export function makeRecap(sch){
     // Time off is the whole calendar year, not just the stretch: April's
     // leave is this year's leave whether or not April was clocked.
     var off = collect(by, yFrom, yTo, today);
-    var offByMonth = {}, offByDow = [0, 0, 0, 0, 0, 0, 0], offByType = {};
+    var offByMonth = {}, offByDow = [0, 0, 0, 0, 0, 0, 0], offHits = [0, 0, 0, 0, 0, 0, 0], offByType = {};
     off.away.forEach(function(a){
-      var k = a.date.slice(0, 7); offByMonth[k] = (offByMonth[k] || 0) + 1;
-      offByDow[dateFromStr(a.date).getDay()]++;
+      // A half-day leave is half a day off, here as on the leave balance.
+      var k = a.date.slice(0, 7), w = a.type === "halfleave" ? 0.5 : 1, dow = dateFromStr(a.date).getDay();
+      offByMonth[k] = (offByMonth[k] || 0) + w;
+      offByDow[dow] += w; offHits[dow]++;
       offByType[a.type] = (offByType[a.type] || 0) + 1;
     });
+    var offTop = offHits.indexOf(Math.max.apply(null, offHits));
     var topMonth = null;
     Object.keys(offByMonth).forEach(function(k){ if(!topMonth || offByMonth[k] > offByMonth[topMonth]) topMonth = k; });
 
@@ -410,8 +433,9 @@ export function makeRecap(sch){
       shortRuns: runs(cur.days.filter(function(d){ return d.status === "full" || d.status === "short"; }),
         function(d){ return d.status === "short"; }, 3),
       perMonth: perMonth,
-      off: { total: off.away.length, topMonth: topMonth, topCount: topMonth ? offByMonth[topMonth] : 0,
-        byDow: offByDow, byType: offByType, byMonth: offByMonth },
+      off: { total: off.offDays, remote: off.remote.length, topMonth: topMonth, topCount: topMonth ? offByMonth[topMonth] : 0,
+        byDow: offByDow, byType: offByType, byMonth: offByMonth,
+        top: (offHits[offTop] >= 3 && offHits[offTop] * 2 >= off.away.length) ? offTop : null },
       away: awayPattern(by, start, end, today),
       tips: v ? {
         punctuality: v.punctuality === "slipped" ? punctualityTip(cmpCur) : null,
