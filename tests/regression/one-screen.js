@@ -523,27 +523,29 @@ function ok(cond, name, detail){
   // ------------------------------------------------------------------- Recap
   // Recap replaced the Calendar (2026-11-22), and the month grid's row checks
   // went with it. Recap sits on the page like the Overview, so the frame
-  // rule is the one to hold it to: the page never scrolls, and the panel
-  // shows one card at a time without scrolling sideways itself.
+  // rule is the one to hold it to: the page never scrolls, nothing scrolls
+  // sideways, and (one page since 2026-11-23) the four areas sit side by
+  // side, whole, inside the frame at 1440x900 -- the month in one look.
   await page.evaluate(() => document.querySelector('.tab-btn[data-tab="recap"]').click());
   await page.waitForTimeout(600);
   {
     const r = await page.evaluate(() => {
       const panel = document.getElementById("tab-recap");
-      const track = document.getElementById("recapTrack");
-      const card = track && track.querySelector(".recap-card");
+      const areas = [...document.querySelectorAll("#recapBody .recap-area")].map(el => el.getBoundingClientRect());
+      const pr = panel ? panel.getBoundingClientRect() : null;
       return {
         active: !!panel && panel.classList.contains("active"),
         pageScrolls: document.scrollingElement.scrollHeight > window.innerHeight + 1,
         panelWide: panel ? panel.scrollWidth > panel.clientWidth + 1 : null,
-        cards: track ? track.children.length : 0,
-        oneAtATime: !!card && Math.abs(card.getBoundingClientRect().width - track.clientWidth) < 6
+        areas: areas.length,
+        oneRow: new Set(areas.map(a => Math.round(a.top))).size === 1,
+        whole: !!pr && areas.every(a => a.bottom <= pr.bottom + 1)
       };
     });
     ok(r.active, "the Recap panel is the one on screen", JSON.stringify(r));
     ok(!r.pageScrolls, "and the page does not scroll around it", JSON.stringify(r));
     ok(r.panelWide === false, "nor does the panel scroll sideways", JSON.stringify(r));
-    ok(r.cards === 5 && r.oneAtATime, "five cards, one at a time", JSON.stringify(r));
+    ok(r.areas === 4 && r.oneRow, "four areas, side by side", JSON.stringify(r));
   }
 
   // ---------------------------------------------------------------- a real roster

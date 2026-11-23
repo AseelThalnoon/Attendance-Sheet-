@@ -4278,26 +4278,28 @@
   .skeleton-row{display:flex; gap:14px; align-items:center;}
 
   /* ---------- Recap ----------
-     The tab that replaced the Calendar (2026-11-22). One card at a time in a
-     scroll-snap row: a phone swipes it natively, a pointer pages it with the
-     arrows beside it, and the dots on each card say where you are. The panel
-     sits on the page like the Overview (see the note on #tab-recap), so the
-     cards carry real surfaces -- white, cream, gray -- and take .card's dark
-     hairline with it.
+     The tab that replaced the Calendar (2026-11-22), rebuilt as one page on
+     2026-11-23 (owner: "It is really complicated ... understood from the
+     first look", and the desktop "just a copy of the mobile"). A row of
+     controls, a headline, and four area cards: side by side above 1240px,
+     two by two from 761px, stacked on a phone. Nothing is behind a swipe.
+
+     The panel sits on the page like the Overview (see the note on
+     #tab-recap), so the cards carry real surfaces -- white, cream, gray,
+     white, the stat row's rotation -- and take .card's dark hairline with it.
 
      Every mark that is the only carrier of a fact (a start after 8:00, a short
-     day, a day typed in later) differs from its neighbours in shape as well as
-     colour, and sits at 3:1 or better on its card, per the note on non-text
-     contrast in DESIGN.md. Lime is a fill (the "Try this" box) and nothing
-     else. */
+     day) differs from its neighbours in shape as well as colour, and sits at
+     3:1 or better on its card, per the note on non-text contrast in
+     DESIGN.md. Lime is a fill (the "Try this" box) and nothing else. */
   .recap-panel{margin-bottom:var(--space-6);}
-  .recap-controls, .recap-stage{width:100%; max-width:520px; margin-inline-start:auto; margin-inline-end:auto;}
-  .recap-controls{display:flex; flex-direction:column; gap:var(--space-2-5); margin-bottom:var(--space-3);}
+  .recap-controls{display:flex; flex-direction:column; gap:var(--space-2-5); margin-bottom:var(--space-4);}
   /* The segmented tray the Calendar's Month/Week used, under its own name:
      DESIGN.md's rule about .sub-tab-btn applies to any class that carries a
-     handler, and data-recap-mode is what this one's handler reads. */
+     handler, and data-recap-mode is what this one's handler reads. On a
+     phone it sits above the period, full width, as a thumb reaches it. */
   .recap-mode{
-    display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:6px; padding:4px;
+    order:-1; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:6px; padding:4px;
     background:var(--ink-50); border-radius:var(--radius-md);
   }
   .recap-mode-btn{
@@ -4309,172 +4311,147 @@
   .recap-step{display:flex; align-items:center; justify-content:space-between; gap:var(--space-2);}
   .recap-step .btn.ghost.small{padding:8px 10px; min-height:44px; min-width:44px; flex-shrink:0; justify-content:center;}
   .recap-step .btn:disabled{opacity:.4; cursor:default;}
-  .recap-period{display:flex; flex-direction:column; align-items:center; text-align:center; min-width:0;}
-  .recap-period-title{font-size:17px; font-weight:700; color:var(--ink);}
-  .recap-period-sub{font-size:12.5px; color:var(--muted);}
-
-  .recap-stage{display:flex; align-items:stretch; gap:var(--space-2);}
-  .recap-track{
-    flex:1 1 auto; min-width:0; display:flex; align-items:flex-start; gap:var(--space-3);
-    overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scroll-behavior:smooth;
-    overscroll-behavior-x:contain; scrollbar-width:none;
-    /* Room for the cards' own shadow, which overflow would otherwise clip. */
-    padding:2px 2px 8px; margin:-2px -2px -8px;
-  }
-  .recap-track::-webkit-scrollbar{display:none;}
-  .recap-track > .recap-card{flex:0 0 100%; scroll-snap-align:start; scroll-snap-stop:always;}
-  @media (prefers-reduced-motion:reduce){ .recap-track{scroll-behavior:auto;} }
-  .recap-arrow{display:none;}
+  .recap-period-title{flex:1 1 auto; min-width:0; text-align:center; font-size:17px; font-weight:700; color:var(--ink);}
   @media (min-width:761px){
-    .recap-stage{max-width:640px;}
-    .recap-controls{max-width:520px;}
-    .recap-arrow{
-      display:flex; align-items:center; justify-content:center; align-self:center; flex:0 0 auto;
-      width:44px; height:44px; border:none; border-radius:50%; cursor:pointer;
-      background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm); font-family:inherit;
-    }
-    .recap-arrow:disabled{opacity:.35; cursor:default; box-shadow:none;}
+    .recap-controls{flex-direction:row; align-items:center; justify-content:space-between; gap:var(--space-4);}
+    .recap-mode{order:0; width:220px; flex-shrink:0;}
+    /* Both arrows before the title, so they stay put however long the
+       month's name is. */
+    .recap-step{justify-content:flex-start;}
+    .recap-period-title{order:2; flex:0 1 auto; text-align:start; font-size:20px; margin-inline-start:var(--space-2);}
   }
 
-  .card.recap-card{
+  .recap-hero{margin:0 0 var(--space-4);}
+  .recap-headline{margin:0; font-size:22px; font-weight:700; line-height:1.2; letter-spacing:-.02em; color:var(--ink); text-wrap:balance;}
+  .recap-basis{margin:var(--space-1-5) 0 0; font-size:13.5px; line-height:1.4; color:var(--muted);}
+  @media (min-width:761px){ .recap-headline{font-size:28px;} }
+
+  .recap-areas{display:grid; grid-template-columns:minmax(0,1fr); gap:var(--space-3);}
+  @media (min-width:761px){ .recap-areas{grid-template-columns:repeat(2, minmax(0,1fr)); gap:var(--space-4);} }
+  @media (min-width:1240px){
+    .recap-areas{grid-template-columns:repeat(4, minmax(0,1fr));}
+    /* Four across: the comparison line takes two lines' room in every card,
+       so the pictures under it start on one line too. */
+    .recap-compare{min-height:2.9em;}
+  }
+
+  .card.recap-area{
     display:flex; flex-direction:column; gap:var(--space-3); margin:0;
     padding:var(--space-5); box-sizing:border-box; min-width:0;
   }
-  .recap-card.is-cream{background:var(--surface-cream);}
-  .recap-card.is-gray{background:var(--surface-gray);}
-  .recap-card-head{display:flex; justify-content:space-between; align-items:center; gap:var(--space-2);}
-  .recap-kicker{font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);}
-  .recap-dots{display:flex; gap:5px; align-items:center;}
-  .recap-dots > span{width:6px; height:6px; border-radius:var(--radius-pill); background:var(--line);}
-  .recap-dots > span.on{width:16px; background:var(--ink);}
-  .recap-title{margin:0; font-size:24px; font-weight:700; line-height:1.15; letter-spacing:-.02em; color:var(--ink);}
-  .recap-big{display:flex; align-items:flex-end; gap:var(--space-3); flex-wrap:wrap;}
-  .recap-big-num{font-family:var(--font-num); font-size:44px; font-weight:900; line-height:.9; letter-spacing:-.03em; color:var(--ink); white-space:nowrap;}
-  .recap-big-side{display:flex; flex-direction:column; gap:4px; padding-bottom:2px; min-width:0;}
-  .recap-big-label{font-size:13px; color:var(--muted);}
-  .recap-chip{
-    align-self:flex-start; font-size:12px; font-weight:600; padding:2px 9px; border-radius:var(--radius-pill);
-    background:var(--ink-50); color:var(--ink); white-space:nowrap;
+  .recap-area.is-cream{background:var(--surface-cream);}
+  .recap-area.is-gray{background:var(--surface-gray);}
+  .recap-area-head{display:flex; align-items:center; justify-content:space-between; gap:var(--space-2); min-height:26px;}
+  .recap-area-name{margin:0; font-size:15px; font-weight:700; color:var(--ink);}
+  .recap-verdict{
+    display:inline-flex; align-items:center; gap:4px; padding:3px 10px; padding-inline-start:7px;
+    border-radius:var(--radius-pill); font-size:12px; font-weight:700; white-space:nowrap;
+    background:var(--ink-50); color:var(--ink);
   }
-  .recap-chip.is-good{background:var(--positive-bg); color:var(--positive);}
-  .recap-chip.is-bad{background:var(--negative-bg); color:var(--negative);}
-  .recap-note{margin:0; font-size:14px; line-height:1.45; color:var(--muted-2);}
-  .recap-note b{color:var(--ink);}
-  .recap-quiet{color:var(--muted); font-size:12.5px;}
-  .recap-hint{margin:auto 0 0; text-align:center; font-size:13px; color:var(--muted);}
+  .recap-area.is-cream .recap-verdict.is-steady, .recap-area.is-gray .recap-verdict.is-steady{background:var(--card);}
+  .recap-verdict.is-better{background:var(--positive-bg); color:var(--positive);}
+  .recap-verdict.is-slipped{background:var(--negative-bg); color:var(--negative);}
+  .recap-fig{display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; min-width:0;}
+  .recap-fig-num{font-family:var(--font-num); font-size:40px; font-weight:900; line-height:1; letter-spacing:-.03em; color:var(--ink); white-space:nowrap;}
+  .recap-fig-label{font-size:13px; color:var(--muted);}
+  .recap-compare{margin:calc(var(--space-1-5) * -1) 0 0; font-size:13.5px; line-height:1.4; font-weight:600; color:var(--muted-2);}
+  .recap-compare.is-bad{color:var(--negative);}
+  .recap-compare.is-good{color:var(--positive);}
+  .recap-visual{display:flex; flex-direction:column; gap:var(--space-2);}
+  .recap-caption{margin:0; font-size:12.5px; font-weight:600; color:var(--muted-2);}
+  .recap-more, .recap-foot{margin:0; font-size:12px; color:var(--muted);}
+  .recap-pattern{margin:0; font-size:13.5px; line-height:1.45; color:var(--muted-2);}
+  .recap-pattern b{color:var(--ink);}
 
-  /* Tiles inside a card: the wash on a white card, white on a cream or gray
+  .recap-take{display:flex; flex-direction:column; gap:3px; margin-top:auto; padding:12px 14px; border-radius:var(--radius-md);}
+  .recap-take.is-tip{background:var(--gold); color:var(--ink-on-gold);}
+  .recap-take.is-well{background:var(--positive-bg); color:var(--positive);}
+  .recap-take-label{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;}
+  .recap-take-text{font-size:14px; font-weight:500; line-height:1.4;}
+
+  /* Rows inside a card: the wash on a white card, white on a cream or gray
      one -- the lift the Settings nav already uses, never a border. */
-  .recap-mini, .recap-list-row, .recap-panel-box, .recap-row{background:var(--ink-50);}
-  .recap-card.is-cream .recap-mini, .recap-card.is-cream .recap-list-row, .recap-card.is-cream .recap-panel-box,
-  .recap-card.is-gray .recap-mini, .recap-card.is-gray .recap-row{background:var(--card);}
-
-  .recap-rows{display:flex; flex-direction:column; gap:var(--space-2);}
+  .recap-rows{display:flex; flex-direction:column; gap:4px;}
   .recap-row{
-    display:flex; flex-direction:column; gap:3px; width:100%; min-height:44px; text-align:start;
-    padding:var(--space-3) var(--space-3-5); border:none; border-radius:var(--radius-md);
-    color:var(--ink); font-family:inherit; cursor:pointer;
-    transition:box-shadow var(--dur-fast) var(--ease-snap);
+    display:flex; align-items:center; gap:var(--space-2); min-height:34px; padding:5px 10px;
+    border-radius:var(--radius-sm); background:var(--ink-50); font-size:13.5px; min-width:0;
   }
-  .recap-row:hover{box-shadow:var(--shadow-sm);}
-  .recap-row.is-slipped{box-shadow:inset 0 0 0 1.5px var(--negative);}
-  .recap-row-top{display:flex; justify-content:space-between; align-items:center; gap:var(--space-2);}
-  .recap-row-name{font-size:15px; font-weight:700;}
-  .recap-row-reason{font-size:13px; color:var(--muted-2);}
-  .recap-row-go{font-size:13px; font-weight:600; color:var(--negative);}
-  .recap-row .recap-chip{text-transform:uppercase; letter-spacing:.06em; font-size:11px; font-weight:700;}
+  .recap-area.is-cream .recap-row, .recap-area.is-gray .recap-row{background:var(--card);}
+  .recap-row-label{font-weight:600; color:var(--ink); white-space:nowrap;}
+  .recap-row-value{margin-inline-start:auto; font-weight:600; color:var(--muted-2); white-space:nowrap;}
+  .recap-row-value:empty{display:none;}
+  .recap-row-value.is-bad{color:var(--negative);}
+  .recap-rows.is-fix .recap-row{padding-block:3px; padding-inline-end:4px;}
+  .recap-add{margin-inline-start:auto;}
+  .recap-dot-track{position:relative; flex:1 1 auto; height:6px; border-radius:var(--radius-pill); background:var(--line);}
+  .recap-dot-track::after{content:""; position:absolute; inset-inline-start:50%; top:-4px; bottom:-4px; border-inline-start:1.5px dashed var(--muted);}
+  .recap-dot-track > i{position:absolute; top:50%; width:10px; height:10px; border-radius:50%; background:var(--ink); transform:translateY(-50%); margin-inline-start:-5px;}
 
-  .recap-minis{display:grid; grid-template-columns:repeat(var(--n, 3), minmax(0,1fr)); gap:var(--space-2);}
-  .recap-mini{display:flex; flex-direction:column; gap:2px; padding:10px 12px; border-radius:var(--radius-sm); min-width:0;}
-  .recap-mini-label, .recap-mini-sub{font-size:11px; color:var(--muted);}
-  .recap-mini-value{font-family:var(--font-num); font-size:17px; font-weight:900; color:var(--ink); white-space:nowrap;}
+  .recap-meter{display:flex; flex-direction:column; gap:5px;}
+  .recap-meter-top{display:flex; justify-content:space-between; gap:var(--space-2); font-size:13px; color:var(--muted-2);}
+  .recap-meter-top b{color:var(--ink); font-weight:700; white-space:nowrap;}
+  .recap-meter-bar{display:block; height:6px; border-radius:var(--radius-pill); background:var(--card); overflow:hidden;}
+  .recap-meter-bar > i{display:block; height:100%; background:var(--muted); border-radius:inherit;}
+  .recap-meter-sub{font-size:12px; color:var(--muted);}
 
-  .recap-list{display:flex; flex-direction:column; gap:6px;}
-  .recap-list-head{font-size:12px; font-weight:600; color:var(--muted);}
-  .recap-list-row{
-    display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:var(--space-2);
-    padding:8px 12px; border-radius:var(--radius-sm); font-size:14px;
-  }
-  .recap-list-date{font-weight:600; color:var(--ink); white-space:nowrap;}
-  .recap-list-detail{color:var(--muted-2); min-width:0;}
-  .recap-list-amount{font-weight:700; color:var(--negative); white-space:nowrap;}
-  .recap-list-more{font-size:12px; color:var(--muted);}
+  .recap-chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .recap-chip{font-size:12.5px; font-weight:600; padding:4px 10px; border-radius:var(--radius-pill); background:var(--ink-50); color:var(--ink);}
 
-  .recap-box{display:flex; flex-direction:column; gap:4px; margin-top:auto; padding:14px 16px; border-radius:var(--radius-md);}
-  .recap-box.is-tip{background:var(--gold); color:var(--ink-on-gold);}
-  .recap-box.is-well{background:var(--positive-bg); color:var(--positive);}
-  .recap-box-label{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;}
-  .recap-box-text{font-size:15px; font-weight:500; line-height:1.4;}
-
-  /* The marks, one vocabulary for the chart, the strip, the picture and their
-     legends. Filled = a fact that went the usual way; a ring = the same day,
-     but not the usual way; dashed = nothing there. */
+  /* The marks, one vocabulary for the chart, the picture and their legends.
+     Filled = a fact that went the usual way; a ring = the same day, but not
+     the usual way; dashed = nothing there. */
   .recap-mark{display:inline-block; width:9px; height:9px; border-radius:3px; box-sizing:border-box; flex-shrink:0;}
-  .recap-mark.is-full, .recap-mark.is-live, .recap-mark.is-before{background:var(--ink);}
+  .recap-mark.is-full, .recap-mark.is-before{background:var(--ink);}
   .recap-mark.is-short{background:var(--negative-solid);}
-  .recap-mark.is-after, .recap-mark.is-unclosed{background:var(--card); border:2px solid var(--negative);}
-  .recap-mark.is-typed, .recap-mark.is-open{background:transparent; border:2px solid var(--ink);}
+  .recap-mark.is-after{background:var(--card); border:2px solid var(--negative);}
+  .recap-mark.is-open{background:transparent; border:2px solid var(--ink);}
   .recap-mark.is-away{background:var(--muted-2);}
   .recap-mark.is-remote{background:transparent; border:2px solid var(--muted-2);}
   .recap-mark.is-missing{background:transparent; border:1.5px dashed var(--muted);}
-  .recap-legend{display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:var(--muted);}
+  .recap-legend{display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; color:var(--muted);}
   .recap-legend > span{display:inline-flex; align-items:center; gap:6px;}
-  .recap-legend .recap-mark.is-before, .recap-legend .recap-mark.is-after{border-radius:50%;}
+  .recap-legend .recap-mark{border-radius:50%;}
 
-  .recap-chart{display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:140px auto; column-gap:6px; row-gap:4px;}
-  .recap-axis{position:relative; min-width:30px; font-size:10px; color:var(--muted);}
-  .recap-axis > span{position:absolute; inset-inline-end:0; transform:translateY(-50%); white-space:nowrap;}
-  .recap-axis > span.is-std{color:var(--ink); font-weight:700;}
+  .recap-chart{display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:84px auto; column-gap:6px; row-gap:4px;}
+  .recap-chart-axis{position:relative; min-width:28px; font-size:10.5px; font-weight:700; color:var(--ink);}
+  .recap-chart-axis > span{position:absolute; inset-inline-end:0; transform:translateY(-50%); white-space:nowrap;}
   .recap-plot{
     position:relative; display:grid; grid-template-columns:repeat(var(--cols), minmax(0,1fr));
     background:var(--ink-50); border-radius:var(--radius-sm);
   }
   .recap-std{position:absolute; inset-inline-start:0; inset-inline-end:0; border-top:1.5px dashed var(--muted);}
   .recap-col{position:relative;}
-  .recap-col > .recap-mark{position:absolute; left:50%; width:10px; height:10px; transform:translate(-50%,-50%); border-radius:50%;}
-  .recap-col > .recap-mark.is-remote, .recap-col > .recap-mark.is-away{border-radius:3px;}
-  .recap-xlabels{
-    grid-column:2; display:grid; grid-template-columns:repeat(var(--cols), minmax(0,1fr));
-    font-size:10px; color:var(--muted); text-align:center;
-  }
-  .recap-strip{display:flex; flex-direction:column; gap:4px;}
-  .recap-strip .recap-xlabels{gap:3px;}
-  .recap-strip-cells{display:grid; grid-template-columns:repeat(var(--cols), minmax(0,1fr)); gap:3px;}
-  .recap-strip-cells > .recap-mark{width:auto; height:auto; aspect-ratio:1; border-radius:4px; max-height:28px;}
-  /* A month of workdays is up to 23 columns: on a phone every other day
-     number keeps the labels readable instead of touching. */
-  .recap-chart.is-dense .recap-xlabels > span:nth-child(even),
-  .recap-strip.is-dense .recap-xlabels > span:nth-child(even){visibility:hidden;}
+  .recap-col > .recap-mark{position:absolute; left:50%; width:9px; height:9px; transform:translate(-50%,-50%); border-radius:50%;}
+  .recap-chart-ends{grid-column:2; display:flex; justify-content:space-between; font-size:11px; color:var(--muted);}
 
-  .recap-panel-box{display:flex; flex-direction:column; gap:var(--space-2); padding:14px 14px 10px; border-radius:var(--radius-md);}
-  .recap-bars{display:grid; grid-template-columns:repeat(var(--cols), minmax(0,1fr)); gap:var(--space-2-5);}
-  .recap-bar{display:flex; flex-direction:column; align-items:center; gap:4px; font-size:12px; color:var(--muted);}
-  .recap-bar > b{font-weight:700;}
-  .recap-bar-area{display:flex; align-items:flex-end; width:100%; height:80px;}
-  .recap-bar-area > i{display:block; width:100%; border-radius:6px 6px 2px 2px; background:var(--line);}
-  .recap-bar.is-top{color:var(--ink);}
-  .recap-bar.is-top .recap-bar-area > i{background:var(--ink);}
-
-  .recap-months{display:flex; flex-direction:column; gap:var(--space-2);}
-  .recap-month-row{display:flex; align-items:center; gap:var(--space-3); font-size:14px;}
-  .recap-month-name{flex:0 0 40px; font-weight:600; color:var(--muted-2);}
-  .recap-month-value{margin-inline-start:auto; color:var(--ink); font-weight:600; white-space:nowrap;}
-  .recap-track-line{position:relative; flex:1 1 auto; height:6px; border-radius:var(--radius-pill); background:var(--ink-50);}
-  .recap-track-line::after{content:""; position:absolute; inset-inline-start:50%; top:-4px; bottom:-4px; border-inline-start:1.5px dashed var(--muted);}
-  .recap-track-line > i{position:absolute; top:50%; width:12px; height:12px; border-radius:50%; background:var(--ink); transform:translateY(-50%); margin-inline-start:-6px;}
-
-  .recap-pic{display:flex; flex-direction:column; gap:7px;}
+  /* The year: a picture of every workday beside what it adds up to. */
+  .card.recap-year{display:grid; grid-template-columns:minmax(0,1fr); gap:var(--space-4); margin:0 0 var(--space-4); padding:var(--space-5); box-sizing:border-box;}
+  .recap-year-main{display:flex; flex-direction:column; gap:var(--space-3); min-width:0;}
+  .recap-year .recap-area-head{justify-content:flex-start; flex-wrap:wrap; column-gap:var(--space-3); row-gap:2px;}
+  .recap-year-since{font-size:12.5px; color:var(--muted);}
+  .recap-year-side{display:flex; flex-direction:column; gap:var(--space-3); min-width:0;}
+  .recap-pic{display:flex; flex-direction:column; gap:6px;}
   .recap-pic-row{display:grid; grid-template-columns:34px minmax(0,1fr); align-items:center; gap:var(--space-1-5);}
   .recap-pic-month{font-size:11px; font-weight:600; color:var(--muted);}
-  .recap-pic-weeks{display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:6px;}
+  .recap-pic-weeks{display:grid; grid-template-columns:repeat(var(--weeks, 5), minmax(0,1fr)); gap:6px;}
   .recap-pic-week{display:grid; grid-template-columns:repeat(var(--slots), minmax(0,1fr)); gap:2px;}
   .recap-pic-week > i{display:block; aspect-ratio:1; font-style:normal;}
   .recap-pic-week > .recap-mark{width:auto; height:auto; border-radius:2px;}
-  .recap-pic-caption{font-size:11px; color:var(--muted); padding-inline-start:40px;}
-  .recap-counts{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:6px var(--space-3); font-size:13px; color:var(--muted-2);}
+  .recap-counts{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px var(--space-3); font-size:13px; color:var(--muted-2);}
   .recap-counts > span{display:inline-flex; align-items:center; gap:6px;}
-  .recap-counts b{color:var(--ink);}
-  .recap-facts{display:flex; flex-direction:column; gap:var(--space-2); margin-top:auto;}
+  .recap-counts b{color:var(--ink); font-size:15px;}
+  @media (min-width:1000px){
+    .card.recap-year{grid-template-columns:auto minmax(240px, 400px); column-gap:var(--space-8); align-items:start;}
+    /* Fixed squares: stretched to the card's width they grew to the size of
+       buttons and the year stopped reading as one picture. */
+    .recap-pic-weeks{grid-template-columns:repeat(var(--weeks, 5), max-content); gap:8px;}
+    .recap-pic-week{grid-template-columns:repeat(var(--slots), 15px); gap:3px;}
+    .recap-pic-week > i{width:15px; height:15px;}
+    .recap-year-side{padding-top:38px;}
+  }
+
+  .card.recap-empty{margin:0; padding:var(--space-5);}
+  .recap-empty p{margin:0; font-size:14px; line-height:1.45; color:var(--muted-2);}
 
   /* A dot on the Recap item, from the 1st of a month until that month's
      finished recap is opened. Gold-deep on the bottom bar's white, gold on
@@ -7949,44 +7926,34 @@
        Calendar re-drew what the Log and Trends already show. Recap answers
        "how am I really doing?" -- the month (or year) against your own usual,
        one card per area, an honest line on what slipped and nothing repeated
-       from the Overview. src/recap.js does the arithmetic, src/recap-view.js
-       writes the cards, app.js's renderRecap() puts them here.
+       from the Overview. One page since 2026-11-23: the four cards side by
+       side on a desktop, stacked on a phone, nothing behind a swipe.
+       src/recap.js does the arithmetic, src/recap-view.js writes the page,
+       app.js's renderRecap() puts it here.
 
        It sits on the page like the Overview, not inside #tabContentCard: the
        cards carry their own surfaces (white, cream, gray), and a card inside
        the tab card is the one nesting DESIGN.md never allows. -->
   <div class="tab-panel recap-panel" id="tab-recap" role="tabpanel" aria-labelledby="tabbtn-recap" tabindex="0">
     <h2 class="sr-only">Recap</h2>
+    <!-- One row of controls: which period (with its arrows), and Month or
+         Year. Everything under it is drawn by src/recap-view.js. -->
     <div class="recap-controls">
-      <div class="recap-mode" role="group" aria-label="Recap period">
-        <button type="button" class="recap-mode-btn active" data-recap-mode="month" aria-pressed="true">Month</button>
-        <button type="button" class="recap-mode-btn" data-recap-mode="year" aria-pressed="false">Year</button>
-      </div>
       <div class="recap-step">
         <button type="button" class="btn ghost small recap-step-btn" id="recapPrevBtn" aria-label="Previous month">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
-        <div class="recap-period" aria-live="polite">
-          <span class="recap-period-title display" id="recapTitle">—</span>
-          <span class="recap-period-sub" id="recapSub"></span>
-        </div>
+        <span class="recap-period-title display" id="recapTitle" aria-live="polite">—</span>
         <button type="button" class="btn ghost small recap-step-btn" id="recapNextBtn" aria-label="Next month">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
         </button>
       </div>
+      <div class="recap-mode" role="group" aria-label="Recap period">
+        <button type="button" class="recap-mode-btn active" data-recap-mode="month" aria-pressed="true">Month</button>
+        <button type="button" class="recap-mode-btn" data-recap-mode="year" aria-pressed="false">Year</button>
+      </div>
     </div>
-    <!-- One card at a time, at every width (the owner's choice): a native
-         scroll-snap row, so a phone swipes it with nothing to maintain, and
-         the arrows beside it page it on a pointer. -->
-    <div class="recap-stage">
-      <button type="button" class="recap-arrow" id="recapCardPrev" aria-label="Previous card">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-      </button>
-      <div class="recap-track" id="recapTrack" aria-roledescription="carousel" aria-label="Recap cards"></div>
-      <button type="button" class="recap-arrow" id="recapCardNext" aria-label="Next card">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-      </button>
-    </div>
+    <div class="recap-body" id="recapBody"></div>
   </div>
 
 
@@ -9652,6 +9619,6 @@
      `node tools/stamp-release.mjs` moves it here and in sw.js together, a test
      fails until that has been run, and the published copy gets a label of its
      own from the build. -->
-<script type="module" src="app.js?v=v75"></script>
+<script type="module" src="app.js?v=v76"></script>
 </body>
 </html>

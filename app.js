@@ -550,7 +550,7 @@ import "./src/i18n-ar-2.js";
 import "./src/i18n-ar-3.js";
 import "./src/i18n-ar-4.js";
 import "./src/i18n-ar-5.js";
-import { monthSlides, yearSlides } from "./src/recap-view.js";
+import { monthPage, yearPage } from "./src/recap-view.js";
 
 (function(){
   "use strict";
@@ -5525,66 +5525,58 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
   // ---------- Recap ----------
   // The tab that replaced the Calendar (2026-11-22). src/recap.js works out
   // how a month or a year went against the person's own usual, and
-  // src/recap-view.js writes the cards; this puts them on the page, pages
-  // through them, and keeps the period controls honest.
+  // src/recap-view.js writes the page; this puts it on screen and keeps the
+  // period controls honest. Since 2026-11-23 it is one page, not a carousel:
+  // the headline and all four areas are in view at once on a desktop, and a
+  // phone scrolls down them.
   var recapMode = "month";   // "month" | "year"
   var recapMonth = null;     // "YYYY-MM" in view; null until first drawn
   var recapYear = null;      // "YYYY" in view
-  var recapCard = 0;         // which card is in view
   var recapForUser = null;   // whose record the period was chosen for
 
-  // The working weekdays in the order a week runs, for the weekday charts.
-  function recapWeekOrder(){
-    var first = weekStartDow(), out = [];
-    for(var i = 0; i < 7; i++){
-      var d = (first + i) % 7;
-      if(settings.workDays.indexOf(d) !== -1) out.push(d);
-    }
-    return out;
-  }
   function recapMonthLabel(mk, withYear){
     var d = dateFromStr(mk + "-01");
     return d.toLocaleDateString(APP_LOCALE, withYear ? {month:"long", year:"numeric"} : {month:"long"});
   }
   function recapShortMonth(dateStr){ return dateFromStr(dateStr.slice(0, 7) + "-01").toLocaleDateString(APP_LOCALE, {month:"short"}); }
 
-  function renderRecap(keepCard){
-    var track = document.getElementById("recapTrack");
-    if(!track) return;
+  function renderRecap(){
+    var body = document.getElementById("recapBody");
+    if(!body) return;
     var today = todayStr();
     // An admin switching to someone else's record starts from that record's
     // own default period, not wherever the last one was left.
     if(recapForUser !== viewedUserId){
-      recapForUser = viewedUserId; recapMonth = null; recapYear = null; keepCard = false;
+      recapForUser = viewedUserId; recapMonth = null; recapYear = null;
     }
     if(!recapMonth) recapMonth = recapCalc.defaultMonth(entries, today);
     if(!recapYear) recapYear = today.slice(0, 4);
     var bounds = recapCalc.range(entries, today);
-    var slides, title, sub, atStart, atEnd;
+    var html, title, atStart, atEnd;
     if(recapMode === "year"){
       var y = recapCalc.yearRecap(entries, recapYear, today, settings.workDays, weekStartDate);
-      slides = yearSlides(y, recapWeekOrder());
+      html = yearPage(y);
       title = recapYear + (y.isCurrent ? " so far" : "");
-      sub = y.empty ? "Nothing logged this year" :
-        y.from > recapYear + "-01-01" ? "Since you began logging on " + fmtDateNoYear(y.from) : "From January";
       atStart = !bounds || recapYear <= bounds.firstMonth.slice(0, 4);
       atEnd = recapYear >= today.slice(0, 4);
     } else {
       var m = recapCalc.monthRecap(entries, recapMonth, today);
-      slides = monthSlides(m, recapWeekOrder());
+      var basis;
+      if(m.base){
+        // Says what "usual" is the first time anyone reads it: the average of
+        // the months before, named.
+        var a = recapShortMonth(m.base.from), b = recapShortMonth(m.base.to);
+        basis = a === b ? "Compared with your average for " + a : "Compared with your average for " + a + " – " + b;
+      } else {
+        basis = "Your usual takes shape after a few weeks of logging";
+      }
+      html = monthPage(m, basis);
       var sameYear = recapMonth.slice(0, 4) === today.slice(0, 4);
       title = recapMonthLabel(recapMonth, !sameYear) + (m.isCurrent ? " so far" : "");
-      if(m.base){
-        var a = recapShortMonth(m.base.from), b = recapShortMonth(m.base.to);
-        sub = "Your usual: " + (a === b ? a : a + " – " + b);
-      } else {
-        sub = "Your usual takes shape after a few weeks of logging";
-      }
       atStart = !bounds || recapMonth <= bounds.firstMonth;
       atEnd = recapMonth >= today.slice(0, 7);
     }
     document.getElementById("recapTitle").textContent = title;
-    document.getElementById("recapSub").textContent = sub;
     var unit = recapMode === "year" ? "year" : "month";
     var prev = document.getElementById("recapPrevBtn"), next = document.getElementById("recapNextBtn");
     prev.disabled = atStart; next.disabled = atEnd;
@@ -5595,79 +5587,31 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
       b.classList.toggle("active", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
-    track.innerHTML = slides.join("");
-    recapGoTo(keepCard ? recapCard : 0, false);
+    body.innerHTML = html;
   }
 
-  function recapStep(){
-    var track = document.getElementById("recapTrack");
-    var cards = track ? track.children : [];
-    // Absolute: in right to left the second card sits to the left of the first.
-    return cards.length > 1 ? Math.abs(cards[1].offsetLeft - cards[0].offsetLeft) : (track ? track.clientWidth : 0);
-  }
-  function recapSyncArrows(){
-    var track = document.getElementById("recapTrack");
-    var n = track ? track.children.length : 0;
-    document.getElementById("recapCardPrev").disabled = recapCard <= 0;
-    document.getElementById("recapCardNext").disabled = recapCard >= n - 1;
-  }
-  function recapGoTo(i, smooth){
-    var track = document.getElementById("recapTrack");
-    if(!track) return;
-    var n = track.children.length;
-    recapCard = Math.max(0, Math.min(n - 1, i));
-    var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // "instant", not "auto": the track's own scroll-behavior is smooth, and
-    // "auto" defers to it, so a redraw would visibly slide from card one.
-    // In Arabic the row runs right to left, and a scroll offset to the left
-    // of the start is negative -- the same for every engine since 2022.
-    var dirSign = document.documentElement.dir === "rtl" ? -1 : 1;
-    track.scrollTo({left: dirSign * recapCard * recapStep(), behavior: smooth && !calm ? "smooth" : "instant"});
-    recapSyncArrows();
-  }
-  // Swiping moves the track without telling anyone; read where it settled.
-  var recapScrollRaf = 0;
-  onId("recapTrack", "scroll", function(){
-    if(recapScrollRaf) return;
-    recapScrollRaf = requestAnimationFrame(function(){
-      recapScrollRaf = 0;
-      var track = document.getElementById("recapTrack"), step = recapStep();
-      if(!track || !step) return;
-      recapCard = Math.max(0, Math.min(track.children.length - 1, Math.round(Math.abs(track.scrollLeft) / step)));
-      recapSyncArrows();
-    });
-  }, {passive:true});
-  onId("recapTrack", "click", function(ev){
-    var go = ev.target.closest("[data-recap-go]");
-    if(go) recapGoTo(+go.getAttribute("data-recap-go"), true);
+  // A day nobody logged carries its own Add: the entry form, on that date.
+  onId("recapBody", "click", function(ev){
+    var add = ev.target.closest("[data-recap-add]");
+    if(add){ entryModalOrigin = add; openFixForDate(add.getAttribute("data-recap-add")); }
   });
-  onId("recapCardPrev", "click", function(){ recapGoTo(recapCard - 1, true); });
-  onId("recapCardNext", "click", function(){ recapGoTo(recapCard + 1, true); });
   document.querySelectorAll("[data-recap-mode]").forEach(function(btn){
     btn.addEventListener("click", function(){
       var mode = btn.getAttribute("data-recap-mode");
       if(mode === recapMode) return;
       recapMode = mode;
-      renderRecap(false);
+      renderRecap();
     });
   });
   function recapShift(dir){
+    var btn = document.getElementById(dir < 0 ? "recapPrevBtn" : "recapNextBtn");
+    if(btn && btn.disabled) return;
     if(recapMode === "year") recapYear = String(+recapYear + dir);
     else recapMonth = recapCalc.shiftMonth(recapMonth, dir);
-    // The same card stays up, so paging months compares one area at a time.
-    renderRecap(true);
+    renderRecap();
   }
   onId("recapPrevBtn", "click", function(){ recapShift(-1); });
   onId("recapNextBtn", "click", function(){ recapShift(1); });
-  // A resize changes the card width under a scroll offset measured in the
-  // old one; put the current card back square in the frame.
-  var recapResizeTimer = 0;
-  window.addEventListener("resize", function(){
-    clearTimeout(recapResizeTimer);
-    recapResizeTimer = setTimeout(function(){
-      if(document.querySelector('.tab-btn[data-tab="recap"].active')) recapGoTo(recapCard, false);
-    }, 120);
-  });
 
   // The dot on the Recap item: from the 1st of a month until last month's
   // finished recap has been opened, on your own record only. Kept per person
@@ -5718,16 +5662,16 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     var tag = t && t.tagName;
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable);
   }
-  // Left and right page the Recap cards, the way they paged the Calendar's
-  // months before it.
+  // Left and right step the Recap's month (or year), the way they step the
+  // Team tab's month.
   onId("tab-recap", "keydown", function(ev){
     if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
     if(isEditableTarget(ev.target)) return;
     ev.preventDefault();
-    // The arrow that points the way the cards run moves on: right in
-    // English, left in Arabic.
+    // The arrow that points back in time goes back: left in English, right
+    // in Arabic, where the row runs the other way.
     var back = ev.key === (document.documentElement.dir === "rtl" ? "ArrowRight" : "ArrowLeft");
-    recapGoTo(recapCard + (back ? -1 : 1), true);
+    recapShift(back ? -1 : 1);
   });
   onId("tab-team", "keydown", function(ev){
     if(ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
@@ -5989,7 +5933,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
     // Repaint Recap only when it is the visible tab: it is not part of
     // the default view, and rendering a hidden panel on every data change is
     // work nobody sees.
-    if(document.querySelector('.tab-btn[data-tab="recap"].active')) renderRecap(true);
+    if(document.querySelector('.tab-btn[data-tab="recap"].active')) renderRecap();
     // The dot on the Recap item can appear or go with any change to the record
     // (the first entry of a new month, a switch to someone else's record).
     updateRecapDot();
@@ -7995,7 +7939,7 @@ import { monthSlides, yearSlides } from "./src/recap-view.js";
         renderTodayTeam().catch(function(){});
       }
       if(tab === "trends") renderSubtab(activeSubtab());
-      if(tab === "recap"){ renderRecap(true); markRecapSeen(); }
+      if(tab === "recap"){ renderRecap(); markRecapSeen(); }
       if(tab === "punctuality") renderPunctuality();
       if(tab === "team") renderTeam();
       if(tab === "admin") renderAdmin();

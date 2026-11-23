@@ -1426,10 +1426,24 @@ Replaced the Calendar on 2026-11-22, at the owner's request: the Calendar re-dre
 what the Log and Trends already show. Recap answers "how am I really doing?",
 and every choice below was the owner's, asked one at a time.
 
-- **One card at a time**, at every width: a scroll-snap row a phone swipes, with
-  arrows beside it above 760px and dots on each card saying where you are. Month
-  has five cards (Summary, Punctuality, Hours, Consistency, Time off); Year has
-  six, led by a picture of the year.
+- **One page, understood at a glance** (2026-11-23, replacing "one card at a
+  time, at every width"). The owner found the carousel "really complicated" —
+  three sets of arrows, dots, and four of five cards out of sight — and the
+  desktop "just a copy of the mobile". Now: one row of controls (the period
+  with its arrows, Month / Year), a headline that answers the question in a
+  sentence, then four area cards — **Start time, Hours, Logging, Time off** —
+  four across above 1240px, two by two from 761px, stacked on a phone. At
+  1440x900 the whole month fits the frame without scrolling.
+- **Every card has the same five parts in the same order**: the area and its
+  verdict (Better ↑, Steady –, Slipped ↓; an icon as well as a colour), one
+  figure, how it compares with your usual *with the usual named* ("7m later
+  than your usual 8:04 AM"), a small picture of the days behind it, and one
+  line on what to do. Four across, the comparison line takes two lines' room
+  so the pictures start level.
+- **Plain names.** "Punctuality" became Start time and "Consistency" became
+  Logging, the thing each card measures; "clocked in live" became "Clocked in
+  on arrival". The headline's sub-line says what "usual" is: "Compared with
+  your average for Aug – Oct".
 - **Against your own usual**, the three months before the month in view, never
   against the team. The Year view compares the same months of last year, and
   only months both years logged; with none, it says so.
@@ -1438,19 +1452,25 @@ and every choice below was the owner's, asked one at a time.
 - **An honest coach.** An area that slipped gets one "Try this", in the lime
   box (a fill, ink-on-gold text). An area that held or improved gets a "Well
   done" line in the positive tint, and nothing to do. Time off is described,
-  never judged.
-- **The Summary is a verdict per area**: Better, Steady or Slipped, with the
-  reason, and the slipped row outlined and linking to its card.
+  never judged, and carries no verdict.
+- **A missed day carries its own Add.** Logging lists the workdays with nothing
+  on them, each with an Add that opens the entry form on that date — the fix
+  beside the fact, as Shortfall's rows do.
 - **The Year picture starts where logging did.** One square per workday, a row
   per month, a group per week, so a weekday is always the same column. Months
-  before the logging stretch are not drawn, so they never read as missed.
+  before the logging stretch are not drawn, so they never read as missed. On
+  a desktop the squares are a fixed 15px beside the year's counts; stretched
+  to the card's width they grew to the size of buttons. With no last year to
+  compare, the headline says what the picture shows ("Mostly full days. The
+  short ones come in runs.") instead of repeating the period's name.
 - **A dot on the Recap item** from the 1st of a month until that month's
-  finished recap is opened; on days 1-7 the tab opens on last month's.
+  finished recap is opened; on days 1-7 the tab opens on last month's. The
+  left and right arrow keys step the period.
 
 It sits on the page like the Overview, not inside the tab card, because its
-cards carry surfaces (white, cream, gray) and a card inside a card is the one
-nesting the system never allows. They also carry `.card`, so dark mode gives
-them the same hairline as every other card.
+cards carry surfaces (white, cream, gray, white — the stat row's rotation) and
+a card inside a card is the one nesting the system never allows. They also
+carry `.card`, so dark mode gives them the same hairline as every other card.
 
 ### Arabic, right to left
 Added 2026-11-22 at the owner's request; each person picks English or
