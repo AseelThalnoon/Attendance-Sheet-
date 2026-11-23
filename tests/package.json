@@ -23,6 +23,7 @@
     "test:frame": "node regression/frame-guard.js",
     "test:onboarding": "node regression/onboarding.js",
     "test:recap": "node regression/recap.js",
+    "test:motion": "node regression/motion.js",
     "test:arabic": "node regression/arabic.js",
     "test:labels": "node regression/labels.js",
     "test:reminders": "node regression/clockout-reminders.js",

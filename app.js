@@ -551,6 +551,7 @@ import "./src/i18n-ar-3.js";
 import "./src/i18n-ar-4.js";
 import "./src/i18n-ar-5.js";
 import { monthPage, yearPage } from "./src/recap-view.js";
+import { stepIn, positions, slideFrom, leave, flash, enter, pill, crossfade } from "./src/motion.js";
 
 (function(){
   "use strict";
@@ -3363,13 +3364,16 @@ import { monthPage, yearPage } from "./src/recap-view.js";
       location.reload();
     });
   })();
+  // A palette or a mode picked here crossfades from the old look to the new
+  // (2026-11-23); the system's own switch, below, is not the person's action
+  // and stays a plain change.
   initRadioGroup(document.getElementById("modeSeg"), "data-mode", function(mode){
     if(MODE_IDS.indexOf(mode) === -1) return;
-    applyAppearance({palette: appearance.palette, mode: mode}, true);
+    crossfade(function(){ applyAppearance({palette: appearance.palette, mode: mode}, true); });
   });
   initRadioGroup(document.getElementById("paletteGrid"), "data-palette", function(palette){
     if(PALETTE_IDS.indexOf(palette) === -1) return;
-    applyAppearance({palette: palette, mode: appearance.mode}, true);
+    crossfade(function(){ applyAppearance({palette: palette, mode: appearance.mode}, true); });
   });
 
   // Only while following the system: an explicit Light or Dark is a decision
@@ -5160,6 +5164,17 @@ import { monthPage, yearPage } from "./src/recap-view.js";
   var LOG_SCROLL_CHUNK = 200;
   var logScrollLimit = LOG_SCROLL_CHUNK;
 
+  // The Log's rows, for the motions that follow a save or a delete. Only
+  // while the Log is the tab on screen: a day saved from the Overview or
+  // Recap has no row in view to point at.
+  function logList(){ return document.getElementById("logBody"); }
+  function logOnScreen(){ var p = document.getElementById("tab-log"); return !!p && p.classList.contains("active"); }
+  function logRow(id){
+    var list = logList();
+    if(!list || id == null) return null;
+    return list.querySelector('tr[data-entry-id="' + (window.CSS && CSS.escape ? CSS.escape(String(id)) : String(id)) + '"]');
+  }
+
   function renderLog(){
     var body = document.getElementById("logBody");
     var allRows = searchedEntries().sort(function(a,b){ return b.date.localeCompare(a.date); });
@@ -5540,7 +5555,11 @@ import { monthPage, yearPage } from "./src/recap-view.js";
   }
   function recapShortMonth(dateStr){ return dateFromStr(dateStr.slice(0, 7) + "-01").toLocaleDateString(APP_LOCALE, {month:"short"}); }
 
-  function renderRecap(){
+  // animate: true when the person opened Recap or changed what it shows --
+  // the charts draw in and the cards rise (src/motion.js's rules). A repaint
+  // after a sync passes nothing and nothing moves.
+  var recapEnterTimer = 0;
+  function renderRecap(animate){
     var body = document.getElementById("recapBody");
     if(!body) return;
     var today = todayStr();
@@ -5590,6 +5609,10 @@ import { monthPage, yearPage } from "./src/recap-view.js";
       b.classList.toggle("active", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    body.classList.toggle("is-entering", !!animate && !still);
+    clearTimeout(recapEnterTimer);
+    if(animate && !still) recapEnterTimer = setTimeout(function(){ body.classList.remove("is-entering"); }, 1100);
     body.innerHTML = html;
   }
 
@@ -5621,15 +5644,22 @@ import { monthPage, yearPage } from "./src/recap-view.js";
       var mode = btn.getAttribute("data-recap-mode");
       if(mode === recapMode) return;
       recapMode = mode;
-      renderRecap();
+      renderRecap(true);
+      stepIn(document.getElementById("recapBody"), 0);
     });
   });
+  // Every segmented control -- Recap's Month / Year, Trends' views, Settings'
+  // language and mode -- gets one highlight that slides to the choice
+  // (2026-11-23; src/motion.js).
+  document.querySelectorAll(".recap-mode, .sub-tabs, .appearance-seg").forEach(pill);
+
   function recapShift(dir){
     var btn = document.getElementById(dir < 0 ? "recapPrevBtn" : "recapNextBtn");
     if(btn && btn.disabled) return;
     if(recapMode === "year") recapYear = String(+recapYear + dir);
     else recapMonth = recapCalc.shiftMonth(recapMonth, dir);
-    renderRecap();
+    renderRecap(true);
+    stepIn(document.getElementById("recapBody"), dir);
   }
   onId("recapPrevBtn", "click", function(){ recapShift(-1); });
   onId("recapNextBtn", "click", function(){ recapShift(1); });
@@ -6356,6 +6386,7 @@ import { monthPage, yearPage } from "./src/recap-view.js";
             type: replaced.type, note: replaced.note || ""
           }, cur.id);
           applyLocalUpsert(restored, userId);
+          if(logOnScreen()) flash(logRow(restored.id));
           showToast("Put " + fmtDate(replaced.date) + " back as it was.", "success");
         }catch(err){
           if(err && err.stale) await recoverFromStaleRecord();
@@ -6431,7 +6462,11 @@ import { monthPage, yearPage } from "./src/recap-view.js";
       delete dismissedReminders[date];
       persistDismissals();
       resetForm();
+      var logBefore = logOnScreen() ? positions(logList(), "data-entry-id") : null;
       applyLocalUpsert(saved, targetUserId);
+      // The saved day is brought into view and lit for a moment, the rows
+      // it pushed aside sliding to their new places (2026-11-23).
+      if(logBefore){ slideFrom(logList(), "data-entry-id", logBefore); flash(logRow(saved.id)); }
       if(replaced) offerReplaceUndo(saved, replaced, targetUserId);
     }catch(err){
       // The form is left as typed: after the reload the person can see what
@@ -6593,18 +6628,30 @@ import { monthPage, yearPage } from "./src/recap-view.js";
     var targetUserId = viewedUserId;
     try{
       await sbDeleteEntry(delId);
-      applyLocalDelete(delId, targetUserId);
     }catch(err){
       showToast("Couldn't delete that entry: " + friendlyError(err), "error");
       return;
     }
+    // Once the server has it: the row fades out, then the rows under it
+    // close over the gap rather than jumping (2026-11-23).
+    var goneRow = logOnScreen() ? logRow(delId) : null;
+    var before = goneRow ? positions(logList(), "data-entry-id") : null;
+    if(goneRow) await leave([goneRow]);
+    applyLocalDelete(delId, targetUserId);
+    if(before) slideFrom(logList(), "data-entry-id", before);
     if(!victim){ showToast("Deleted " + what + ".", "success"); return; }
     showToast("Deleted " + what + ".", "success", {
       actionText: "Undo",
       onAction: async function(){
         try{
           var restored = await sbUpsertEntry(targetUserId, victim, null);
+          var undoBefore = logOnScreen() ? positions(logList(), "data-entry-id") : null;
           applyLocalUpsert(restored, targetUserId);
+          if(undoBefore){
+            slideFrom(logList(), "data-entry-id", undoBefore);
+            var back = logRow(restored.id);
+            enter(back); flash(back);
+          }
           showToast("Restored " + fmtDate(victim.date) + ".", "success");
         }catch(err){
           showToast("Couldn't restore that entry: " + friendlyError(err), "error");
@@ -6722,6 +6769,7 @@ import { monthPage, yearPage } from "./src/recap-view.js";
       if(res.error) throw res.error;
     }catch(err){ delErr = err; }
     endBulkOperation();
+    if(!delErr && logOnScreen()) await leave(ids.map(logRow));
     btn.disabled = false;
     btn.textContent = "Delete Selected";
     if(editingId && ids.indexOf(editingId) !== -1) resetForm();
@@ -7957,7 +8005,7 @@ import { monthPage, yearPage } from "./src/recap-view.js";
         renderTodayTeam().catch(function(){});
       }
       if(tab === "trends") renderSubtab(activeSubtab());
-      if(tab === "recap"){ renderRecap(); markRecapSeen(); }
+      if(tab === "recap"){ renderRecap(true); markRecapSeen(); }
       if(tab === "punctuality") renderPunctuality();
       if(tab === "team") renderTeam();
       if(tab === "admin") renderAdmin();
@@ -8043,18 +8091,34 @@ import { monthPage, yearPage } from "./src/recap-view.js";
   // Any tab's Period select moves the one sharedPeriod.
   ["logPeriodSelect","punctPeriodSelect"].forEach(function(id){
     onId(id, "change", function(){
-      var p = periodFromValue(this.value);
+      var p = periodFromValue(this.value), dir = periodDir(sharedPeriod, p);
       setPeriod(p.year, p.month);
+      stepIn(document.querySelector(".tab-panel.active"), dir);
     });
   });
   // Trends > Monthly picks a year only. All Years clears the month too: a
   // month always carries its own year, so keeping one would snap back to it.
   onId("monthlyYearSelect", "change", function(){
+    var dir = periodDir(sharedPeriod, { year: this.value, month: "all" });
     setPeriod(this.value, this.value === "all" ? "all" : sharedPeriod.month);
+    stepIn(document.querySelector(".tab-panel.active"), dir);
   });
+  // A month stepped to comes in from the side of the arrow pressed
+  // (2026-11-23); src/motion.js keeps it to the person's own steps.
   document.querySelectorAll(".period-step").forEach(function(btn){
-    btn.addEventListener("click", function(){ stepPeriod(+btn.getAttribute("data-step")); });
+    btn.addEventListener("click", function(){
+      var dir = +btn.getAttribute("data-step");
+      stepPeriod(dir);
+      stepIn(document.querySelector(".tab-panel.active"), dir);
+    });
   });
+  // Which way a period change goes: later is forward, earlier back, and a
+  // change to or from "all" has no side to it.
+  function periodDir(from, to){
+    var a = from.month !== "all" ? from.month : from.year, b = to.month !== "all" ? to.month : to.year;
+    if(a === "all" || b === "all" || a === b) return 0;
+    return b > a ? 1 : -1;
+  }
 
   // Search bar: re-filter the log as the person types or narrows the range.
   ["searchInput","typeFilterSelect","fromDate","toDate"].forEach(function(id){

@@ -56,6 +56,7 @@ const SUITES = [
   "regression/passkeys.js",
   "regression/whos-away.js",
   "regression/recap.js",
+  "regression/motion.js",
   "regression/arabic.js",
   "regression/labels.js",
   "regression/pull-refresh.js",
